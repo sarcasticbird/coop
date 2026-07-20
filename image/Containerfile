@@ -1,0 +1,77 @@
+# coop — generic sandbox image for agent sessions.
+#
+# One image for all projects and all users. Deliberately contains NO
+# toolchains (projects bring their own via flox manifests), NO git
+# identity, and NO personal tooling — those enter via coop's seed
+# manifest. Embedded in the coop binary; build with `coop rebuild`.
+
+# Digest-pinned base image; bump deliberately.
+FROM ghcr.io/flox/flox:latest@sha256:04f2254909363974b049b6930a425f179bb1eaa194b1949198a44e4716a25782
+
+# Keep stock packages on one reviewed nixpkgs revision. This fixes package
+# evaluation inputs, not the complete build.
+ARG NIXPKGS_REF=github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea
+
+# Base userland via nix — the image has no distro package manager.
+# --impure: the base image's existing profile trips pure-eval.
+# --priority 4: win file conflicts against base profile packages.
+RUN nix profile install \
+      --extra-experimental-features "nix-command flakes" \
+      --impure \
+      --priority 4 \
+      "${NIXPKGS_REF}#zsh" \
+      "${NIXPKGS_REF}#git" \
+      "${NIXPKGS_REF}#ripgrep" \
+      "${NIXPKGS_REF}#jq" \
+      "${NIXPKGS_REF}#tmux" \
+      "${NIXPKGS_REF}#openssh" \
+      "${NIXPKGS_REF}#nodejs_22" \
+      "${NIXPKGS_REF}#coreutils" \
+      "${NIXPKGS_REF}#gnugrep" \
+      "${NIXPKGS_REF}#gnused" \
+      "${NIXPKGS_REF}#findutils" \
+      "${NIXPKGS_REF}#bashInteractive" \
+      "${NIXPKGS_REF}#cacert"
+
+# Agent CLIs from nixpkgs — npm platform binaries (glibc AND musl) are
+# dynamically linked against FHS loaders that don't exist on a nix
+# rootfs; nixpkgs builds are patchelf'd for it.
+RUN NIXPKGS_ALLOW_UNFREE=1 nix profile install \
+      --extra-experimental-features "nix-command flakes" \
+      --impure \
+      --priority 3 \
+      "${NIXPKGS_REF}#opencode" \
+      "${NIXPKGS_REF}#claude-code" \
+      "${NIXPKGS_REF}#codex"
+
+# Extra agent/tool packages contributed by coop.toml ([image]
+# extra_packages) — space-separated nixpkgs attrs. Separate layer so
+# the stock layers above stay cached across rebuilds.
+ARG EXTRA_PKGS=""
+RUN if [ -n "$EXTRA_PKGS" ]; then \
+      NIXPKGS_ALLOW_UNFREE=1 nix profile install \
+        --extra-experimental-features "nix-command flakes" \
+        --impure --priority 2 $EXTRA_PKGS; \
+    fi
+
+# Guest HOME must equal host HOME for the identical-path property —
+# every ~/-relative config resolves the same on both sides. The local image is
+# built with a default; coop sets HOME at run time and ensures the directory
+# exists, so the same image works per user.
+ARG GUEST_HOME=/root
+ENV HOME=$GUEST_HOME
+ENV PATH=/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
+ENV SHELL=zsh
+ENV SSL_CERT_FILE=/root/.nix-profile/etc/ssl/certs/ca-bundle.crt
+
+# zshrc lands both per-user (local builds) and globally (/etc/zshrc is
+# read by zsh regardless of HOME, which covers images where HOME is decided at
+# run time).
+RUN mkdir -p "$GUEST_HOME" /usr/local/bin /etc
+COPY zshrc $GUEST_HOME/.zshrc
+COPY zshrc /etc/zshrc
+
+WORKDIR $GUEST_HOME
+
+# Long-lived session container; entry happens via `container exec`.
+CMD ["sleep", "infinity"]
