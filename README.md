@@ -13,7 +13,8 @@ versions.
 
 - macOS 26 or later on Apple silicon
 - Apple's `container` CLI and a running container service
-- Go 1.26.5 or later to build coop
+- GitHub CLI access to this repository for release installation while it is
+  private, or Go 1.26.5 or later to build Coop from source
 
 Flox is part of the guest image, not a host prerequisite. Repositories do not
 need a `.flox` environment unless they want the same project toolchain inside
@@ -28,7 +29,32 @@ container system start
 
 ## Install
 
-The beta is installed from source. If you have access to the source repository:
+While the repository is private, release downloads require an authenticated
+GitHub CLI. Install the latest published binary:
+
+```sh
+(
+  set -eu
+  install_tmp="$(mktemp -d)"
+  trap 'rm -rf "$install_tmp"' 0 HUP INT TERM
+  version="$(gh api repos/sarcasticbird/coop/releases \
+    --jq 'map(select((.draft == false) and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0].tag_name // empty')"
+  [ -n "$version" ] || { echo "no binary release is available yet" >&2; exit 1; }
+  archive="coop_${version}_darwin_arm64.tar.gz"
+  gh release download "$version" -R sarcasticbird/coop --dir "$install_tmp" \
+    -p "$archive" -p checksums.txt
+  (cd "$install_tmp" && shasum -a 256 -c checksums.txt)
+  tar -xzf "$install_tmp/$archive" -C "$install_tmp" coop
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 "$install_tmp/coop" "$HOME/.local/bin/coop"
+)
+```
+
+Release binaries target Apple silicon and are not Developer ID signed or
+notarized. Downloads through `gh` do not carry browser quarantine metadata;
+macOS may refuse a copy downloaded through a browser.
+
+To build from source instead:
 
 ```sh
 git clone https://github.com/sarcasticbird/coop.git
@@ -44,7 +70,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Add that export to your shell startup file if it is not already configured
-there.
+there. Confirm the installed build with `coop --version`.
 
 Run `coop doctor` after installation. It uses trusted user configuration and
 does not need to run from a project directory. It checks:
@@ -95,6 +121,7 @@ coop tui                  Open the VM dashboard
 coop doctor               Check host and trusted user configuration
 coop rebuild              Build the embedded image definition locally
 coop destroy              Delete the VM and all of its state volumes
+coop --version             Print the installed Coop version
 ```
 
 Arguments after the command name are passed through unchanged:
@@ -244,7 +271,13 @@ File source paths must be absolute or start with `~/`. Relative paths are
 rejected so the current project cannot influence which host file is acquired.
 Command executables must be absolute or resolved by name through `PATH`; paths
 such as `./helper` are rejected. Host commands run from the trusted host home,
-not the current project directory.
+not the current project directory. Helpers receive a sanitized environment:
+`HOME` and `PWD` are set to the trusted host home, `PATH` excludes project
+directories, and only a short allowlist of terminal, locale, and user identity
+variables passes through. `GPG_TTY`, `SSH_AUTH_SOCK`, `TMPDIR`, and selected
+`XDG_*` path variables pass only as canonical absolute paths outside the
+project. All other inherited variables, including `OP_*`, `CLOUDSDK_*`, and
+`AWS_*` session variables, are dropped.
 
 `include_credentials` is the ordered default set for every interactive entry.
 The `--credentials` flag adds named grants for one entry, accepts commas, and
@@ -417,7 +450,8 @@ reporting.
 
 - Hosts other than Apple silicon Macs running macOS 26 or later are not
   supported.
-- The beta has a source-only installation path.
+- Published binaries target Darwin arm64 and are not Developer ID signed or
+  notarized.
 - Sandbox images are built locally and are not published by this project.
 - Flox environments are limited to `aarch64-linux`.
 - Guest root access and unrestricted egress are operating constraints, not
