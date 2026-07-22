@@ -207,8 +207,10 @@ func (s *Session) up(ctx context.Context) error {
 			if err := context.Cause(ctx); err != nil {
 				return err
 			}
-			fmt.Fprintf(s.output(), "%s config changed (spec %s -> %s) — recreating; state volumes preserved, undeclared root-filesystem changes will be discarded...\n",
-				s.Name, valueOrLegacy(have), want)
+			if _, err := fmt.Fprintf(s.output(), "%s config changed (spec %s -> %s) — recreating; state volumes preserved, undeclared root-filesystem changes will be discarded...\n",
+				s.Name, valueOrLegacy(have), want); err != nil {
+				return fmt.Errorf("write recreation notice for %s: %w", s.Name, err)
+			}
 			_ = s.RT.Stop(s.Name)
 			if err := context.Cause(ctx); err != nil {
 				return err

@@ -79,10 +79,13 @@ func current() (*session.Session, string, error) {
 		return nil, "", err
 	}
 	s, err := session.New(newRuntime(), cwd)
-	if err == nil {
-		writeConfigWarnings(s.Cfg, warningOutput)
+	if err != nil {
+		return nil, "", err
 	}
-	return s, cwd, err
+	if err := writeConfigWarnings(s.Cfg, warningOutput); err != nil {
+		return nil, "", err
+	}
+	return s, cwd, nil
 }
 
 func root() *cobra.Command {
@@ -171,13 +174,12 @@ project toolchains come from the project's own flox manifest.`,
 				if runningImage == "" {
 					runningImage = "(none)"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "project:            %s\n", s.Project)
-				fmt.Fprintf(cmd.OutOrStdout(), "container:          %s\n", s.Name)
-				fmt.Fprintf(cmd.OutOrStdout(), "state:              %s\n", status.State)
-				fmt.Fprintf(cmd.OutOrStdout(), "running image:      %s\n", runningImage)
-				fmt.Fprintf(cmd.OutOrStdout(), "desired image:      %s\n", status.DesiredImage)
-				fmt.Fprintf(cmd.OutOrStdout(), "rebuild required:   %s\n", yesNo(status.RebuildRequired))
-				fmt.Fprintf(cmd.OutOrStdout(), "recreation pending: %s\n", yesNo(status.RecreationPending))
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"project:            %s\ncontainer:          %s\nstate:              %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nrecreation pending: %s\n",
+					s.Project, s.Name, status.State, runningImage, status.DesiredImage,
+					yesNo(status.RebuildRequired), yesNo(status.RecreationPending)); err != nil {
+					return fmt.Errorf("write status: %w", err)
+				}
 				return nil
 			}},
 		&cobra.Command{Use: "ls", Args: cobra.NoArgs, Short: "List all coops",
@@ -205,7 +207,9 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				writeConfigWarnings(cfg, cmd.ErrOrStderr())
+				if err := writeConfigWarnings(cfg, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 				home, err := os.UserHomeDir()
 				if err != nil {
 					return fmt.Errorf("resolve home dir: %w", err)
@@ -242,7 +246,9 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
-					writeConfigWarnings(s.Cfg, warningOutput)
+					if err := writeConfigWarnings(s.Cfg, warningOutput); err != nil {
+						return err
+					}
 					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil
@@ -262,10 +268,12 @@ project toolchains come from the project's own flox manifest.`,
 				}
 				defer func() { _ = os.RemoveAll(ctx) }()
 				desiredImage := session.EffectiveImageName(s.Cfg)
-				fmt.Fprintf(cmd.OutOrStdout(), "core tools:     %d packages\n", len(image.CorePackages()))
-				fmt.Fprintf(cmd.OutOrStdout(), "global tools:   %s\n", formatToolList(s.Cfg.Tools.GlobalPackages))
-				fmt.Fprintf(cmd.OutOrStdout(), "project tools:  %s\n", formatToolList(s.Cfg.Tools.ProjectPackages))
-				fmt.Fprintf(cmd.OutOrStdout(), "image:          %s\n", desiredImage)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nimage:          %s\n",
+					len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
+					formatToolList(s.Cfg.Tools.ProjectPackages), desiredImage); err != nil {
+					return fmt.Errorf("write rebuild summary: %w", err)
+				}
 				args := []string{"build",
 					"-t", desiredImage,
 					"--build-arg", "GUEST_HOME=" + s.HostHome}
@@ -306,10 +314,13 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-func writeConfigWarnings(cfg config.Config, output io.Writer) {
+func writeConfigWarnings(cfg config.Config, output io.Writer) error {
 	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(output, "coop: warning: %s\n", warning)
+		if _, err := fmt.Fprintf(output, "coop: warning: %s\n", warning); err != nil {
+			return fmt.Errorf("write config warning: %w", err)
+		}
 	}
+	return nil
 }
 
 func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {

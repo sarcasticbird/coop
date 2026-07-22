@@ -150,6 +150,77 @@ func TestLegacyToolAliasWarnsOnce(t *testing.T) {
 	}
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("sink failed") }
+
+func emptyProject(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+}
+
+func TestStatusPropagatesOutputWriteFailure(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+
+	cmd := root()
+	cmd.SetOut(failingWriter{})
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"status"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "write status") {
+		t.Fatalf("status write failure not propagated: %v", err)
+	}
+}
+
+func TestRebuildPropagatesOutputWriteFailure(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+
+	cmd := root()
+	cmd.SetOut(failingWriter{})
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "write rebuild summary") {
+		t.Fatalf("rebuild write failure not propagated: %v", err)
+	}
+}
+
+func TestConfigWarningWriteFailurePropagates(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	oldWarnings := warningOutput
+	warningOutput = failingWriter{}
+	t.Cleanup(func() { warningOutput = oldWarnings })
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"status"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "write config warning") {
+		t.Fatalf("config warning write failure not propagated: %v", err)
+	}
+}
+
 func withRuntime(t *testing.T, rt runtime.Runtime) {
 	t.Helper()
 	oldRuntime, oldLookPath := newRuntime, lookPath

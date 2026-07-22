@@ -833,6 +833,28 @@ func TestUpRecreationWarnsAboutUndeclaredRootfsChanges(t *testing.T) {
 	}
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("sink failed") }
+
+func TestUpRecreationNoticeWriteFailureAbortsBeforeTeardown(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	m.Existing[s.Name] = true
+	labelCurrent(m, s)
+	s.Cfg.Tools.Packages = []string{"shellcheck"}
+	m.Images[EffectiveImageName(s.Cfg)] = true
+	s.Output = failingWriter{}
+
+	err := s.Up()
+	if err == nil || !strings.Contains(err.Error(), "write recreation notice") {
+		t.Fatalf("recreation notice write failure not propagated: %v", err)
+	}
+	if len(m.Removed) != 0 {
+		t.Fatalf("container torn down despite failed notice: %v", m.Removed)
+	}
+}
+
 func TestEffectiveImageNameRegistryPort(t *testing.T) {
 	cfg := config.Config{Image: config.Image{Name: "localhost:5000/team/coop:latest"}, Tools: config.Tools{Packages: []string{"x"}}}
 	got := EffectiveImageName(cfg)
