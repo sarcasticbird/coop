@@ -106,32 +106,82 @@ func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
 	}
 }
 
-func TestUserEnvironmentKeepsCoreAheadOfConfiguredTools(t *testing.T) {
+func TestUserEnvironmentOrdersCoreConfiguredAndFallbackTools(t *testing.T) {
 	root := t.TempDir()
-	coreBin := filepath.Join(root, "core", "bin")
+	coreRoot := filepath.Join(root, "core")
+	coreEnv := filepath.Join(coreRoot, ".flox", "run", "core")
+	coreBin := filepath.Join(coreEnv, "bin")
+	coreSbin := filepath.Join(coreEnv, "sbin")
 	toolsBin := filepath.Join(root, "tools", "bin")
-	for _, dir := range []string{coreBin, toolsBin} {
+	fallbackBin := filepath.Join(root, "fallback", "bin")
+	for _, dir := range []string{coreBin, coreSbin, toolsBin, fallbackBin} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{filepath.Join(coreBin, "shared-tool"), filepath.Join(toolsBin, "shared-tool")} {
+	for _, path := range []string{
+		filepath.Join(coreSbin, "shared-tool"),
+		filepath.Join(toolsBin, "shared-tool"),
+		filepath.Join(toolsBin, "configured-tool"),
+		filepath.Join(fallbackBin, "configured-tool"),
+	} {
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	cmd := exec.Command("bash", "coop-user-env", "--", "/bin/sh", "-c", "command -v shared-tool")
-	cmd.Env = append(os.Environ(),
-		"COOP_TOOLS_PROFILE="+filepath.Dir(toolsBin),
-		"PATH="+coreBin+":/usr/bin:/bin",
-	)
+	cmd := exec.Command("bash", "coop-user-env", "--", "/bin/sh", "-c", "command -v shared-tool; command -v configured-tool")
+	cmd.Env = []string{
+		"COOP_CORE=" + coreRoot,
+		"FLOX_ENV=" + coreEnv,
+		"COOP_TOOLS_PROFILE=" + filepath.Dir(toolsBin),
+		"PATH=" + strings.Join([]string{coreBin, coreSbin, fallbackBin, "/usr/bin", "/bin"}, string(os.PathListSeparator)),
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run wrapper: %v\n%s", err, out)
 	}
-	if got := strings.TrimSpace(string(out)); got != filepath.Join(coreBin, "shared-tool") {
-		t.Fatalf("shared command resolved to %q, want locked core %q", got, filepath.Join(coreBin, "shared-tool"))
+	want := filepath.Join(coreSbin, "shared-tool") + "\n" + filepath.Join(toolsBin, "configured-tool")
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("tool resolution = %q, want %q", got, want)
+	}
+}
+
+func TestUserEnvironmentDropsEmptyPathEntries(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	toolsProfile := filepath.Join(root, "tools")
+	toolsBin := filepath.Join(toolsProfile, "bin")
+	for _, dir := range []string{project, toolsBin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{filepath.Join(project, "repo-tool"), filepath.Join(toolsBin, "configured-tool")} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wrapper, err := filepath.Abs("coop-user-env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", wrapper, "--", "/bin/sh", "-c", `printf '%s\n' "$PATH"; command -v configured-tool; ! command -v repo-tool`)
+	cmd.Dir = project
+	cmd.Env = []string{
+		"COOP_CORE=" + filepath.Join(root, "core"),
+		"COOP_TOOLS_PROFILE=" + toolsProfile,
+		"FLOX_ENV=" + filepath.Join(root, "core-env"),
+		"PATH=",
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run wrapper: %v\n%s", err, out)
+	}
+	want := toolsBin + "\n" + filepath.Join(toolsBin, "configured-tool")
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("empty PATH handling = %q, want %q", got, want)
 	}
 }
 
