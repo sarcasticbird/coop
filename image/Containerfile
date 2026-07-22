@@ -36,7 +36,7 @@ RUN mkdir -p /opt/coop-tools && \
       NIXPKGS_ALLOW_UNFREE=1 nix profile install \
         --profile /opt/coop-tools/profile \
         --extra-experimental-features "nix-command flakes" \
-        --impure --priority 2 "$installable"; \
+        --impure --priority 2 "$installable" || exit 1; \
     done < /tmp/configured-packages.txt && \
     rm /tmp/configured-packages.txt
 

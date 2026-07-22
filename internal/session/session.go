@@ -68,9 +68,7 @@ const DefaultImageName = "coop:latest"
 // a tag derived from their definition and package list, so changed build inputs
 // cannot silently reuse a stale image.
 func EffectiveImageName(cfg config.Config) string {
-	pkgs := append([]string(nil), cfg.Tools.Packages...)
-	sort.Strings(pkgs)
-	pkgs = slices.Compact(pkgs)
+	pkgs := image.CanonicalPackages(cfg.Tools.Packages)
 	// Hash includes the full source reference: changing the base tag or
 	// digest with identical packages must produce a distinct derived tag.
 	sum := sha256.Sum256([]byte(cfg.Image.Name + "\x00" + strings.Join(pkgs, "\x00") + "\x00" + image.Fingerprint()))

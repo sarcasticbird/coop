@@ -3,11 +3,15 @@ package image
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestEmbeddedBuildContext(t *testing.T) {
@@ -56,6 +60,14 @@ func TestMaterializeWritesCanonicalConfiguredInstallables(t *testing.T) {
 	}
 }
 
+func TestCanonicalPackagesSortsAndDeduplicates(t *testing.T) {
+	got := CanonicalPackages([]string{"shellcheck", "actionlint", "shellcheck"})
+	want := []string{"actionlint", "shellcheck"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("canonical packages = %v, want %v", got, want)
+	}
+}
+
 func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
 	data, err := files.ReadFile("Containerfile")
 	if err != nil {
@@ -70,6 +82,7 @@ func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
 		"COPY configured-packages.txt",
 		`--profile /opt/coop-tools/profile`,
 		`"$installable"`,
+		`--impure --priority 2 "$installable" || exit 1;`,
 		"COPY coop-user-env /usr/local/bin/coop-user-env",
 	} {
 		if !strings.Contains(content, required) {
@@ -84,6 +97,35 @@ func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
 	}
 }
 
+func TestUserEnvironmentKeepsCoreAheadOfConfiguredTools(t *testing.T) {
+	root := t.TempDir()
+	coreBin := filepath.Join(root, "core", "bin")
+	toolsBin := filepath.Join(root, "tools", "bin")
+	for _, dir := range []string{coreBin, toolsBin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{filepath.Join(coreBin, "shared-tool"), filepath.Join(toolsBin, "shared-tool")} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cmd := exec.Command("bash", "coop-user-env", "--", "/bin/sh", "-c", "command -v shared-tool")
+	cmd.Env = append(os.Environ(),
+		"COOP_TOOLS_PROFILE="+filepath.Dir(toolsBin),
+		"PATH="+coreBin+":/usr/bin:/bin",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run wrapper: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != filepath.Join(coreBin, "shared-tool") {
+		t.Fatalf("shared command resolved to %q, want locked core %q", got, filepath.Join(coreBin, "shared-tool"))
+	}
+}
+
 func TestUserEnvironmentWrapperPreservesArgv(t *testing.T) {
 	data, err := files.ReadFile("coop-user-env")
 	if err != nil {
@@ -93,7 +135,7 @@ func TestUserEnvironmentWrapperPreservesArgv(t *testing.T) {
 	if strings.Contains(content, "eval") || strings.Contains(content, "flox activate -c") {
 		t.Fatal("user wrapper evaluates command text")
 	}
-	for _, required := range []string{`export PATH="$tools_profile/bin:$PATH"`, `exec flox activate --dir "$project_flox" -- "$@"`, `exec "$@"`} {
+	for _, required := range []string{`$tools_profile/bin`, `exec flox activate --dir "$project_flox" -- "$@"`, `exec "$@"`} {
 		if !strings.Contains(content, required) {
 			t.Errorf("user wrapper missing %q", required)
 		}
@@ -124,6 +166,29 @@ func TestCoreEnvironmentPackageContract(t *testing.T) {
 		if slices.Contains(CorePackages(), excluded) {
 			t.Fatalf("application runtime %q is part of the core contract", excluded)
 		}
+	}
+}
+
+func TestCorePackagesMatchManifest(t *testing.T) {
+	data, err := files.ReadFile("core/.flox/env/manifest.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Install map[string]struct {
+			PkgPath string `toml:"pkg-path"`
+		} `toml:"install"`
+	}
+	if err := toml.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(manifest.Install))
+	for _, pkg := range manifest.Install {
+		got = append(got, pkg.PkgPath)
+	}
+	sort.Strings(got)
+	if !slices.Equal(got, CorePackages()) {
+		t.Fatalf("manifest packages = %v, core package contract = %v", got, CorePackages())
 	}
 }
 

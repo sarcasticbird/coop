@@ -156,6 +156,23 @@ func TestToolPackageIdentifiers(t *testing.T) {
 	}
 }
 
+func TestFlakeToolPackageExplainsPinnedSourceMigration(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `[tools]
+packages = ["github:owner/repo#tool"]
+`)
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("flake tool package accepted")
+	}
+	for _, want := range []string{"plain Nixpkgs attribute path", "flake references", "pinned Nixpkgs source"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("flake migration error missing %q: %v", want, err)
+		}
+	}
+}
+
 func TestToolPackagesBoundEffectiveUniqueSet(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)

@@ -353,6 +353,9 @@ func validateToolPackages(packages []string) error {
 		if len(pkg) > maxToolPackageLen {
 			return fmt.Errorf("tool package %q exceeds %d bytes", pkg, maxToolPackageLen)
 		}
+		if strings.Contains(pkg, "#") {
+			return fmt.Errorf("tool package %q must be a plain Nixpkgs attribute path; flake references (ref#attr) are not supported because Coop resolves tools from its pinned Nixpkgs source", pkg)
+		}
 		if !toolPackagePath.MatchString(pkg) {
 			return fmt.Errorf("tool package %q must be a simple Nixpkgs attribute path", pkg)
 		}

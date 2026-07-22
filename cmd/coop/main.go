@@ -242,6 +242,7 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
+					writeConfigWarnings(s.Cfg, warningOutput)
 					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil

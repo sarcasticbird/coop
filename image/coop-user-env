@@ -21,7 +21,14 @@ if (( $# == 0 )); then
 fi
 
 tools_profile=${COOP_TOOLS_PROFILE:-/opt/coop-tools/profile}
-export PATH="$tools_profile/bin:$PATH"
+# The outer core Flox activation owns the first PATH entry. Insert configured
+# tools immediately after it: they add commands without shadowing the locked
+# workbench, while remaining ahead of the image's fallback paths.
+if [[ "$PATH" == *:* ]]; then
+  export PATH="${PATH%%:*}:$tools_profile/bin:${PATH#*:}"
+else
+  export PATH="$PATH:$tools_profile/bin"
+fi
 
 if [[ -n "$project_flox" ]]; then
   exec flox activate --dir "$project_flox" -- "$@"

@@ -88,7 +88,7 @@ func Materialize(packages []string) (dir string, retErr error) {
 		}
 	}
 	var installables strings.Builder
-	for _, pkg := range canonicalPackages(packages) {
+	for _, pkg := range CanonicalPackages(packages) {
 		fmt.Fprintf(&installables, "%s#%s\n", NixpkgsRef, pkg)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "configured-packages.txt"), []byte(installables.String()), 0o644); err != nil {
@@ -97,7 +97,9 @@ func Materialize(packages []string) (dir string, retErr error) {
 	return dir, nil
 }
 
-func canonicalPackages(packages []string) []string {
+// CanonicalPackages returns a sorted, deduplicated package list. Image
+// identity and build materialization share this boundary so they cannot drift.
+func CanonicalPackages(packages []string) []string {
 	unique := make(map[string]struct{}, len(packages))
 	for _, pkg := range packages {
 		unique[pkg] = struct{}{}

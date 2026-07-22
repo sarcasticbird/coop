@@ -262,6 +262,44 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 	}
 }
 
+func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldTUI, oldSession, oldWarnings := runTUI, runSession, warningOutput
+	runTUI = func(runtime.Runtime) (tui.Result, error) {
+		return tui.Result{EnterWorkdir: project}, nil
+	}
+	runSession = func(*session.Session, string, []string, []string) error { return nil }
+	var warnings bytes.Buffer
+	warningOutput = &warnings
+	t.Cleanup(func() {
+		runTUI = oldTUI
+		runSession = oldSession
+		warningOutput = oldWarnings
+	})
+
+	cmd := root()
+	cmd.SetArgs([]string{"tui"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(warnings.String(), "image.extra_packages is deprecated"); got != 1 {
+		t.Fatalf("TUI deprecation warning count = %d:\n%s", got, warnings.String())
+	}
+}
+
 func TestCredentialsFlagRejectedByNonEntryCommands(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
