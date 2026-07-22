@@ -119,6 +119,166 @@ func TestSSHGlobalOnlyDefaultOff(t *testing.T) {
 	}
 }
 
+func TestCredentialConfigGlobalOnly(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
+include_credentials = ["git"]
+[credentials.git]
+source = { type = "file", path = "~/.git-credentials" }
+inject = { type = "git-credential-store" }
+`)
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, "coop.toml"), `
+include_credentials = ["aws-prod"]
+[credentials.aws-prod]
+source = { type = "command", argv = ["steal-host-secret"] }
+inject = { type = "environment", name = "AWS_SECRET_ACCESS_KEY" }
+`)
+
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.IncludeCredentials, ","); got != "git" {
+		t.Fatalf("project changed included credentials: %q", got)
+	}
+	if _, ok := cfg.Credentials["aws-prod"]; ok {
+		t.Fatal("SECURITY: project defined a host credential grant")
+	}
+	if got := cfg.Credentials["git"].Source.Path; got != "~/.git-credentials" {
+		t.Fatalf("global grant missing: %q", got)
+	}
+}
+
+func TestProjectCredentialConfigIsValidatedBeforeBeingIgnored(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, "coop.toml"), `
+[credentials.bad]
+source = { type = "command", argv = ["./project-helper"] }
+inject = { type = "environment", name = "TOKEN" }
+`)
+
+	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "executable path") {
+		t.Fatalf("malformed project credential definition accepted: %v", err)
+	}
+}
+
+func TestCredentialConfigDeduplicatesIncludes(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
+include_credentials = ["git", "git"]
+[credentials.git]
+source = { type = "file", path = "~/.git-credentials" }
+inject = { type = "git-credential-store" }
+`)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.IncludeCredentials, ","); got != "git" {
+		t.Fatalf("included credentials = %q", got)
+	}
+}
+
+func TestCredentialConfigValidation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	tooMany := strings.Builder{}
+	for i := 0; i <= MaxCredentialGrants; i++ {
+		fmt.Fprintf(&tooMany, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"token\"] }\ninject = { type = \"environment\", name = \"TOKEN_%d\" }\n", i, i)
+	}
+
+	cases := map[string]string{
+		"bad grant name": `[credentials."Bad--Name"]
+source = { type = "command", argv = ["token"] }
+inject = { type = "environment", name = "TOKEN" }
+`,
+		"too many grants": tooMany.String(),
+		"missing source path": `[credentials.git]
+source = { type = "file" }
+inject = { type = "git-credential-store" }
+`,
+		"relative file source": `[credentials.git]
+source = { type = "file", path = "project-secret" }
+inject = { type = "git-credential-store" }
+`,
+		"relative command executable path": `[credentials.token]
+source = { type = "command", argv = ["./credential-helper"] }
+inject = { type = "environment", name = "TOKEN" }
+`,
+		"file source with argv": `[credentials.git]
+source = { type = "file", path = "~/.git-credentials", argv = ["unused"] }
+inject = { type = "git-credential-store" }
+`,
+		"missing command argv": `[credentials.token]
+source = { type = "command" }
+inject = { type = "environment", name = "TOKEN" }
+`,
+		"command source with path": `[credentials.token]
+source = { type = "command", argv = ["token"], path = "unused" }
+inject = { type = "environment", name = "TOKEN" }
+`,
+		"missing aws profile": `[credentials.aws-dev]
+source = { type = "aws-profile" }
+inject = { type = "aws" }
+`,
+		"aws profile with generic injection": `[credentials.aws-dev]
+source = { type = "aws-profile", profile = "dev" }
+inject = { type = "environment", name = "AWS_TOKEN" }
+`,
+		"missing injection type": `[credentials.token]
+source = { type = "command", argv = ["token"] }
+inject = { name = "TOKEN" }
+`,
+		"missing environment name": `[credentials.token]
+source = { type = "command", argv = ["token"] }
+inject = { type = "environment" }
+`,
+		"invalid environment name": `[credentials.token]
+source = { type = "command", argv = ["token"] }
+inject = { type = "environment", name = "BAD-NAME" }
+`,
+		"environment with path env": `[credentials.token]
+source = { type = "command", argv = ["token"] }
+inject = { type = "environment", name = "TOKEN", path_env = "TOKEN_FILE" }
+`,
+		"missing file path env": `[credentials.kubernetes]
+source = { type = "file", path = "~/.kube/config" }
+inject = { type = "file" }
+`,
+		"aws injection with command": `[credentials.aws-dev]
+source = { type = "command", argv = ["aws-token"] }
+inject = { type = "aws" }
+`,
+		"git injection with command": `[credentials.git]
+source = { type = "command", argv = ["git-token"] }
+inject = { type = "git-credential-store" }
+`,
+		"expiration with file": `[credentials.token]
+source = { type = "file", path = "~/.token" }
+inject = { type = "environment", name = "TOKEN" }
+require_expiration = true
+`,
+		"unknown default": `include_credentials = ["missing"]
+`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), content)
+			if _, err := Load(""); err == nil {
+				t.Fatalf("invalid credential configuration accepted:\n%s", content)
+			}
+		})
+	}
+}
+
 func TestProjectLayerValidation(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)

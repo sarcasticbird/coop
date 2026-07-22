@@ -4,11 +4,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
+	"github.com/sarcasticbird/coop/internal/tui"
 )
 
 func withRuntime(t *testing.T, rt runtime.Runtime) {
@@ -20,6 +23,134 @@ func withRuntime(t *testing.T, rt runtime.Runtime) {
 		newRuntime = oldRuntime
 		lookPath = oldLookPath
 	})
+}
+
+func TestCredentialsFlagAcceptsCommaAndRepeat(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	old := runSession
+	var got []string
+	runSession = func(_ *session.Session, _ string, _ []string, credentials []string) error {
+		got = slices.Clone(credentials)
+		return nil
+	}
+	t.Cleanup(func() { runSession = old })
+
+	cmd := root()
+	cmd.SetArgs([]string{"--credentials", "aws-dev, github", "--credentials", "kubernetes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"aws-dev", "github", "kubernetes"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("credentials = %v, want %v", got, want)
+	}
+}
+
+func TestCredentialsFlagRejectsExplicitEmptyValue(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	cmd := root()
+	cmd.SetArgs([]string{"--credentials="})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "empty grant name") {
+		t.Fatalf("error = %v, want empty grant name rejection", err)
+	}
+}
+
+func TestCredentialsAfterAgentRemainGuestArgv(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	old := runSession
+	var gotArgv, gotCredentials []string
+	runSession = func(_ *session.Session, _ string, argv, credentials []string) error {
+		gotArgv = slices.Clone(argv)
+		gotCredentials = slices.Clone(credentials)
+		return nil
+	}
+	t.Cleanup(func() { runSession = old })
+
+	cmd := root()
+	cmd.SetArgs([]string{"agent", "--credentials", "aws-dev"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(gotArgv, []string{"agent", "--credentials", "aws-dev"}) || len(gotCredentials) != 0 {
+		t.Fatalf("argv=%v credentials=%v", gotArgv, gotCredentials)
+	}
+}
+
+func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTUI, oldSession := runTUI, runSession
+	runTUI = func(runtime.Runtime) (tui.Result, error) {
+		return tui.Result{EnterWorkdir: project}, nil
+	}
+	var got []string
+	runSession = func(_ *session.Session, _ string, _ []string, credentials []string) error {
+		got = slices.Clone(credentials)
+		return nil
+	}
+	t.Cleanup(func() {
+		runTUI = oldTUI
+		runSession = oldSession
+	})
+
+	cmd := root()
+	cmd.SetArgs([]string{"--credentials", "aws-dev,github", "tui"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"aws-dev", "github"}) {
+		t.Fatalf("TUI credentials = %v", got)
+	}
+}
+
+func TestCredentialsFlagRejectedByNonEntryCommands(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	for _, subcommand := range []string{"up", "down", "status", "ls", "doctor", "rebuild", "destroy"} {
+		t.Run(subcommand, func(t *testing.T) {
+			cmd := root()
+			cmd.SetArgs([]string{"--credentials", "token", subcommand})
+			if err := cmd.Execute(); err == nil {
+				t.Fatal("credential flag accepted by non-entry command")
+			}
+		})
+	}
+}
+
+func TestEmptyCredentialsFlagRejectedByNonEntryCommand(t *testing.T) {
+	cmd := root()
+	cmd.SetArgs([]string{"--credentials=", "up"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "only valid when entering") {
+		t.Fatalf("error = %v, want non-entry command rejection", err)
+	}
 }
 
 func TestRootSilencesCobraErrorAndUsageOutput(t *testing.T) {

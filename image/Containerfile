@@ -2,8 +2,9 @@
 #
 # One image for all projects and all users. Deliberately contains NO
 # toolchains (projects bring their own via flox manifests), NO git
-# identity, and NO personal tooling — those enter via coop's seed
-# manifest. Embedded in the coop binary; build with `coop rebuild`.
+# identity, and NO personal tooling — durable configuration enters through
+# seeds, while selected credentials are staged only for one interactive entry.
+# Embedded in the coop binary; build with `coop rebuild`.
 
 # Digest-pinned base image; bump deliberately.
 FROM ghcr.io/flox/flox:latest@sha256:04f2254909363974b049b6930a425f179bb1eaa194b1949198a44e4716a25782

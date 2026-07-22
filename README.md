@@ -48,6 +48,7 @@ does not need to run from a project directory. It checks:
 - whether the `container` CLI is on `PATH` and its API service responds;
 - whether the configured local image is present;
 - whether configured seed sources exist; and
+- whether known credential paths should migrate out of seeds; and
 - whether old coop containers or volumes need manual cleanup.
 
 It does not validate the Go toolchain, host OS and architecture, agent login,
@@ -96,7 +97,12 @@ Arguments after the command name are passed through unchanged:
 coop claude --help
 coop codex --model o3
 coop opencode run "fix the tests"
+coop --credentials aws-dev,github codex
 ```
+
+Coop flags must appear before the guest command. For example,
+`coop --credentials github codex` selects a Coop credential grant, while
+`coop codex --credentials github` passes both arguments to Codex unchanged.
 
 `coop down` only stops the VM. `coop destroy` asks for confirmation, removes
 the current project's container, and removes every state volume owned by that
@@ -146,10 +152,11 @@ rejected. Resource values, agent names and state paths, agent count, overlapping
 state targets, and seed policies are validated before runtime changes begin.
 
 The project file is repository-controlled. Only `[resources]` and `[agents]`
-entries from it take effect. `ssh`, `[image]`, and `[[seed]]` settings take
-effect only from trusted user configuration; placing them in a project file
-does not grant those capabilities. Project resource requests are capped at 8
-CPUs and 16 GB of memory. Agent state paths must remain below the guest home.
+entries from it take effect. `ssh`, `[image]`, `[[seed]]`,
+`include_credentials`, and `[credentials]` settings take effect only from
+trusted user configuration; placing them in a project file does not grant
+those capabilities. Project resource requests are capped at 8 CPUs and 16 GB
+of memory. Agent state paths must remain below the guest home.
 
 ### User Configuration
 
@@ -166,13 +173,30 @@ extra_packages = []
 cpus = 4
 memory = "8G"
 
+# Included on every interactive entry. Additional grants can be selected with
+# --credentials before the guest command.
+include_credentials = ["git"]
+
+[credentials.git]
+source = { type = "file", path = "~/.git-credentials" }
+inject = { type = "git-credential-store" }
+
+[credentials.github]
+source = { type = "command", argv = ["gh", "auth", "token"] }
+inject = { type = "environment", name = "GH_TOKEN" }
+
+[credentials.kubernetes]
+source = { type = "file", path = "~/.kube/config" }
+inject = { type = "file", path_env = "KUBECONFIG" }
+
+[credentials.aws-dev]
+source = { type = "aws-profile", profile = "dev" }
+inject = { type = "aws" }
+require_expiration = true
+
 [[seed]]
 src = "~/.config/opencode/opencode.jsonc"
 policy = "always"
-
-[[seed]]
-src = "~/.local/share/opencode/auth.json"
-policy = "if-absent"
 
 [[seed]]
 src = "~/.claude/skills"
@@ -197,6 +221,53 @@ File seeding rejects symlink destinations and symlinked parent paths, but its
 path check and write are separate operations; a concurrently running guest
 process could change the path between them. Seed only data the guest is allowed
 to read, and avoid seeding while untrusted guest processes are running.
+
+### Session Credentials
+
+A credential grant has two independent parts: `source` acquires material on
+the host, and `inject` chooses the interface exposed to the guest command.
+File, command, and AWS-profile sources can therefore support tools without
+making the configuration AWS-specific. Command sources execute the configured
+argv directly on the host; their stdout is treated as secret data. AWS-profile
+sources run the host AWS CLI's `configure export-credentials` command, so the
+host must provide `aws` and the named profile.
+
+File source paths must be absolute or start with `~/`. Relative paths are
+rejected so the current project cannot influence which host file is acquired.
+Command executables must be absolute or resolved by name through `PATH`; paths
+such as `./helper` are rejected. Host commands run from the trusted host home,
+not the current project directory.
+
+`include_credentials` is the ordered default set for every interactive entry.
+The `--credentials` flag adds named grants for one entry, accepts commas, and
+may be repeated:
+
+```sh
+coop --credentials aws-dev,github codex
+coop --credentials kubernetes --credentials github opencode
+```
+
+Defaults and explicit selections are combined in order and deduplicated. The
+flag also applies when entering through `coop tui`; commands that do not enter
+the guest, such as `coop up`, reject it.
+
+Coop acquires selected material before changing VM state, streams it through
+stdin into a mode-0700 directory below `/dev/shm/coop-credentials`, exposes it
+only to that interactive command, and removes the directory when the command
+ends. Secret values are not placed in container arguments, labels, mounts,
+persistent environment, project files, seeds, or named volumes. A source's
+upstream validity is independent of the guest exposure lifetime: Coop does not
+refresh credentials during a long-running entry or revoke credentials that the
+source itself cannot revoke.
+
+To migrate a Git credential-store seed, remove the `[[seed]]` entry for
+`~/.git-credentials`, define `[credentials.git]` as above, and keep `git` in
+`include_credentials` if it should be available on every entry. Seeds remain
+appropriate for durable, non-secret configuration and application state;
+session credentials are the preferred path for narrowly scoped material that
+a tool can consume through an environment variable, temporary file, Git
+credential helper, or AWS shared-credentials file. `coop doctor` warns about
+several common credential paths that are still configured as seeds.
 
 ### Project Configuration
 
@@ -263,6 +334,12 @@ not make untrusted code safe.
 - The selected project is exposed read-write to the guest.
 - Seeded files and project-specific agent state are readable by guest
   processes with sufficient guest permissions.
+- Credentials selected for an entry are readable by guest root and other
+  sufficiently privileged guest processes for that entry's lifetime.
+- Coop containers persist across entries. A root-capable guest process can
+  remain running or alter guest filesystem paths such as `/dev/shm` so it can
+  capture credentials selected for a later entry. Session cleanup limits
+  ordinary exposure; it is not a security boundary against guest root.
 - The VM has unrestricted outbound network access. Data and credentials
   available in the VM can be sent over the network.
 - SSH-agent forwarding is off by default and can be enabled only with

@@ -7,12 +7,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
+
+	"github.com/sarcasticbird/coop/internal/jobcontrol"
 )
 
 // RunSpec describes a session container to create.
@@ -61,6 +67,24 @@ func (s State) String() string {
 	}
 }
 
+// ExitError reports the exact status returned by an interactive guest
+// command. Runtime setup and transport failures use ordinary errors.
+type ExitError struct {
+	Code int
+}
+
+func (e *ExitError) Error() string { return fmt.Sprintf("guest command exited %d", e.Code) }
+func (e *ExitError) ExitCode() int { return e.Code }
+
+// SignalError reports a lifecycle signal captured so callers can unwind and
+// run cleanup rather than terminating immediately.
+type SignalError struct {
+	Signal syscall.Signal
+}
+
+func (e *SignalError) Error() string { return fmt.Sprintf("interrupted by signal %s", e.Signal) }
+func (e *SignalError) ExitCode() int { return 128 + int(e.Signal) }
+
 // Runtime is the minimal surface coop needs from a container engine.
 type Runtime interface {
 	State(name string) (State, error)
@@ -75,8 +99,9 @@ type Runtime interface {
 	ListVolumes() ([]string, error)
 	// Exec runs argv inside the container's live mount namespace.
 	Exec(name string, argv []string, stdin io.Reader) error
-	// ExecInteractive replaces the current process (tty passthrough).
-	ExecInteractive(name, workdir string, argv []string) error
+	ExecContext(context.Context, string, []string, io.Reader) error
+	// ExecInteractive attaches the terminal and waits for the guest process.
+	ExecInteractive(context.Context, string, string, []string) error
 	// GuestFileExists reports whether path exists inside the container.
 	// Failures are errors, never "absent" — seed policies make
 	// overwrite decisions on this answer.
@@ -102,12 +127,13 @@ type Apple struct {
 
 func NewApple() *Apple { return &Apple{Bin: "container"} }
 
-// Every runtime command carries a deadline so a wedged apiserver cannot hang
-// coop indefinitely. Interactive exec is exempt because it replaces the
-// process.
+// Every non-interactive runtime command carries a deadline so a wedged
+// apiserver cannot hang coop indefinitely. Interactive exec follows the guest
+// process lifetime.
 const (
-	opTimeout   = 60 * time.Second
-	execTimeout = 10 * time.Minute // seed tar streams
+	opTimeout            = 60 * time.Second
+	execTimeout          = 10 * time.Minute // seed tar streams
+	interactiveKillGrace = 2 * time.Second
 )
 
 func (a *Apple) run(args ...string) error {
@@ -291,7 +317,11 @@ func (a *Apple) Run(spec RunSpec) error {
 }
 
 func (a *Apple) Exec(name string, argv []string, stdin io.Reader) error {
-	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	return a.ExecContext(context.Background(), name, argv, stdin)
+}
+
+func (a *Apple) ExecContext(parent context.Context, name string, argv []string, stdin io.Reader) error {
+	ctx, cancel := context.WithTimeout(parent, execTimeout)
 	defer cancel()
 	args := append([]string{"exec"}, ifStdin(stdin)...)
 	args = append(args, name)
@@ -300,20 +330,198 @@ func (a *Apple) Exec(name string, argv []string, stdin io.Reader) error {
 	cmd.Stdin = stdin
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+		return nil
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("exec %v: %w: %s", argv, err, stderr.String())
 	}
 	return nil
 }
 
-func (a *Apple) ExecInteractive(name, workdir string, argv []string) error {
+func (a *Apple) ExecInteractive(ctx context.Context, name, workdir string, argv []string) (retErr error) {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
 	bin, err := exec.LookPath(a.Bin)
 	if err != nil {
-		return err
+		return fmt.Errorf("find container runtime: %w", err)
 	}
-	args := []string{a.Bin, "exec", "-it", "-w", workdir, name}
+	args := []string{"exec", "-it", "-w", workdir, name}
 	args = append(args, argv...)
-	return sysExec(bin, args, os.Environ())
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	terminal, err := jobcontrol.Configure(cmd, os.Stdin)
+	if err != nil {
+		return fmt.Errorf("configure interactive job control: %w", err)
+	}
+	defer func() {
+		// Start failures can happen after child-side foreground handoff.
+		retErr = appendError(retErr, terminal.Restore())
+	}()
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start interactive container exec: %w", err)
+	}
+	done := make(chan struct{})
+	monitorDone := terminal.Monitor(cmd.Process.Pid, done)
+	relayDone := make(chan error, 1)
+	go func() {
+		relayDone <- relayInteractiveCancellation(ctx, cmd.Process.Pid, done, syscall.Kill, cmd.Process.Kill)
+	}()
+
+	waitErr := cmd.Wait()
+	close(done)
+	monitorErr := <-monitorDone
+	relayErr := <-relayDone
+
+	var result error
+	if waitErr != nil {
+		var processExit *exec.ExitError
+		if errors.As(waitErr, &processExit) {
+			result = &ExitError{Code: processExitCode(processExit)}
+		} else {
+			result = fmt.Errorf("wait for interactive container exec: %w", waitErr)
+		}
+	}
+	return appendError(appendError(result, relayErr), monitorErr)
+}
+
+// appendError preserves a lone error's concrete type. errors.Join(err, nil)
+// returns a wrapper, which would hide ordinary guest exits from callers that
+// intentionally distinguish a bare exit from an exit plus cleanup failures.
+func appendError(current, additional error) error {
+	if additional == nil {
+		return current
+	}
+	if current == nil {
+		return additional
+	}
+	return errors.Join(current, additional)
+}
+
+func interactiveSignals() []os.Signal {
+	return []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+}
+
+// NotifyContext converts lifecycle signals into cancellation causes so callers
+// can unwind through revocation and cleanup defers.
+func NotifyContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	signals := make(chan os.Signal, len(interactiveSignals()))
+	signal.Notify(signals, interactiveSignals()...)
+	stopped := make(chan struct{})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			signal.Stop(signals)
+			close(stopped)
+			cancel(context.Canceled)
+		})
+	}
+	go func() {
+		select {
+		case received := <-signals:
+			if systemSignal, ok := received.(syscall.Signal); ok {
+				cancel(&SignalError{Signal: systemSignal})
+			} else {
+				cancel(fmt.Errorf("interrupted by signal %v", received))
+			}
+			select {
+			case received = <-signals:
+				signal.Stop(signals)
+				if systemSignal, ok := received.(syscall.Signal); ok {
+					signal.Reset(systemSignal)
+					_ = syscall.Kill(os.Getpid(), systemSignal)
+				}
+			case <-stopped:
+			}
+		case <-ctx.Done():
+		case <-stopped:
+		}
+	}()
+	return ctx, stop
+}
+
+func relayInteractiveCancellation(
+	ctx context.Context,
+	processGroup int,
+	done <-chan struct{},
+	signalGroup func(int, syscall.Signal) error,
+	killProcess func() error,
+) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+	}
+
+	sig := syscall.SIGTERM
+	var signalErr *SignalError
+	if errors.As(context.Cause(ctx), &signalErr) {
+		sig = signalErr.Signal
+	}
+	if err := signalGroup(-processGroup, sig); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		relayErr := fmt.Errorf("relay %s to interactive child group: %w", sig, err)
+		fallbackErr := killProcess()
+		if errors.Is(fallbackErr, os.ErrProcessDone) {
+			fallbackErr = nil
+		}
+		if fallbackErr != nil {
+			fallbackErr = fmt.Errorf("kill interactive child after relay failure: %w", fallbackErr)
+		}
+		return errors.Join(relayErr, fallbackErr)
+	}
+
+	timer := time.NewTimer(interactiveKillGrace)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return nil
+	case <-timer.C:
+	}
+	if err := signalGroup(-processGroup, syscall.SIGKILL); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		groupErr := fmt.Errorf("kill unresponsive interactive child group: %w", err)
+		fallbackErr := killProcess()
+		if errors.Is(fallbackErr, os.ErrProcessDone) {
+			fallbackErr = nil
+		}
+		if fallbackErr != nil {
+			fallbackErr = fmt.Errorf("kill unresponsive interactive child: %w", fallbackErr)
+		}
+		return errors.Join(groupErr, fallbackErr)
+	}
+	return nil
+}
+
+func processExitCode(processExit *exec.ExitError) int {
+	if status, ok := processExit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	if code := processExit.ExitCode(); code >= 0 {
+		return code
+	}
+	return 1
 }
 
 // GuestFileExists answers via stdout so exec failure (container gone,

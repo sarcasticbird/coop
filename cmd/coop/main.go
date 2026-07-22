@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -57,14 +58,13 @@ func resolvedVersion() string {
 var (
 	newRuntime = func() runtime.Runtime { return runtime.NewApple() }
 	lookPath   = exec.LookPath
+	runSession = func(s *session.Session, cwd string, argv, credentials []string) error {
+		return s.Run(cwd, argv, credentials)
+	}
+	runTUI = tui.Run
 )
 
-func main() {
-	if err := root().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "coop:", err)
-		os.Exit(1)
-	}
-}
+func main() { os.Exit(execute(root())) }
 
 func current() (*session.Session, string, error) {
 	cwd, err := os.Getwd()
@@ -76,6 +76,7 @@ func current() (*session.Session, string, error) {
 }
 
 func root() *cobra.Command {
+	var requestedCredentials []string
 	rootCmd := &cobra.Command{
 		Use:   "coop [agent [args...]]",
 		Short: "Sandboxed sessions for coding agents, native to Apple Silicon",
@@ -87,27 +88,44 @@ project toolchains come from the project's own flox manifest.`,
 		Version:       resolvedVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			// note: flag parsing stops at the first positional (see
 			// SetInterspersed below) so agent flags forward verbatim:
 			// `coop claude --help` is claude's help, not coop's
+			credentials, err := requestedCredentialNames(cmd, requestedCredentials)
+			if err != nil {
+				return err
+			}
 			s, cwd, err := current()
 			if err != nil {
 				return err
 			}
-			if err := s.Up(); err != nil {
-				return err
-			}
-			return s.Enter(cwd, args)
+			return runSession(s, cwd, args, credentials)
 		},
 	}
 
+	rootCmd.PersistentFlags().StringSliceVar(
+		&requestedCredentials,
+		"credentials",
+		nil,
+		"include trusted credential grants for this entry (comma-separated, repeatable)",
+	)
 	// Everything after the agent token belongs to the agent.
+	rootCmd.PersistentFlags().SetInterspersed(false)
 	rootCmd.Flags().SetInterspersed(false)
+	rejectCredentials := func(cmd *cobra.Command) error {
+		if cmd.Flags().Changed("credentials") {
+			return errors.New("--credentials is only valid when entering a coop or using tui")
+		}
+		return nil
+	}
 
 	rootCmd.AddCommand(
 		&cobra.Command{Use: "up", Args: cobra.NoArgs, Short: "Start the project's coop without entering",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				s, _, err := current()
 				if err != nil {
 					return err
@@ -115,7 +133,10 @@ project toolchains come from the project's own flox manifest.`,
 				return s.Up()
 			}},
 		&cobra.Command{Use: "down", Args: cobra.NoArgs, Short: "Stop the coop (state volumes persist)",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				s, _, err := current()
 				if err != nil {
 					return err
@@ -123,7 +144,10 @@ project toolchains come from the project's own flox manifest.`,
 				return s.Down()
 			}},
 		&cobra.Command{Use: "status", Args: cobra.NoArgs, Short: "Show this project's coop",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				s, _, err := current()
 				if err != nil {
 					return err
@@ -138,7 +162,10 @@ project toolchains come from the project's own flox manifest.`,
 				return nil
 			}},
 		&cobra.Command{Use: "ls", Args: cobra.NoArgs, Short: "List all coops",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				out, err := newRuntime().List()
 				if err != nil {
 					return err
@@ -151,7 +178,10 @@ project toolchains come from the project's own flox manifest.`,
 				return nil
 			}},
 		&cobra.Command{Use: "doctor", Args: cobra.NoArgs, Short: "Diagnose the host environment",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				cfg, err := config.Load("")
 				if err != nil {
 					return err
@@ -175,9 +205,13 @@ project toolchains come from the project's own flox manifest.`,
 				return nil
 			}},
 		&cobra.Command{Use: "tui", Args: cobra.NoArgs, Short: "Fleet dashboard — every coop on this machine",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				credentials, err := requestedCredentialNames(cmd, requestedCredentials)
+				if err != nil {
+					return err
+				}
 				rt := newRuntime()
-				res, err := tui.Run(rt)
+				res, err := runTUI(rt)
 				if err != nil {
 					return err
 				}
@@ -188,15 +222,15 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
-					if err := s.Up(); err != nil {
-						return err
-					}
-					return s.Enter(res.EnterWorkdir, nil)
+					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil
 			}},
 		&cobra.Command{Use: "rebuild", Args: cobra.NoArgs, Short: "Build the sandbox image from the embedded definition",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				s, _, err := current()
 				if err != nil {
 					return err
@@ -226,7 +260,10 @@ project toolchains come from the project's own flox manifest.`,
 				return build.Run()
 			}},
 		&cobra.Command{Use: "destroy", Args: cobra.NoArgs, Short: "Remove the coop AND its state volumes",
-			RunE: func(_ *cobra.Command, _ []string) error {
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
 				s, _, err := current()
 				if err != nil {
 					return err
@@ -240,4 +277,22 @@ project toolchains come from the project's own flox manifest.`,
 			}},
 	)
 	return rootCmd
+}
+
+func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {
+	if cmd.Flags().Changed("credentials") && len(values) == 0 {
+		return nil, errors.New("--credentials contains an empty grant name")
+	}
+	return normalizeCredentialNames(values)
+}
+
+func normalizeCredentialNames(values []string) ([]string, error) {
+	normalized := make([]string, len(values))
+	for i, value := range values {
+		normalized[i] = strings.TrimSpace(value)
+		if normalized[i] == "" {
+			return nil, errors.New("--credentials contains an empty grant name")
+		}
+	}
+	return normalized, nil
 }

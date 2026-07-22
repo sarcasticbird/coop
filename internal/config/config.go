@@ -22,7 +22,7 @@ const (
 	// PolicyAlways re-copies on every entry (config files: host edits win).
 	PolicyAlways SeedPolicy = "always"
 	// PolicyIfAbsent copies only when the guest file is missing
-	// (credentials: the coop's own refreshes must not be clobbered).
+	// (guest-created or guest-updated state must not be clobbered).
 	PolicyIfAbsent SeedPolicy = "if-absent"
 	// PolicyOverlay tar-copies a directory tree over the destination
 	// (adds/updates, never deletes).
@@ -38,6 +38,31 @@ type Seed struct {
 	Policy SeedPolicy `toml:"policy"`
 }
 
+// Credential is a trusted, named host credential grant. Source controls how
+// Coop acquires secret material; Inject controls how an interactive guest
+// process receives it. Credential configuration is honored only globally.
+type Credential struct {
+	Source            CredentialSource    `toml:"source"`
+	Inject            CredentialInjection `toml:"inject"`
+	RequireExpiration bool                `toml:"require_expiration"`
+}
+
+// CredentialSource describes host-side acquisition without containing the
+// acquired secret itself.
+type CredentialSource struct {
+	Type    string   `toml:"type"`
+	Path    string   `toml:"path"`
+	Argv    []string `toml:"argv"`
+	Profile string   `toml:"profile"`
+}
+
+// CredentialInjection describes the guest-visible shape of a credential.
+type CredentialInjection struct {
+	Type    string `toml:"type"`
+	Name    string `toml:"name"`
+	PathEnv string `toml:"path_env"`
+}
+
 // Agent declares one coding agent the coop hosts. State is the guest
 // directory that must persist per-project (sessions, credentials,
 // history) — it becomes a named volume so transcripts never leak
@@ -48,16 +73,23 @@ type Agent struct {
 
 // Config is the merged coop configuration.
 type Config struct {
-	Image     Image            `toml:"image"`
-	Resources Resources        `toml:"resources"`
-	Agents    map[string]Agent `toml:"agents"`
-	Seeds     []Seed           `toml:"seed"`
+	Image              Image                 `toml:"image"`
+	Resources          Resources             `toml:"resources"`
+	Agents             map[string]Agent      `toml:"agents"`
+	Seeds              []Seed                `toml:"seed"`
+	IncludeCredentials []string              `toml:"include_credentials"`
+	Credentials        map[string]Credential `toml:"credentials"`
 	// SSH forwards the host SSH agent socket into coops. Default OFF:
 	// it grants guests the ability to sign/authenticate as you, which
 	// combined with network egress is an exfiltration-adjacent
 	// capability. Enable deliberately, global config only.
 	SSH bool `toml:"ssh"`
 }
+
+const (
+	MaxCredentialGrants    = 32
+	MaxSelectedCredentials = 16
+)
 
 type Image struct {
 	Name string `toml:"name"`
@@ -182,12 +214,22 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		cfg.Agents[name] = agent
 	}
 	if trusted {
+		if cfg.Credentials == nil {
+			cfg.Credentials = make(map[string]Credential)
+		}
+		for name, grant := range layer.Credentials {
+			cfg.Credentials[name] = grant
+		}
+		cfg.IncludeCredentials = append(cfg.IncludeCredentials, layer.IncludeCredentials...)
 		cfg.Seeds = append(cfg.Seeds, layer.Seeds...)
 	}
 	return nil
 }
 
-var agentName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+var (
+	configuredName  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
 
 const (
 	maxAgentNameLen = 63
@@ -199,7 +241,7 @@ const (
 // a repository must not be able to request the whole machine.
 func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 	for name, agent := range layer.Agents {
-		if !agentName.MatchString(name) || strings.Contains(name, "--") {
+		if !configuredName.MatchString(name) || strings.Contains(name, "--") {
 			return fmt.Errorf("agent name %q invalid (lowercase alphanumeric+hyphens, no '--')", name)
 		}
 		if len(name) > maxAgentNameLen {
@@ -243,6 +285,9 @@ func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 			return fmt.Errorf("seed %s: unknown policy %q", seed.Src, seed.Policy)
 		}
 	}
+	if err := validateCredentialLayer(layer); err != nil {
+		return err
+	}
 	if !trusted {
 		if layer.Resources.CPUs > maxProjectCPUs {
 			return fmt.Errorf("project config requests %d cpus (max %d)", layer.Resources.CPUs, maxProjectCPUs)
@@ -276,6 +321,126 @@ func validateMerged(cfg *Config) error {
 			}
 		}
 		owners[target] = name
+	}
+
+	seen := make(map[string]struct{}, len(cfg.IncludeCredentials))
+	included := cfg.IncludeCredentials[:0]
+	for _, name := range cfg.IncludeCredentials {
+		if _, ok := cfg.Credentials[name]; !ok {
+			return fmt.Errorf("included credential %q is not defined", name)
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		included = append(included, name)
+	}
+	cfg.IncludeCredentials = included
+	return nil
+}
+
+func validateCredentialLayer(layer *Config) error {
+	if len(layer.Credentials) > MaxCredentialGrants {
+		return fmt.Errorf("configured credential count %d exceeds maximum %d", len(layer.Credentials), MaxCredentialGrants)
+	}
+
+	names := make([]string, 0, len(layer.Credentials))
+	for name := range layer.Credentials {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !configuredName.MatchString(name) || strings.Contains(name, "--") {
+			return fmt.Errorf("credential name %q invalid (lowercase alphanumeric+hyphens, no '--')", name)
+		}
+		if len(name) > maxAgentNameLen {
+			return fmt.Errorf("credential name %q exceeds %d characters", name, maxAgentNameLen)
+		}
+		if err := validateCredential(name, layer.Credentials[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCredential(name string, credential Credential) error {
+	source := credential.Source
+	switch source.Type {
+	case "file":
+		if source.Path == "" {
+			return fmt.Errorf("credential %q: file source requires path", name)
+		}
+		if !filepath.IsAbs(source.Path) && !strings.HasPrefix(source.Path, "~/") {
+			return fmt.Errorf("credential %q: file source path must be absolute or start with ~/", name)
+		}
+		if len(source.Argv) > 0 || source.Profile != "" {
+			return fmt.Errorf("credential %q: file source contains fields for another source type", name)
+		}
+	case "command":
+		if len(source.Argv) == 0 || source.Argv[0] == "" {
+			return fmt.Errorf("credential %q: command source requires argv", name)
+		}
+		if strings.ContainsRune(source.Argv[0], filepath.Separator) && !filepath.IsAbs(source.Argv[0]) {
+			return fmt.Errorf("credential %q: command executable path must be absolute or resolved through PATH", name)
+		}
+		for _, arg := range source.Argv {
+			if strings.IndexByte(arg, 0) >= 0 {
+				return fmt.Errorf("credential %q: command argv contains a NUL byte", name)
+			}
+		}
+		if source.Path != "" || source.Profile != "" {
+			return fmt.Errorf("credential %q: command source contains fields for another source type", name)
+		}
+	case "aws-profile":
+		if source.Profile == "" {
+			return fmt.Errorf("credential %q: aws-profile source requires profile", name)
+		}
+		if source.Path != "" || len(source.Argv) > 0 {
+			return fmt.Errorf("credential %q: aws-profile source contains fields for another source type", name)
+		}
+	default:
+		return fmt.Errorf("credential %q: unknown source type %q", name, source.Type)
+	}
+
+	inject := credential.Inject
+	if source.Type == "aws-profile" && inject.Type != "aws" {
+		return fmt.Errorf("credential %q: aws-profile source requires aws injection", name)
+	}
+	switch inject.Type {
+	case "environment":
+		if !environmentName.MatchString(inject.Name) {
+			return fmt.Errorf("credential %q: environment injection requires a valid name", name)
+		}
+		if inject.PathEnv != "" {
+			return fmt.Errorf("credential %q: environment injection contains path_env", name)
+		}
+	case "file":
+		if !environmentName.MatchString(inject.PathEnv) {
+			return fmt.Errorf("credential %q: file injection requires a valid path_env", name)
+		}
+		if inject.Name != "" {
+			return fmt.Errorf("credential %q: file injection contains name", name)
+		}
+	case "git-credential-store":
+		if inject.Name != "" || inject.PathEnv != "" {
+			return fmt.Errorf("credential %q: git-credential-store injection contains unused fields", name)
+		}
+		if source.Type != "file" {
+			return fmt.Errorf("credential %q: git-credential-store injection requires a file source", name)
+		}
+	case "aws":
+		if inject.Name != "" || inject.PathEnv != "" {
+			return fmt.Errorf("credential %q: aws injection contains unused fields", name)
+		}
+		if source.Type != "aws-profile" {
+			return fmt.Errorf("credential %q: aws injection requires an aws-profile source", name)
+		}
+	default:
+		return fmt.Errorf("credential %q: unknown injection type %q", name, inject.Type)
+	}
+
+	if credential.RequireExpiration && source.Type != "aws-profile" {
+		return fmt.Errorf("credential %q: require_expiration requires a source that reports expiration", name)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -85,6 +86,19 @@ func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(s
 		add(OK, "seeds", fmt.Sprintf("%d rules, all sources present", len(seeds)))
 	}
 
+	sensitive := 0
+	for _, seed := range seeds {
+		if sensitiveSeedPath(config.ExpandHome(seed.Src, hostHome)) {
+			sensitive++
+		}
+	}
+	if sensitive > 0 {
+		add(Warn, "credential seeds", fmt.Sprintf(
+			"%d sensitive seed paths detected — migrate session credentials to trusted [credentials] grants", sensitive))
+	} else {
+		add(OK, "credential seeds", "none detected")
+	}
+
 	// legacy artifacts from pre-hashed naming — enumeration failures
 	// must not read as a clean bill of health
 	infos, infoErr := rt.Containers()
@@ -116,3 +130,22 @@ func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(s
 
 // statPath is a variable for tests.
 var statPath = os.Stat
+
+func sensitiveSeedPath(seedPath string) bool {
+	clean := filepath.ToSlash(filepath.Clean(seedPath))
+	switch filepath.Base(clean) {
+	case ".git-credentials", ".netrc", ".kube", ".aws", ".docker":
+		return true
+	}
+	for _, suffix := range []string{
+		"/.aws/credentials",
+		"/.kube/config",
+		"/.config/gh/hosts.yml",
+		"/.docker/config.json",
+	} {
+		if strings.HasSuffix(clean, suffix) {
+			return true
+		}
+	}
+	return false
+}

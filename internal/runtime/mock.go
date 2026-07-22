@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -29,6 +30,11 @@ type Mock struct {
 	LabelErr        error
 	ExistsErr       error
 	StateErr        error
+	ExecErr         error
+	ExecErrors      []error
+	ExecContextFunc func(context.Context, int, ExecCall) error
+	InteractiveErr  error
+	InteractiveFunc func(context.Context, string, string, []string) error
 }
 
 type ExecCall struct {
@@ -134,6 +140,10 @@ func (m *Mock) ListVolumes() ([]string, error) {
 }
 
 func (m *Mock) Exec(name string, argv []string, stdin io.Reader) error {
+	return m.ExecContext(context.Background(), name, argv, stdin)
+}
+
+func (m *Mock) ExecContext(ctx context.Context, name string, argv []string, stdin io.Reader) error {
 	call := ExecCall{Name: name, Argv: argv}
 	if stdin != nil {
 		b, err := io.ReadAll(stdin)
@@ -143,6 +153,18 @@ func (m *Mock) Exec(name string, argv []string, stdin io.Reader) error {
 		call.Stdin = string(b)
 	}
 	m.ExecCalls = append(m.ExecCalls, call)
+	callIndex := len(m.ExecCalls) - 1
+	if m.ExecContextFunc != nil {
+		if err := m.ExecContextFunc(ctx, callIndex, call); err != nil {
+			return err
+		}
+	}
+	if callIndex < len(m.ExecErrors) && m.ExecErrors[callIndex] != nil {
+		return m.ExecErrors[callIndex]
+	}
+	if m.ExecErr != nil {
+		return m.ExecErr
+	}
 
 	// Emulate the atomic seed-write script (positional dest/mode/parent).
 	if len(argv) == 7 && argv[0] == "sh" && argv[1] == "-c" &&
@@ -153,9 +175,12 @@ func (m *Mock) Exec(name string, argv []string, stdin io.Reader) error {
 	return nil
 }
 
-func (m *Mock) ExecInteractive(name, workdir string, argv []string) error {
+func (m *Mock) ExecInteractive(ctx context.Context, name, workdir string, argv []string) error {
 	m.Interactive = append(m.Interactive, ExecCall{Name: name, Argv: argv, Workdir: workdir})
-	return nil
+	if m.InteractiveFunc != nil {
+		return m.InteractiveFunc(ctx, name, workdir, argv)
+	}
+	return m.InteractiveErr
 }
 
 func (m *Mock) GuestFileExists(name, path string) (bool, error) {
