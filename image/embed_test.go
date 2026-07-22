@@ -60,6 +60,15 @@ func TestMaterializeWritesCanonicalConfiguredInstallables(t *testing.T) {
 	}
 }
 
+func TestMaterializeWrapsBuildContextCreationError(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+
+	_, err := Materialize(nil)
+	if err == nil || !strings.Contains(err.Error(), "create image build context") {
+		t.Fatalf("materialize error = %v", err)
+	}
+}
+
 func TestCanonicalPackagesSortsAndDeduplicates(t *testing.T) {
 	got := CanonicalPackages([]string{"shellcheck", "actionlint", "shellcheck"})
 	want := []string{"actionlint", "shellcheck"}

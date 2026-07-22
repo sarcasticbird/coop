@@ -66,7 +66,10 @@ var (
 	buildImage = func(args []string, stdout, stderr io.Writer) error {
 		build := exec.Command("container", args...)
 		build.Stdout, build.Stderr = stdout, stderr
-		return build.Run()
+		if err := build.Run(); err != nil {
+			return fmt.Errorf("run container image build: %w", err)
+		}
+		return nil
 	}
 	warningOutput io.Writer = os.Stderr
 )
@@ -278,7 +281,10 @@ project toolchains come from the project's own flox manifest.`,
 					"-t", desiredImage,
 					"--build-arg", "GUEST_HOME=" + s.HostHome}
 				args = append(args, ctx)
-				return buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				if err := buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+					return fmt.Errorf("build image %q: %w", desiredImage, err)
+				}
+				return nil
 			}},
 		&cobra.Command{Use: "destroy", Args: cobra.NoArgs, Short: "Remove the coop AND its state volumes",
 			RunE: func(cmd *cobra.Command, _ []string) error {

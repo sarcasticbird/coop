@@ -68,7 +68,7 @@ func fingerprintFS(fsys fs.FS, names []string, packageSource string) string {
 func Materialize(packages []string) (dir string, retErr error) {
 	dir, err := os.MkdirTemp("", "coop-image-")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create image build context: %w", err)
 	}
 	defer func() {
 		if retErr != nil {
@@ -80,19 +80,22 @@ func Materialize(packages []string) (dir string, retErr error) {
 		if err != nil {
 			return "", fmt.Errorf("embedded %s: %w", name, err)
 		}
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
-			return "", err
+		path := filepath.Join(dir, name)
+		parent := filepath.Dir(path)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return "", fmt.Errorf("create image build directory %q: %w", parent, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-			return "", err
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return "", fmt.Errorf("write embedded build file %q: %w", path, err)
 		}
 	}
 	var installables strings.Builder
 	for _, pkg := range CanonicalPackages(packages) {
 		fmt.Fprintf(&installables, "%s#%s\n", NixpkgsRef, pkg)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "configured-packages.txt"), []byte(installables.String()), 0o644); err != nil {
-		return "", err
+	packagesPath := filepath.Join(dir, "configured-packages.txt")
+	if err := os.WriteFile(packagesPath, []byte(installables.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write configured package list %q: %w", packagesPath, err)
 	}
 	return dir, nil
 }

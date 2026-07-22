@@ -54,7 +54,8 @@ func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T
 	cmd.SetErr(&output)
 	cmd.SetArgs([]string{"rebuild"})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "resolver failed") {
+	wantBuildError := "build image \"" + gotArgs[2] + "\": resolver failed"
+	if err == nil || !strings.Contains(err.Error(), wantBuildError) {
 		t.Fatalf("build error = %v", err)
 	}
 	for _, want := range []string{
@@ -76,6 +77,15 @@ func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T
 	}
 	if len(m.Stopped) != 0 || len(m.Removed) != 0 {
 		t.Fatalf("failed rebuild mutated container: stopped=%v removed=%v", m.Stopped, m.Removed)
+	}
+}
+
+func TestBuildImageWrapsCommandError(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	err := buildImage([]string{"build"}, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "run container image build") {
+		t.Fatalf("build error = %v", err)
 	}
 }
 
