@@ -1,0 +1,64 @@
+name: release
+
+# Publishes a GitHub Release with a darwin/arm64 build when a version tag
+# is pushed. Hosted runners cannot run Apple containers, so this workflow
+# only builds and tests; validate on real hardware before tagging (see
+# docs/release.md).
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # actions/checkout resolves the pushed tag to a lightweight ref;
+      # re-fetch it so --notes-from-tag sees the annotation.
+      - name: fetch tag annotation
+        run: git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal image)" || { gofmt -l cmd internal image; exit 1; }
+      - name: test
+        run: go test -race ./...
+      - name: vet
+        run: go vet ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: build
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath \
+            -ldflags "-X main.version=${GITHUB_REF_NAME}" \
+            -o dist/coop ./cmd/coop
+      - name: package
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/
+          tar -C dist -czf "coop_${GITHUB_REF_NAME}_darwin_arm64.tar.gz" \
+            coop LICENSE THIRD_PARTY_NOTICES.md
+          shasum -a 256 "coop_${GITHUB_REF_NAME}_darwin_arm64.tar.gz" \
+            > checksums.txt
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --notes-from-tag \
+            $prerelease \
+            "coop_${GITHUB_REF_NAME}_darwin_arm64.tar.gz" \
+            checksums.txt
