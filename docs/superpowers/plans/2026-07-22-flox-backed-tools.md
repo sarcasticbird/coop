@@ -8,6 +8,20 @@
 
 **Tech Stack:** Go 1.26.5, BurntSushi TOML, Cobra, Flox 1.13.x, Nix 2.x profiles, Apple `container` 1.x, OCI Containerfile builds.
 
+## Execution Record
+
+- [x] Prerequisite `origin/main` credential fix merged in `f3603a2`.
+- [x] Additive tool configuration committed in `e6f9614`.
+- [x] Locked core Flox environment committed in `b4a4974`.
+- [x] Image construction and runtime layering committed together in `725e484`
+  so no intermediate commit produced an image without its required entry
+  wrapper.
+- [x] Image drift and rebuild status committed in `cee0a08`.
+- [x] Real Apple builds validated the stock image and a repository-defined
+  package; ephemeral VMs validated core commands, maintenance isolation, and
+  project Flox precedence.
+- [x] Documentation and final branch verification.
+
 ## Global Constraints
 
 - Incorporate `origin/main` before implementation; it contains the guest credential shell-builtin fix required by the new execution layering.

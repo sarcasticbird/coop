@@ -15,6 +15,10 @@ versions.
 - Apple's `container` CLI and a running container service
 - Go 1.26.5 or later to build coop
 
+Flox is part of the guest image, not a host prerequisite. Repositories do not
+need a `.flox` environment unless they want the same project toolchain inside
+and outside Coop.
+
 Install and start Apple's runtime:
 
 ```sh
@@ -67,12 +71,14 @@ coop claude
 
 The beta does not distribute a prebuilt sandbox image. `coop rebuild` builds
 the embedded image definition locally. Run it once after installation and
-again when changing `image.extra_packages` or updating coop to a version with
-different image inputs.
+again after changing `[tools].packages` or updating Coop to a version with
+different embedded image inputs.
 
 Running `coop` without a command opens a Zsh login shell in the VM. The embedded
-image definition includes opencode, Claude Code, Codex, Flox, Git, Zsh,
-ripgrep, jq, tmux, Node.js, OpenSSH, and common shell utilities. See
+image definition includes a locked operational workbench and the opencode,
+Claude Code, and Codex agents. Application runtimes such as Node.js, Go, and
+Python are intentionally project-owned rather than part of Coop's command
+contract. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) before distributing an
 image.
 
@@ -83,7 +89,7 @@ coop [command [args...]]  Run a command in the project VM
 coop                      Open a shell in the project VM
 coop up                   Create or start the project VM
 coop down                 Stop it while preserving state volumes
-coop status               Show the current project's VM state
+coop status               Show VM and desired/running image state
 coop ls                   List coop VMs
 coop tui                  Open the VM dashboard
 coop doctor               Check host and trusted user configuration
@@ -151,8 +157,8 @@ The selected project's `<project>/coop.toml` is then loaded. Unknown keys are
 rejected. Resource values, agent names and state paths, agent count, overlapping
 state targets, and seed policies are validated before runtime changes begin.
 
-The project file is repository-controlled. Only `[resources]` and `[agents]`
-entries from it take effect. `ssh`, `[image]`, `[[seed]]`,
+The project file is repository-controlled. `[resources]`, `[agents]`, and
+additive `[tools]` entries from it take effect. `ssh`, `[image]`, `[[seed]]`,
 `include_credentials`, and `[credentials]` settings take effect only from
 trusted user configuration; placing them in a project file does not grant
 those capabilities. Project resource requests are capped at 8 CPUs and 16 GB
@@ -167,7 +173,9 @@ ssh = false
 
 [image]
 name = "coop:latest"
-extra_packages = []
+
+[tools]
+packages = ["bat"]
 
 [resources]
 cpus = 4
@@ -278,6 +286,9 @@ several common credential paths that are still configured as seeds.
 cpus = 6
 memory = "12G"
 
+[tools]
+packages = ["actionlint", "shellcheck"]
+
 [agents.codex]
 state = "" # remove the default Codex state volume
 ```
@@ -291,39 +302,73 @@ from older specifications.
 ### Images and Additional Packages
 
 `image.name` is the base for the local image reference. It does not change the
-base image in the embedded image definition. For the default name and for
-images with additional packages, coop derives a `local-...` tag from the image
-definition and package set. A non-default name without additional packages is
-treated as an existing local image reference.
+base image in the embedded image definition. Coop always derives a `local-...`
+tag from the name, embedded definition, locked core environment, configured
+package source, and effective package set. Changing any effective input
+requires a new local build.
 
-Additional tools can be installed from Nix packages through trusted user
-configuration:
+Trusted user configuration and repository configuration may add tools with the
+same additive syntax:
 
 ```toml
-[image]
-name = "coop:latest"
-extra_packages = ["gemini-cli"]
-
-[agents.gemini]
-state = "~/.gemini"
+[tools]
+packages = ["actionlint", "shellcheck"]
 ```
 
-When `extra_packages` is non-empty, coop never substitutes another image for
-the derived local tag. Run `coop rebuild` after changing either image setting,
-then start the project. Existing state volumes survive VM recreation when the
-effective image or another VM setting changes.
+The global and project lists are sorted, deduplicated, and combined. Package
+values are simple Nixpkgs attribute paths such as `gh`, `shellcheck`, or
+`nodePackages.prettier`; URLs, flakes, paths, shell syntax, and per-package
+version expressions are rejected. At most 64 configured packages may be
+effective. Coop resolves them from the immutable Nixpkgs revision owned by the
+installed Coop release, so it does not maintain a package catalog or lockfile
+format of its own.
+
+For one beta release, global `[image].extra_packages` is accepted as a
+deprecated alias and prints a warning. Defining it together with
+`[tools].packages` is an error, and the old field is not accepted in project
+configuration.
+
+`coop rebuild` prints the core, global, and project inputs before building. A
+failed build leaves the existing image and container untouched. `coop status`
+shows the running image, desired image, whether the desired image needs a
+build, and whether the existing container will be recreated. Recreation
+preserves named agent-state volumes but discards undeclared root-filesystem
+changes.
+
+The declaration is a reproducible starting state, not an allowlist. Guest root
+may install or download other software. Manual changes survive `coop down`
+followed by `coop up`, but disappear after image-driven recreation or
+`coop destroy`. A useful progression is:
+
+```text
+try manually -> declare in coop.toml -> move to .flox when portability matters
+```
 
 ## Flox
 
-For a command run from a project subdirectory, coop walks from that directory
-toward the selected project root and uses the nearest ancestor containing a
-`.flox` directory. It runs the command through `flox activate --dir` for that
-environment. This also finds a worktree-local environment when the selected
-root contains multiple worktrees.
+Flox and Nix are required inside the Coop image. The pinned Flox base supplies
+the package engine, while Coop embeds a Linux-only manifest and exact lock for
+the core environment. The promised core packages are:
 
-The Flox environment must support `aarch64-linux`. A shell opened with bare
-`coop` is not activated automatically; run `flox activate` in that shell when
-needed.
+- shell support: `bashInteractive`, `zsh`, `coreutils`, `gnugrep`, `gnused`,
+  `findutils`, `gawk`, `gnutar`, `gzip`, and `cacert`;
+- repository tools: `git`, `gh`, `openssh`, `curl`, `ripgrep`, `jq`,
+  `diffutils`, `patch`, `file`, `less`, `procps`, `tmux`, and `unzip`; and
+- agents: `codex`, `claude-code`, and `opencode`.
+
+Configured global/repository packages live in a separate image profile. User
+commands see the core environment first, configured tools ahead of it, and the
+nearest project `.flox` environment with highest precedence. Coop maintenance
+uses only the controlled core PATH, so repository tools cannot shadow its
+seeding or credential helpers.
+
+For a command or bare shell entered from a project subdirectory, Coop walks
+toward the selected project root and automatically activates the nearest
+ancestor containing `.flox`. This also finds a worktree-local environment when
+the selected root contains multiple worktrees. Coop does not force services to
+start; the project environment's Flox settings remain authoritative.
+
+Project Flox remains optional and must support `aarch64-linux` when present.
 
 ## Security Model
 
@@ -342,6 +387,8 @@ not make untrusted code safe.
   ordinary exposure; it is not a security boundary against guest root.
 - The VM has unrestricted outbound network access. Data and credentials
   available in the VM can be sent over the network.
+- Repository tool declarations make intended contents auditable, but they are
+  not a security allowlist: guest root can obtain additional software.
 - SSH-agent forwarding is off by default and can be enabled only with
   `ssh = true` in trusted user configuration. The private key files remain on
   the host, but guest processes can use loaded keys to authenticate or sign.

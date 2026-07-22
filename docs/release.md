@@ -20,7 +20,7 @@ to the VCS revision (see `resolvedVersion` in `cmd/coop/main.go`), so
 ## Cutting a Release
 
 Hosted CI runs the mocked runtime only — it cannot exercise Apple's
-`container` runtime. Steps 1–3 are the real-hardware validation that CI
+`container` runtime. Steps 1–5 are the real-hardware validation that CI
 cannot provide.
 
 1. Confirm `main` is green in CI and `roborev list --open` is clean.
@@ -32,10 +32,51 @@ cannot provide.
    /tmp/coop-rc doctor
    ```
 
-3. From a scratch project, smoke-test the paths hosted CI cannot reach:
-   `coop rebuild`, `coop up`, an interactive entry, `coop down`, and
-   `coop destroy`.
-4. Create an annotated tag on the release commit. The tag message
+3. From a scratch project without `.flox`, smoke-test the paths hosted CI
+   cannot reach:
+
+   ```sh
+   mkdir -p /tmp/coop-rc-project
+   : > /tmp/coop-rc-project/coop.toml
+   cd /tmp/coop-rc-project
+   /tmp/coop-rc rebuild
+   /tmp/coop-rc status
+   /tmp/coop-rc up
+   /tmp/coop-rc sh -c '
+     set -eu
+     for c in bash zsh ls grep sed find awk tar gzip git gh ssh curl rg jq \
+       diff patch file less ps tmux unzip codex claude opencode flox nix
+     do
+       command -v "$c" >/dev/null
+     done
+     test -r "$SSL_CERT_FILE"
+   '
+   /tmp/coop-rc down
+   /tmp/coop-rc destroy
+   ```
+
+4. Exercise configured and project tool layering:
+
+   - Add `[tools] packages = ["hello"]` to the scratch `coop.toml`, rebuild,
+     and confirm `hello` is available to an entered command.
+   - Confirm Coop maintenance still succeeds and the configured profile is
+     not on its maintenance PATH.
+   - Add an `aarch64-linux` project `.flox`, then confirm its executable path
+     precedes `/opt/coop-tools/profile/bin` while configured tools remain
+     available.
+   - Pass arguments containing spaces, quotes, dollar signs, and semicolons
+     through both Flox and non-Flox entry paths and confirm they remain
+     separate argv values.
+   - Request one nonexistent package and confirm the failed rebuild leaves the
+     previous image and container usable.
+
+5. Verify recreation semantics. Create a marker in the guest root filesystem
+   and a marker under one agent's named state directory, change the effective
+   tool set, rebuild, and enter again. Confirm `coop status` reports pending
+   recreation before entry, the rootfs marker disappears, and the named-volume
+   marker survives.
+
+6. Create an annotated tag on the release commit. The tag message
    becomes the release notes, so write it for users: what changed,
    migration notes, known limitations.
 
@@ -44,7 +85,7 @@ cannot provide.
    git push origin v0.1.0-beta.3
    ```
 
-5. The `release` workflow runs the same checks as `ci` (gofmt, tests
+7. The `release` workflow runs the same checks as `ci` (gofmt, tests
    with race, vet, govulncheck), cross-compiles darwin/arm64 with
    `CGO_ENABLED=0` (the module is pure Go), and publishes the release.
    Verify the run succeeded and the asset downloads.
