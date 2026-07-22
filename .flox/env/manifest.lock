@@ -1,0 +1,78 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "schema-version": "1.13.0",
+    "install": {
+      "go": {
+        "pkg-path": "go",
+        "version": "^1.26.4"
+      }
+    },
+    "options": {
+      "systems": [
+        "aarch64-darwin",
+        "aarch64-linux"
+      ]
+    }
+  },
+  "packages": [
+    {
+      "attr_path": "go",
+      "broken": false,
+      "derivation": "/nix/store/bvd94hgv76ckwlzgjga880ripp4217xh-go-1.26.4.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "name": "go-1.26.4",
+      "pname": "go",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T04:53:57.221939Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.26.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/38idfbqyw3p8xaslv6bnrig62pj7qy6i-go-1.26.4"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "go",
+      "broken": false,
+      "derivation": "/nix/store/36w4fxyz4yk48wjjks13aa9jbsxm7d2x-go-1.26.4.drv",
+      "description": "Go Programming language",
+      "install_id": "go",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "name": "go-1.26.4",
+      "pname": "go",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T05:24:22.644936Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.26.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/z8b7c0h6g8dnv6vlxh7fha1d66krvgn9-go-1.26.4"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ]
+}
