@@ -147,17 +147,22 @@ func TestUserEnvironmentOrdersCoreConfiguredAndFallbackTools(t *testing.T) {
 	}
 }
 
-func TestUserEnvironmentDropsEmptyPathEntries(t *testing.T) {
+func TestUserEnvironmentDropsUnsafePathEntries(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
+	projectBin := filepath.Join(project, "bin")
 	toolsProfile := filepath.Join(root, "tools")
 	toolsBin := filepath.Join(toolsProfile, "bin")
-	for _, dir := range []string{project, toolsBin} {
+	for _, dir := range []string{projectBin, toolsBin} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{filepath.Join(project, "repo-tool"), filepath.Join(toolsBin, "configured-tool")} {
+	for _, path := range []string{
+		filepath.Join(project, "repo-tool"),
+		filepath.Join(projectBin, "repo-bin-tool"),
+		filepath.Join(toolsBin, "configured-tool"),
+	} {
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -167,13 +172,13 @@ func TestUserEnvironmentDropsEmptyPathEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", wrapper, "--", "/bin/sh", "-c", `printf '%s\n' "$PATH"; command -v configured-tool; ! command -v repo-tool`)
+	cmd := exec.Command("bash", wrapper, "--", "/bin/sh", "-c", `printf '%s\n' "$PATH"; command -v configured-tool; ! command -v repo-tool; ! command -v repo-bin-tool`)
 	cmd.Dir = project
 	cmd.Env = []string{
 		"COOP_CORE=" + filepath.Join(root, "core"),
 		"COOP_TOOLS_PROFILE=" + toolsProfile,
 		"FLOX_ENV=" + filepath.Join(root, "core-env"),
-		"PATH=",
+		"PATH=:.:bin",
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {

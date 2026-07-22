@@ -38,6 +38,7 @@ while [[ -n "$remaining_path" ]]; do
     remaining_path=""
   fi
   [[ -n "$entry" ]] || continue
+  [[ "$entry" == /* ]] || continue
   if [[ -n "$core_env" && ( "$entry" == "$core_env" || "$entry" == "$core_env/"* ) ]] ||
      [[ "$entry" == "$core_root/.flox/run/"* ]]; then
     core_path="${core_path:+$core_path:}$entry"

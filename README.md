@@ -38,7 +38,8 @@ GitHub CLI. Install the latest published binary:
   install_tmp="$(mktemp -d)"
   trap 'rm -rf "$install_tmp"' 0 HUP INT TERM
   version="$(gh api repos/sarcasticbird/coop/releases \
-    --jq 'map(select((.draft == false) and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0].tag_name // empty')"
+    --jq '(map(select(.draft == false and .prerelease == false and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0]
+      // map(select(.draft == false and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0]).tag_name // empty')"
   [ -n "$version" ] || { echo "no binary release is available yet" >&2; exit 1; }
   archive="coop_${version}_darwin_arm64.tar.gz"
   gh release download "$version" -R sarcasticbird/coop --dir "$install_tmp" \
@@ -121,7 +122,7 @@ coop tui                  Open the VM dashboard
 coop doctor               Check host and trusted user configuration
 coop rebuild              Build the embedded image definition locally
 coop destroy              Delete the VM and all of its state volumes
-coop --version             Print the installed Coop version
+coop --version            Print the installed Coop version
 ```
 
 Arguments after the command name are passed through unchanged:
