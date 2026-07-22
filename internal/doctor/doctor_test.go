@@ -48,6 +48,38 @@ func TestNoSeedsIsOptional(t *testing.T) {
 	}
 }
 
+func TestSensitiveSeedPathsWarn(t *testing.T) {
+	cfg := config.Default()
+	cfg.Seeds = []config.Seed{
+		{Src: "~/.git-credentials"},
+		{Src: "~/.aws/credentials"},
+		{Src: "~/.aws", Policy: config.PolicyOverlay},
+		{Src: "~/.docker", Policy: config.PolicyOverlay},
+		{Src: "~/.netrc"},
+		{Src: "~/.kube", Policy: config.PolicyOverlay},
+	}
+	m := runtime.NewMock()
+	m.Images = map[string]bool{session.EffectiveImageName(cfg.Image): true}
+	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
+	if c == nil || c.Status != Warn || !strings.Contains(c.Detail, "6 sensitive") {
+		t.Fatalf("warning = %+v", c)
+	}
+}
+
+func TestOrdinaryConfigAndSkillSeedsDoNotWarn(t *testing.T) {
+	cfg := config.Default()
+	cfg.Seeds = []config.Seed{
+		{Src: "~/.claude/skills", Policy: config.PolicyOverlay},
+		{Src: "~/.config/opencode/opencode.jsonc"},
+	}
+	m := runtime.NewMock()
+	m.Images = map[string]bool{session.EffectiveImageName(cfg.Image): true}
+	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
+	if c == nil || c.Status != OK {
+		t.Fatalf("ordinary seeds flagged as credentials: %+v", c)
+	}
+}
+
 func TestCustomImageMissingIsFail(t *testing.T) {
 	m := runtime.NewMock()
 	cfg := config.Default()
