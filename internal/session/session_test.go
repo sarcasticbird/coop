@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -38,7 +39,7 @@ func testSession(t *testing.T, m *runtime.Mock) *Session {
 		CredentialManager: credential.NewManager(t.TempDir()),
 		revokeCredentials: credential.RevokeAll,
 	}
-	m.Images = map[string]bool{EffectiveImageName(s.Cfg.Image): true}
+	m.Images = map[string]bool{EffectiveImageName(s.Cfg): true}
 	return s
 }
 
@@ -397,7 +398,10 @@ func TestRunStagesAfterSeedsAndKeepsFloxInsideCredentialWrapper(t *testing.T) {
 		t.Fatalf("wrong seed/scrub/stage order: seed=%d scrub=%d stage=%d calls:\n%s", seedIndex, scrubIndex, stageIndex, m.ExecString())
 	}
 	call := m.Interactive[0]
-	wantSuffix := []string{"flox", "activate", "--dir", project, "--", "agent", "arg with spaces"}
+	wantSuffix := []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--project-flox", project, "--", "agent", "arg with spaces",
+	}
 	if !slices.Equal(call.Argv[len(call.Argv)-len(wantSuffix):], wantSuffix) {
 		t.Fatalf("Flox command is not inside credential wrapper: %#v", call.Argv)
 	}
@@ -450,7 +454,7 @@ func TestRunAlwaysCleansUpAndPreservesGuestExit(t *testing.T) {
 	}
 }
 
-func TestRunWithoutCredentialsScrubsAndUsesOriginalArgv(t *testing.T) {
+func TestRunWithoutCredentialsScrubsAndPreservesArgvThroughEnvironment(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)
 	markRunning(m, s)
@@ -461,8 +465,12 @@ func TestRunWithoutCredentialsScrubsAndUsesOriginalArgv(t *testing.T) {
 	if len(m.ExecCalls) != 1 || len(m.ExecCalls[0].Argv) < 3 || !strings.Contains(m.ExecCalls[0].Argv[2], "root=/dev/shm/coop-credentials") {
 		t.Fatalf("stale leases not scrubbed: %#v", m.ExecCalls)
 	}
-	if !slices.Equal(m.Interactive[0].Argv, original) {
-		t.Fatalf("credential-free argv was wrapped: %#v", m.Interactive[0].Argv)
+	want := append([]string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--",
+	}, original...)
+	if !slices.Equal(m.Interactive[0].Argv, want) {
+		t.Fatalf("credential-free argv was not preserved through environment wrapper: %#v", m.Interactive[0].Argv)
 	}
 }
 
@@ -605,27 +613,53 @@ func TestUpAppliesSeeds(t *testing.T) {
 	}
 }
 
-func TestEntryArgvClampsCwdAndWrapsFlox(t *testing.T) {
+func TestEntryArgvLayersCoreToolsAndOptionalProjectFlox(t *testing.T) {
 	s := testSession(t, runtime.NewMock())
-	// project WITHOUT .flox: plain argv
-	workdir, argv := s.entryArgv("/elsewhere", []string{"opencode"})
+	workdir, argv := s.entryArgv("/elsewhere", []string{"opencode", "two words", "$HOME;echo nope"})
 	if workdir != s.Project {
 		t.Errorf("cwd outside project must clamp to root, got %q", workdir)
 	}
-	if strings.Join(argv, " ") != "opencode" {
-		t.Errorf("unexpected argv: %v", argv)
+	want := []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--", "opencode", "two words", "$HOME;echo nope",
+	}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("non-Flox argv = %#v, want %#v", argv, want)
+	}
+	_, argv = s.entryArgv(s.Project, nil)
+	want = []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--", "zsh", "-l",
+	}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("non-Flox bare shell argv = %#v, want %#v", argv, want)
 	}
 
-	// project WITH .flox: wrapped in flox activate
 	proj := t.TempDir()
+	nested := filepath.Join(proj, "nested", "work")
 	if err := os.MkdirAll(filepath.Join(proj, ".flox"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	s.Project = proj
-	_, argv = s.entryArgv(proj, []string{"claude"})
-	joined := strings.Join(argv, " ")
-	if !strings.Contains(joined, "flox activate") || !strings.Contains(joined, "claude") {
-		t.Errorf("flox wrap missing: %v", argv)
+	_, argv = s.entryArgv(nested, []string{"claude", "arg with spaces"})
+	want = []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--project-flox", proj, "--", "claude", "arg with spaces",
+	}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("project Flox argv = %#v, want %#v", argv, want)
+	}
+
+	_, argv = s.entryArgv(nested, nil)
+	want = []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env", "--project-flox", proj, "--", "zsh", "-l",
+	}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("bare shell argv = %#v, want %#v", argv, want)
 	}
 }
 
@@ -636,10 +670,39 @@ func TestEntryArgvRejectsSiblingPrefixPath(t *testing.T) {
 	}
 }
 
+func TestConfiguredAndProjectToolsStayOutOfMaintenancePlane(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(project, ".flox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.Project = project
+	s.Cfg.Tools.Packages = []string{"shellcheck"}
+	m.Images = map[string]bool{EffectiveImageName(s.Cfg): true}
+
+	if err := s.Run(project, []string{"opencode"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range m.ExecCalls {
+		joined := strings.Join(call.Argv, " ")
+		if strings.Contains(joined, "/opt/coop-tools") || strings.Contains(joined, project) || strings.Contains(joined, "coop-user-env") {
+			t.Fatalf("maintenance call inherited user tool layers: %#v", call.Argv)
+		}
+	}
+	if len(m.Interactive) != 1 {
+		t.Fatalf("interactive calls = %d", len(m.Interactive))
+	}
+	userArgv := strings.Join(m.Interactive[0].Argv, " ")
+	if !strings.Contains(userArgv, "coop-user-env") || !strings.Contains(userArgv, project) {
+		t.Fatalf("user call missing configured/project layering: %#v", m.Interactive[0].Argv)
+	}
+}
+
 func TestEnsureImageRequiresLocalBuildWhenMissing(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)
-	delete(m.Images, EffectiveImageName(s.Cfg.Image))
+	delete(m.Images, EffectiveImageName(s.Cfg))
 
 	if err := s.EnsureImage(); err == nil || !strings.Contains(err.Error(), "coop rebuild") {
 		t.Fatalf("missing local image did not require rebuild: %v", err)
@@ -649,7 +712,7 @@ func TestEnsureImageRequiresLocalBuildWhenMissing(t *testing.T) {
 func TestEnsureImageCustomConfigRequiresLocalBuild(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)
-	s.Cfg.Image.ExtraPackages = []string{"gemini-cli"}
+	s.Cfg.Tools.Packages = []string{"gemini-cli"}
 
 	err := s.EnsureImage()
 	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
@@ -660,7 +723,7 @@ func TestEnsureImageCustomConfigRequiresLocalBuild(t *testing.T) {
 func TestExtraPackagesNeverReuseStaleStockImage(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m) // the base local image is present
-	s.Cfg.Image.ExtraPackages = []string{"gemini-cli"}
+	s.Cfg.Tools.Packages = []string{"gemini-cli"}
 
 	err := s.EnsureImage()
 	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
@@ -675,8 +738,8 @@ func TestUpRecreatesContainerOnImageChange(t *testing.T) {
 	m.Existing["coop-proj"] = true
 	labelCurrent(m, s)
 	// config now wants extra packages; derived image already built
-	s.Cfg.Image.ExtraPackages = []string{"gemini-cli"}
-	derived := EffectiveImageName(s.Cfg.Image)
+	s.Cfg.Tools.Packages = []string{"gemini-cli"}
+	derived := EffectiveImageName(s.Cfg)
 	m.Images[derived] = true
 
 	if err := s.Up(); err != nil {
@@ -693,36 +756,60 @@ func TestUpRecreatesContainerOnImageChange(t *testing.T) {
 	}
 }
 
+func TestUpRecreationWarnsAboutUndeclaredRootfsChanges(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	m.Existing[s.Name] = true
+	labelCurrent(m, s)
+	s.Cfg.Tools.Packages = []string{"shellcheck"}
+	m.Images[EffectiveImageName(s.Cfg)] = true
+	var output bytes.Buffer
+	s.Output = &output
+
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"state volumes preserved", "root-filesystem changes will be discarded"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("recreation warning missing %q: %s", want, output.String())
+		}
+	}
+}
+
 func TestEffectiveImageNameRegistryPort(t *testing.T) {
-	img := config.Image{Name: "localhost:5000/team/coop:latest", ExtraPackages: []string{"x"}}
-	got := EffectiveImageName(img)
+	cfg := config.Config{Image: config.Image{Name: "localhost:5000/team/coop:latest"}, Tools: config.Tools{Packages: []string{"x"}}}
+	got := EffectiveImageName(cfg)
 	if !strings.HasPrefix(got, "localhost:5000/team/coop:local-") {
 		t.Errorf("registry port corrupted: %q", got)
 	}
-	digest := config.Image{Name: "repo/coop@sha256:deadbeef", ExtraPackages: []string{"x"}}
+	digest := config.Config{Image: config.Image{Name: "repo/coop@sha256:deadbeef"}, Tools: config.Tools{Packages: []string{"x"}}}
 	if got := EffectiveImageName(digest); !strings.HasPrefix(got, "repo/coop:local-") {
 		t.Errorf("digest ref corrupted: %q", got)
 	}
 }
 
 func TestEffectiveImageNameDerivation(t *testing.T) {
-	stock := config.Image{Name: "coop:latest"}
+	stock := config.Config{Image: config.Image{Name: "coop:latest"}}
 	if got := EffectiveImageName(stock); !strings.HasPrefix(got, "coop:local-") {
 		t.Errorf("default embedded image tag not derived: %s", got)
 	}
-	a := config.Image{Name: "coop:latest", ExtraPackages: []string{"x", "y"}}
-	b := config.Image{Name: "coop:latest", ExtraPackages: []string{"y", "x"}}
+	a := config.Config{Image: config.Image{Name: "coop:latest"}, Tools: config.Tools{Packages: []string{"x", "y"}}}
+	b := config.Config{Image: config.Image{Name: "coop:latest"}, Tools: config.Tools{Packages: []string{"y", "x", "y"}}}
 	if EffectiveImageName(a) != EffectiveImageName(b) {
-		t.Errorf("package order should not change tag")
+		t.Errorf("package order and duplicates should not change tag")
 	}
 	if EffectiveImageName(a) == EffectiveImageName(stock) || !strings.HasPrefix(EffectiveImageName(a), "coop:local-") {
 		t.Errorf("derived tag wrong: %s", EffectiveImageName(a))
 	}
 	// base ref changes must change the derived tag even with identical packages
-	v1 := config.Image{Name: "coop:v1", ExtraPackages: []string{"x"}}
-	v2 := config.Image{Name: "coop:v2", ExtraPackages: []string{"x"}}
+	v1 := config.Config{Image: config.Image{Name: "coop:v1"}, Tools: config.Tools{Packages: []string{"x"}}}
+	v2 := config.Config{Image: config.Image{Name: "coop:v2"}, Tools: config.Tools{Packages: []string{"x"}}}
 	if EffectiveImageName(v1) == EffectiveImageName(v2) {
 		t.Errorf("base ref not part of derivation")
+	}
+	custom := config.Config{Image: config.Image{Name: "team/coop:custom"}}
+	if got := EffectiveImageName(custom); got == custom.Image.Name || !strings.HasPrefix(got, "team/coop:local-") {
+		t.Errorf("custom image name bypassed embedded core identity: %s", got)
 	}
 }
 
@@ -731,7 +818,7 @@ func TestUpRefusesTeardownWhenReplacementImageMissing(t *testing.T) {
 	s := testSession(t, m)
 	m.Existing["coop-proj"] = true
 	labelCurrent(m, s)
-	s.Cfg.Image.ExtraPackages = []string{"gemini-cli"} // derived image NOT built
+	s.Cfg.Tools.Packages = []string{"gemini-cli"} // derived image NOT built
 
 	err := s.Up()
 	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {

@@ -21,6 +21,7 @@ func TestEmbeddedBuildContext(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	for _, name := range []string{
 		"Containerfile",
+		"coop-user-env",
 		"zshrc",
 		"core/.flox/env.json",
 		"core/.flox/env/manifest.toml",
@@ -36,6 +37,76 @@ func TestEmbeddedBuildContext(t *testing.T) {
 	}
 	if !strings.Contains(string(containerfile), "ARG NIXPKGS_REF="+NixpkgsRef) {
 		t.Fatal("Go and Containerfile nixpkgs pins differ")
+	}
+}
+
+func TestMaterializeWritesCanonicalConfiguredInstallables(t *testing.T) {
+	dir, err := Materialize([]string{"shellcheck", "actionlint", "shellcheck"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	data, err := os.ReadFile(filepath.Join(dir, "configured-packages.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := NixpkgsRef + "#actionlint\n" + NixpkgsRef + "#shellcheck\n"
+	if string(data) != want {
+		t.Fatalf("configured package input = %q, want %q", data, want)
+	}
+}
+
+func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
+	data, err := files.ReadFile("Containerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, required := range []string{
+		"COPY core/.flox/env.json /opt/coop-core/.flox/env.json",
+		"COPY core/.flox/env/manifest.toml /opt/coop-core/.flox/env/manifest.toml",
+		"COPY core/.flox/env/manifest.lock /opt/coop-core/.flox/env/manifest.lock",
+		"flox activate --dir /opt/coop-core -- true",
+		"COPY configured-packages.txt",
+		`--profile /opt/coop-tools/profile`,
+		`"$installable"`,
+		"COPY coop-user-env /usr/local/bin/coop-user-env",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("Containerfile missing %q", required)
+		}
+	}
+	if strings.Contains(content, "COPY core/.flox /opt/coop-core/.flox") {
+		t.Fatal("Apple container drops files from recursive hidden-directory COPY")
+	}
+	if strings.Contains(content, "#nodejs_22") || strings.Contains(content, "EXTRA_PKGS") {
+		t.Fatal("Containerfile still exposes the old runtime or shell-expanded package input")
+	}
+}
+
+func TestUserEnvironmentWrapperPreservesArgv(t *testing.T) {
+	data, err := files.ReadFile("coop-user-env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Contains(content, "eval") || strings.Contains(content, "flox activate -c") {
+		t.Fatal("user wrapper evaluates command text")
+	}
+	for _, required := range []string{`export PATH="$tools_profile/bin:$PATH"`, `exec flox activate --dir "$project_flox" -- "$@"`, `exec "$@"`} {
+		if !strings.Contains(content, required) {
+			t.Errorf("user wrapper missing %q", required)
+		}
+	}
+}
+
+func TestZshrcDoesNotReplaceLayeredPath(t *testing.T) {
+	data, err := files.ReadFile("zshrc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "export PATH=") {
+		t.Fatal("zshrc replaces the core/configured/project PATH assembled at entry")
 	}
 }
 
@@ -64,6 +135,7 @@ func TestCoreLockTargetsAarch64LinuxOnly(t *testing.T) {
 	var lock struct {
 		Packages []struct {
 			AttrPath string `json:"attr_path"`
+			Priority int    `json:"priority"`
 			System   string `json:"system"`
 		} `json:"packages"`
 	}
@@ -73,6 +145,7 @@ func TestCoreLockTargetsAarch64LinuxOnly(t *testing.T) {
 	if len(lock.Packages) != len(CorePackages()) {
 		t.Fatalf("locked packages = %d, want %d", len(lock.Packages), len(CorePackages()))
 	}
+	priorities := make(map[string]int, len(lock.Packages))
 	for _, pkg := range lock.Packages {
 		if pkg.System != "aarch64-linux" {
 			t.Fatalf("package %s locked for %s", pkg.AttrPath, pkg.System)
@@ -80,6 +153,10 @@ func TestCoreLockTargetsAarch64LinuxOnly(t *testing.T) {
 		if !slices.Contains(CorePackages(), pkg.AttrPath) {
 			t.Fatalf("unexpected locked package %q", pkg.AttrPath)
 		}
+		priorities[pkg.AttrPath] = pkg.Priority
+	}
+	if priorities["coreutils"] >= priorities["procps"] {
+		t.Fatalf("coreutils priority %d must win bin/kill over procps priority %d", priorities["coreutils"], priorities["procps"])
 	}
 }
 

@@ -16,7 +16,8 @@
         "pkg-path": "codex"
       },
       "coreutils": {
-        "pkg-path": "coreutils"
+        "pkg-path": "coreutils",
+        "priority": 4
       },
       "curl": {
         "pkg-path": "curl"
@@ -250,7 +251,7 @@
       },
       "system": "aarch64-linux",
       "group": "toplevel",
-      "priority": 5
+      "priority": 4
     },
     {
       "attr_path": "curl",

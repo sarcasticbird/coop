@@ -164,11 +164,6 @@ func Load(projectRoot string) (Config, error) {
 	if len(cfg.Tools.Packages) > MaxToolPackages {
 		return cfg, fmt.Errorf("configured tool package count %d exceeds maximum %d", len(cfg.Tools.Packages), MaxToolPackages)
 	}
-	// Keep the current image/session consumers working while they migrate to
-	// Tools in the following image-construction change. This is derived output,
-	// not an additional merge source.
-	cfg.Image.ExtraPackages = append([]string(nil), cfg.Tools.Packages...)
-
 	for i := range cfg.Seeds {
 		if cfg.Seeds[i].Dest == "" {
 			cfg.Seeds[i].Dest = cfg.Seeds[i].Src

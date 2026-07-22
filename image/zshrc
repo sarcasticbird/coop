@@ -1,7 +1,6 @@
 # coop guest zshrc — slim, baked into the sandbox image.
 # Host zsh config is never mounted; keep this minimal and portable.
 
-export PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin"
 export EDITOR=vi
 export LANG=C.UTF-8
 
@@ -13,13 +12,3 @@ setopt SHARE_HISTORY HIST_IGNORE_DUPS
 
 # Prompt — make it unmistakable that this shell is inside the coop
 PROMPT='%F{yellow}[coop]%f %F{cyan}%~%f %# '
-
-# Auto-activate the project flox environment when entering a project dir
-_coop_flox_activate() {
-  if [[ -z "$FLOX_ENV" && -d .flox ]]; then
-    echo "coop: flox manifest detected — run 'flox activate' for project toolchain"
-  fi
-}
-autoload -U add-zsh-hook
-add-zsh-hook chpwd _coop_flox_activate
-_coop_flox_activate

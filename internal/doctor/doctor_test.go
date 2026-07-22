@@ -41,7 +41,7 @@ func TestImageMissingRequiresLocalBuild(t *testing.T) {
 
 func TestNoSeedsIsOptional(t *testing.T) {
 	m := runtime.NewMock()
-	m.Images = map[string]bool{session.EffectiveImageName(config.Default().Image): true}
+	m.Images = map[string]bool{session.EffectiveImageName(config.Default()): true}
 	c := get(Run(m, config.Default(), "/h", found), "seeds")
 	if c == nil || c.Status != OK {
 		t.Fatalf("empty optional seed config should be healthy: %+v", c)
@@ -59,7 +59,7 @@ func TestSensitiveSeedPathsWarn(t *testing.T) {
 		{Src: "~/.kube", Policy: config.PolicyOverlay},
 	}
 	m := runtime.NewMock()
-	m.Images = map[string]bool{session.EffectiveImageName(cfg.Image): true}
+	m.Images = map[string]bool{session.EffectiveImageName(cfg): true}
 	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
 	if c == nil || c.Status != Warn || !strings.Contains(c.Detail, "6 sensitive") {
 		t.Fatalf("warning = %+v", c)
@@ -73,7 +73,7 @@ func TestOrdinaryConfigAndSkillSeedsDoNotWarn(t *testing.T) {
 		{Src: "~/.config/opencode/opencode.jsonc"},
 	}
 	m := runtime.NewMock()
-	m.Images = map[string]bool{session.EffectiveImageName(cfg.Image): true}
+	m.Images = map[string]bool{session.EffectiveImageName(cfg): true}
 	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
 	if c == nil || c.Status != OK {
 		t.Fatalf("ordinary seeds flagged as credentials: %+v", c)
@@ -83,7 +83,7 @@ func TestOrdinaryConfigAndSkillSeedsDoNotWarn(t *testing.T) {
 func TestCustomImageMissingIsFail(t *testing.T) {
 	m := runtime.NewMock()
 	cfg := config.Default()
-	cfg.Image.ExtraPackages = []string{"gemini-cli"}
+	cfg.Tools.Packages = []string{"gemini-cli"}
 	c := get(Run(m, cfg, "/h", found), "sandbox image")
 	if c == nil || c.Status != Fail || !strings.Contains(c.Detail, "rebuild") {
 		t.Errorf("custom missing image should fail toward rebuild: %+v", c)
@@ -92,7 +92,7 @@ func TestCustomImageMissingIsFail(t *testing.T) {
 
 func TestLegacyArtifactsDetected(t *testing.T) {
 	m := runtime.NewMock()
-	m.Images = map[string]bool{session.EffectiveImageName(config.Default().Image): true}
+	m.Images = map[string]bool{session.EffectiveImageName(config.Default()): true}
 	m.Infos = []runtime.ContainerInfo{
 		{Name: "coop-legacyapp"}, // pre-hash container
 		{Name: project.Name("/work/app"), Mounts: []runtime.MountInfo{{

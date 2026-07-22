@@ -4,6 +4,7 @@ schema-version = "1.13.0"
 bash.pkg-path = "bashInteractive"
 zsh.pkg-path = "zsh"
 coreutils.pkg-path = "coreutils"
+coreutils.priority = 4
 gnugrep.pkg-path = "gnugrep"
 gnused.pkg-path = "gnused"
 findutils.pkg-path = "findutils"

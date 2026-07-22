@@ -1,18 +1,83 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
 	"github.com/sarcasticbird/coop/internal/tui"
 )
+
+func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[tools]\npackages = [\"bat\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), []byte("[tools]\npackages = [\"shellcheck\", \"actionlint\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	oldBuild := buildImage
+	var gotArgs []string
+	var packageInput string
+	buildImage = func(args []string, _, _ io.Writer) error {
+		gotArgs = slices.Clone(args)
+		data, err := os.ReadFile(filepath.Join(args[len(args)-1], "configured-packages.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		packageInput = string(data)
+		return errors.New("resolver failed")
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"rebuild"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "resolver failed") {
+		t.Fatalf("build error = %v", err)
+	}
+	for _, want := range []string{
+		"core tools:     26 packages",
+		"global tools:   bat",
+		"project tools:  actionlint, shellcheck",
+		"image:          coop:local-",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("rebuild output missing %q:\n%s", want, output.String())
+		}
+	}
+	if strings.Contains(strings.Join(gotArgs, " "), "EXTRA_PKGS") {
+		t.Fatalf("build argv contains legacy shell package input: %v", gotArgs)
+	}
+	wantInput := image.NixpkgsRef + "#actionlint\n" + image.NixpkgsRef + "#bat\n" + image.NixpkgsRef + "#shellcheck\n"
+	if packageInput != wantInput {
+		t.Fatalf("configured package input = %q, want %q", packageInput, wantInput)
+	}
+	if len(m.Stopped) != 0 || len(m.Removed) != 0 {
+		t.Fatalf("failed rebuild mutated container: stopped=%v removed=%v", m.Stopped, m.Removed)
+	}
+}
 
 func withRuntime(t *testing.T, rt runtime.Runtime) {
 	t.Helper()
@@ -185,7 +250,7 @@ func TestListDoesNotLoadCurrentProject(t *testing.T) {
 
 func TestDoctorLoadsGlobalConfigFromHome(t *testing.T) {
 	m := runtime.NewMock()
-	m.Images = map[string]bool{session.EffectiveImageName(config.Default().Image): true}
+	m.Images = map[string]bool{session.EffectiveImageName(config.Default()): true}
 	withRuntime(t, m)
 	home := t.TempDir()
 	t.Setenv("HOME", home)

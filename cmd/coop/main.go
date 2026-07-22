@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	buildinfo "runtime/debug"
@@ -61,7 +62,12 @@ var (
 	runSession = func(s *session.Session, cwd string, argv, credentials []string) error {
 		return s.Run(cwd, argv, credentials)
 	}
-	runTUI = tui.Run
+	runTUI     = tui.Run
+	buildImage = func(args []string, stdout, stderr io.Writer) error {
+		build := exec.Command("container", args...)
+		build.Stdout, build.Stderr = stdout, stderr
+		return build.Run()
+	}
 )
 
 func main() { os.Exit(execute(root())) }
@@ -240,24 +246,16 @@ project toolchains come from the project's own flox manifest.`,
 					return err
 				}
 				defer func() { _ = os.RemoveAll(ctx) }()
+				desiredImage := session.EffectiveImageName(s.Cfg)
+				fmt.Fprintf(cmd.OutOrStdout(), "core tools:     %d packages\n", len(image.CorePackages()))
+				fmt.Fprintf(cmd.OutOrStdout(), "global tools:   %s\n", formatToolList(s.Cfg.Tools.GlobalPackages))
+				fmt.Fprintf(cmd.OutOrStdout(), "project tools:  %s\n", formatToolList(s.Cfg.Tools.ProjectPackages))
+				fmt.Fprintf(cmd.OutOrStdout(), "image:          %s\n", desiredImage)
 				args := []string{"build",
-					"-t", session.EffectiveImageName(s.Cfg.Image),
+					"-t", desiredImage,
 					"--build-arg", "GUEST_HOME=" + s.HostHome}
-				if pkgs := s.Cfg.Image.ExtraPackages; len(pkgs) > 0 {
-					attrs := make([]string, len(pkgs))
-					for i, p := range pkgs {
-						if strings.Contains(p, "#") {
-							attrs[i] = p
-						} else {
-							attrs[i] = image.NixpkgsRef + "#" + p
-						}
-					}
-					args = append(args, "--build-arg", "EXTRA_PKGS="+strings.Join(attrs, " "))
-				}
 				args = append(args, ctx)
-				build := exec.Command("container", args...)
-				build.Stdout, build.Stderr = os.Stdout, os.Stderr
-				return build.Run()
+				return buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}},
 		&cobra.Command{Use: "destroy", Args: cobra.NoArgs, Short: "Remove the coop AND its state volumes",
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -277,6 +275,13 @@ project toolchains come from the project's own flox manifest.`,
 			}},
 	)
 	return rootCmd
+}
+
+func formatToolList(packages []string) string {
+	if len(packages) == 0 {
+		return "(none)"
+	}
+	return strings.Join(packages, ", ")
 }
 
 func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {

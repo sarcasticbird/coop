@@ -10,10 +10,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
-//go:embed Containerfile zshrc core/.flox/env.json core/.flox/env/manifest.toml core/.flox/env/manifest.lock
+//go:embed Containerfile coop-user-env zshrc core/.flox/env.json core/.flox/env/manifest.toml core/.flox/env/manifest.lock
 var files embed.FS
 
 // NixpkgsRef is the immutable package source shared by the embedded image and
@@ -22,6 +23,7 @@ const NixpkgsRef = "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea
 
 var embeddedFiles = []string{
 	"Containerfile",
+	"coop-user-env",
 	"zshrc",
 	"core/.flox/env.json",
 	"core/.flox/env/manifest.toml",
@@ -86,11 +88,24 @@ func Materialize(packages []string) (dir string, retErr error) {
 		}
 	}
 	var installables strings.Builder
-	for _, pkg := range packages {
+	for _, pkg := range canonicalPackages(packages) {
 		fmt.Fprintf(&installables, "%s#%s\n", NixpkgsRef, pkg)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "configured-packages.txt"), []byte(installables.String()), 0o644); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+func canonicalPackages(packages []string) []string {
+	unique := make(map[string]struct{}, len(packages))
+	for _, pkg := range packages {
+		unique[pkg] = struct{}{}
+	}
+	canonical := make([]string, 0, len(unique))
+	for pkg := range unique {
+		canonical = append(canonical, pkg)
+	}
+	sort.Strings(canonical)
+	return canonical
 }

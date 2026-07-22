@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_flox=""
+if [[ "${1:-}" == "--project-flox" ]]; then
+  if (( $# < 3 )); then
+    echo "coop-user-env: --project-flox requires a directory and command" >&2
+    exit 64
+  fi
+  project_flox=$2
+  shift 2
+fi
+if [[ "${1:-}" != "--" ]]; then
+  echo "coop-user-env: expected -- before command" >&2
+  exit 64
+fi
+shift
+if (( $# == 0 )); then
+  echo "coop-user-env: command is required" >&2
+  exit 64
+fi
+
+tools_profile=${COOP_TOOLS_PROFILE:-/opt/coop-tools/profile}
+export PATH="$tools_profile/bin:$PATH"
+
+if [[ -n "$project_flox" ]]; then
+  exec flox activate --dir "$project_flox" -- "$@"
+fi
+exec "$@"

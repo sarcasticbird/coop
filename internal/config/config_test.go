@@ -190,8 +190,8 @@ extra_packages = ["shellcheck", "bat"]
 	if want := []string{"bat", "shellcheck"}; !slices.Equal(cfg.Tools.Packages, want) {
 		t.Fatalf("legacy alias tools = %v, want %v", cfg.Tools.Packages, want)
 	}
-	if !slices.Equal(cfg.Image.ExtraPackages, cfg.Tools.Packages) {
-		t.Fatalf("legacy image consumers lost package set: image=%v tools=%v", cfg.Image.ExtraPackages, cfg.Tools.Packages)
+	if len(cfg.Image.ExtraPackages) != 0 {
+		t.Fatalf("legacy input leaked into the merged image model: %v", cfg.Image.ExtraPackages)
 	}
 	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "deprecated") || !strings.Contains(cfg.Warnings[0], "tools.packages") {
 		t.Fatalf("legacy warning = %v", cfg.Warnings)
