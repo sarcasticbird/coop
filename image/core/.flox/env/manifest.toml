@@ -1,0 +1,32 @@
+schema-version = "1.13.0"
+
+[install]
+bash.pkg-path = "bashInteractive"
+zsh.pkg-path = "zsh"
+coreutils.pkg-path = "coreutils"
+gnugrep.pkg-path = "gnugrep"
+gnused.pkg-path = "gnused"
+findutils.pkg-path = "findutils"
+gawk.pkg-path = "gawk"
+gnutar.pkg-path = "gnutar"
+gzip.pkg-path = "gzip"
+cacert.pkg-path = "cacert"
+git.pkg-path = "git"
+gh.pkg-path = "gh"
+openssh.pkg-path = "openssh"
+curl.pkg-path = "curl"
+ripgrep.pkg-path = "ripgrep"
+jq.pkg-path = "jq"
+diffutils.pkg-path = "diffutils"
+patch.pkg-path = "patch"
+file.pkg-path = "file"
+less.pkg-path = "less"
+procps.pkg-path = "procps"
+tmux.pkg-path = "tmux"
+unzip.pkg-path = "unzip"
+codex.pkg-path = "codex"
+claude-code.pkg-path = "claude-code"
+opencode.pkg-path = "opencode"
+
+[options]
+systems = ["aarch64-linux"]

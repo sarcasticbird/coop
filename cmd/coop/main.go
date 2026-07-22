@@ -235,7 +235,7 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				ctx, err := image.Materialize()
+				ctx, err := image.Materialize(s.Cfg.Tools.Packages)
 				if err != nil {
 					return err
 				}
