@@ -10,12 +10,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/credential"
 	"github.com/sarcasticbird/coop/internal/lock"
 	"github.com/sarcasticbird/coop/internal/project"
 	"github.com/sarcasticbird/coop/internal/runtime"
@@ -23,12 +25,14 @@ import (
 )
 
 type Session struct {
-	RT        runtime.Runtime
-	Project   string // resolved project root
-	Name      string // container name
-	Cfg       config.Config
-	HostHome  string
-	GuestHome string // == HostHome: the identical-path property
+	RT                runtime.Runtime
+	Project           string // resolved project root
+	Name              string // container name
+	Cfg               config.Config
+	HostHome          string
+	GuestHome         string // == HostHome: the identical-path property
+	CredentialManager *credential.Manager
+	revokeCredentials func(context.Context, []credential.Acquired) error
 }
 
 // New resolves a session from a working directory.
@@ -45,9 +49,12 @@ func New(rt runtime.Runtime, cwd string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	manager := credential.NewManager(root)
 	return &Session{
 		RT: rt, Project: root, Name: project.Name(root),
 		Cfg: cfg, HostHome: home, GuestHome: home,
+		CredentialManager: manager,
+		revokeCredentials: credential.RevokeAll,
 	}, nil
 }
 
@@ -120,24 +127,38 @@ func (s *Session) SpecFingerprint() string {
 // (image, resources, ssh, volumes...) is recreated — state volumes
 // survive recreation by design. Serialized per project by a host lock.
 func (s *Session) Up() error {
-	release, err := lock.Acquire(s.Name, 30*time.Second)
+	return s.UpContext(context.Background())
+}
+
+// UpContext ensures the container is ready and cancels seed transports with ctx.
+func (s *Session) UpContext(ctx context.Context) error {
+	release, err := lock.AcquireContext(ctx, s.Name, 30*time.Second)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return s.up()
+	return s.up(ctx)
 }
 
-func (s *Session) up() error {
+func (s *Session) up(ctx context.Context) error {
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
 	want := s.SpecFingerprint()
 	state, err := s.RT.State(s.Name)
 	if err != nil {
 		return fmt.Errorf("state of %s: %w", s.Name, err)
 	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
 	if state != runtime.StateAbsent {
 		have, err := s.RT.ContainerLabel(s.Name, SpecLabel)
 		if err != nil {
 			return fmt.Errorf("spec check for %s: %w", s.Name, err)
+		}
+		if err := context.Cause(ctx); err != nil {
+			return err
 		}
 		if have != want {
 			// Validate the replacement image exists BEFORE tearing down
@@ -145,9 +166,15 @@ func (s *Session) up() error {
 			if err := s.EnsureImage(); err != nil {
 				return fmt.Errorf("%s config changed but replacement not ready: %w", s.Name, err)
 			}
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
 			fmt.Printf("%s config changed (spec %s -> %s) — recreating, state volumes preserved...\n",
 				s.Name, valueOrLegacy(have), want)
 			_ = s.RT.Stop(s.Name)
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
 			if err := s.RT.Remove(s.Name); err != nil {
 				return fmt.Errorf("recreate %s: %w", s.Name, err)
 			}
@@ -157,6 +184,9 @@ func (s *Session) up() error {
 	switch state {
 	case runtime.StateRunning:
 	case runtime.StateStopped:
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
 		if err := s.RT.Start(s.Name); err != nil {
 			return fmt.Errorf("start %s: %w", s.Name, err)
 		}
@@ -164,11 +194,17 @@ func (s *Session) up() error {
 		if err := s.EnsureImage(); err != nil {
 			return err
 		}
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
 		// Per-project agent state volumes: sessions/history stay isolated
 		// per coop (no cross-project transcript leakage), credentials
 		// refreshed in-guest persist across restarts.
 		var vols []runtime.Volume
 		for agent, spec := range s.Cfg.Agents {
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
 			v := s.Name + project.VolumeSep + agent
 			if err := s.RT.EnsureVolume(v); err != nil {
 				return fmt.Errorf("volume %s: %w", v, err)
@@ -179,6 +215,9 @@ func (s *Session) up() error {
 			})
 		}
 		sort.Slice(vols, func(i, j int) bool { return vols[i].Name < vols[j].Name })
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
 		err := s.RT.Run(runtime.RunSpec{
 			Name:   s.Name,
 			Image:  EffectiveImageName(s.Cfg.Image),
@@ -195,16 +234,22 @@ func (s *Session) up() error {
 		if err != nil {
 			return fmt.Errorf("create %s: %w", s.Name, err)
 		}
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
 		// The image is built with a default GUEST_HOME; the real home is
 		// decided here at run time and must exist.
-		if err := s.RT.Exec(s.Name, []string{"mkdir", "-p", s.GuestHome}, nil); err != nil {
+		if err := s.RT.ExecContext(ctx, s.Name, []string{"mkdir", "-p", s.GuestHome}, nil); err != nil {
 			return fmt.Errorf("ensure guest home: %w", err)
 		}
 	}
-	if err := seed.Apply(s.RT, s.Name, s.HostHome, s.GuestHome, s.Cfg.Seeds); err != nil {
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	if err := seed.ApplyContext(ctx, s.RT, s.Name, s.HostHome, s.GuestHome, s.Cfg.Seeds); err != nil {
 		return fmt.Errorf("seeding %s: %w", s.Name, err)
 	}
-	return nil
+	return context.Cause(ctx)
 }
 
 // canonicalizeCwd aligns a working directory with the canonical
@@ -216,26 +261,18 @@ func canonicalizeCwd(cwd string) string {
 	return cwd
 }
 
-// Enter runs inside the session at cwd (clamped to the project) — a shell
-// when argv is empty, otherwise the given agent/command, wrapped in
-// `flox activate` when a manifest applies. Argv is passed as a vector
-// end-to-end: arguments must never be re-parsed as shell syntax.
-func (s *Session) Enter(cwd string, argv []string) error {
-	ctx, stopSignals := runtime.NotifyContext(context.Background())
-	defer stopSignals()
-
+func (s *Session) entryArgv(cwd string, argv []string) (string, []string) {
 	cwd = canonicalizeCwd(cwd)
 	if !withinProject(s.Project, cwd) {
 		cwd = s.Project
 	}
 	if len(argv) == 0 {
-		return s.RT.ExecInteractive(ctx, s.Name, cwd, []string{"zsh", "-l"})
+		return cwd, []string{"zsh", "-l"}
 	}
 	if dir := s.floxDir(cwd); dir != "" {
-		wrapped := append([]string{"flox", "activate", "--dir", dir, "--"}, argv...)
-		return s.RT.ExecInteractive(ctx, s.Name, cwd, wrapped)
+		return cwd, append([]string{"flox", "activate", "--dir", dir, "--"}, argv...)
 	}
-	return s.RT.ExecInteractive(ctx, s.Name, cwd, argv)
+	return cwd, slices.Clone(argv)
 }
 
 // floxDir finds the manifest governing cwd, walking up to the project

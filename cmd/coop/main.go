@@ -90,10 +90,7 @@ project toolchains come from the project's own flox manifest.`,
 			if err != nil {
 				return err
 			}
-			if err := s.Up(); err != nil {
-				return err
-			}
-			return s.Enter(cwd, args)
+			return s.Run(cwd, args, nil)
 		},
 	}
 
@@ -183,10 +180,7 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
-					if err := s.Up(); err != nil {
-						return err
-					}
-					return s.Enter(res.EnterWorkdir, nil)
+					return s.Run(res.EnterWorkdir, nil, nil)
 				}
 				return nil
 			}},

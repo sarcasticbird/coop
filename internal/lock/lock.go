@@ -4,6 +4,7 @@
 package lock
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,15 @@ import (
 // for up to wait, then fails loudly (a silent queue would hide a hung
 // operation elsewhere). The returned release function is idempotent.
 func Acquire(name string, wait time.Duration) (func(), error) {
+	return AcquireContext(context.Background(), name, wait)
+}
+
+// AcquireContext takes an exclusive flock and stops retrying immediately when
+// ctx is canceled. The returned release function is idempotent.
+func AcquireContext(ctx context.Context, name string, wait time.Duration) (func(), error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 	dir := filepath.Join(stateHome(), "coop", "locks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("lock dir: %w", err)
@@ -35,7 +45,16 @@ func Acquire(name string, wait time.Duration) (func(), error) {
 			_ = f.Close()
 			return nil, fmt.Errorf("another coop operation on %s is in progress (lock timeout after %s)", name, wait)
 		}
-		time.Sleep(150 * time.Millisecond)
+		timer := time.NewTimer(150 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			_ = f.Close()
+			return nil, context.Cause(ctx)
+		case <-timer.C:
+		}
 	}
 
 	released := false

@@ -1,13 +1,19 @@
 package session
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/credential"
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
 
@@ -27,11 +33,443 @@ func testSession(t *testing.T, m *runtime.Mock) *Session {
 				"codex":    {State: "~/.codex"},
 			},
 		},
-		HostHome:  "/Users/u",
-		GuestHome: "/Users/u",
+		HostHome:          "/Users/u",
+		GuestHome:         "/Users/u",
+		CredentialManager: credential.NewManager(t.TempDir()),
+		revokeCredentials: credential.RevokeAll,
 	}
 	m.Images = map[string]bool{EffectiveImageName(s.Cfg.Image): true}
 	return s
+}
+
+func TestRunAcquiresCredentialsBeforeUp(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	s.CredentialManager.Run = func(context.Context, string, []string) ([]byte, error) {
+		if len(m.Run_) != 0 || len(m.Started) != 0 || len(m.ExecCalls) != 0 {
+			t.Fatal("runtime mutated before credential acquisition completed")
+		}
+		return []byte("secret"), nil
+	}
+
+	if err := s.Run(s.Project, []string{"agent"}, []string{"token"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Run_) != 1 || len(m.Interactive) != 1 {
+		t.Fatalf("entry did not proceed after acquisition: runs=%d interactive=%d", len(m.Run_), len(m.Interactive))
+	}
+}
+
+func TestRunCleansLeaseWhenStageReportsFailure(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	stageErr := errors.New("stage transport failed")
+	m.ExecErrors = []error{nil, stageErr}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	if !errors.Is(err, stageErr) {
+		t.Fatalf("stage error missing: %v", err)
+	}
+	if len(m.Interactive) != 0 {
+		t.Fatal("guest command ran after staging failure")
+	}
+	if len(m.ExecCalls) != 3 || len(m.ExecCalls[2].Argv) != 5 ||
+		m.ExecCalls[2].Argv[0] != "rm" || !strings.HasSuffix(m.ExecCalls[2].Argv[4], ".staging") {
+		t.Fatalf("staging failure cleanup missing: %#v", m.ExecCalls)
+	}
+}
+
+func TestRunAcquisitionFailureDoesNotMutateRuntime(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	s.CredentialManager.Run = func(context.Context, string, []string) ([]byte, error) {
+		return nil, errors.New("helper unavailable")
+	}
+
+	if err := s.Run(s.Project, []string{"agent"}, []string{"token"}); err == nil {
+		t.Fatal("acquisition failure was ignored")
+	}
+	if len(m.Run_) != 0 || len(m.Started) != 0 || len(m.ExecCalls) != 0 || len(m.Interactive) != 0 {
+		t.Fatalf("runtime mutated after acquisition failure: runs=%d started=%v exec=%d interactive=%d",
+			len(m.Run_), m.Started, len(m.ExecCalls), len(m.Interactive))
+	}
+}
+
+func TestRunSignalDuringAcquisitionUnwindsNormally(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	s.CredentialManager.Run = func(ctx context.Context, _ string, _ []string) ([]byte, error) {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return nil, err
+		}
+		<-ctx.Done()
+		return nil, context.Cause(ctx)
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 143 {
+		t.Fatalf("signal error = %v", err)
+	}
+	if len(m.Run_) != 0 || len(m.Started) != 0 || len(m.ExecCalls) != 0 || len(m.Interactive) != 0 {
+		t.Fatal("runtime mutated after acquisition was interrupted")
+	}
+}
+
+func TestRunSignalDuringInteractiveEntryCleansLease(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	m.InteractiveFunc = func(ctx context.Context, _, _ string, _ []string) error {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 143 {
+		t.Fatalf("signal error = %v", err)
+	}
+	if len(m.ExecCalls) != 3 || m.ExecCalls[2].Argv[0] != "rm" {
+		t.Fatalf("signal cleanup missing: %#v", m.ExecCalls)
+	}
+}
+
+type stateFuncRuntime struct {
+	runtime.Runtime
+	state func(string) (runtime.State, error)
+}
+
+func (r stateFuncRuntime) State(name string) (runtime.State, error) {
+	return r.state(name)
+}
+
+func TestUpContextDoesNotMutateAfterCancellationDuringStateInspection(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	cause := errors.New("entry interrupted")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	s.RT = stateFuncRuntime{Runtime: m, state: func(string) (runtime.State, error) {
+		cancel(cause)
+		return runtime.StateAbsent, nil
+	}}
+
+	err := s.UpContext(ctx)
+	if !errors.Is(err, cause) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if len(m.Run_) != 0 || len(m.Started) != 0 || len(m.ExecCalls) != 0 || len(m.Volumes) != 0 {
+		t.Fatalf("runtime mutated after state cancellation: %#v", m)
+	}
+}
+
+func TestRunSignalDuringLeaseCleanupIsReturned(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	var lifecycle context.Context
+	m.InteractiveFunc = func(ctx context.Context, _, _ string, _ []string) error {
+		lifecycle = ctx
+		return nil
+	}
+	m.ExecContextFunc = func(_ context.Context, index int, _ runtime.ExecCall) error {
+		if index != 2 {
+			return nil
+		}
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return err
+		}
+		<-lifecycle.Done()
+		return nil
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	var signalErr *runtime.SignalError
+	if !errors.As(err, &signalErr) || signalErr.ExitCode() != 143 {
+		t.Fatalf("cleanup signal error = %v", err)
+	}
+}
+
+func TestRunSignalDuringRevocationIsReturned(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	var lifecycle context.Context
+	m.InteractiveFunc = func(ctx context.Context, _, _ string, _ []string) error {
+		lifecycle = ctx
+		return nil
+	}
+	s.revokeCredentials = func(context.Context, []credential.Acquired) error {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return err
+		}
+		<-lifecycle.Done()
+		return nil
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	var signalErr *runtime.SignalError
+	if !errors.As(err, &signalErr) || signalErr.ExitCode() != 143 {
+		t.Fatalf("revocation signal error = %v", err)
+	}
+}
+
+func TestRunSignalDuringStagingCancelsTransportAndCleansLease(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	m.ExecContextFunc = func(ctx context.Context, index int, _ runtime.ExecCall) error {
+		if index != 1 {
+			return nil
+		}
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 143 {
+		t.Fatalf("signal error = %v", err)
+	}
+	if len(m.Interactive) != 0 {
+		t.Fatal("interactive entry started after staging cancellation")
+	}
+	if len(m.ExecCalls) != 3 || m.ExecCalls[2].Argv[0] != "rm" {
+		t.Fatalf("staging cancellation cleanup missing: %#v", m.ExecCalls)
+	}
+}
+
+func TestRunSignalDuringSeedCancelsTransport(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	source := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(source, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Seeds = []config.Seed{{Src: source, Dest: "~/.config/tool/settings.json", Policy: config.PolicyAlways}}
+
+	var seedCtx context.Context
+	m.ExecContextFunc = func(ctx context.Context, index int, _ runtime.ExecCall) error {
+		if index != 1 {
+			return nil
+		}
+		seedCtx = ctx
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-time.After(time.Second):
+			return errors.New("seed transport ignored lifecycle cancellation")
+		}
+	}
+
+	err := s.Run(s.Project, []string{"agent"}, nil)
+	var signalErr *runtime.SignalError
+	if !errors.As(err, &signalErr) || signalErr.ExitCode() != 143 {
+		t.Fatalf("signal error = %v", err)
+	}
+	if seedCtx == nil || context.Cause(seedCtx) == nil {
+		t.Fatal("seed transport did not receive lifecycle cancellation")
+	}
+	if len(m.Interactive) != 0 {
+		t.Fatal("interactive entry started after seed cancellation")
+	}
+}
+
+func TestRunStagesAfterSeedsAndKeepsFloxInsideCredentialWrapper(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(project, ".flox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.Project = project
+	seedSource := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(seedSource, []byte("config"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Seeds = []config.Seed{{Src: seedSource, Dest: "~/.config/tool", Policy: config.PolicyAlways}}
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "file", Path: secret},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+
+	if err := s.Run(project, []string{"agent", "arg with spaces"}, []string{"token"}); err != nil {
+		t.Fatal(err)
+	}
+	seedIndex, scrubIndex, stageIndex := -1, -1, -1
+	for i, call := range m.ExecCalls {
+		if len(call.Argv) >= 3 && strings.Contains(call.Argv[2], `cat > "$t"`) {
+			seedIndex = i
+		}
+		if len(call.Argv) >= 3 && strings.Contains(call.Argv[2], "root=/dev/shm/coop-credentials") {
+			scrubIndex = i
+		}
+		if len(call.Argv) >= 3 && strings.Contains(call.Argv[2], "tmp=$final.staging") {
+			stageIndex = i
+		}
+	}
+	if seedIndex < 0 || scrubIndex <= seedIndex || stageIndex <= scrubIndex {
+		t.Fatalf("wrong seed/scrub/stage order: seed=%d scrub=%d stage=%d calls:\n%s", seedIndex, scrubIndex, stageIndex, m.ExecString())
+	}
+	call := m.Interactive[0]
+	wantSuffix := []string{"flox", "activate", "--dir", project, "--", "agent", "arg with spaces"}
+	if !slices.Equal(call.Argv[len(call.Argv)-len(wantSuffix):], wantSuffix) {
+		t.Fatalf("Flox command is not inside credential wrapper: %#v", call.Argv)
+	}
+	if len(call.Argv) < 2 || call.Argv[0] != "sh" || call.Argv[1] != "-c" {
+		t.Fatalf("credential wrapper missing: %#v", call.Argv)
+	}
+}
+
+func TestRunAlwaysCleansUpAndPreservesGuestExit(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		interactive error
+		wantExit    int
+	}{
+		{name: "successful guest"},
+		{name: "nonzero guest", interactive: &runtime.ExitError{Code: 23}, wantExit: 23},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := runtime.NewMock()
+			s := testSession(t, m)
+			markRunning(m, s)
+			secret := filepath.Join(t.TempDir(), "token")
+			if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s.Cfg.Credentials = map[string]config.Credential{
+				"token": {
+					Source: config.CredentialSource{Type: "file", Path: secret},
+					Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+				},
+			}
+			cleanupErr := errors.New("cleanup failed")
+			m.ExecErrors = []error{nil, nil, cleanupErr}
+			m.InteractiveErr = tc.interactive
+
+			err := s.Run(s.Project, []string{"agent"}, []string{"token"})
+			if !errors.Is(err, cleanupErr) {
+				t.Fatalf("cleanup error missing: %v", err)
+			}
+			if tc.wantExit != 0 {
+				var exitErr *runtime.ExitError
+				if !errors.As(err, &exitErr) || exitErr.ExitCode() != tc.wantExit {
+					t.Fatalf("guest exit was replaced: %v", err)
+				}
+			}
+			if len(m.ExecCalls) != 3 || !slices.Equal(m.ExecCalls[2].Argv[:3], []string{"rm", "-rf", "--"}) {
+				t.Fatalf("cleanup not attempted: %#v", m.ExecCalls)
+			}
+		})
+	}
+}
+
+func TestRunWithoutCredentialsScrubsAndUsesOriginalArgv(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	markRunning(m, s)
+	original := []string{"agent", "arg with spaces", "$literal"}
+	if err := s.Run(s.Project, original, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ExecCalls) != 1 || len(m.ExecCalls[0].Argv) < 3 || !strings.Contains(m.ExecCalls[0].Argv[2], "root=/dev/shm/coop-credentials") {
+		t.Fatalf("stale leases not scrubbed: %#v", m.ExecCalls)
+	}
+	if !slices.Equal(m.Interactive[0].Argv, original) {
+		t.Fatalf("credential-free argv was wrapped: %#v", m.Interactive[0].Argv)
+	}
+}
+
+func markRunning(m *runtime.Mock, s *Session) {
+	m.Existing[s.Name] = true
+	m.Started = append(m.Started, s.Name)
+	labelCurrent(m, s)
 }
 
 func TestUpCreatesContainerWithIdenticalPathMount(t *testing.T) {
@@ -167,19 +605,15 @@ func TestUpAppliesSeeds(t *testing.T) {
 	}
 }
 
-func TestEnterClampsCwdAndWrapsFlox(t *testing.T) {
-	m := runtime.NewMock()
-	s := testSession(t, m)
+func TestEntryArgvClampsCwdAndWrapsFlox(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
 	// project WITHOUT .flox: plain argv
-	if err := s.Enter("/elsewhere", []string{"opencode"}); err != nil {
-		t.Fatal(err)
+	workdir, argv := s.entryArgv("/elsewhere", []string{"opencode"})
+	if workdir != s.Project {
+		t.Errorf("cwd outside project must clamp to root, got %q", workdir)
 	}
-	call := m.Interactive[0]
-	if call.Workdir != s.Project {
-		t.Errorf("cwd outside project must clamp to root, got %q", call.Workdir)
-	}
-	if strings.Join(call.Argv, " ") != "opencode" {
-		t.Errorf("unexpected argv: %v", call.Argv)
+	if strings.Join(argv, " ") != "opencode" {
+		t.Errorf("unexpected argv: %v", argv)
 	}
 
 	// project WITH .flox: wrapped in flox activate
@@ -188,23 +622,16 @@ func TestEnterClampsCwdAndWrapsFlox(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Project = proj
-	if err := s.Enter(proj, []string{"claude"}); err != nil {
-		t.Fatal(err)
-	}
-	call = m.Interactive[1]
-	joined := strings.Join(call.Argv, " ")
+	_, argv = s.entryArgv(proj, []string{"claude"})
+	joined := strings.Join(argv, " ")
 	if !strings.Contains(joined, "flox activate") || !strings.Contains(joined, "claude") {
-		t.Errorf("flox wrap missing: %v", call.Argv)
+		t.Errorf("flox wrap missing: %v", argv)
 	}
 }
 
-func TestEnterRejectsSiblingPrefixPath(t *testing.T) {
-	m := runtime.NewMock()
-	s := testSession(t, m)
-	if err := s.Enter(s.Project+"-other", []string{"opencode"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := m.Interactive[0].Workdir; got != s.Project {
+func TestEntryArgvRejectsSiblingPrefixPath(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
+	if got, _ := s.entryArgv(s.Project+"-other", []string{"opencode"}); got != s.Project {
 		t.Fatalf("sibling prefix escaped project boundary: %q", got)
 	}
 }

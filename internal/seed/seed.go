@@ -8,6 +8,7 @@
 package seed
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,18 +25,23 @@ var goos = goruntime.GOOS
 // Apply runs every seed rule against a running container. Missing
 // sources are skipped silently (rules describe the superset of hosts).
 func Apply(rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
+	return ApplyContext(context.Background(), rt, name, hostHome, guestHome, seeds)
+}
+
+// ApplyContext runs every seed rule and cancels guest transports with ctx.
+func ApplyContext(ctx context.Context, rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
 	for _, s := range seeds {
 		src := config.ExpandHome(s.Src, hostHome)
 		dest := config.ExpandHome(s.Dest, guestHome)
 
 		switch s.Policy {
 		case config.PolicyOverlay:
-			if err := overlayDir(rt, name, src, dest); err != nil {
+			if err := overlayDir(ctx, rt, name, src, dest); err != nil {
 				return fmt.Errorf("seed overlay %s: %w", s.Src, err)
 			}
 		case config.PolicyIfAbsent:
 			// Fail CLOSED: an inconclusive answer must not overwrite a
-			// credential the coop refreshed itself.
+			// file the guest may have created or updated itself.
 			exists, err := rt.GuestFileExists(name, dest)
 			if err != nil {
 				return fmt.Errorf("seed %s: cannot determine guest state: %w", s.Src, err)
@@ -43,11 +49,11 @@ func Apply(rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.
 			if exists {
 				continue
 			}
-			if err := copyFile(rt, name, src, dest); err != nil {
+			if err := copyFile(ctx, rt, name, src, dest); err != nil {
 				return fmt.Errorf("seed %s: %w", s.Src, err)
 			}
 		case config.PolicyAlways, "":
-			if err := copyFile(rt, name, src, dest); err != nil {
+			if err := copyFile(ctx, rt, name, src, dest); err != nil {
 				return fmt.Errorf("seed %s: %w", s.Src, err)
 			}
 		default:
@@ -57,7 +63,7 @@ func Apply(rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.
 	return nil
 }
 
-func copyFile(rt runtime.Runtime, name, src, dest string) error {
+func copyFile(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
 	f, err := os.Open(src) // resolves symlinks
 	if os.IsNotExist(err) {
 		return nil
@@ -73,7 +79,7 @@ func copyFile(rt runtime.Runtime, name, src, dest string) error {
 	}
 	mode := fmt.Sprintf("%o", fi.Mode().Perm())
 
-	if err := rt.Exec(name, []string{"mkdir", "-p", filepath.Dir(dest)}, nil); err != nil {
+	if err := rt.ExecContext(ctx, name, []string{"mkdir", "-p", filepath.Dir(dest)}, nil); err != nil {
 		return err
 	}
 	// Atomic, symlink-refusing write. dest and mode pass positionally —
@@ -103,7 +109,7 @@ chmod "$m" "$t"
 cat > "$t"
 mv -T "$t" "$d"
 trap - EXIT`
-	return rt.Exec(name, []string{"sh", "-c", script, "coop-seed", dest, mode, filepath.Dir(dest)}, f)
+	return rt.ExecContext(ctx, name, []string{"sh", "-c", script, "coop-seed", dest, mode, filepath.Dir(dest)}, f)
 }
 
 // overlayDir tars the host tree (dereferencing symlinks, no macOS
@@ -112,7 +118,7 @@ trap - EXIT`
 // LIMITATION: extraction follows guest-side symlinks inside the
 // destination tree. Use overlay only for non-sensitive trees (skills,
 // docs), never credentials.
-func overlayDir(rt runtime.Runtime, name, src, dest string) error {
+func overlayDir(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
 	if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 		return nil // missing or not a dir: skip
 	}
@@ -123,7 +129,7 @@ func overlayDir(rt runtime.Runtime, name, src, dest string) error {
 	if goos == "darwin" {
 		tarArgs = append([]string{"--no-xattrs"}, tarArgs...)
 	}
-	tarCmd := exec.Command("tar", tarArgs...)
+	tarCmd := exec.CommandContext(ctx, "tar", tarArgs...)
 	pipe, err := tarCmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -131,10 +137,10 @@ func overlayDir(rt runtime.Runtime, name, src, dest string) error {
 	if err := tarCmd.Start(); err != nil {
 		return err
 	}
-	if err := rt.Exec(name, []string{"mkdir", "-p", dest}, nil); err != nil {
+	if err := rt.ExecContext(ctx, name, []string{"mkdir", "-p", dest}, nil); err != nil {
 		return err
 	}
-	execErr := rt.Exec(name, []string{"tar", "-xf", "-", "-C", dest}, pipe)
+	execErr := rt.ExecContext(ctx, name, []string{"tar", "-xf", "-", "-C", dest}, pipe)
 	tarErr := tarCmd.Wait()
 	if execErr != nil {
 		return execErr
