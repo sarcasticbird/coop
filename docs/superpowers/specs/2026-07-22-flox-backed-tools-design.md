@@ -134,7 +134,10 @@ repository package names cannot be present in the shipped core Flox lock.
 Using the release-pinned Nixpkgs revision keeps a package name deterministic
 for a given Coop release without creating a Coop lockfile format. The package
 profile is visible to user commands but is not used for Coop maintenance
-operations.
+operations. The locked core precedes this configured profile on `PATH`, so
+repository-selected packages can add commands but cannot silently replace a
+core command. Coop does not use an attribute-name collision list because a
+different Nixpkgs attribute may provide the same executable.
 
 ### Optional project environment
 
@@ -200,7 +203,9 @@ resolution, update commands, or a generated lockfile.
 
 The build realizes the core Flox environment and installs configured packages
 into a dedicated profile using argument-safe package-manager input. Package
-values are never joined into shell source.
+values are never joined into shell source. Any configured package installation
+failure fails the build, prevents the derived image tag from being committed,
+and leaves the existing image and container untouched.
 
 The derived image tag includes hashes of:
 
@@ -287,6 +292,8 @@ Behavior is fail-safe:
   preserves named state volumes.
 - `coop status` reports the running image, desired image, and whether a rebuild
   is required.
+- User-command precedence is project `.flox`, locked Coop core, configured
+  tools, then the image's operating-system fallback paths.
 
 ## Configuration Migration
 
@@ -296,6 +303,10 @@ For one beta release, global `[image].extra_packages` remains an alias for
 `[tools].packages` and emits a deprecation warning. Defining both is an error
 because silent merging would conceal migration mistakes. Project
 `[image].extra_packages` remains invalid; repositories use `[tools].packages`.
+
+Legacy flake installables such as `ref#attr` are intentionally unsupported in
+both fields. Migration errors and documentation direct users to plain Nixpkgs
+attribute paths resolved from Coop's pinned source.
 
 After the compatibility window, `image.extra_packages` becomes an unknown-key
 configuration error.
@@ -329,12 +340,15 @@ Automated tests cover:
 - stable image identity regardless of declaration order;
 - identity changes for core manifest, lock, source revision, or package changes;
 - generated build input using argument-safe package-manager input;
+- core precedence over configured packages;
+- failure of the complete image build when any configured package fails;
 - missing, unsupported, and conflicting package failures;
 - no container teardown when the replacement image is unavailable;
 - maintenance-plane PATH isolation;
 - configured-tool visibility for user commands;
 - project Flox precedence and argument preservation;
-- bare-shell activation with and without project Flox; and
+- bare-shell activation with and without project Flox;
+- deprecation warnings on both direct and TUI-driven entry; and
 - unchanged behavior for repositories without `.flox`.
 
 The real-hardware release smoke test must:

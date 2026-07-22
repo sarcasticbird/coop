@@ -323,10 +323,18 @@ effective. Coop resolves them from the immutable Nixpkgs revision owned by the
 installed Coop release, so it does not maintain a package catalog or lockfile
 format of its own.
 
+Configured packages are additive at the command level: the locked Coop core
+wins command-name collisions, configured tools come next, and the image's
+operating-system paths remain the fallback. A project `.flox` environment is
+the explicit highest-precedence layer when project-specific versions must
+override the core.
+
 For one beta release, global `[image].extra_packages` is accepted as a
 deprecated alias and prints a warning. Defining it together with
 `[tools].packages` is an error, and the old field is not accepted in project
-configuration.
+configuration. Legacy flake installables such as `ref#attr` are no longer
+accepted; replace them with a plain Nixpkgs attribute path resolved from
+Coop's pinned source.
 
 `coop rebuild` prints the core, global, and project inputs before building. A
 failed build leaves the existing image and container untouched. `coop status`
@@ -350,6 +358,11 @@ Flox and Nix are required inside the Coop image. The pinned Flox base supplies
 the package engine, while Coop embeds a Linux-only manifest and exact lock for
 the core environment. The promised core packages are:
 
+> **Breaking beta change:** Node.js is no longer bundled in the Coop core.
+> Declare the required Node.js version in the project's `.flox` environment,
+> or add a Nixpkgs Node.js attribute through `[tools].packages` when
+> inside/outside portability is not needed.
+
 - shell support: `bashInteractive`, `zsh`, `coreutils`, `gnugrep`, `gnused`,
   `findutils`, `gawk`, `gnutar`, `gzip`, and `cacert`;
 - repository tools: `git`, `gh`, `openssh`, `curl`, `ripgrep`, `jq`,
@@ -357,10 +370,10 @@ the core environment. The promised core packages are:
 - agents: `codex`, `claude-code`, and `opencode`.
 
 Configured global/repository packages live in a separate image profile. User
-commands see the core environment first, configured tools ahead of it, and the
-nearest project `.flox` environment with highest precedence. Coop maintenance
-uses only the controlled core PATH, so repository tools cannot shadow its
-seeding or credential helpers.
+commands see the nearest project `.flox` environment first, then the locked
+core, configured tools, and operating-system fallbacks. Coop maintenance uses
+only the controlled core PATH, so repository tools cannot shadow its seeding
+or credential helpers.
 
 For a command or bare shell entered from a project subdirectory, Coop walks
 toward the selected project root and automatically activates the nearest

@@ -59,6 +59,8 @@ cannot provide.
 
    - Add `[tools] packages = ["hello"]` to the scratch `coop.toml`, rebuild,
      and confirm `hello` is available to an entered command.
+   - Add a configured package that also provides a core command and confirm
+     the command still resolves from the locked core path.
    - Confirm Coop maintenance still succeeds and the configured profile is
      not on its maintenance PATH.
    - Add an `aarch64-linux` project `.flox`, then confirm its executable path
@@ -78,7 +80,9 @@ cannot provide.
 
 6. Create an annotated tag on the release commit. The tag message
    becomes the release notes, so write it for users: what changed,
-   migration notes, known limitations.
+   migration notes, known limitations. For the Flox-backed tooling release,
+   explicitly call out that Node.js is no longer bundled and must be declared
+   through project Flox or `[tools].packages`.
 
    ```sh
    git tag -a v0.1.0-beta.3
