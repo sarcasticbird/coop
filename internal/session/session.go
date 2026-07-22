@@ -3,6 +3,7 @@
 package session
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -215,23 +216,26 @@ func canonicalizeCwd(cwd string) string {
 	return cwd
 }
 
-// Enter execs into the session at cwd (clamped to the project) — a shell
+// Enter runs inside the session at cwd (clamped to the project) — a shell
 // when argv is empty, otherwise the given agent/command, wrapped in
 // `flox activate` when a manifest applies. Argv is passed as a vector
 // end-to-end: arguments must never be re-parsed as shell syntax.
 func (s *Session) Enter(cwd string, argv []string) error {
+	ctx, stopSignals := runtime.NotifyContext(context.Background())
+	defer stopSignals()
+
 	cwd = canonicalizeCwd(cwd)
 	if !withinProject(s.Project, cwd) {
 		cwd = s.Project
 	}
 	if len(argv) == 0 {
-		return s.RT.ExecInteractive(s.Name, cwd, []string{"zsh", "-l"})
+		return s.RT.ExecInteractive(ctx, s.Name, cwd, []string{"zsh", "-l"})
 	}
 	if dir := s.floxDir(cwd); dir != "" {
 		wrapped := append([]string{"flox", "activate", "--dir", dir, "--"}, argv...)
-		return s.RT.ExecInteractive(s.Name, cwd, wrapped)
+		return s.RT.ExecInteractive(ctx, s.Name, cwd, wrapped)
 	}
-	return s.RT.ExecInteractive(s.Name, cwd, argv)
+	return s.RT.ExecInteractive(ctx, s.Name, cwd, argv)
 }
 
 // floxDir finds the manifest governing cwd, walking up to the project

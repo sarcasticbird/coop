@@ -59,12 +59,7 @@ var (
 	lookPath   = exec.LookPath
 )
 
-func main() {
-	if err := root().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "coop:", err)
-		os.Exit(1)
-	}
-}
+func main() { os.Exit(execute(root())) }
 
 func current() (*session.Session, string, error) {
 	cwd, err := os.Getwd()
