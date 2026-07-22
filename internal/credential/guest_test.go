@@ -168,6 +168,42 @@ func TestWrapperIsolatesCleanupFromInjectedLeaseAndPATH(t *testing.T) {
 	}
 }
 
+func TestWrapperFailsClosedOnMissingEnvFile(t *testing.T) {
+	root := t.TempDir()
+	lease := filepath.Join(root, "lease")
+	if err := os.MkdirAll(filepath.Join(lease, "env"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lease, "env.list"), []byte("MISSING\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lease, "env.unset"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	procStat := "123 (sh) S" + strings.Repeat(" 0", 18) + " 222\n"
+	if err := os.WriteFile(filepath.Join(lease, "proc.stat"), []byte(procStat), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	wrapper := strings.Replace(guestWrapper, `"/proc/$1/stat"`, `"$lease/proc.stat"`, 1)
+	marker := filepath.Join(root, "ran")
+	cmd := exec.Command("sh", "-c", wrapper, "coop-credential-entry-test", lease,
+		"/bin/sh", "-c", `printf ran > "$1"`, "guest-command", marker)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("wrapper succeeded despite missing env file: %s", output)
+	}
+	if strings.TrimSpace(string(output)) == "" {
+		t.Fatal("missing env file aborted without a diagnostic")
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("guest command ran without its credential: %v", err)
+	}
+	if _, err := os.Stat(lease); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed entry left the credential lease behind: %v", err)
+	}
+}
+
 func TestScrubAndCleanupUseFixedSafeTargets(t *testing.T) {
 	fake := &fakeExecutor{}
 	if err := Scrub(context.Background(), fake, "coop-name"); err != nil {
@@ -345,26 +381,14 @@ func TestScrubRejectsReusedOwnerPID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bin := t.TempDir()
-	catScript := `#!/bin/sh
-case "$1" in
-  (/proc/*/stat)
-    printf '123 (sh) S'
-    i=0
-    while test "$i" -lt 18; do printf ' 0'; i=$((i + 1)); done
-    printf ' 222\n';;
-  (*) exec /bin/cat "$1";;
-esac`
-	if err := os.WriteFile(filepath.Join(bin, "cat"), []byte(catScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "stat"), []byte("#!/bin/sh\ndate +%s\n"), 0o755); err != nil {
+	procStat := "123 (sh) S" + strings.Repeat(" 0", 18) + " 222\n"
+	if err := os.WriteFile(filepath.Join(root, "proc.stat"), []byte(procStat), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	script := strings.Replace(scrubScript, "root=/dev/shm/coop-credentials", "root=$1", 1)
+	script = strings.Replace(script, `"/proc/$1/stat"`, `"$root/proc.stat"`, 1)
 	cmd := exec.Command("sh", "-c", script, "coop-credential-scrub-test", root)
-	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("scrub reused owner PID: %v: %s", err, output)
 	}

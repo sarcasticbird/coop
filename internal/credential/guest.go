@@ -153,8 +153,9 @@ const guestWrapper = `set -eu
 umask 077
 lease=$1
 shift
+command -v rm > /dev/null || { printf '%s\n' 'coop-credential-entry: rm not found on PATH' >&2; exit 127; }
 process_start() {
-  proc_stat=$(/bin/cat "/proc/$1/stat") || return 1
+  IFS= read -r proc_stat < "/proc/$1/stat" || return 1
   proc_rest=${proc_stat##*) }
   set -- $proc_rest
   test "$#" -ge 20
@@ -162,7 +163,7 @@ process_start() {
 }
 owner_start=$(process_start "$$")
 printf '%s %s\n' "$$" "$owner_start" > "$lease/owner"
-cleanup() { /bin/rm -rf -- "$lease"; }
+cleanup() { rm -rf -- "$lease"; }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -174,7 +175,10 @@ set +e
     unset "$name"
   done < "$lease/env.unset"
   while IFS= read -r name; do
-    value=$(/bin/cat "$lease/env/$name")
+    exec 3< "$lease/env/$name"
+    value=
+    IFS= read -r value <&3 || :
+    exec 3<&-
     export "$name=$value"
   done < "$lease/env.list"
   set +e
@@ -200,7 +204,7 @@ const scrubScript = `set -eu
 root=/dev/shm/coop-credentials
 test -d "$root" || exit 0
 process_start() {
-  proc_stat=$(cat "/proc/$1/stat") || return 1
+  IFS= read -r proc_stat < "/proc/$1/stat" || return 1
   proc_rest=${proc_stat##*) }
   set -- $proc_rest
   test "$#" -ge 20
