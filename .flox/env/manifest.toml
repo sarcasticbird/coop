@@ -1,0 +1,11 @@
+schema-version = "1.13.0"
+
+[install]
+go.pkg-path = "go"
+# nixpkgs is still on 1.26.4 while go.mod requires 1.26.5; until the
+# catalog catches up, go's default GOTOOLCHAIN=auto downloads the
+# newer toolchain on first use. Run `flox upgrade` when it lands.
+go.version = "^1.26.4"
+
+[options]
+systems = ["aarch64-darwin", "aarch64-linux"]

@@ -56,7 +56,7 @@ func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(s
 	add(OK, "container apiserver", "running")
 
 	// image — checked via the same derived-tag logic sessions use
-	imgName := session.EffectiveImageName(cfg.Image)
+	imgName := session.EffectiveImageName(cfg)
 	exists, imgErr := rt.ImageExists(imgName)
 	switch {
 	case imgErr != nil:

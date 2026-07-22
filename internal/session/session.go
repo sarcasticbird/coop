@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,7 @@ type Session struct {
 	Cfg               config.Config
 	HostHome          string
 	GuestHome         string // == HostHome: the identical-path property
+	Output            io.Writer
 	CredentialManager *credential.Manager
 	revokeCredentials func(context.Context, []credential.Acquired) error
 }
@@ -53,6 +55,7 @@ func New(rt runtime.Runtime, cwd string) (*Session, error) {
 	return &Session{
 		RT: rt, Project: root, Name: project.Name(root),
 		Cfg: cfg, HostHome: home, GuestHome: home,
+		Output:            os.Stdout,
 		CredentialManager: manager,
 		revokeCredentials: credential.RevokeAll,
 	}, nil
@@ -64,19 +67,15 @@ const DefaultImageName = "coop:latest"
 // EffectiveImageName is the tag a session actually runs. Embedded builds use
 // a tag derived from their definition and package list, so changed build inputs
 // cannot silently reuse a stale image.
-func EffectiveImageName(img config.Image) string {
-	if len(img.ExtraPackages) == 0 && img.Name != DefaultImageName {
-		return img.Name
-	}
-	pkgs := append([]string(nil), img.ExtraPackages...)
-	sort.Strings(pkgs)
+func EffectiveImageName(cfg config.Config) string {
+	pkgs := image.CanonicalPackages(cfg.Tools.Packages)
 	// Hash includes the full source reference: changing the base tag or
 	// digest with identical packages must produce a distinct derived tag.
-	sum := sha256.Sum256([]byte(img.Name + "\x00" + strings.Join(pkgs, " ") + "\x00" + image.Fingerprint()))
+	sum := sha256.Sum256([]byte(cfg.Image.Name + "\x00" + strings.Join(pkgs, "\x00") + "\x00" + image.Fingerprint()))
 	// Strip a digest suffix, then only a tag colon after the final
 	// slash — registry ports (localhost:5000/team/coop:latest) and
 	// digest refs (repo@sha256:...) must both survive.
-	base := img.Name
+	base := cfg.Image.Name
 	if i := strings.Index(base, "@"); i >= 0 {
 		base = base[:i]
 	}
@@ -89,7 +88,7 @@ func EffectiveImageName(img config.Image) string {
 // EnsureImage requires a local build for every embedded image. The public beta
 // does not redistribute its third-party image contents.
 func (s *Session) EnsureImage() error {
-	name := EffectiveImageName(s.Cfg.Image)
+	name := EffectiveImageName(s.Cfg)
 	exists, err := s.RT.ImageExists(name)
 	if err != nil {
 		return fmt.Errorf("inspect image %s: %w", name, err)
@@ -98,6 +97,45 @@ func (s *Session) EnsureImage() error {
 		return nil
 	}
 	return fmt.Errorf("image %s not found: build it locally with `coop rebuild`", name)
+}
+
+// ImageStatus is a read-only snapshot of the current container and desired
+// image. RebuildRequired means the desired image is absent; RecreationPending
+// means an existing container does not match the desired image or spec.
+type ImageStatus struct {
+	State             runtime.State
+	RunningImage      string
+	DesiredImage      string
+	RebuildRequired   bool
+	RecreationPending bool
+}
+
+func (s *Session) ImageStatus() (ImageStatus, error) {
+	desired := EffectiveImageName(s.Cfg)
+	status := ImageStatus{DesiredImage: desired}
+	state, err := s.RT.State(s.Name)
+	if err != nil {
+		return status, fmt.Errorf("state of %s: %w", s.Name, err)
+	}
+	status.State = state
+	ready, err := s.RT.ImageExists(desired)
+	if err != nil {
+		return status, fmt.Errorf("inspect image %s: %w", desired, err)
+	}
+	status.RebuildRequired = !ready
+	if state == runtime.StateAbsent {
+		return status, nil
+	}
+	status.RunningImage, err = s.RT.ContainerImage(s.Name)
+	if err != nil {
+		return status, fmt.Errorf("image of %s: %w", s.Name, err)
+	}
+	haveSpec, err := s.RT.ContainerLabel(s.Name, SpecLabel)
+	if err != nil {
+		return status, fmt.Errorf("spec check for %s: %w", s.Name, err)
+	}
+	status.RecreationPending = status.RunningImage != desired || haveSpec != s.SpecFingerprint()
+	return status, nil
 }
 
 // SpecLabel is the container label carrying the spec fingerprint.
@@ -116,7 +154,7 @@ func (s *Session) SpecFingerprint() string {
 	}
 	sort.Strings(vols)
 	canonical := fmt.Sprintf("v1|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s",
-		EffectiveImageName(s.Cfg.Image), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
+		EffectiveImageName(s.Cfg), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
 		s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","))
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])[:16]
@@ -169,8 +207,10 @@ func (s *Session) up(ctx context.Context) error {
 			if err := context.Cause(ctx); err != nil {
 				return err
 			}
-			fmt.Printf("%s config changed (spec %s -> %s) — recreating, state volumes preserved...\n",
-				s.Name, valueOrLegacy(have), want)
+			if _, err := fmt.Fprintf(s.output(), "%s config changed (spec %s -> %s) — recreating; state volumes preserved, undeclared root-filesystem changes will be discarded...\n",
+				s.Name, valueOrLegacy(have), want); err != nil {
+				return fmt.Errorf("write recreation notice for %s: %w", s.Name, err)
+			}
 			_ = s.RT.Stop(s.Name)
 			if err := context.Cause(ctx); err != nil {
 				return err
@@ -220,7 +260,7 @@ func (s *Session) up(ctx context.Context) error {
 		}
 		err := s.RT.Run(runtime.RunSpec{
 			Name:   s.Name,
-			Image:  EffectiveImageName(s.Cfg.Image),
+			Image:  EffectiveImageName(s.Cfg),
 			CPUs:   s.Cfg.Resources.CPUs,
 			Memory: s.Cfg.Resources.Memory,
 			SSH:    s.Cfg.SSH, // default off — deliberate, global-config-only capability
@@ -252,6 +292,13 @@ func (s *Session) up(ctx context.Context) error {
 	return context.Cause(ctx)
 }
 
+func (s *Session) output() io.Writer {
+	if s.Output != nil {
+		return s.Output
+	}
+	return os.Stdout
+}
+
 // canonicalizeCwd aligns a working directory with the canonical
 // project identity (symlink aliases must not produce unmounted paths).
 func canonicalizeCwd(cwd string) string {
@@ -266,13 +313,19 @@ func (s *Session) entryArgv(cwd string, argv []string) (string, []string) {
 	if !withinProject(s.Project, cwd) {
 		cwd = s.Project
 	}
+	command := slices.Clone(argv)
 	if len(argv) == 0 {
-		return cwd, []string{"zsh", "-l"}
+		command = []string{"zsh", "-l"}
+	}
+	wrapper := []string{
+		"flox", "activate", "--dir", "/opt/coop-core", "--",
+		"/usr/local/bin/coop-user-env",
 	}
 	if dir := s.floxDir(cwd); dir != "" {
-		return cwd, append([]string{"flox", "activate", "--dir", dir, "--"}, argv...)
+		wrapper = append(wrapper, "--project-flox", dir)
 	}
-	return cwd, slices.Clone(argv)
+	wrapper = append(wrapper, "--")
+	return cwd, append(wrapper, command...)
 }
 
 // floxDir finds the manifest governing cwd, walking up to the project

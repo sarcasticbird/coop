@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_flox=""
+if [[ "${1:-}" == "--project-flox" ]]; then
+  if (( $# < 3 )); then
+    echo "coop-user-env: --project-flox requires a directory and command" >&2
+    exit 64
+  fi
+  project_flox=$2
+  shift 2
+fi
+if [[ "${1:-}" != "--" ]]; then
+  echo "coop-user-env: expected -- before command" >&2
+  exit 64
+fi
+shift
+if (( $# == 0 )); then
+  echo "coop-user-env: command is required" >&2
+  exit 64
+fi
+
+tools_profile=${COOP_TOOLS_PROFILE:-/opt/coop-tools/profile}
+# Keep every entry owned by the outer core Flox activation ahead of configured
+# tools, and configured tools ahead of image fallbacks. Empty entries are
+# discarded because they make PATH search the untrusted project directory.
+core_env=${FLOX_ENV:-}
+core_root=${COOP_CORE:-/opt/coop-core}
+remaining_path=${PATH:-}
+core_path=""
+fallback_path=""
+while [[ -n "$remaining_path" ]]; do
+  if [[ "$remaining_path" == *:* ]]; then
+    entry=${remaining_path%%:*}
+    remaining_path=${remaining_path#*:}
+  else
+    entry=$remaining_path
+    remaining_path=""
+  fi
+  [[ -n "$entry" ]] || continue
+  [[ "$entry" == /* ]] || continue
+  if [[ -n "$core_env" && ( "$entry" == "$core_env" || "$entry" == "$core_env/"* ) ]] ||
+     [[ "$entry" == "$core_root/.flox/run/"* ]]; then
+    core_path="${core_path:+$core_path:}$entry"
+  else
+    fallback_path="${fallback_path:+$fallback_path:}$entry"
+  fi
+done
+export PATH="${core_path:+$core_path:}$tools_profile/bin${fallback_path:+:$fallback_path}"
+
+if [[ -n "$project_flox" ]]; then
+  exec flox activate --dir "$project_flox" -- "$@"
+fi
+exec "$@"

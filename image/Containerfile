@@ -1,59 +1,44 @@
 # coop — generic sandbox image for agent sessions.
 #
-# One image for all projects and all users. Deliberately contains NO
-# toolchains (projects bring their own via flox manifests), NO git
-# identity, and NO personal tooling — durable configuration enters through
-# seeds, while selected credentials are staged only for one interactive entry.
+# One image definition for all projects and users. Coop owns a locked core
+# workbench; projects may add image-local tools through coop.toml and portable
+# toolchains through their own optional Flox environments. The image contains
+# no git identity or personal configuration.
 # Embedded in the coop binary; build with `coop rebuild`.
 
 # Digest-pinned base image; bump deliberately.
 FROM ghcr.io/flox/flox:latest@sha256:04f2254909363974b049b6930a425f179bb1eaa194b1949198a44e4716a25782
 
-# Keep stock packages on one reviewed nixpkgs revision. This fixes package
-# evaluation inputs, not the complete build.
+# Configured tools resolve from one reviewed nixpkgs revision. The core
+# environment has its own exact Flox lock.
 ARG NIXPKGS_REF=github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea
 
-# Base userland via nix — the image has no distro package manager.
-# --impure: the base image's existing profile trips pure-eval.
-# --priority 4: win file conflicts against base profile packages.
-RUN nix profile install \
-      --extra-experimental-features "nix-command flakes" \
-      --impure \
-      --priority 4 \
-      "${NIXPKGS_REF}#zsh" \
-      "${NIXPKGS_REF}#git" \
-      "${NIXPKGS_REF}#ripgrep" \
-      "${NIXPKGS_REF}#jq" \
-      "${NIXPKGS_REF}#tmux" \
-      "${NIXPKGS_REF}#openssh" \
-      "${NIXPKGS_REF}#nodejs_22" \
-      "${NIXPKGS_REF}#coreutils" \
-      "${NIXPKGS_REF}#gnugrep" \
-      "${NIXPKGS_REF}#gnused" \
-      "${NIXPKGS_REF}#findutils" \
-      "${NIXPKGS_REF}#bashInteractive" \
-      "${NIXPKGS_REF}#cacert"
+# Realize the release-owned core Flox environment. Only release artifacts are
+# copied; Flox creates the Linux run links inside this image.
+# Apple's BuildKit frontend drops the contents of a recursively copied hidden
+# directory, so copy each release artifact explicitly.
+COPY core/.flox/env.json /opt/coop-core/.flox/env.json
+COPY core/.flox/env/manifest.toml /opt/coop-core/.flox/env/manifest.toml
+COPY core/.flox/env/manifest.lock /opt/coop-core/.flox/env/manifest.lock
+RUN flox activate --dir /opt/coop-core -- true
 
-# Agent CLIs from nixpkgs — npm platform binaries (glibc AND musl) are
-# dynamically linked against FHS loaders that don't exist on a nix
-# rootfs; nixpkgs builds are patchelf'd for it.
-RUN NIXPKGS_ALLOW_UNFREE=1 nix profile install \
-      --extra-experimental-features "nix-command flakes" \
-      --impure \
-      --priority 3 \
-      "${NIXPKGS_REF}#opencode" \
-      "${NIXPKGS_REF}#claude-code" \
-      "${NIXPKGS_REF}#codex"
+ENV COOP_CORE=/opt/coop-core
+ENV COOP_TOOLS_PROFILE=/opt/coop-tools/profile
+ENV PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
 
-# Extra agent/tool packages contributed by coop.toml ([image]
-# extra_packages) — space-separated nixpkgs attrs. Separate layer so
-# the stock layers above stay cached across rebuilds.
-ARG EXTRA_PKGS=""
-RUN if [ -n "$EXTRA_PKGS" ]; then \
+# Repository/global additions live in a lower-priority user-command profile.
+# Each full installable is validated and materialized by Coop. Read it as a
+# quoted value so package data is never shell source.
+COPY configured-packages.txt /tmp/configured-packages.txt
+RUN mkdir -p /opt/coop-tools && \
+    while IFS= read -r installable; do \
+      [ -n "$installable" ] || continue; \
       NIXPKGS_ALLOW_UNFREE=1 nix profile install \
+        --profile /opt/coop-tools/profile \
         --extra-experimental-features "nix-command flakes" \
-        --impure --priority 2 $EXTRA_PKGS; \
-    fi
+        --impure --priority 2 "$installable" || exit 1; \
+    done < /tmp/configured-packages.txt && \
+    rm /tmp/configured-packages.txt
 
 # Guest HOME must equal host HOME for the identical-path property —
 # every ~/-relative config resolves the same on both sides. The local image is
@@ -61,9 +46,8 @@ RUN if [ -n "$EXTRA_PKGS" ]; then \
 # exists, so the same image works per user.
 ARG GUEST_HOME=/root
 ENV HOME=$GUEST_HOME
-ENV PATH=/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
 ENV SHELL=zsh
-ENV SSL_CERT_FILE=/root/.nix-profile/etc/ssl/certs/ca-bundle.crt
+ENV SSL_CERT_FILE=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/etc/ssl/certs/ca-bundle.crt
 
 # zshrc lands both per-user (local builds) and globally (/etc/zshrc is
 # read by zsh regardless of HOME, which covers images where HOME is decided at
@@ -71,6 +55,8 @@ ENV SSL_CERT_FILE=/root/.nix-profile/etc/ssl/certs/ca-bundle.crt
 RUN mkdir -p "$GUEST_HOME" /usr/local/bin /etc
 COPY zshrc $GUEST_HOME/.zshrc
 COPY zshrc /etc/zshrc
+COPY coop-user-env /usr/local/bin/coop-user-env
+RUN chmod 0755 /usr/local/bin/coop-user-env
 
 WORKDIR $GUEST_HOME
 

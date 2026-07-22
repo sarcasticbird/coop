@@ -74,6 +74,7 @@ type Agent struct {
 // Config is the merged coop configuration.
 type Config struct {
 	Image              Image                 `toml:"image"`
+	Tools              Tools                 `toml:"tools"`
 	Resources          Resources             `toml:"resources"`
 	Agents             map[string]Agent      `toml:"agents"`
 	Seeds              []Seed                `toml:"seed"`
@@ -84,6 +85,9 @@ type Config struct {
 	// combined with network egress is an exfiltration-adjacent
 	// capability. Enable deliberately, global config only.
 	SSH bool `toml:"ssh"`
+	// Warnings contains non-fatal migration guidance discovered while loading.
+	// It is runtime metadata, never TOML input.
+	Warnings []string `toml:"-"`
 }
 
 const (
@@ -93,12 +97,24 @@ const (
 
 type Image struct {
 	Name string `toml:"name"`
-	// ExtraPackages are nixpkgs attribute names (e.g. "gemini-cli")
-	// installed into the image by `coop rebuild` — pairs with
-	// [agents.<name>] entries whose binaries aren't in the stock image.
-	// Trusted (global) config only, like everything image-related.
+	// ExtraPackages is decoded only for the one-beta compatibility alias.
+	// New configuration uses [tools].packages.
 	ExtraPackages []string `toml:"extra_packages"`
 }
+
+// Tools declares additive packages for the guest user-command plane.
+// GlobalPackages and ProjectPackages retain canonical provenance for rebuild
+// output; they are derived metadata and cannot be set through TOML.
+type Tools struct {
+	Packages        []string `toml:"packages"`
+	GlobalPackages  []string `toml:"-"`
+	ProjectPackages []string `toml:"-"`
+}
+
+const (
+	MaxToolPackages   = 64
+	maxToolPackageLen = 128
+)
 
 type Resources struct {
 	CPUs   int    `toml:"cpus"`
@@ -139,7 +155,15 @@ func Load(projectRoot string) (Config, error) {
 			return cfg, fmt.Errorf("project config: %w", err)
 		}
 	}
-
+	cfg.Tools.GlobalPackages = canonicalPackages(cfg.Tools.GlobalPackages)
+	cfg.Tools.ProjectPackages = canonicalPackages(cfg.Tools.ProjectPackages)
+	cfg.Tools.Packages = canonicalPackages(append(
+		append([]string(nil), cfg.Tools.GlobalPackages...),
+		cfg.Tools.ProjectPackages...,
+	))
+	if len(cfg.Tools.Packages) > MaxToolPackages {
+		return cfg, fmt.Errorf("configured tool package count %d exceeds maximum %d", len(cfg.Tools.Packages), MaxToolPackages)
+	}
 	for i := range cfg.Seeds {
 		if cfg.Seeds[i].Dest == "" {
 			cfg.Seeds[i].Dest = cfg.Seeds[i].Src
@@ -186,6 +210,14 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		}
 		return fmt.Errorf("%s: unknown keys: %s", path, strings.Join(keys, ", "))
 	}
+	toolsDefined := md.IsDefined("tools", "packages")
+	legacyToolsDefined := md.IsDefined("image", "extra_packages")
+	if toolsDefined && legacyToolsDefined {
+		return fmt.Errorf("%s: cannot define both tools.packages and deprecated image.extra_packages", path)
+	}
+	if !trusted && legacyToolsDefined {
+		return fmt.Errorf("%s: project image.extra_packages is not supported; use tools.packages", path)
+	}
 	if err := validateLayer(&layer, trusted,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -196,8 +228,15 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 	if trusted && layer.Image.Name != "" {
 		cfg.Image.Name = layer.Image.Name
 	}
-	if trusted && len(layer.Image.ExtraPackages) > 0 {
-		cfg.Image.ExtraPackages = append(cfg.Image.ExtraPackages, layer.Image.ExtraPackages...)
+	packages := layer.Tools.Packages
+	if trusted && legacyToolsDefined {
+		packages = layer.Image.ExtraPackages
+		cfg.Warnings = append(cfg.Warnings, "image.extra_packages is deprecated; use tools.packages")
+	}
+	if trusted {
+		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, packages...)
+	} else {
+		cfg.Tools.ProjectPackages = append(cfg.Tools.ProjectPackages, packages...)
 	}
 	if layer.Resources.CPUs != 0 {
 		cfg.Resources.CPUs = layer.Resources.CPUs
@@ -229,6 +268,7 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 var (
 	configuredName  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 	environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	toolPackagePath = regexp.MustCompile(`^[A-Za-z0-9_+-]+(?:\.[A-Za-z0-9_+-]+)*$`)
 )
 
 const (
@@ -240,6 +280,12 @@ const (
 // must satisfy. Untrusted layers additionally get resource caps —
 // a repository must not be able to request the whole machine.
 func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
+	if err := validateToolPackages(layer.Tools.Packages); err != nil {
+		return err
+	}
+	if err := validateToolPackages(layer.Image.ExtraPackages); err != nil {
+		return fmt.Errorf("image.extra_packages: %w", err)
+	}
 	for name, agent := range layer.Agents {
 		if !configuredName.MatchString(name) || strings.Contains(name, "--") {
 			return fmt.Errorf("agent name %q invalid (lowercase alphanumeric+hyphens, no '--')", name)
@@ -297,6 +343,40 @@ func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 		}
 	}
 	return nil
+}
+
+func validateToolPackages(packages []string) error {
+	for _, pkg := range packages {
+		if len(pkg) == 0 {
+			return fmt.Errorf("tool package must not be empty")
+		}
+		if len(pkg) > maxToolPackageLen {
+			return fmt.Errorf("tool package %q exceeds %d bytes", pkg, maxToolPackageLen)
+		}
+		if strings.Contains(pkg, "#") {
+			return fmt.Errorf("tool package %q must be a plain Nixpkgs attribute path; flake references (ref#attr) are not supported because Coop resolves tools from its pinned Nixpkgs source", pkg)
+		}
+		if !toolPackagePath.MatchString(pkg) {
+			return fmt.Errorf("tool package %q must be a simple Nixpkgs attribute path", pkg)
+		}
+	}
+	return nil
+}
+
+func canonicalPackages(packages []string) []string {
+	if len(packages) == 0 {
+		return nil
+	}
+	unique := make(map[string]struct{}, len(packages))
+	for _, pkg := range packages {
+		unique[pkg] = struct{}{}
+	}
+	canonical := make([]string, 0, len(unique))
+	for pkg := range unique {
+		canonical = append(canonical, pkg)
+	}
+	sort.Strings(canonical)
+	return canonical
 }
 
 // validateMerged catches aliases introduced across config layers. Two agents

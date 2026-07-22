@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	buildinfo "runtime/debug"
@@ -61,7 +62,16 @@ var (
 	runSession = func(s *session.Session, cwd string, argv, credentials []string) error {
 		return s.Run(cwd, argv, credentials)
 	}
-	runTUI = tui.Run
+	runTUI     = tui.Run
+	buildImage = func(args []string, stdout, stderr io.Writer) error {
+		build := exec.Command("container", args...)
+		build.Stdout, build.Stderr = stdout, stderr
+		if err := build.Run(); err != nil {
+			return fmt.Errorf("run container image build: %w", err)
+		}
+		return nil
+	}
+	warningOutput io.Writer = os.Stderr
 )
 
 func main() { os.Exit(execute(root())) }
@@ -72,7 +82,11 @@ func current() (*session.Session, string, error) {
 		return nil, "", err
 	}
 	s, err := session.New(newRuntime(), cwd)
-	return s, cwd, err
+	if err != nil {
+		return nil, "", err
+	}
+	writeConfigWarnings(s.Cfg, warningOutput)
+	return s, cwd, nil
 }
 
 func root() *cobra.Command {
@@ -152,13 +166,21 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				state, err := s.RT.State(s.Name)
+				status, err := s.ImageStatus()
 				if err != nil {
 					// runtime unavailability is an ERROR, not "stopped"
 					return fmt.Errorf("runtime unavailable: %w", err)
 				}
-				fmt.Printf("project:   %s\ncontainer: %s\nstate:     %s\n",
-					s.Project, s.Name, state)
+				runningImage := status.RunningImage
+				if runningImage == "" {
+					runningImage = "(none)"
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"project:            %s\ncontainer:          %s\nstate:              %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nrecreation pending: %s\n",
+					s.Project, s.Name, status.State, runningImage, status.DesiredImage,
+					yesNo(status.RebuildRequired), yesNo(status.RecreationPending)); err != nil {
+					return fmt.Errorf("write status: %w", err)
+				}
 				return nil
 			}},
 		&cobra.Command{Use: "ls", Args: cobra.NoArgs, Short: "List all coops",
@@ -186,6 +208,7 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
+				writeConfigWarnings(cfg, cmd.ErrOrStderr())
 				home, err := os.UserHomeDir()
 				if err != nil {
 					return fmt.Errorf("resolve home dir: %w", err)
@@ -222,6 +245,7 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
+					writeConfigWarnings(s.Cfg, warningOutput)
 					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil
@@ -235,29 +259,26 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				ctx, err := image.Materialize()
+				ctx, err := image.Materialize(s.Cfg.Tools.Packages)
 				if err != nil {
 					return err
 				}
 				defer func() { _ = os.RemoveAll(ctx) }()
-				args := []string{"build",
-					"-t", session.EffectiveImageName(s.Cfg.Image),
-					"--build-arg", "GUEST_HOME=" + s.HostHome}
-				if pkgs := s.Cfg.Image.ExtraPackages; len(pkgs) > 0 {
-					attrs := make([]string, len(pkgs))
-					for i, p := range pkgs {
-						if strings.Contains(p, "#") {
-							attrs[i] = p
-						} else {
-							attrs[i] = image.NixpkgsRef + "#" + p
-						}
-					}
-					args = append(args, "--build-arg", "EXTRA_PKGS="+strings.Join(attrs, " "))
+				desiredImage := session.EffectiveImageName(s.Cfg)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nimage:          %s\n",
+					len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
+					formatToolList(s.Cfg.Tools.ProjectPackages), desiredImage); err != nil {
+					return fmt.Errorf("write rebuild summary: %w", err)
 				}
+				args := []string{"build",
+					"-t", desiredImage,
+					"--build-arg", "GUEST_HOME=" + s.HostHome}
 				args = append(args, ctx)
-				build := exec.Command("container", args...)
-				build.Stdout, build.Stderr = os.Stdout, os.Stderr
-				return build.Run()
+				if err := buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+					return fmt.Errorf("build image %q: %w", desiredImage, err)
+				}
+				return nil
 			}},
 		&cobra.Command{Use: "destroy", Args: cobra.NoArgs, Short: "Remove the coop AND its state volumes",
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -277,6 +298,28 @@ project toolchains come from the project's own flox manifest.`,
 			}},
 	)
 	return rootCmd
+}
+
+func formatToolList(packages []string) string {
+	if len(packages) == 0 {
+		return "(none)"
+	}
+	return strings.Join(packages, ", ")
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func writeConfigWarnings(cfg config.Config, output io.Writer) {
+	for _, warning := range cfg.Warnings {
+		// Deprecation warnings are advisory and must not block commands when
+		// stderr is intentionally closed or its consumer exits early.
+		_, _ = fmt.Fprintf(output, "coop: warning: %s\n", warning)
+	}
 }
 
 func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {

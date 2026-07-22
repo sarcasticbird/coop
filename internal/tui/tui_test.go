@@ -174,7 +174,7 @@ func TestUpUsesSessionLifecycleForSelectedProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt.Images = map[string]bool{session.EffectiveImageName(s.Cfg.Image): true}
+	rt.Images = map[string]bool{session.EffectiveImageName(s.Cfg): true}
 	rt.Existing[s.Name] = true // unlabeled: Session.Up must reconcile it
 	m := model{rt: rt, result: &Result{}, infos: []runtime.ContainerInfo{{
 		Name: s.Name, State: "stopped", Mounts: []runtime.MountInfo{{
