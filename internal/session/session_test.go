@@ -709,6 +709,63 @@ func TestEnsureImageRequiresLocalBuildWhenMissing(t *testing.T) {
 	}
 }
 
+func TestImageStatusReportsBuildAndRecreationState(t *testing.T) {
+	t.Run("absent desired image", func(t *testing.T) {
+		m := runtime.NewMock()
+		s := testSession(t, m)
+		delete(m.Images, EffectiveImageName(s.Cfg))
+		got, err := s.ImageStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != runtime.StateAbsent || got.RunningImage != "" || !got.RebuildRequired || got.RecreationPending {
+			t.Fatalf("status = %+v", got)
+		}
+	})
+
+	t.Run("current running image", func(t *testing.T) {
+		m := runtime.NewMock()
+		s := testSession(t, m)
+		m.Existing[s.Name] = true
+		m.Started = append(m.Started, s.Name)
+		m.ContainerImages = map[string]string{s.Name: EffectiveImageName(s.Cfg)}
+		labelCurrent(m, s)
+		got, err := s.ImageStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != runtime.StateRunning || got.RebuildRequired || got.RecreationPending || got.RunningImage != got.DesiredImage {
+			t.Fatalf("status = %+v", got)
+		}
+	})
+
+	t.Run("stale stopped image", func(t *testing.T) {
+		m := runtime.NewMock()
+		s := testSession(t, m)
+		m.Existing[s.Name] = true
+		m.ContainerImages = map[string]string{s.Name: "coop:local-old"}
+		m.ContainerLabels = map[string]map[string]string{s.Name: {SpecLabel: "old-spec"}}
+		got, err := s.ImageStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != runtime.StateStopped || got.RebuildRequired || !got.RecreationPending || got.RunningImage != "coop:local-old" {
+			t.Fatalf("status = %+v", got)
+		}
+	})
+}
+
+func TestImageStatusSurfacesInspectionErrors(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	m.Existing[s.Name] = true
+	m.ContainerImages = map[string]string{s.Name: EffectiveImageName(s.Cfg)}
+	m.LabelErr = errors.New("label unavailable")
+	if _, err := s.ImageStatus(); err == nil || !strings.Contains(err.Error(), "label unavailable") {
+		t.Fatalf("inspection error hidden: %v", err)
+	}
+}
+
 func TestEnsureImageCustomConfigRequiresLocalBuild(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)

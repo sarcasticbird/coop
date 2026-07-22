@@ -101,6 +101,45 @@ func (s *Session) EnsureImage() error {
 	return fmt.Errorf("image %s not found: build it locally with `coop rebuild`", name)
 }
 
+// ImageStatus is a read-only snapshot of the current container and desired
+// image. RebuildRequired means the desired image is absent; RecreationPending
+// means an existing container does not match the desired image or spec.
+type ImageStatus struct {
+	State             runtime.State
+	RunningImage      string
+	DesiredImage      string
+	RebuildRequired   bool
+	RecreationPending bool
+}
+
+func (s *Session) ImageStatus() (ImageStatus, error) {
+	desired := EffectiveImageName(s.Cfg)
+	status := ImageStatus{DesiredImage: desired}
+	state, err := s.RT.State(s.Name)
+	if err != nil {
+		return status, fmt.Errorf("state of %s: %w", s.Name, err)
+	}
+	status.State = state
+	ready, err := s.RT.ImageExists(desired)
+	if err != nil {
+		return status, fmt.Errorf("inspect image %s: %w", desired, err)
+	}
+	status.RebuildRequired = !ready
+	if state == runtime.StateAbsent {
+		return status, nil
+	}
+	status.RunningImage, err = s.RT.ContainerImage(s.Name)
+	if err != nil {
+		return status, fmt.Errorf("image of %s: %w", s.Name, err)
+	}
+	haveSpec, err := s.RT.ContainerLabel(s.Name, SpecLabel)
+	if err != nil {
+		return status, fmt.Errorf("spec check for %s: %w", s.Name, err)
+	}
+	status.RecreationPending = status.RunningImage != desired || haveSpec != s.SpecFingerprint()
+	return status, nil
+}
+
 // SpecLabel is the container label carrying the spec fingerprint.
 const SpecLabel = "coop.spec"
 

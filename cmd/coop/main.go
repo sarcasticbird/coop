@@ -68,6 +68,7 @@ var (
 		build.Stdout, build.Stderr = stdout, stderr
 		return build.Run()
 	}
+	warningOutput io.Writer = os.Stderr
 )
 
 func main() { os.Exit(execute(root())) }
@@ -78,6 +79,9 @@ func current() (*session.Session, string, error) {
 		return nil, "", err
 	}
 	s, err := session.New(newRuntime(), cwd)
+	if err == nil {
+		writeConfigWarnings(s.Cfg, warningOutput)
+	}
 	return s, cwd, err
 }
 
@@ -158,13 +162,22 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				state, err := s.RT.State(s.Name)
+				status, err := s.ImageStatus()
 				if err != nil {
 					// runtime unavailability is an ERROR, not "stopped"
 					return fmt.Errorf("runtime unavailable: %w", err)
 				}
-				fmt.Printf("project:   %s\ncontainer: %s\nstate:     %s\n",
-					s.Project, s.Name, state)
+				runningImage := status.RunningImage
+				if runningImage == "" {
+					runningImage = "(none)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "project:            %s\n", s.Project)
+				fmt.Fprintf(cmd.OutOrStdout(), "container:          %s\n", s.Name)
+				fmt.Fprintf(cmd.OutOrStdout(), "state:              %s\n", status.State)
+				fmt.Fprintf(cmd.OutOrStdout(), "running image:      %s\n", runningImage)
+				fmt.Fprintf(cmd.OutOrStdout(), "desired image:      %s\n", status.DesiredImage)
+				fmt.Fprintf(cmd.OutOrStdout(), "rebuild required:   %s\n", yesNo(status.RebuildRequired))
+				fmt.Fprintf(cmd.OutOrStdout(), "recreation pending: %s\n", yesNo(status.RecreationPending))
 				return nil
 			}},
 		&cobra.Command{Use: "ls", Args: cobra.NoArgs, Short: "List all coops",
@@ -192,6 +205,7 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
+				writeConfigWarnings(cfg, cmd.ErrOrStderr())
 				home, err := os.UserHomeDir()
 				if err != nil {
 					return fmt.Errorf("resolve home dir: %w", err)
@@ -282,6 +296,19 @@ func formatToolList(packages []string) string {
 		return "(none)"
 	}
 	return strings.Join(packages, ", ")
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func writeConfigWarnings(cfg config.Config, output io.Writer) {
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(output, "coop: warning: %s\n", warning)
+	}
 }
 
 func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {

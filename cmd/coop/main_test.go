@@ -79,6 +79,77 @@ func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T
 	}
 }
 
+func TestStatusReportsDesiredRunningAndPendingState(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	s, err := session.New(m, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Existing[s.Name] = true
+	m.Started = append(m.Started, s.Name)
+	m.Images = map[string]bool{session.EffectiveImageName(s.Cfg): true}
+	m.ContainerImages = map[string]string{s.Name: "coop:local-old"}
+	m.ContainerLabels = map[string]map[string]string{s.Name: {session.SpecLabel: "old-spec"}}
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"state:              running",
+		"running image:      coop:local-old",
+		"desired image:      " + session.EffectiveImageName(s.Cfg),
+		"rebuild required:   no",
+		"recreation pending: yes",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("status output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestLegacyToolAliasWarnsOnce(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	oldWarnings := warningOutput
+	var warnings bytes.Buffer
+	warningOutput = &warnings
+	t.Cleanup(func() { warningOutput = oldWarnings })
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetArgs([]string{"status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(warnings.String(), "image.extra_packages is deprecated"); got != 1 {
+		t.Fatalf("deprecation warning count = %d:\n%s", got, warnings.String())
+	}
+}
+
 func withRuntime(t *testing.T, rt runtime.Runtime) {
 	t.Helper()
 	oldRuntime, oldLookPath := newRuntime, lookPath
