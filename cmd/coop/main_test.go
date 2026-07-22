@@ -202,7 +202,7 @@ func TestRebuildPropagatesOutputWriteFailure(t *testing.T) {
 	}
 }
 
-func TestConfigWarningWriteFailurePropagates(t *testing.T) {
+func TestConfigWarningWriteFailureDoesNotBlockCommand(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -225,9 +225,8 @@ func TestConfigWarningWriteFailurePropagates(t *testing.T) {
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"status"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "write config warning") {
-		t.Fatalf("config warning write failure not propagated: %v", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("advisory warning blocked command: %v", err)
 	}
 }
 

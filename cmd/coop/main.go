@@ -85,9 +85,7 @@ func current() (*session.Session, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if err := writeConfigWarnings(s.Cfg, warningOutput); err != nil {
-		return nil, "", err
-	}
+	writeConfigWarnings(s.Cfg, warningOutput)
 	return s, cwd, nil
 }
 
@@ -210,9 +208,7 @@ project toolchains come from the project's own flox manifest.`,
 				if err != nil {
 					return err
 				}
-				if err := writeConfigWarnings(cfg, cmd.ErrOrStderr()); err != nil {
-					return err
-				}
+				writeConfigWarnings(cfg, cmd.ErrOrStderr())
 				home, err := os.UserHomeDir()
 				if err != nil {
 					return fmt.Errorf("resolve home dir: %w", err)
@@ -249,9 +245,7 @@ project toolchains come from the project's own flox manifest.`,
 					if err != nil {
 						return err
 					}
-					if err := writeConfigWarnings(s.Cfg, warningOutput); err != nil {
-						return err
-					}
+					writeConfigWarnings(s.Cfg, warningOutput)
 					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil
@@ -320,13 +314,12 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-func writeConfigWarnings(cfg config.Config, output io.Writer) error {
+func writeConfigWarnings(cfg config.Config, output io.Writer) {
 	for _, warning := range cfg.Warnings {
-		if _, err := fmt.Fprintf(output, "coop: warning: %s\n", warning); err != nil {
-			return fmt.Errorf("write config warning: %w", err)
-		}
+		// Deprecation warnings are advisory and must not block commands when
+		// stderr is intentionally closed or its consumer exits early.
+		_, _ = fmt.Fprintf(output, "coop: warning: %s\n", warning)
 	}
-	return nil
 }
 
 func requestedCredentialNames(cmd *cobra.Command, values []string) ([]string, error) {
