@@ -38,6 +38,7 @@ jobs:
           GOARCH: arm64
           CGO_ENABLED: "0"
         run: |
+          mkdir -p dist
           go build -trimpath \
             -ldflags "-X main.version=${GITHUB_REF_NAME}" \
             -o dist/coop ./cmd/coop
