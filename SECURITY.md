@@ -1,5 +1,9 @@
 # Security Policy
 
+Coop's runtime trust boundaries and non-promises are documented in the
+[security model](docs/security-model.md). This file describes supported
+versions and how to report a suspected vulnerability.
+
 ## Supported Versions
 
 coop is pre-1.0. Only the latest available beta version receives security
