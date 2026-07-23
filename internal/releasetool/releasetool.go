@@ -157,7 +157,7 @@ func (r Resolver) resolveMetadata(ctx context.Context, spec config.GitHubRelease
 	if err != nil {
 		return releaseMetadata{}, fmt.Errorf("fetch release metadata: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return releaseMetadata{}, fmt.Errorf("fetch release metadata: HTTP %s", resp.Status)
 	}
@@ -248,7 +248,7 @@ func (r Resolver) download(ctx context.Context, assetURL, digestHex, destination
 	if err != nil {
 		return fmt.Errorf("download release asset: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download release asset: HTTP %s", resp.Status)
 	}
@@ -293,12 +293,12 @@ func extractBinary(archivePath, binary, destination string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
 		return fmt.Errorf("open gzip stream: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	reader := tar.NewReader(&expandedReader{reader: gz, remaining: maxArchiveExpandedBytes})
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return fmt.Errorf("create executable cache: %w", err)
@@ -333,7 +333,7 @@ func extractBinary(archivePath, binary, destination string) error {
 				return fmt.Errorf("archive directory %q has non-zero size %d", header.Name, header.Size)
 			}
 			continue
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if header.Size < 0 || header.Size > maxArchiveExpandedBytes ||
 				expandedBytes > maxArchiveExpandedBytes-header.Size {
 				return fmt.Errorf("archive expanded size exceeds %d bytes", maxArchiveExpandedBytes)
@@ -648,7 +648,7 @@ func fileDigestMatches(filename, digestHex string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, io.LimitReader(file, maxArchiveBytes+1)); err != nil {
 		return false, err

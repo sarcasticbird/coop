@@ -76,12 +76,12 @@ binary = "kata"
 		if err != nil {
 			return err
 		}
-		defer archive.Close()
+		defer func() { _ = archive.Close() }()
 		gz, err := gzip.NewReader(archive)
 		if err != nil {
 			return err
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }()
 		tr := tar.NewReader(gz)
 		header, err := tr.Next()
 		if err != nil {

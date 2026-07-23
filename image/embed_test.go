@@ -90,12 +90,12 @@ func TestMaterializeArchivesVerifiedReleaseExecutables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	gz, err := gzip.NewReader(archive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	header, err := tr.Next()
 	if err != nil {
