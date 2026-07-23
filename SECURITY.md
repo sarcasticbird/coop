@@ -16,5 +16,5 @@ reporting route:
 
 Include the affected version or commit, reproduction steps, impact, and any
 known mitigations. Do not open a public issue for an undisclosed vulnerability.
-The reporting route requires repository access and GitHub private vulnerability
-reporting to be enabled.
+Private vulnerability reporting is enabled for this public repository and is
+available to any GitHub user.
