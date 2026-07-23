@@ -1,0 +1,18 @@
+# Repository-controlled project configuration
+#
+# Copy this file to <project-root>/coop.toml and keep only the settings the
+# project needs. Project configuration may set resources, additive tools, and
+# agent state. It cannot choose the image, read host seed sources, enable SSH
+# forwarding, or define credential grants.
+
+[resources]
+cpus = 6
+memory = "12G"
+
+# Packages come from the Nixpkgs revision pinned by the installed Coop release.
+[tools]
+packages = ["go-task", "nodejs_22"]
+
+# Each state directory receives a named volume isolated to this project.
+[agents.example]
+state = "~/.local/share/example-agent"

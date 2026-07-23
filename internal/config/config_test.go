@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -518,6 +519,30 @@ policy = "sometimes"
 	}
 }
 
+func TestExamplesLoad(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate config test")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	xdg := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	copyFile(t, filepath.Join(root, "examples", "coop.user.toml"), filepath.Join(xdg, "coop", "coop.toml"))
+	copyFile(t, filepath.Join(root, "examples", "coop.project.toml"), filepath.Join(project, "coop.toml"))
+
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatalf("load public examples: %v", err)
+	}
+	if cfg.Image.Name == "" || len(cfg.Seeds) == 0 || len(cfg.Tools.Packages) == 0 || len(cfg.Credentials) == 0 {
+		t.Fatalf("public examples did not exercise image, seed, tools, and credentials: %+v", cfg)
+	}
+	if cfg.Resources.CPUs != 6 {
+		t.Fatalf("project resource override = %d, want 6", cfg.Resources.CPUs)
+	}
+}
+
 func TestExpandHome(t *testing.T) {
 	if got := ExpandHome("~/x", "/home/u"); got != "/home/u/x" {
 		t.Errorf("got %q", got)
@@ -525,6 +550,15 @@ func TestExpandHome(t *testing.T) {
 	if got := ExpandHome("/abs", "/home/u"); got != "/abs" {
 		t.Errorf("got %q", got)
 	}
+}
+
+func copyFile(t *testing.T, src, dest string) {
+	t.Helper()
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dest, string(data))
 }
 
 func mustWrite(t *testing.T, p, s string) {

@@ -1,0 +1,74 @@
+# Trusted user configuration
+#
+# Copy the settings you need to:
+#   $XDG_CONFIG_HOME/coop/coop.toml
+# or, when XDG_CONFIG_HOME is unset:
+#   ~/.config/coop/coop.toml
+#
+# This file can read host files and grant credentials. Do not copy these
+# settings into a repository-controlled coop.toml.
+
+# SSH-agent forwarding is deliberately off by default.
+ssh = false
+
+# Included grants are acquired for every interactive entry. Other grants can
+# be selected for one entry with --credentials.
+include_credentials = ["git"]
+
+[image]
+name = "coop:latest"
+
+# Packages come from the Nixpkgs revision pinned by this Coop release.
+[tools]
+packages = ["gh", "shellcheck"]
+
+[resources]
+cpus = 4
+memory = "8G"
+
+# Add persistent state for another agent. To remove a built-in agent, declare
+# its table with an empty state, for example:
+# [agents.codex]
+# state = ""
+[agents.gemini]
+state = "~/.gemini"
+
+# Copy a host configuration file on every entry. When dest is omitted, it
+# defaults to src with the guest home substituted for ~/.
+[[seed]]
+src = "~/.config/example/config.toml"
+policy = "always"
+
+# Merge a host directory into the guest without deleting guest-only files.
+[[seed]]
+src = "~/.config/example/plugins"
+policy = "overlay"
+
+# Install a self-contained script or Linux executable on the guest PATH.
+[[seed]]
+src = "~/bin/example-tool"
+dest = "/usr/local/bin/example-tool"
+policy = "always"
+
+# GitHub CLI extensions are executable files under this directory layout.
+[[seed]]
+src = "~/bin/gh-example"
+dest = "~/.local/share/gh/extensions/gh-example/gh-example"
+policy = "always"
+
+[credentials.git]
+source = { type = "file", path = "~/.git-credentials" }
+inject = { type = "git-credential-store" }
+
+[credentials.github]
+source = { type = "command", argv = ["gh", "auth", "token"] }
+inject = { type = "environment", name = "GH_TOKEN" }
+
+[credentials.kubernetes]
+source = { type = "file", path = "~/.kube/config" }
+inject = { type = "file", path_env = "KUBECONFIG" }
+
+[credentials.aws-dev]
+source = { type = "aws-profile", profile = "dev" }
+inject = { type = "aws" }
+require_expiration = true
