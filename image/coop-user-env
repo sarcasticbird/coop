@@ -21,6 +21,7 @@ if (( $# == 0 )); then
 fi
 
 tools_profile=${COOP_TOOLS_PROFILE:-/opt/coop-tools/profile}
+release_tools=${COOP_RELEASE_TOOLS:-/opt/coop-release-tools}
 # Keep every entry owned by the outer core Flox activation ahead of configured
 # tools, and configured tools ahead of image fallbacks. Empty entries are
 # discarded because they make PATH search the untrusted project directory.
@@ -46,7 +47,11 @@ while [[ -n "$remaining_path" ]]; do
     fallback_path="${fallback_path:+$fallback_path:}$entry"
   fi
 done
-export PATH="${core_path:+$core_path:}$tools_profile/bin${fallback_path:+:$fallback_path}"
+configured_path=$tools_profile/bin
+if [[ -d "$release_tools/bin" ]]; then
+  configured_path=$configured_path:$release_tools/bin
+fi
+export PATH="${core_path:+$core_path:}$configured_path${fallback_path:+:$fallback_path}"
 
 if [[ -n "$project_flox" ]]; then
   exec flox activate --dir "$project_flox" -- "$@"

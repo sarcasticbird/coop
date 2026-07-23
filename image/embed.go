@@ -3,15 +3,20 @@
 package image
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sarcasticbird/coop/internal/config"
 )
 
 //go:embed Containerfile coop-user-env zshrc core/.flox/env.json core/.flox/env/manifest.toml core/.flox/env/manifest.lock
@@ -65,7 +70,7 @@ func fingerprintFS(fsys fs.FS, names []string, packageSource string) string {
 
 // Materialize writes the build context to a temp directory and returns
 // its path. Caller removes it.
-func Materialize(packages []string) (dir string, retErr error) {
+func Materialize(packages []string, releases []config.ResolvedReleaseTool) (dir string, retErr error) {
 	dir, err := os.MkdirTemp("", "coop-image-")
 	if err != nil {
 		return "", fmt.Errorf("create image build context: %w", err)
@@ -96,6 +101,60 @@ func Materialize(packages []string) (dir string, retErr error) {
 	packagesPath := filepath.Join(dir, "configured-packages.txt")
 	if err := os.WriteFile(packagesPath, []byte(installables.String()), 0o644); err != nil {
 		return "", fmt.Errorf("write configured package list %q: %w", packagesPath, err)
+	}
+	canonicalReleases := append([]config.ResolvedReleaseTool(nil), releases...)
+	sort.Slice(canonicalReleases, func(i, j int) bool {
+		return canonicalReleases[i].Name < canonicalReleases[j].Name
+	})
+	archivePath := filepath.Join(dir, "release-tools.tar.gz")
+	archive, err := os.OpenFile(archivePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create release tool archive %q: %w", archivePath, err)
+	}
+	gz := gzip.NewWriter(archive)
+	tw := tar.NewWriter(gz)
+	closeArchive := func() error {
+		if err := tw.Close(); err != nil {
+			return err
+		}
+		if err := gz.Close(); err != nil {
+			return err
+		}
+		return archive.Close()
+	}
+	for _, release := range canonicalReleases {
+		info, err := os.Stat(release.CachePath)
+		if err != nil {
+			_ = closeArchive()
+			return "", fmt.Errorf("inspect cached release tool %q: %w", release.Name, err)
+		}
+		if !info.Mode().IsRegular() {
+			_ = closeArchive()
+			return "", fmt.Errorf("cached release tool %q is not a regular file", release.Name)
+		}
+		source, err := os.Open(release.CachePath)
+		if err != nil {
+			_ = closeArchive()
+			return "", fmt.Errorf("read cached release tool %q: %w", release.Name, err)
+		}
+		header := &tar.Header{Name: release.Name, Mode: 0o755, Size: info.Size(), Typeflag: tar.TypeReg}
+		if err := tw.WriteHeader(header); err != nil {
+			_ = source.Close()
+			_ = closeArchive()
+			return "", fmt.Errorf("archive release tool %q: %w", release.Name, err)
+		}
+		if _, err := io.Copy(tw, source); err != nil {
+			_ = source.Close()
+			_ = closeArchive()
+			return "", fmt.Errorf("archive release tool %q: %w", release.Name, err)
+		}
+		if err := source.Close(); err != nil {
+			_ = closeArchive()
+			return "", fmt.Errorf("close cached release tool %q: %w", release.Name, err)
+		}
+	}
+	if err := closeArchive(); err != nil {
+		return "", fmt.Errorf("close release tool archive %q: %w", archivePath, err)
 	}
 	return dir, nil
 }

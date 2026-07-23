@@ -24,6 +24,7 @@ RUN flox activate --dir /opt/coop-core -- true
 
 ENV COOP_CORE=/opt/coop-core
 ENV COOP_TOOLS_PROFILE=/opt/coop-tools/profile
+ENV COOP_RELEASE_TOOLS=/opt/coop-release-tools
 ENV PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
 
 # Repository/global additions live in a lower-priority user-command profile.
@@ -39,6 +40,14 @@ RUN mkdir -p /opt/coop-tools && \
         --impure --priority 2 "$installable" || exit 1; \
     done < /tmp/configured-packages.txt && \
     rm /tmp/configured-packages.txt
+
+# User-trusted GitHub release tools are resolved, checksum-verified, and safely
+# extracted by Coop before the build context is created. Copy one explicit
+# top-level archive because Apple's builder drops recursive directory contents.
+COPY release-tools.tar.gz /tmp/release-tools.tar.gz
+RUN mkdir -p /opt/coop-release-tools/bin && \
+    tar -xzf /tmp/release-tools.tar.gz -C /opt/coop-release-tools/bin && \
+    rm /tmp/release-tools.tar.gz
 
 # Guest HOME must equal host HOME for the identical-path property —
 # every ~/-relative config resolves the same on both sides. The local image is

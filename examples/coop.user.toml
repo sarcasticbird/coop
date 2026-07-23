@@ -22,6 +22,22 @@ name = "coop:latest"
 [tools]
 packages = ["gh", "shellcheck"]
 
+# Public GitHub release tools are trusted-user-only. "latest" is resolved only
+# by `coop rebuild`; use an exact tag when repeatability matters.
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+
+[[tools.github_release]]
+name = "roborev"
+repo = "kenn-io/roborev"
+tag = "latest"
+asset = "roborev_{version}_linux_arm64.tar.gz"
+binary = "roborev"
+
 [resources]
 cpus = 4
 memory = "8G"

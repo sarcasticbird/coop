@@ -79,8 +79,9 @@ coop claude
 ```
 
 The beta builds its sandbox image locally rather than publishing one. Run
-`coop rebuild` once after installation, after changing `[tools].packages`, or
-after upgrading to a release with different embedded image inputs.
+`coop rebuild` once after installation, after changing configured tools, or
+after upgrading to a release with different embedded image inputs. Rebuild is
+the only command that resolves configured GitHub release tools.
 
 Running `coop` without a guest command opens a Zsh login shell. The locked core
 includes Git, GitHub CLI, SSH, common shell tools, and the opencode, Claude
@@ -125,11 +126,12 @@ host files or executables into the guest. Selected credentials are staged for
 one interactive entry and cleaned up afterward, but every guest-root process
 can access or retain them while staged.
 
-The sandbox image has three tool layers:
+The sandbox image has four tool layers:
 
 1. Coop's locked core workbench;
 2. additive packages declared in user or project `coop.toml`;
-3. an optional project `.flox`, activated at entry with highest precedence.
+3. checksum-verified public GitHub release tools declared by the trusted user;
+4. an optional project `.flox`, activated at entry with highest precedence.
 
 See the [runtime model](docs/runtime.md) for project selection, image identity,
 container lifecycle, persistence, tool ordering, recovery, and current limits.
@@ -143,7 +145,8 @@ Coop loads trusted user configuration from
 Repositories may declare capped resources, additive packages from Coop's
 pinned Nixpkgs source, and persistent agent state. Host file seeds,
 credential grants, SSH-agent forwarding, and image selection remain under
-trusted user control.
+trusted user control. GitHub release tools are also user-only because they
+select publisher-controlled executable assets.
 
 The full [`coop.toml` reference](docs/configuration.md) documents every key,
 default, merge rule, trust boundary, validation rule, and lifecycle effect.

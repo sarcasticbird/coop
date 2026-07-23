@@ -127,17 +127,22 @@ embeds:
 - a digest-pinned Flox base image reference;
 - the Containerfile and shell wrapper;
 - an exact Flox lock for the core workbench;
-- an immutable Nixpkgs revision for configured packages.
+- an immutable Nixpkgs revision for configured packages;
+- trusted user GitHub release declarations and their rebuild-time resolutions.
 
 `coop rebuild` materializes those inputs to a temporary build context and asks
 Apple's runtime to build the desired local image. Every configured package is a
 validated attribute resolved from the pinned Nixpkgs source. A failed package
-install fails the image build.
+install fails the image build. Public GitHub release tools are resolved only by
+`coop rebuild`, verified against the release asset's API digest, cached by
+digest, and copied into the build context. Ordinary entry and status do not
+contact GitHub.
 
 The derived `local-...` image tag hashes:
 
 - the configured `image.name`;
 - the effective, sorted package set;
+- the canonical GitHub release declarations and resolved tags/digests;
 - the embedded image files;
 - the pinned package source.
 
@@ -150,12 +155,14 @@ confirming that its replacement image exists.
 
 Every guest command enters through Coop's locked core Flox environment.
 Configured user/project packages live in a separate lower-priority Nix profile.
-Coop reconstructs `PATH` so command lookup is:
+Trusted GitHub release binaries live in a separate image directory. Coop
+reconstructs `PATH` so command lookup is:
 
 1. an optional project `.flox`;
 2. every path owned by the locked core activation;
 3. the configured-tools profile;
-4. absolute operating-system fallback paths.
+4. trusted GitHub release tools;
+5. absolute operating-system fallback paths.
 
 Empty and relative inherited `PATH` entries are discarded. This prevents the
 mounted repository or current directory from shadowing core credential,

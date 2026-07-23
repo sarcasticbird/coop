@@ -10,6 +10,8 @@ cpus = 6
 memory = "12G"
 
 # Packages come from the Nixpkgs revision pinned by the installed Coop release.
+# Downloadable [[tools.github_release]] entries are rejected here; they belong
+# only in trusted user configuration.
 [tools]
 packages = ["go-task", "nodejs_22"]
 

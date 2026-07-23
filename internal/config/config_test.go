@@ -194,6 +194,108 @@ func TestToolPackagesBoundEffectiveUniqueSet(t *testing.T) {
 	}
 }
 
+func TestGitHubReleaseToolsLoadCanonicallyFromTrustedConfig(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
+[[tools.github_release]]
+name = "roborev"
+repo = "kenn-io/roborev"
+tag = "v0.63.0"
+asset = "roborev_{version}_linux_arm64.tar.gz"
+binary = "roborev"
+
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []string{cfg.Tools.GitHubReleases[0].Name, cfg.Tools.GitHubReleases[1].Name}; !slices.Equal(got, []string{"kata", "roborev"}) {
+		t.Fatalf("release tools = %v, want canonical name order", got)
+	}
+	if cfg.Tools.GitHubReleases[0].Tag != "latest" {
+		t.Fatalf("latest tag lost: %+v", cfg.Tools.GitHubReleases[0])
+	}
+	if a, b := ReleaseSpecFingerprint(cfg.Tools.GitHubReleases), ReleaseSpecFingerprint(slices.Clone(cfg.Tools.GitHubReleases)); a == "" || a != b {
+		t.Fatalf("release spec fingerprint unstable: %q != %q", a, b)
+	}
+}
+
+func TestProjectGitHubReleaseToolsRejected(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, "coop.toml"), `
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`)
+
+	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "trusted user") {
+		t.Fatalf("project GitHub release tool accepted: %v", err)
+	}
+}
+
+func TestGitHubReleaseToolValidation(t *testing.T) {
+	valid := GitHubReleaseTool{
+		Name: "kata", Repo: "kenn-io/kata", Tag: "latest",
+		Asset: "kata_{version}_linux_arm64.tar.gz", Binary: "kata",
+	}
+	tests := map[string]GitHubReleaseTool{
+		"empty name":           withReleaseField(valid, "name", ""),
+		"uppercase name":       withReleaseField(valid, "name", "Kata"),
+		"invalid repo":         withReleaseField(valid, "repo", "https://github.com/kenn-io/kata"),
+		"dot repo component":   withReleaseField(valid, "repo", "../kata"),
+		"empty tag":            withReleaseField(valid, "tag", ""),
+		"unknown placeholder":  withReleaseField(valid, "asset", "kata_{arch}.tar.gz"),
+		"unsupported archive":  withReleaseField(valid, "asset", "kata_{version}.zip"),
+		"absolute binary":      withReleaseField(valid, "binary", "/kata"),
+		"escaping binary":      withReleaseField(valid, "binary", "../kata"),
+		"duplicate executable": valid,
+	}
+
+	for name, tool := range tests {
+		t.Run(name, func(t *testing.T) {
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			entries := []GitHubReleaseTool{tool}
+			if name == "duplicate executable" {
+				entries = append(entries, valid)
+			}
+			mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), githubReleaseToolTOML(entries))
+			if _, err := Load(""); err == nil {
+				t.Fatalf("invalid release tool accepted: %+v", tool)
+			}
+		})
+	}
+}
+
+func TestGitHubReleaseToolsBounded(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	tools := make([]GitHubReleaseTool, MaxGitHubReleaseTools+1)
+	for i := range tools {
+		tools[i] = GitHubReleaseTool{
+			Name: fmt.Sprintf("tool-%d", i), Repo: "owner/repo", Tag: "latest",
+			Asset:  fmt.Sprintf("tool-%d_{version}_linux_arm64.tar.gz", i),
+			Binary: fmt.Sprintf("tool-%d", i),
+		}
+	}
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), githubReleaseToolTOML(tools))
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "32") {
+		t.Fatalf("excessive release tools accepted: %v", err)
+	}
+}
+
 func TestLegacyExtraPackagesAlias(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -535,8 +637,9 @@ func TestExamplesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load public examples: %v", err)
 	}
-	if cfg.Image.Name == "" || len(cfg.Seeds) == 0 || len(cfg.Tools.Packages) == 0 || len(cfg.Credentials) == 0 {
-		t.Fatalf("public examples did not exercise image, seed, tools, and credentials: %+v", cfg)
+	if cfg.Image.Name == "" || len(cfg.Seeds) == 0 || len(cfg.Tools.Packages) == 0 ||
+		len(cfg.Tools.GitHubReleases) == 0 || len(cfg.Credentials) == 0 {
+		t.Fatalf("public examples did not exercise image, seed, package, release tool, and credential configuration: %+v", cfg)
 	}
 	if cfg.Resources.CPUs != 6 {
 		t.Fatalf("project resource override = %d, want 6", cfg.Resources.CPUs)
@@ -577,4 +680,35 @@ func toolPackageTOML(packages []string) string {
 		quoted[i] = strconv.Quote(pkg)
 	}
 	return "[tools]\npackages = [" + strings.Join(quoted, ", ") + "]\n"
+}
+
+func githubReleaseToolTOML(tools []GitHubReleaseTool) string {
+	var content strings.Builder
+	for _, tool := range tools {
+		fmt.Fprintf(&content, `[[tools.github_release]]
+name = %s
+repo = %s
+tag = %s
+asset = %s
+binary = %s
+`, strconv.Quote(tool.Name), strconv.Quote(tool.Repo), strconv.Quote(tool.Tag),
+			strconv.Quote(tool.Asset), strconv.Quote(tool.Binary))
+	}
+	return content.String()
+}
+
+func withReleaseField(tool GitHubReleaseTool, field, value string) GitHubReleaseTool {
+	switch field {
+	case "name":
+		tool.Name = value
+	case "repo":
+		tool.Repo = value
+	case "tag":
+		tool.Tag = value
+	case "asset":
+		tool.Asset = value
+	case "binary":
+		tool.Binary = value
+	}
+	return tool
 }

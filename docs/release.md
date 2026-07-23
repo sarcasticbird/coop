@@ -72,6 +72,14 @@ cannot provide.
      separate argv values.
    - Request one nonexistent package and confirm the failed rebuild leaves the
      previous image and container usable.
+   - In trusted user configuration, add one exact-tag and one `latest`
+     `[[tools.github_release]]` entry whose releases publish API SHA-256
+     digests. Rebuild and confirm both Linux arm64 commands run.
+   - Run `coop status` without network access and confirm it reports the locked
+     release tags. Rebuild again and confirm cached assets are accepted.
+   - Try an absent asset, digest mismatch, and unsafe archive fixture; confirm
+     each rebuild fails without replacing the previous release lock or
+     disturbing the working container.
 
 5. Verify recreation semantics. Create a marker in the guest root filesystem
    and a marker under one agent's named state directory, change the effective
