@@ -169,8 +169,8 @@ func (r Resolver) resolveMetadata(ctx context.Context, spec config.GitHubRelease
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return releaseMetadata{}, fmt.Errorf("decode release metadata: %w", err)
 	}
-	if metadata.TagName == "" {
-		return releaseMetadata{}, errors.New("release metadata has an empty tag")
+	if metadata.TagName == "" || strings.ContainsAny(metadata.TagName, "\x00\r\n\t") {
+		return releaseMetadata{}, fmt.Errorf("release metadata tag %q is invalid", metadata.TagName)
 	}
 	if metadata.Draft {
 		return releaseMetadata{}, fmt.Errorf("release %s is a draft", metadata.TagName)
@@ -532,7 +532,23 @@ func pruneCache(cacheRoot string, resolved []config.ResolvedReleaseTool, now tim
 		return fmt.Errorf("read release archive cache: %w", err)
 	}
 	for _, entry := range archives {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tar.gz") {
+		if entry.IsDir() {
+			continue
+		}
+		filename := filepath.Join(archivesDir, entry.Name())
+		if strings.HasPrefix(entry.Name(), ".release-archive-") {
+			info, err := entry.Info()
+			if err != nil {
+				return fmt.Errorf("inspect cached release archive %q: %w", entry.Name(), err)
+			}
+			if info.ModTime().Before(cutoff) {
+				if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("prune cached release archive %q: %w", entry.Name(), err)
+				}
+			}
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".tar.gz") {
 			continue
 		}
 		digest := strings.TrimSuffix(entry.Name(), ".tar.gz")
@@ -542,7 +558,6 @@ func pruneCache(cacheRoot string, resolved []config.ResolvedReleaseTool, now tim
 		if _, current := keep[digest]; current {
 			continue
 		}
-		filename := filepath.Join(archivesDir, entry.Name())
 		info, err := entry.Info()
 		if err != nil {
 			return fmt.Errorf("inspect cached release archive %q: %w", entry.Name(), err)

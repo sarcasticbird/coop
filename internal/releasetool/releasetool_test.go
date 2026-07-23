@@ -144,6 +144,22 @@ func TestResolveExactTagRejectsMismatchedMetadataTag(t *testing.T) {
 	}
 }
 
+func TestResolveMetadataRejectsInvalidTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tag_name": "v1\nspoofed", "draft": false, "prerelease": false, "assets": []any{},
+		})
+	}))
+	defer server.Close()
+	resolver := Resolver{Client: server.Client(), BaseURL: server.URL, CacheDir: t.TempDir()}
+	_, err := resolver.resolveMetadata(context.Background(), config.GitHubReleaseTool{
+		Name: "tool", Repo: "o/r", Tag: "latest",
+	})
+	if err == nil || !strings.Contains(err.Error(), "tag") {
+		t.Fatalf("invalid metadata tag accepted: %v", err)
+	}
+}
+
 func TestResolveFailsClosedOnReleaseMetadata(t *testing.T) {
 	tests := map[string]map[string]any{
 		"draft": {
@@ -370,7 +386,7 @@ func TestReleaseLockRejectsTamperedResolvedState(t *testing.T) {
 	}
 }
 
-func TestPruneCacheRemovesOnlyOldUnreferencedDigests(t *testing.T) {
+func TestPruneCacheRemovesOnlyOldUnreferencedEntries(t *testing.T) {
 	cacheRoot := t.TempDir()
 	now := time.Now()
 	current := strings.Repeat("a", 64)
@@ -393,10 +409,18 @@ func TestPruneCacheRemovesOnlyOldUnreferencedDigests(t *testing.T) {
 		}
 	}
 	oldTime := now.Add(-2 * time.Hour)
+	oldTemp := filepath.Join(cacheRoot, "archives", ".release-archive-old")
+	recentTemp := filepath.Join(cacheRoot, "archives", ".release-archive-recent")
+	for _, filename := range []string{oldTemp, recentTemp} {
+		if err := os.WriteFile(filename, []byte("partial"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, filename := range []string{
 		filepath.Join(cacheRoot, "archives", old+".tar.gz"),
 		filepath.Join(cacheRoot, "bin", old, "tool"),
 		filepath.Join(cacheRoot, "bin", old),
+		oldTemp,
 	} {
 		if err := os.Chtimes(filename, oldTime, oldTime); err != nil {
 			t.Fatal(err)
@@ -412,11 +436,15 @@ func TestPruneCacheRemovesOnlyOldUnreferencedDigests(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cacheRoot, "bin", old)); !os.IsNotExist(err) {
 		t.Fatalf("old unreferenced binary directory was not pruned: %v", err)
 	}
+	if _, err := os.Stat(oldTemp); !os.IsNotExist(err) {
+		t.Fatalf("old incomplete archive was not pruned: %v", err)
+	}
 	for _, filename := range []string{
 		filepath.Join(cacheRoot, "archives", current+".tar.gz"),
 		filepath.Join(cacheRoot, "bin", current),
 		filepath.Join(cacheRoot, "archives", recent+".tar.gz"),
 		filepath.Join(cacheRoot, "bin", recent),
+		recentTemp,
 	} {
 		if _, err := os.Stat(filename); err != nil {
 			t.Fatalf("active or recent cache entry %q was pruned: %v", filename, err)

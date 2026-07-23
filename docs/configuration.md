@@ -182,11 +182,12 @@ The resolved tag and digest are stored in
 `~/.local/state/coop/release-tools.lock` when that variable is unset. Cached
 archives and binaries live below `$XDG_CACHE_HOME/coop/release-tools`, falling
 back to the platform user cache directory. After a successful rebuild, Coop
-prunes unreferenced digest entries that have been inactive for at least one
-hour; the grace period protects concurrent rebuilds. Normal entry and
-`coop status` use the lock without network access. Changing a declaration invalidates the lock;
-run `coop rebuild` to resolve it again. With `"latest"`, only a later rebuild
-checks for a newer release. Use an exact tag for repeatable resolution.
+prunes unreferenced digest entries and incomplete downloads that have been
+inactive for at least one hour; the grace period protects concurrent rebuilds.
+Normal entry and `coop status` use the lock without network access. Changing a
+declaration invalidates the lock; run `coop rebuild` to resolve it again. With
+`"latest"`, only a later rebuild checks for a newer release. Use an exact tag
+for repeatable resolution.
 If the derived lock is malformed or inconsistent, Coop ignores it with a
 warning and treats the tools as unresolved. Run `coop rebuild` to replace the
 invalid lock; ordinary entry will not reuse a previously resolved image while
