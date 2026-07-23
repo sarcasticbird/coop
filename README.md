@@ -38,7 +38,7 @@ brew install gh
 Download and verify the exact release:
 
 ```sh
-version=v0.1.0-beta.3
+version=v0.1.0-beta.4
 archive="coop_${version}_darwin_arm64.tar.gz"
 gh release download "$version" -R sarcasticbird/coop \
   -p "$archive" -p checksums.txt
