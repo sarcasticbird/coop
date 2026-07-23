@@ -15,6 +15,7 @@ import (
 
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/credential"
+	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
 
@@ -41,6 +42,99 @@ func testSession(t *testing.T, m *runtime.Mock) *Session {
 	}
 	m.Images = map[string]bool{EffectiveImageName(s.Cfg): true}
 	return s
+}
+
+func TestNewLoadsMatchingGitHubReleaseToolLockWithoutNetwork(t *testing.T) {
+	home := t.TempDir()
+	xdgConfig := t.TempDir()
+	xdgState := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+	t.Setenv("XDG_STATE_HOME", xdgState)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(xdgConfig, "coop", "coop.toml")
+	if err := os.MkdirAll(filepath.Dir(global), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(global, []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.10.0",
+		Asset: "kata_0.10.0_linux_arm64.tar.gz", URL: "https://github.com/example",
+		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
+	}}
+	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), cfg.Tools.GitHubReleases, resolved); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(runtime.NewMock(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cfg.Tools.ResolvedReleases) != 1 || s.Cfg.Tools.ResolvedReleases[0].Tag != "v0.10.0" {
+		t.Fatalf("resolved releases = %+v", s.Cfg.Tools.ResolvedReleases)
+	}
+}
+
+func TestNewTreatsMalformedGitHubReleaseToolLockAsUnresolved(t *testing.T) {
+	home := t.TempDir()
+	xdgConfig := t.TempDir()
+	xdgState := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+	t.Setenv("XDG_STATE_HOME", xdgState)
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(xdgConfig, "coop", "coop.toml")
+	if err := os.MkdirAll(filepath.Dir(global), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(global, []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(xdgState, "coop", "release-tools.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(runtime.NewMock(), project)
+	if err != nil {
+		t.Fatalf("derived release lock blocked recovery: %v", err)
+	}
+	if len(s.Cfg.Tools.ResolvedReleases) != 0 {
+		t.Fatalf("malformed lock supplied resolved tools: %+v", s.Cfg.Tools.ResolvedReleases)
+	}
+	if len(s.Cfg.Warnings) != 1 || !strings.Contains(s.Cfg.Warnings[0], "run `coop rebuild`") {
+		t.Fatalf("malformed lock warning = %v", s.Cfg.Warnings)
+	}
 }
 
 func TestRunAcquiresCredentialsBeforeUp(t *testing.T) {
@@ -864,6 +958,38 @@ func TestEffectiveImageNameRegistryPort(t *testing.T) {
 	digest := config.Config{Image: config.Image{Name: "repo/coop@sha256:deadbeef"}, Tools: config.Tools{Packages: []string{"x"}}}
 	if got := EffectiveImageName(digest); !strings.HasPrefix(got, "repo/coop:local-") {
 		t.Errorf("digest ref corrupted: %q", got)
+	}
+}
+
+func TestEffectiveImageNameIncludesGitHubReleaseDeclarationAndResolution(t *testing.T) {
+	base := config.Config{
+		Image: config.Image{Name: "coop:latest"},
+		Tools: config.Tools{GitHubReleases: []config.GitHubReleaseTool{{
+			Name: "kata", Repo: "kenn-io/kata", Tag: "latest",
+			Asset: "kata_{version}_linux_arm64.tar.gz", Binary: "kata",
+		}}},
+	}
+	unresolved := EffectiveImageName(base)
+	if unresolved == EffectiveImageName(config.Config{Image: config.Image{Name: "coop:latest"}}) {
+		t.Fatal("unresolved declaration did not affect image identity")
+	}
+	base.Tools.ResolvedReleases = []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.10.0",
+		Asset: "kata_0.10.0_linux_arm64.tar.gz", Digest: "sha256:" + strings.Repeat("a", 64),
+		Binary: "kata", URL: "https://github.com/ignored", CachePath: "/host/ignored",
+	}}
+	resolved := EffectiveImageName(base)
+	if resolved == unresolved {
+		t.Fatal("resolved release did not affect image identity")
+	}
+	base.Tools.ResolvedReleases[0].URL = "https://github.com/different-but-ignored"
+	base.Tools.ResolvedReleases[0].CachePath = "/different/host/path"
+	if got := EffectiveImageName(base); got != resolved {
+		t.Fatalf("host-specific release state affected image identity: %s != %s", got, resolved)
+	}
+	base.Tools.ResolvedReleases[0].Digest = "sha256:" + strings.Repeat("b", 64)
+	if got := EffectiveImageName(base); got == resolved {
+		t.Fatal("release digest change did not affect image identity")
 	}
 }
 

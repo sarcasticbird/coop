@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -12,10 +15,223 @@ import (
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
 	"github.com/sarcasticbird/coop/internal/tui"
 )
+
+func TestRebuildResolvesMaterializesAndLocksGitHubReleaseTools(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	cached := filepath.Join(t.TempDir(), "kata")
+	if err := os.WriteFile(cached, []byte("verified-kata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolved := []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.10.0",
+		Asset: "kata_0.10.0_linux_arm64.tar.gz", Digest: "sha256:" + strings.Repeat("a", 64),
+		Binary: "kata", CachePath: cached,
+	}}
+
+	oldResolve, oldSave, oldPrune, oldBuild := resolveReleaseTools, saveReleaseToolLock, pruneReleaseToolCache, buildImage
+	resolveReleaseTools = func(context.Context, []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
+		return resolved, nil
+	}
+	saved := false
+	pruned := false
+	saveReleaseToolLock = func(_ string, specs []config.GitHubReleaseTool, got []config.ResolvedReleaseTool) error {
+		saved = len(specs) == 1 && slices.EqualFunc(got, resolved, func(a, b config.ResolvedReleaseTool) bool {
+			return a.Name == b.Name && a.Digest == b.Digest
+		})
+		return nil
+	}
+	pruneReleaseToolCache = func(got []config.ResolvedReleaseTool) error {
+		pruned = len(got) == 1 && got[0].Digest == resolved[0].Digest
+		return nil
+	}
+	buildImage = func(args []string, _, _ io.Writer) error {
+		archive, err := os.Open(filepath.Join(args[len(args)-1], "release-tools.tar.gz"))
+		if err != nil {
+			return err
+		}
+		defer archive.Close()
+		gz, err := gzip.NewReader(archive)
+		if err != nil {
+			return err
+		}
+		defer gz.Close()
+		tr := tar.NewReader(gz)
+		header, err := tr.Next()
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return err
+		}
+		if header.Name != "kata" {
+			return errors.New("wrong release executable name")
+		}
+		if string(data) != "verified-kata" {
+			return errors.New("wrong release executable")
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		resolveReleaseTools, saveReleaseToolLock, pruneReleaseToolCache, buildImage = oldResolve, oldSave, oldPrune, oldBuild
+	})
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !saved {
+		t.Fatal("successful rebuild did not save resolved release lock")
+	}
+	if !pruned {
+		t.Fatal("successful rebuild did not prune stale release cache entries")
+	}
+	if !strings.Contains(output.String(), "release tools:  kata@v0.10.0") {
+		t.Fatalf("rebuild output missing resolved release: %s", output.String())
+	}
+}
+
+func TestRebuildDoesNotSaveReleaseLockWhenImageBuildFails(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(xdg, "cache"))
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	cfg, err := config.Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldResolved := []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.9.0",
+		Asset:  "kata_0.9.0_linux_arm64.tar.gz",
+		Digest: "sha256:" + strings.Repeat("9", 64), Binary: "kata",
+	}}
+	stateDir := filepath.Join(xdg, "state", "coop")
+	if err := releasetool.SaveLock(stateDir, cfg.Tools.GitHubReleases, oldResolved); err != nil {
+		t.Fatal(err)
+	}
+	cached := filepath.Join(t.TempDir(), "kata")
+	if err := os.WriteFile(cached, []byte("new-kata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newResolved := []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.10.0",
+		Asset:  "kata_0.10.0_linux_arm64.tar.gz",
+		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata", CachePath: cached,
+	}}
+
+	oldResolve, oldSave, oldPrune, oldBuild := resolveReleaseTools, saveReleaseToolLock, pruneReleaseToolCache, buildImage
+	resolveReleaseTools = func(context.Context, []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
+		return newResolved, nil
+	}
+	saveReleaseToolLock = func(string, []config.GitHubReleaseTool, []config.ResolvedReleaseTool) error {
+		t.Fatal("failed build saved release lock")
+		return nil
+	}
+	pruneReleaseToolCache = func([]config.ResolvedReleaseTool) error {
+		t.Fatal("failed build pruned release cache")
+		return nil
+	}
+	buildImage = func([]string, io.Writer, io.Writer) error { return errors.New("build failed") }
+	t.Cleanup(func() {
+		resolveReleaseTools, saveReleaseToolLock, pruneReleaseToolCache, buildImage = oldResolve, oldSave, oldPrune, oldBuild
+	})
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "build failed") {
+		t.Fatalf("build failure = %v", err)
+	}
+	got, err := releasetool.LoadLock(stateDir, cfg.Tools.GitHubReleases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Tag != "v0.9.0" {
+		t.Fatalf("failed build replaced previous lock: %+v", got)
+	}
+}
+
+func TestRebuildWithoutReleaseToolsPersistsEmptyStateAndPrunesCache(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	oldSave, oldPrune, oldBuild := saveReleaseToolLock, pruneReleaseToolCache, buildImage
+	saved, pruned := false, false
+	saveReleaseToolLock = func(_ string, specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) error {
+		saved = len(specs) == 0 && len(resolved) == 0
+		return nil
+	}
+	pruneReleaseToolCache = func(resolved []config.ResolvedReleaseTool) error {
+		pruned = len(resolved) == 0
+		return nil
+	}
+	buildImage = func([]string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() {
+		saveReleaseToolLock, pruneReleaseToolCache, buildImage = oldSave, oldPrune, oldBuild
+	})
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !saved || !pruned {
+		t.Fatalf("release-free rebuild cleanup: saved=%t pruned=%t", saved, pruned)
+	}
+}
 
 func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T) {
 	m := runtime.NewMock()
@@ -462,5 +678,51 @@ func TestDoctorLoadsGlobalConfigFromHome(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Fatalf("doctor depended on current project config/root: %v", err)
+	}
+}
+
+func TestDoctorUsesLockedGitHubReleaseToolImageIdentity(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdgConfig := t.TempDir()
+	xdgState := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+	t.Setenv("XDG_STATE_HOME", xdgState)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	global := filepath.Join(xdgConfig, "coop", "coop.toml")
+	if err := os.MkdirAll(filepath.Dir(global), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(global, []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := []config.ResolvedReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.12.1",
+		Asset:  "kata_0.12.1_linux_arm64.tar.gz",
+		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
+	}}
+	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), cfg.Tools.GitHubReleases, resolved); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tools.ResolvedReleases = resolved
+	m.Images = map[string]bool{session.EffectiveImageName(cfg): true}
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"doctor"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor ignored matching release-tool lock: %v", err)
 	}
 }

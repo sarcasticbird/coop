@@ -1,7 +1,10 @@
 package image
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,13 +15,15 @@ import (
 	"testing/fstest"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/sarcasticbird/coop/internal/config"
 )
 
 func TestEmbeddedBuildContext(t *testing.T) {
 	if len(Fingerprint()) != 12 {
 		t.Fatalf("unexpected image fingerprint %q", Fingerprint())
 	}
-	dir, err := Materialize(nil)
+	dir, err := Materialize(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +50,7 @@ func TestEmbeddedBuildContext(t *testing.T) {
 }
 
 func TestMaterializeWritesCanonicalConfiguredInstallables(t *testing.T) {
-	dir, err := Materialize([]string{"shellcheck", "actionlint", "shellcheck"})
+	dir, err := Materialize([]string{"shellcheck", "actionlint", "shellcheck"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,9 +68,48 @@ func TestMaterializeWritesCanonicalConfiguredInstallables(t *testing.T) {
 func TestMaterializeWrapsBuildContextCreationError(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 
-	_, err := Materialize(nil)
+	_, err := Materialize(nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "create image build context") {
 		t.Fatalf("materialize error = %v", err)
+	}
+}
+
+func TestMaterializeArchivesVerifiedReleaseExecutables(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "kata")
+	if err := os.WriteFile(source, []byte("linux-kata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := Materialize(nil, []config.ResolvedReleaseTool{{
+		Name: "kata", CachePath: source,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	archive, err := os.Open(filepath.Join(dir, "release-tools.tar.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	gz, err := gzip.NewReader(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	header, err := tr.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.Name != "kata" || header.FileInfo().Mode().Perm() != 0o755 || string(data) != "linux-kata" {
+		t.Fatalf("archived release executable = name %q mode %o body %q", header.Name, header.FileInfo().Mode().Perm(), data)
+	}
+	if _, err := tr.Next(); err != io.EOF {
+		t.Fatalf("release archive has unexpected additional entry: %v", err)
 	}
 }
 
@@ -92,6 +136,9 @@ func TestContainerfileBuildsSeparatedToolLayers(t *testing.T) {
 		`--profile /opt/coop-tools/profile`,
 		`"$installable"`,
 		`--impure --priority 2 "$installable" || exit 1;`,
+		"ENV COOP_RELEASE_TOOLS=/opt/coop-release-tools",
+		"COPY release-tools.tar.gz /tmp/release-tools.tar.gz",
+		"tar -xzf /tmp/release-tools.tar.gz -C /opt/coop-release-tools/bin",
 		"COPY coop-user-env /usr/local/bin/coop-user-env",
 	} {
 		if !strings.Contains(content, required) {
@@ -113,8 +160,9 @@ func TestUserEnvironmentOrdersCoreConfiguredAndFallbackTools(t *testing.T) {
 	coreBin := filepath.Join(coreEnv, "bin")
 	coreSbin := filepath.Join(coreEnv, "sbin")
 	toolsBin := filepath.Join(root, "tools", "bin")
+	releaseBin := filepath.Join(root, "releases", "bin")
 	fallbackBin := filepath.Join(root, "fallback", "bin")
-	for _, dir := range []string{coreBin, coreSbin, toolsBin, fallbackBin} {
+	for _, dir := range []string{coreBin, coreSbin, toolsBin, releaseBin, fallbackBin} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -123,6 +171,7 @@ func TestUserEnvironmentOrdersCoreConfiguredAndFallbackTools(t *testing.T) {
 		filepath.Join(coreSbin, "shared-tool"),
 		filepath.Join(toolsBin, "shared-tool"),
 		filepath.Join(toolsBin, "configured-tool"),
+		filepath.Join(releaseBin, "release-tool"),
 		filepath.Join(fallbackBin, "configured-tool"),
 	} {
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -130,18 +179,21 @@ func TestUserEnvironmentOrdersCoreConfiguredAndFallbackTools(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command("bash", "coop-user-env", "--", "/bin/sh", "-c", "command -v shared-tool; command -v configured-tool")
+	cmd := exec.Command("bash", "coop-user-env", "--", "/bin/sh", "-c", "command -v shared-tool; command -v configured-tool; command -v release-tool")
 	cmd.Env = []string{
 		"COOP_CORE=" + coreRoot,
 		"FLOX_ENV=" + coreEnv,
 		"COOP_TOOLS_PROFILE=" + filepath.Dir(toolsBin),
+		"COOP_RELEASE_TOOLS=" + filepath.Dir(releaseBin),
 		"PATH=" + strings.Join([]string{coreBin, coreSbin, fallbackBin, "/usr/bin", "/bin"}, string(os.PathListSeparator)),
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run wrapper: %v\n%s", err, out)
 	}
-	want := filepath.Join(coreSbin, "shared-tool") + "\n" + filepath.Join(toolsBin, "configured-tool")
+	want := filepath.Join(coreSbin, "shared-tool") + "\n" +
+		filepath.Join(toolsBin, "configured-tool") + "\n" +
+		filepath.Join(releaseBin, "release-tool")
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("tool resolution = %q, want %q", got, want)
 	}

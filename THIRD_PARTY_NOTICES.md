@@ -9,7 +9,10 @@ The public beta builds this image locally and does not publish or redistribute
 the resulting image. Before redistributing a locally built image, review the
 licenses and terms for its complete package closure.
 Repository and global `[tools].packages` additions expand that closure and must
-be reviewed as well.
+be reviewed as well. Trusted `[[tools.github_release]]` declarations also copy
+third-party executables into the local image. Their upstream licenses, notices,
+and redistribution terms apply even though Coop verifies their release-asset
+digests.
 
 In particular, the image definition installs Claude Code, whose published
 license states that use is subject to Anthropic's terms and does not provide an

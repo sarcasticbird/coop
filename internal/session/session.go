@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"github.com/sarcasticbird/coop/internal/credential"
 	"github.com/sarcasticbird/coop/internal/lock"
 	"github.com/sarcasticbird/coop/internal/project"
+	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/seed"
 )
@@ -51,6 +53,9 @@ func New(rt runtime.Runtime, cwd string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := releasetool.HydrateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("load GitHub release tool state: %w", err)
+	}
 	manager := credential.NewManager(root)
 	return &Session{
 		RT: rt, Project: root, Name: project.Name(root),
@@ -69,9 +74,34 @@ const DefaultImageName = "coop:latest"
 // cannot silently reuse a stale image.
 func EffectiveImageName(cfg config.Config) string {
 	pkgs := image.CanonicalPackages(cfg.Tools.Packages)
+	resolved := append([]config.ResolvedReleaseTool(nil), cfg.Tools.ResolvedReleases...)
+	sort.Slice(resolved, func(i, j int) bool { return resolved[i].Name < resolved[j].Name })
+	type releaseIdentity struct {
+		Name         string
+		Repo         string
+		RequestedTag string
+		Tag          string
+		Asset        string
+		Digest       string
+		Binary       string
+	}
+	releaseIDs := make([]releaseIdentity, 0, len(resolved))
+	for _, tool := range resolved {
+		releaseIDs = append(releaseIDs, releaseIdentity{
+			Name: tool.Name, Repo: tool.Repo, RequestedTag: tool.RequestedTag,
+			Tag: tool.Tag, Asset: tool.Asset, Digest: tool.Digest, Binary: tool.Binary,
+		})
+	}
+	releaseJSON, err := json.Marshal(releaseIDs)
+	if err != nil {
+		panic(fmt.Sprintf("encode release tool image identity: %v", err))
+	}
 	// Hash includes the full source reference: changing the base tag or
 	// digest with identical packages must produce a distinct derived tag.
-	sum := sha256.Sum256([]byte(cfg.Image.Name + "\x00" + strings.Join(pkgs, "\x00") + "\x00" + image.Fingerprint()))
+	sum := sha256.Sum256([]byte(cfg.Image.Name + "\x00" +
+		strings.Join(pkgs, "\x00") + "\x00" +
+		config.ReleaseSpecFingerprint(cfg.Tools.GitHubReleases) + "\x00" +
+		string(releaseJSON) + "\x00" + image.Fingerprint()))
 	// Strip a digest suffix, then only a tag colon after the final
 	// slash — registry ports (localhost:5000/team/coop:latest) and
 	// digest refs (repo@sha256:...) must both survive.

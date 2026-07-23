@@ -3,12 +3,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	buildinfo "runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +18,7 @@ import (
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/doctor"
+	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
 	"github.com/sarcasticbird/coop/internal/tui"
@@ -71,7 +74,12 @@ var (
 		}
 		return nil
 	}
-	warningOutput io.Writer = os.Stderr
+	resolveReleaseTools = func(ctx context.Context, specs []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
+		return (releasetool.Resolver{}).Resolve(ctx, specs)
+	}
+	saveReleaseToolLock             = releasetool.SaveLock
+	pruneReleaseToolCache           = releasetool.PruneCache
+	warningOutput         io.Writer = os.Stderr
 )
 
 func main() { os.Exit(execute(root())) }
@@ -176,8 +184,10 @@ can add tools through coop.toml or an optional project flox environment.`,
 					runningImage = "(none)"
 				}
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
-					"project:            %s\ncontainer:          %s\nstate:              %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nrecreation pending: %s\n",
-					s.Project, s.Name, status.State, runningImage, status.DesiredImage,
+					"project:            %s\ncontainer:          %s\nstate:              %s\nrelease tools:      %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nrecreation pending: %s\n",
+					s.Project, s.Name, status.State,
+					formatReleaseTools(s.Cfg.Tools.GitHubReleases, s.Cfg.Tools.ResolvedReleases),
+					runningImage, status.DesiredImage,
 					yesNo(status.RebuildRequired), yesNo(status.RecreationPending)); err != nil {
 					return fmt.Errorf("write status: %w", err)
 				}
@@ -207,6 +217,9 @@ can add tools through coop.toml or an optional project flox environment.`,
 				cfg, err := config.Load("")
 				if err != nil {
 					return err
+				}
+				if err := releasetool.HydrateConfig(&cfg); err != nil {
+					return fmt.Errorf("load GitHub release tool state: %w", err)
 				}
 				writeConfigWarnings(cfg, cmd.ErrOrStderr())
 				home, err := os.UserHomeDir()
@@ -259,16 +272,23 @@ can add tools through coop.toml or an optional project flox environment.`,
 				if err != nil {
 					return err
 				}
-				ctx, err := image.Materialize(s.Cfg.Tools.Packages)
+				resolved, err := resolveReleaseTools(cmd.Context(), s.Cfg.Tools.GitHubReleases)
+				if err != nil {
+					return fmt.Errorf("resolve GitHub release tools: %w", err)
+				}
+				buildCfg := s.Cfg
+				buildCfg.Tools.ResolvedReleases = resolved
+				ctx, err := image.Materialize(buildCfg.Tools.Packages, resolved)
 				if err != nil {
 					return err
 				}
 				defer func() { _ = os.RemoveAll(ctx) }()
-				desiredImage := session.EffectiveImageName(s.Cfg)
+				desiredImage := session.EffectiveImageName(buildCfg)
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
-					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nimage:          %s\n",
+					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nrelease tools:  %s\nimage:          %s\n",
 					len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
-					formatToolList(s.Cfg.Tools.ProjectPackages), desiredImage); err != nil {
+					formatToolList(s.Cfg.Tools.ProjectPackages),
+					formatReleaseTools(s.Cfg.Tools.GitHubReleases, resolved), desiredImage); err != nil {
 					return fmt.Errorf("write rebuild summary: %w", err)
 				}
 				args := []string{"build",
@@ -277,6 +297,16 @@ can add tools through coop.toml or an optional project flox environment.`,
 				args = append(args, ctx)
 				if err := buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 					return fmt.Errorf("build image %q: %w", desiredImage, err)
+				}
+				stateDir, err := releasetool.StateDir()
+				if err != nil {
+					return err
+				}
+				if err := saveReleaseToolLock(stateDir, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
+					return fmt.Errorf("save GitHub release tool state: %w", err)
+				}
+				if err := pruneReleaseToolCache(resolved); err != nil {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coop: warning: prune GitHub release tool cache: %v\n", err)
 				}
 				return nil
 			}},
@@ -305,6 +335,26 @@ func formatToolList(packages []string) string {
 		return "(none)"
 	}
 	return strings.Join(packages, ", ")
+}
+
+func formatReleaseTools(specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) string {
+	if len(specs) == 0 {
+		return "(none)"
+	}
+	resolvedTags := make(map[string]string, len(resolved))
+	for _, tool := range resolved {
+		resolvedTags[tool.Name] = tool.Tag
+	}
+	tools := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		tag := resolvedTags[spec.Name]
+		if tag == "" {
+			tag = "unresolved"
+		}
+		tools = append(tools, spec.Name+"@"+tag)
+	}
+	slices.Sort(tools)
+	return strings.Join(tools, ", ")
 }
 
 func yesNo(value bool) string {

@@ -14,7 +14,7 @@ Coop distinguishes two configuration authorities:
 
 - **Trusted user configuration** belongs to the person running Coop and may
   select the image namespace, read host seed sources, forward the SSH agent,
-  and define credential grants.
+  define credential grants, and select public GitHub release executables.
 - **Project configuration** may be controlled by the checked-out repository.
   It may request capped resources, additive packages from Coop's pinned
   Nixpkgs source, and persistent agent-state directories.
@@ -28,6 +28,16 @@ URLs, flakes, paths, or install hooks. The locked core workbench remains ahead
 of configured tools on `PATH`, so a project package cannot shadow the core
 `git`, `gh`, `ssh`, `curl`, or credential-transport binaries used by normal
 entries.
+
+GitHub release tools are a separate trusted-user capability. Coop accepts only
+public repositories, GitHub-hosted HTTPS downloads, `.tar.gz` archives, and a
+single configured regular file. It rejects traversal paths, links, devices,
+oversized inputs, missing or ambiguous assets, and assets without a
+GitHub-provided SHA-256 digest. The digest protects cache and download
+integrity against the release metadata; it is not an independent signature or
+an endorsement of the publisher. An exact tag improves repeatability, while
+`latest` deliberately trusts the publisher's next release when the user runs
+`coop rebuild`.
 
 This improves auditability; it is not an allowlist. Guest root can install or
 download other software after entry.

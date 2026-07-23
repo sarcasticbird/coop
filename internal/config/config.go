@@ -4,8 +4,12 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -106,15 +110,44 @@ type Image struct {
 // GlobalPackages and ProjectPackages retain canonical provenance for rebuild
 // output; they are derived metadata and cannot be set through TOML.
 type Tools struct {
-	Packages        []string `toml:"packages"`
-	GlobalPackages  []string `toml:"-"`
-	ProjectPackages []string `toml:"-"`
+	Packages         []string              `toml:"packages"`
+	GitHubReleases   []GitHubReleaseTool   `toml:"github_release"`
+	GlobalPackages   []string              `toml:"-"`
+	ProjectPackages  []string              `toml:"-"`
+	ResolvedReleases []ResolvedReleaseTool `toml:"-"`
 }
 
 const (
-	MaxToolPackages   = 64
-	maxToolPackageLen = 128
+	MaxToolPackages       = 64
+	MaxGitHubReleaseTools = 32
+	maxToolPackageLen     = 128
+	maxReleaseFieldLen    = 256
 )
+
+// GitHubReleaseTool declares one public GitHub release asset installed from
+// trusted user configuration. Project configuration may not add release tools.
+type GitHubReleaseTool struct {
+	Name   string `toml:"name" json:"name"`
+	Repo   string `toml:"repo" json:"repo"`
+	Tag    string `toml:"tag" json:"tag"`
+	Asset  string `toml:"asset" json:"asset"`
+	Binary string `toml:"binary" json:"binary"`
+}
+
+// ResolvedReleaseTool is derived lock state for one GitHub release tool.
+// CachePath is host-local materialization state and never contributes to a
+// portable lock file or image identity.
+type ResolvedReleaseTool struct {
+	Name         string `json:"name"`
+	Repo         string `json:"repo"`
+	RequestedTag string `json:"requested_tag"`
+	Tag          string `json:"tag"`
+	Asset        string `json:"asset"`
+	URL          string `json:"url"`
+	Digest       string `json:"digest"`
+	Binary       string `json:"binary"`
+	CachePath    string `json:"-"`
+}
 
 type Resources struct {
 	CPUs   int    `toml:"cpus"`
@@ -161,6 +194,9 @@ func Load(projectRoot string) (Config, error) {
 		append([]string(nil), cfg.Tools.GlobalPackages...),
 		cfg.Tools.ProjectPackages...,
 	))
+	sort.Slice(cfg.Tools.GitHubReleases, func(i, j int) bool {
+		return cfg.Tools.GitHubReleases[i].Name < cfg.Tools.GitHubReleases[j].Name
+	})
 	if len(cfg.Tools.Packages) > MaxToolPackages {
 		return cfg, fmt.Errorf("configured tool package count %d exceeds maximum %d", len(cfg.Tools.Packages), MaxToolPackages)
 	}
@@ -211,12 +247,16 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		return fmt.Errorf("%s: unknown keys: %s", path, strings.Join(keys, ", "))
 	}
 	toolsDefined := md.IsDefined("tools", "packages")
+	releaseToolsDefined := md.IsDefined("tools", "github_release")
 	legacyToolsDefined := md.IsDefined("image", "extra_packages")
 	if toolsDefined && legacyToolsDefined {
 		return fmt.Errorf("%s: cannot define both tools.packages and deprecated image.extra_packages", path)
 	}
 	if !trusted && legacyToolsDefined {
 		return fmt.Errorf("%s: project image.extra_packages is not supported; use tools.packages", path)
+	}
+	if !trusted && releaseToolsDefined {
+		return fmt.Errorf("%s: tools.github_release is supported only in trusted user configuration", path)
 	}
 	if err := validateLayer(&layer, trusted,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
@@ -235,6 +275,7 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 	}
 	if trusted {
 		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, packages...)
+		cfg.Tools.GitHubReleases = append(cfg.Tools.GitHubReleases, layer.Tools.GitHubReleases...)
 	} else {
 		cfg.Tools.ProjectPackages = append(cfg.Tools.ProjectPackages, packages...)
 	}
@@ -266,9 +307,10 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 }
 
 var (
-	configuredName  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-	environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	toolPackagePath = regexp.MustCompile(`^[A-Za-z0-9_+-]+(?:\.[A-Za-z0-9_+-]+)*$`)
+	configuredName   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	environmentName  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	toolPackagePath  = regexp.MustCompile(`^[A-Za-z0-9_+-]+(?:\.[A-Za-z0-9_+-]+)*$`)
+	githubRepository = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 )
 
 const (
@@ -285,6 +327,9 @@ func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 	}
 	if err := validateToolPackages(layer.Image.ExtraPackages); err != nil {
 		return fmt.Errorf("image.extra_packages: %w", err)
+	}
+	if err := validateGitHubReleaseTools(layer.Tools.GitHubReleases); err != nil {
+		return err
 	}
 	for name, agent := range layer.Agents {
 		if !configuredName.MatchString(name) || strings.Contains(name, "--") {
@@ -379,6 +424,74 @@ func canonicalPackages(packages []string) []string {
 	return canonical
 }
 
+func validateGitHubReleaseTools(tools []GitHubReleaseTool) error {
+	if len(tools) > MaxGitHubReleaseTools {
+		return fmt.Errorf("configured GitHub release tool count %d exceeds maximum %d", len(tools), MaxGitHubReleaseTools)
+	}
+	seen := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		if !configuredName.MatchString(tool.Name) || strings.Contains(tool.Name, "--") || len(tool.Name) > maxAgentNameLen {
+			return fmt.Errorf("GitHub release tool name %q invalid (lowercase alphanumeric+hyphens, no '--')", tool.Name)
+		}
+		if _, exists := seen[tool.Name]; exists {
+			return fmt.Errorf("duplicate GitHub release tool name %q", tool.Name)
+		}
+		seen[tool.Name] = struct{}{}
+		if len(tool.Repo) > maxReleaseFieldLen || !githubRepository.MatchString(tool.Repo) {
+			return fmt.Errorf("GitHub release tool %s: repo %q must be owner/name", tool.Name, tool.Repo)
+		}
+		repoParts := strings.Split(tool.Repo, "/")
+		if repoParts[0] == "." || repoParts[0] == ".." || repoParts[1] == "." || repoParts[1] == ".." {
+			return fmt.Errorf("GitHub release tool %s: repo %q must be owner/name", tool.Name, tool.Repo)
+		}
+		if tool.Tag == "" || len(tool.Tag) > maxReleaseFieldLen || strings.ContainsAny(tool.Tag, "\x00\r\n\t") {
+			return fmt.Errorf("GitHub release tool %s: tag must be a non-empty GitHub release tag or latest", tool.Name)
+		}
+		if err := validateReleaseAsset(tool.Name, tool.Asset); err != nil {
+			return err
+		}
+		if err := validateReleaseBinary(tool.Name, tool.Binary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReleaseAsset(name, asset string) error {
+	if asset == "" || len(asset) > maxReleaseFieldLen || strings.Contains(asset, "/") || !strings.HasSuffix(asset, ".tar.gz") {
+		return fmt.Errorf("GitHub release tool %s: asset %q must be a .tar.gz asset name", name, asset)
+	}
+	remaining := strings.ReplaceAll(strings.ReplaceAll(asset, "{tag}", ""), "{version}", "")
+	if strings.ContainsAny(remaining, "{}") {
+		return fmt.Errorf("GitHub release tool %s: asset %q contains an unknown placeholder", name, asset)
+	}
+	return nil
+}
+
+func validateReleaseBinary(name, binary string) error {
+	if binary == "" || len(binary) > maxReleaseFieldLen || strings.Contains(binary, "\\") || path.IsAbs(binary) {
+		return fmt.Errorf("GitHub release tool %s: binary %q must be a confined relative archive path", name, binary)
+	}
+	clean := path.Clean(binary)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != binary {
+		return fmt.Errorf("GitHub release tool %s: binary %q must be a confined normalized archive path", name, binary)
+	}
+	return nil
+}
+
+// ReleaseSpecFingerprint identifies the canonical user-authored release tool
+// declarations so derived lock state is ignored after configuration changes.
+func ReleaseSpecFingerprint(tools []GitHubReleaseTool) string {
+	canonical := append([]GitHubReleaseTool(nil), tools...)
+	sort.Slice(canonical, func(i, j int) bool { return canonical[i].Name < canonical[j].Name })
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		panic(fmt.Sprintf("marshal GitHub release tool declarations: %v", err))
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 // validateMerged catches aliases introduced across config layers. Two agents
 // targeting the same normalized directory would mount different named volumes
 // at one guest path, making persistence depend on CLI argument ordering.
@@ -416,6 +529,9 @@ func validateMerged(cfg *Config) error {
 		included = append(included, name)
 	}
 	cfg.IncludeCredentials = included
+	if err := validateGitHubReleaseTools(cfg.Tools.GitHubReleases); err != nil {
+		return err
+	}
 	return nil
 }
 
