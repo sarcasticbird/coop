@@ -7,10 +7,9 @@ release notes.
 
 ## Versioning
 
-Tags follow `vMAJOR.MINOR.PATCH` with an optional pre-release suffix,
-matching the existing series (`v0.1.0-beta.1`, `v0.1.0-beta.2`). Any tag
-containing a `-` is published as a GitHub pre-release. coop is pre-1.0;
-breaking command or configuration changes bump the minor version.
+Tags follow `vMAJOR.MINOR.PATCH` with an optional pre-release suffix such as
+`-beta.1`. Any tag containing a `-` is published as a GitHub pre-release. coop
+is pre-1.0; breaking command or configuration changes bump the minor version.
 
 The binary's version comes from the tag at build time via
 `-ldflags "-X main.version=<tag>"`. Builds without that flag fall back
@@ -23,7 +22,9 @@ Hosted CI runs the mocked runtime only — it cannot exercise Apple's
 `container` runtime. Steps 1–5 are the real-hardware validation that CI
 cannot provide.
 
-1. Confirm `main` is green in CI and `roborev list --open` is clean.
+1. Choose the release version, update the README install example to that exact
+   version, and commit the change. Confirm `main` is green in CI and
+   `roborev list --open` is clean.
 2. On an Apple silicon host running macOS 26+, build from the release
    commit and validate against the real runtime:
 
@@ -80,13 +81,15 @@ cannot provide.
 
 6. Create an annotated tag on the release commit. The tag message
    becomes the release notes, so write it for users: what changed,
-   migration notes, known limitations. For the Flox-backed tooling release,
-   explicitly call out that Node.js is no longer bundled and must be declared
-   through project Flox or `[tools].packages`.
+   migration notes, known limitations, and any removed bundled tools or other
+   breaking changes. For example, the Flox-backed tooling release called out
+   that Node.js was no longer bundled and had to be declared through project
+   Flox or `[tools].packages`.
 
    ```sh
-   git tag -a v0.1.0-beta.3
-   git push origin v0.1.0-beta.3
+   version=vX.Y.Z-beta.N # replace with the version being released
+   git tag -a "$version"
+   git push origin "$version"
    ```
 
 7. The `release` workflow runs the same checks as `ci` (gofmt, tests
@@ -101,13 +104,16 @@ instead.
 
 ## Installing from a Release
 
-While the repository is private, downloads require authentication:
+Public release assets can be downloaded without authentication using a current
+GitHub CLI:
 
 ```sh
-gh release download v0.1.0-beta.3 -R sarcasticbird/coop \
-  -p 'coop_*_darwin_arm64.tar.gz' -p checksums.txt
+version=vX.Y.Z-beta.N # replace with the version to install
+archive="coop_${version}_darwin_arm64.tar.gz"
+gh release download "$version" -R sarcasticbird/coop \
+  -p "$archive" -p checksums.txt
 shasum -a 256 -c checksums.txt
-tar -xzf coop_v0.1.0-beta.3_darwin_arm64.tar.gz coop
+tar -xzf "$archive" coop
 mkdir -p "$HOME/.local/bin"
 install -m 0755 coop "$HOME/.local/bin/coop"
 ```
@@ -115,5 +121,6 @@ install -m 0755 coop "$HOME/.local/bin/coop"
 Note that binaries downloaded through a browser carry the quarantine
 attribute and macOS will refuse to run them: the build is ad-hoc signed
 by the Go linker, not notarized. Downloads via `gh` or `curl` are not
-quarantined. Developer ID signing and notarization are prerequisites
-for distributing outside the beta audience (e.g., a Homebrew tap).
+quarantined. Developer ID signing and notarization are prerequisites for
+distribution channels that require trusted macOS binaries, such as a Homebrew
+tap.

@@ -13,8 +13,6 @@ versions.
 
 - macOS 26 or later on Apple silicon
 - Apple's `container` CLI and a running container service
-- GitHub CLI access to this repository for release installation while it is
-  private, or Go 1.26.5 or later to build Coop from source
 
 Flox is part of the guest image, not a host prerequisite. Repositories do not
 need a `.flox` environment unless they want the same project toolchain inside
@@ -29,33 +27,27 @@ container system start
 
 ## Install
 
-While the repository is private, release downloads require an authenticated
-GitHub CLI. Install the latest published binary:
+Install the current release with [`gh`](https://cli.github.com/). Public asset
+downloads do not require authentication or repository access:
 
 ```sh
-(
-  set -eu
-  install_tmp="$(mktemp -d)"
-  trap 'rm -rf "$install_tmp"' 0 HUP INT TERM
-  version="$(gh api repos/sarcasticbird/coop/releases \
-    --jq '(map(select(.draft == false and .prerelease == false and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0]
-      // map(select(.draft == false and any(.assets[]; .name | endswith("_darwin_arm64.tar.gz"))))[0]).tag_name // empty')"
-  [ -n "$version" ] || { echo "no binary release is available yet" >&2; exit 1; }
-  archive="coop_${version}_darwin_arm64.tar.gz"
-  gh release download "$version" -R sarcasticbird/coop --dir "$install_tmp" \
-    -p "$archive" -p checksums.txt
-  (cd "$install_tmp" && shasum -a 256 -c checksums.txt)
-  tar -xzf "$install_tmp/$archive" -C "$install_tmp" coop
-  mkdir -p "$HOME/.local/bin"
-  install -m 0755 "$install_tmp/coop" "$HOME/.local/bin/coop"
-)
+version=v0.1.0-beta.3
+archive="coop_${version}_darwin_arm64.tar.gz"
+gh release download "$version" -R sarcasticbird/coop \
+  -p "$archive" -p checksums.txt
+shasum -a 256 -c checksums.txt
+tar -xzf "$archive" coop
+mkdir -p "$HOME/.local/bin"
+install -m 0755 coop "$HOME/.local/bin/coop"
 ```
 
 Release binaries target Apple silicon and are not Developer ID signed or
 notarized. Downloads through `gh` do not carry browser quarantine metadata;
 macOS may refuse a copy downloaded through a browser.
 
-To build from source instead:
+### Build from Source
+
+Building from source requires Go 1.26.5 or later:
 
 ```sh
 git clone https://github.com/sarcasticbird/coop.git
@@ -78,7 +70,7 @@ does not need to run from a project directory. It checks:
 
 - whether the `container` CLI is on `PATH` and its API service responds;
 - whether the configured local image is present;
-- whether configured seed sources exist; and
+- whether configured seed sources exist;
 - whether known credential paths should migrate out of seeds; and
 - whether old coop containers or volumes need manual cleanup.
 
@@ -454,7 +446,8 @@ reporting.
 - Published binaries target Darwin arm64 and are not Developer ID signed or
   notarized.
 - Sandbox images are built locally and are not published by this project.
-- Flox environments are limited to `aarch64-linux`.
+- Project Flox environments must include `aarch64-linux` for use inside Coop;
+  they may also support other systems.
 - Guest root access and unrestricted egress are operating constraints, not
   additional security boundaries.
 
