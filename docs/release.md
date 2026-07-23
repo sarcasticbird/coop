@@ -118,9 +118,8 @@ mkdir -p "$HOME/.local/bin"
 install -m 0755 coop "$HOME/.local/bin/coop"
 ```
 
-Note that binaries downloaded through a browser carry the quarantine
-attribute and macOS will refuse to run them: the build is ad-hoc signed
-by the Go linker, not notarized. Downloads via `gh` or `curl` are not
-quarantined. Developer ID signing and notarization are prerequisites for
-distribution channels that require trusted macOS binaries, such as a Homebrew
-tap.
+Browser downloads carry quarantine metadata, and macOS may refuse to run the
+ad-hoc-signed, non-notarized binary. Downloads via `gh` or `curl` do not
+normally receive browser quarantine metadata. Developer ID signing and
+notarization are prerequisites for distribution channels that require trusted
+macOS binaries, such as a Homebrew tap.
