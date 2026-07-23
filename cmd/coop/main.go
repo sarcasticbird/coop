@@ -96,8 +96,8 @@ func root() *cobra.Command {
 		Short: "Sandboxed sessions for coding agents, native to Apple Silicon",
 		Long: `coop runs each project's coding-agent sessions inside its own
 lightweight Linux VM (Apple container). The project is mounted at its
-identical host path, agent configs are seeded in declaratively, and
-project toolchains come from the project's own flox manifest.`,
+identical host path, agent configs are seeded in declaratively, and repositories
+can add tools through coop.toml or an optional project flox environment.`,
 		Args:          cobra.ArbitraryArgs,
 		Version:       resolvedVersion(),
 		SilenceErrors: true,

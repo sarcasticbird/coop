@@ -414,6 +414,13 @@ func TestRootSilencesCobraErrorAndUsageOutput(t *testing.T) {
 	}
 }
 
+func TestRootHelpDescribesProjectFloxAsOptional(t *testing.T) {
+	help := root().Long
+	if !strings.Contains(help, "optional project flox") {
+		t.Fatalf("root help does not describe project flox as optional:\n%s", help)
+	}
+}
+
 func TestResolvedVersionHonorsReleaseOverride(t *testing.T) {
 	old := version
 	version = "v0.1.0-beta.1"
