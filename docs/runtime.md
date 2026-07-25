@@ -83,6 +83,11 @@ SSH-agent forwarding, canonical project mount, guest home, and sorted
 agent-volume layout. A mismatch recreates the container. Named state volumes
 survive recreation; undeclared root-filesystem changes do not.
 
+Seeds run against the live mount namespace after agent volumes are attached.
+An `if-absent` destination inside an agent volume therefore survives container
+recreation and is not recopied after native guest updates. Destinations in the
+disposable root filesystem are absent after recreation and are seeded again.
+
 The main commands have deliberately different persistence behavior:
 
 | Command | Container | Agent-state volumes | Images |

@@ -42,6 +42,15 @@ type Seed struct {
 	Policy SeedPolicy `toml:"policy"`
 }
 
+// ProjectScope binds credentials and seeds to project roots under Match.
+// Trusted user configuration only: a repository must never be able to grant
+// itself credentials or seed host files by describing its own path.
+type ProjectScope struct {
+	Match              string   `toml:"match"`
+	IncludeCredentials []string `toml:"include_credentials"`
+	Seeds              []Seed   `toml:"seed"`
+}
+
 // Credential is a trusted, named host credential grant. Source controls how
 // Coop acquires secret material; Inject controls how an interactive guest
 // process receives it. Credential configuration is honored only globally.
@@ -84,6 +93,7 @@ type Config struct {
 	Seeds              []Seed                `toml:"seed"`
 	IncludeCredentials []string              `toml:"include_credentials"`
 	Credentials        map[string]Credential `toml:"credentials"`
+	Projects           []ProjectScope        `toml:"projects"`
 	// SSH forwards the host SSH agent socket into coops. Default OFF:
 	// it grants guests the ability to sign/authenticate as you, which
 	// combined with network egress is an exfiltration-adjacent
@@ -187,6 +197,11 @@ func Load(projectRoot string) (Config, error) {
 		if err := mergeFile(&cfg, filepath.Join(projectRoot, "coop.toml"), false); err != nil {
 			return cfg, fmt.Errorf("project config: %w", err)
 		}
+	}
+	// Fold before seed defaulting and validateMerged below, so scoped seeds get
+	// the same Dest/Policy defaults and scoped grants the same deduplication.
+	if err := applyProjectScopes(&cfg, projectRoot); err != nil {
+		return cfg, err
 	}
 	cfg.Tools.GlobalPackages = canonicalPackages(cfg.Tools.GlobalPackages)
 	cfg.Tools.ProjectPackages = canonicalPackages(cfg.Tools.ProjectPackages)
@@ -302,6 +317,7 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		}
 		cfg.IncludeCredentials = append(cfg.IncludeCredentials, layer.IncludeCredentials...)
 		cfg.Seeds = append(cfg.Seeds, layer.Seeds...)
+		cfg.Projects = append(cfg.Projects, layer.Projects...)
 	}
 	return nil
 }
@@ -322,6 +338,9 @@ const (
 // must satisfy. Untrusted layers additionally get resource caps —
 // a repository must not be able to request the whole machine.
 func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
+	if err := validateProjectScopes(layer.Projects); err != nil {
+		return err
+	}
 	if err := validateToolPackages(layer.Tools.Packages); err != nil {
 		return err
 	}
@@ -369,12 +388,8 @@ func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 	if hasCPUs && layer.Resources.CPUs <= 0 {
 		return fmt.Errorf("cpus must be positive")
 	}
-	for _, seed := range layer.Seeds {
-		switch seed.Policy {
-		case "", PolicyAlways, PolicyIfAbsent, PolicyOverlay:
-		default:
-			return fmt.Errorf("seed %s: unknown policy %q", seed.Src, seed.Policy)
-		}
+	if err := validateSeedPolicies(layer.Seeds); err != nil {
+		return err
 	}
 	if err := validateCredentialLayer(layer); err != nil {
 		return err
@@ -554,6 +569,35 @@ func validateCredentialLayer(layer *Config) error {
 		}
 		if err := validateCredential(name, layer.Credentials[name]); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateProjectScopes checks scope shape in every layer, trusted or not. An
+// untrusted layer's scopes are discarded during merge rather than applied, but
+// malformed input still fails loudly instead of being silently ignored.
+func validateProjectScopes(scopes []ProjectScope) error {
+	for i, scope := range scopes {
+		if strings.TrimSpace(scope.Match) == "" {
+			return fmt.Errorf("projects[%d]: match is required", i)
+		}
+		if !filepath.IsAbs(scope.Match) && !strings.HasPrefix(scope.Match, "~/") {
+			return fmt.Errorf("projects[%d]: match %q must be absolute or start with ~/", i, scope.Match)
+		}
+		if err := validateSeedPolicies(scope.Seeds); err != nil {
+			return fmt.Errorf("projects[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateSeedPolicies(seeds []Seed) error {
+	for _, seed := range seeds {
+		switch seed.Policy {
+		case "", PolicyAlways, PolicyIfAbsent, PolicyOverlay:
+		default:
+			return fmt.Errorf("seed %s: unknown policy %q", seed.Src, seed.Policy)
 		}
 	}
 	return nil

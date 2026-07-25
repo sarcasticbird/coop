@@ -21,6 +21,7 @@ type Mock struct {
 	ExecCalls       []ExecCall
 	Interactive     []ExecCall
 	GuestFiles      map[string]string // path -> content
+	GuestDirs       map[string]bool   // path -> exists
 	GuestModes      map[string]string // path -> octal mode
 	Infos           []ContainerInfo
 	Images          map[string]bool
@@ -49,6 +50,7 @@ func NewMock() *Mock {
 		Existing:   map[string]bool{},
 		Volumes:    map[string]bool{},
 		GuestFiles: map[string]string{},
+		GuestDirs:  map[string]bool{},
 		GuestModes: map[string]string{},
 	}
 }
@@ -188,7 +190,7 @@ func (m *Mock) GuestFileExists(name, path string) (bool, error) {
 		return false, m.ExistsErr
 	}
 	_, ok := m.GuestFiles[path]
-	return ok, nil
+	return ok || m.GuestDirs[path], nil
 }
 
 func (m *Mock) ImageExists(name string) (bool, error) {

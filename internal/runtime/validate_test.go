@@ -145,6 +145,44 @@ func TestRuntimeQueryErrorsIncludeStderr(t *testing.T) {
 	}
 }
 
+func TestGuestFileExistsRecognizesEveryFilesystemEntry(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "container")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nshift 2\nexec \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	subdir := filepath.Join(dir, "directory")
+	if err := os.Mkdir(subdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dangling := filepath.Join(dir, "dangling")
+	if err := os.Symlink(filepath.Join(dir, "missing-target"), dangling); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &Apple{Bin: bin}
+	for name, path := range map[string]string{
+		"file":             file,
+		"directory":        subdir,
+		"dangling symlink": dangling,
+	} {
+		t.Run(name, func(t *testing.T) {
+			exists, err := a.GuestFileExists("coop-x", path)
+			if err != nil || !exists {
+				t.Fatalf("exists = %v, err = %v", exists, err)
+			}
+		})
+	}
+	exists, err := a.GuestFileExists("coop-x", filepath.Join(dir, "absent"))
+	if err != nil || exists {
+		t.Fatalf("absent exists = %v, err = %v", exists, err)
+	}
+}
+
 func TestImageExistsUsesDenormalizedQuietOutput(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "container")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf 'alpine:latest\\ncoop:latest\\n'\n"), 0o755); err != nil {

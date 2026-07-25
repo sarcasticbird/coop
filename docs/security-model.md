@@ -82,11 +82,34 @@ guest root.
 Seeds are a trusted user capability to copy host material into a running guest.
 The project file cannot create effective seed rules.
 
+A top-level seed applies to every coop. A seed inside a `[[projects]]` block
+applies only where its `match` matches, and the same holds for the grants that
+block selects. Prefer the scoped form for anything sensitive: an unconditional
+seed places host material in every project's persistent container filesystem
+for the lifetime of that container, which is a materially wider exposure than a
+credential leased for one entry.
+
 File seeding follows host source symlinks, which supports Stow-managed files.
 On the guest side it rejects a symlink destination, a non-regular destination,
 and symlinked parent directories before using an atomic temporary-file
 replacement. The validation and write are separate operations, so a
 concurrently running guest may still race them.
+
+Directory `if-absent` snapshots into a sibling staging directory and publishes
+only after complete extraction. It leaves any existing destination untouched.
+This makes it suitable for explicit one-time initialization, but the resulting
+tree is ordinary guest state with the same guest-root exposure as any agent
+volume.
+
+Seeding a native login file into an agent-state volume creates a persistent
+project copy. Host refresh or logout does not update that copy; guest refresh
+or logout does not update the host or another project. The native client owns
+expiration and recovery. `coop destroy` deletes the project copy, and a new
+Coop may snapshot the then-current host file again.
+
+Coop does not know which agent paths are portable. Broad directory seeds can
+expose host history, settings, plugins, logs, and caches to every project
+receiving that rule. Prefer narrow, explicit paths.
 
 Directory `overlay` extraction can follow symlinks already present inside the
 guest destination tree. Use it only for non-sensitive content such as skills,

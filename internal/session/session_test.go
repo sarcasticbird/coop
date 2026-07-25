@@ -161,6 +161,31 @@ func TestRunAcquiresCredentialsBeforeUp(t *testing.T) {
 	}
 }
 
+func TestRunAcquiresDefaultCredentialBeforeUp(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Cfg.Credentials = map[string]config.Credential{
+		"token": {
+			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
+			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+		},
+	}
+	s.Cfg.IncludeCredentials = []string{"token"}
+	s.CredentialManager.Run = func(context.Context, string, []string) ([]byte, error) {
+		if len(m.Run_) != 0 || len(m.Started) != 0 || len(m.ExecCalls) != 0 {
+			t.Fatal("runtime mutated before default credential acquisition completed")
+		}
+		return []byte("secret"), nil
+	}
+
+	if err := s.Run(s.Project, []string{"agent"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Run_) != 1 || len(m.Interactive) != 1 {
+		t.Fatalf("entry did not proceed after default acquisition: runs=%d interactive=%d", len(m.Run_), len(m.Interactive))
+	}
+}
+
 func TestRunCleansLeaseWhenStageReportsFailure(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)
@@ -707,6 +732,45 @@ func TestUpAppliesSeeds(t *testing.T) {
 	}
 }
 
+func TestUpSeedsNativeLoginOnceIntoProjectAgentState(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"login":"host"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Seeds = []config.Seed{{
+		Src: src, Dest: "~/.codex/auth.json", Policy: config.PolicyIfAbsent,
+	}}
+
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GuestFiles["/Users/u/.codex/auth.json"]; got != `{"login":"host"}` {
+		t.Fatalf("initial login seed = %q", got)
+	}
+	var codexVolume bool
+	for _, volume := range m.Run_[0].Volumes {
+		if volume.Target == "/Users/u/.codex" {
+			codexVolume = true
+		}
+	}
+	if !codexVolume {
+		t.Fatal("login destination is not backed by project Codex state")
+	}
+
+	m.GuestFiles["/Users/u/.codex/auth.json"] = `{"login":"guest-refreshed"}`
+	if err := os.WriteFile(src, []byte(`{"login":"host-new"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GuestFiles["/Users/u/.codex/auth.json"]; got != `{"login":"guest-refreshed"}` {
+		t.Fatalf("later entry overwrote guest login: %q", got)
+	}
+}
+
 func TestEntryArgvLayersCoreToolsAndOptionalProjectFlox(t *testing.T) {
 	s := testSession(t, runtime.NewMock())
 	workdir, argv := s.entryArgv("/elsewhere", []string{"opencode", "two words", "$HOME;echo nope"})
@@ -1058,7 +1122,6 @@ func TestDestroyRemovesVolumesByPrefixNotConfig(t *testing.T) {
 	// with this coop's full name (the "--" separator must fence it)
 	m.Volumes["coop-other--claude"] = true
 	m.Volumes["coop-proj-worker-abcdef1234567890--opencode"] = true
-
 	s := testSession(t, m)
 	if err := s.Destroy(); err != nil {
 		t.Fatal(err)

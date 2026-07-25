@@ -102,7 +102,8 @@ type Runtime interface {
 	ExecContext(context.Context, string, []string, io.Reader) error
 	// ExecInteractive attaches the terminal and waits for the guest process.
 	ExecInteractive(context.Context, string, string, []string) error
-	// GuestFileExists reports whether path exists inside the container.
+	// GuestFileExists reports whether any filesystem entry, including a
+	// dangling symlink, exists at path inside the container.
 	// Failures are errors, never "absent" — seed policies make
 	// overwrite decisions on this answer.
 	GuestFileExists(name, path string) (bool, error)
@@ -525,10 +526,11 @@ func processExitCode(processExit *exec.ExitError) int {
 }
 
 // GuestFileExists answers via stdout so exec failure (container gone,
-// apiserver down) is distinguishable from a plain "no".
+// apiserver down) is distinguishable from a plain "no". The symlink check
+// includes dangling links, which must block fail-closed seed writes.
 func (a *Apple) GuestFileExists(name, path string) (bool, error) {
 	out, err := a.output("exec", name,
-		"sh", "-c", `test -f "$1" && echo yes || echo no`, "coop-test", path)
+		"sh", "-c", `if [ -e "$1" ] || [ -L "$1" ]; then echo yes; else echo no; fi`, "coop-test", path)
 	if err != nil {
 		return false, fmt.Errorf("exists check %s: %w", path, err)
 	}

@@ -60,6 +60,31 @@ policy = "always"
 src = "~/.config/example/plugins"
 policy = "overlay"
 
+# Snapshot an explicit host directory only when a new Coop does not already
+# have it. Missing sources are skipped, so one user file can cover many hosts.
+[[seed]]
+src = "~/.config/example/bootstrap"
+policy = "if-absent"
+
+# Native agent login and portable rules use the same one-way primitive. Enable
+# only the paths you deliberately want copied into each new project's state:
+#
+# [[seed]]
+# src = "~/.codex/auth.json"
+# policy = "if-absent"
+#
+# [[seed]]
+# src = "~/.codex/config.toml"
+# policy = "if-absent"
+#
+# [[seed]]
+# src = "~/.codex/rules"
+# policy = "if-absent"
+#
+# [[seed]]
+# src = "~/.agents/AGENTS.md"
+# policy = "if-absent"
+
 # Install a self-contained script or Linux executable on the guest PATH.
 [[seed]]
 src = "~/bin/example-tool"
@@ -88,3 +113,19 @@ inject = { type = "file", path_env = "KUBECONFIG" }
 source = { type = "aws-profile", profile = "dev" }
 inject = { type = "aws" }
 require_expiration = true
+
+# Credentials and seeds that apply only to projects under a path. Matching is a
+# path prefix compared at component boundaries, so ~/Projects/foo does not match
+# ~/Projects/foobar, while a bare-repo worktree at <org>/<repo>/main still
+# matches a block naming <org>. Overlapping blocks union.
+#
+# Use this to keep a forge token with the organization it belongs to instead of
+# handing it to every project you enter.
+[[projects]]
+match               = "~/Projects/sarcasticbird"
+include_credentials = ["github"]
+
+[[projects]]
+match               = "~/Projects/work"
+include_credentials = ["kubernetes", "aws-dev"]
+seed                = [{ src = "~/.config/work/netrc", dest = "~/.netrc" }]
