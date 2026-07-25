@@ -1,14 +1,29 @@
 package seed
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
+
+type earlyExitRuntime struct {
+	*runtime.Mock
+	err error
+}
+
+func (r *earlyExitRuntime) ExecContext(context.Context, string, []string, io.Reader) error {
+	return r.err
+}
 
 const (
 	hostHome  = "/host/home"
@@ -76,6 +91,236 @@ func TestIfAbsentSkipsExistingGuestFile(t *testing.T) {
 	}
 	if got := m.GuestFiles["/Users/u/.claude/settings.json"]; got != `{"model":"guest-edited"}` {
 		t.Errorf("if-absent clobbered guest file: %q", got)
+	}
+}
+
+func TestIfAbsentSnapshotsDirectory(t *testing.T) {
+	m := runtime.NewMock()
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(src, "nested", "rule.md"),
+		[]byte("# rule"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Apply(m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ExecCalls) != 1 {
+		t.Fatalf("directory snapshot calls = %#v", m.ExecCalls)
+	}
+	call := m.ExecCalls[0]
+	script := strings.Join(call.Argv, " ")
+	for _, marker := range []string{
+		"mktemp -d",
+		"mv -T -n",
+		`-L "$d"`,
+		`trap 'rm -rf "$t"' EXIT`,
+		`[ -d "$t" ]`,
+	} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("directory snapshot missing %q: %s", marker, script)
+		}
+	}
+	if !strings.Contains(call.Stdin, "rule.md") {
+		t.Fatalf("tar stream omitted nested rule, bytes=%d", len(call.Stdin))
+	}
+}
+
+func TestIfAbsentDirectoryCleansTrailingSlashDestination(t *testing.T) {
+	m := runtime.NewMock()
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	cleanDest := filepath.Join(parent, "tools")
+
+	err := Apply(m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: cleanDest + string(filepath.Separator), Policy: config.PolicyIfAbsent,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ExecCalls) != 1 {
+		t.Fatalf("directory snapshot calls = %#v", m.ExecCalls)
+	}
+	call := m.ExecCalls[0]
+	if got := call.Argv[4]; got != cleanDest {
+		t.Errorf("destination = %q, want %q", got, cleanDest)
+	}
+	if got := call.Argv[5]; got != parent {
+		t.Errorf("destination parent = %q, want %q", got, parent)
+	}
+}
+
+func TestIfAbsentSkipsExistingGuestDirectory(t *testing.T) {
+	m := runtime.NewMock()
+	m.GuestDirs["/Users/u/.codex/rules"] = true
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Apply(m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ExecCalls) != 0 {
+		t.Fatalf("existing directory was touched: %s", m.ExecString())
+	}
+}
+
+func TestIfAbsentDirectoryFailureIsReturned(t *testing.T) {
+	m := runtime.NewMock()
+	m.ExecErrors = []error{errors.New("extract failed")}
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Apply(m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "extract failed") {
+		t.Fatalf("directory snapshot failure = %v", err)
+	}
+}
+
+func TestIfAbsentDirectoryDoesNotPublishWhenHostArchiveFails(t *testing.T) {
+	var partial bytes.Buffer
+	tw := tar.NewWriter(&partial)
+	content := []byte("partial")
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "partial.txt",
+		Mode: 0o600,
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "partial.tar")
+	if err := os.WriteFile(archive, partial.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	fakeTar := filepath.Join(binDir, "tar")
+	script := `#!/bin/sh
+out=-
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-chf" ]; then out="$2"; break; fi
+  shift
+done
+if [ "$out" = "-" ]; then
+  /bin/cat "$COOP_TEST_ARCHIVE"
+else
+  /bin/cat "$COOP_TEST_ARCHIVE" > "$out"
+fi
+/bin/echo "source changed while reading" >&2
+exit 1
+`
+	if err := os.WriteFile(fakeTar, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COOP_TEST_ARCHIVE", archive)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := runtime.NewMock()
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := Apply(m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("host archive failure = %v", err)
+	}
+	for _, marker := range []string{"archive directory", src, "source changed while reading"} {
+		if !strings.Contains(err.Error(), marker) {
+			t.Errorf("host archive failure missing %q: %v", marker, err)
+		}
+	}
+	if len(m.ExecCalls) != 0 {
+		t.Fatalf("published archive before host tar succeeded: %s", m.ExecString())
+	}
+}
+
+func TestIfAbsentDirectoryGuestFailureDoesNotBlockTar(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(src, "large.bin"),
+		bytes.Repeat([]byte("x"), 4<<20),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	rt := &earlyExitRuntime{
+		Mock: runtime.NewMock(),
+		err:  errors.New("guest failed before reading archive"),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- ApplyContext(ctx, rt, "c", hostHome, guestHome, []config.Seed{{
+			Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+		}})
+	}()
+
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "guest failed before reading archive") {
+			t.Fatalf("directory snapshot failure = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-result
+		t.Fatal("directory snapshot blocked waiting for an unread tar stream")
+	}
+}
+
+func TestIfAbsentDirectoryHonorsCancellation(t *testing.T) {
+	m := runtime.NewMock()
+	src := filepath.Join(t.TempDir(), "rules")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ExecContextFunc = func(
+		callCtx context.Context,
+		_ int,
+		_ runtime.ExecCall,
+	) error {
+		cancel()
+		<-callCtx.Done()
+		return context.Cause(callCtx)
+	}
+
+	err := ApplyContext(ctx, m, "c", hostHome, guestHome, []config.Seed{{
+		Src: src, Dest: "~/.codex/rules", Policy: config.PolicyIfAbsent,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("directory snapshot cancellation = %v", err)
 	}
 }
 

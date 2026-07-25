@@ -644,6 +644,16 @@ func TestExamplesLoad(t *testing.T) {
 	if cfg.Resources.CPUs != 6 {
 		t.Fatalf("project resource override = %d, want 6", cfg.Resources.CPUs)
 	}
+	var hasIfAbsent bool
+	for _, seed := range cfg.Seeds {
+		if seed.Policy == PolicyIfAbsent {
+			hasIfAbsent = true
+			break
+		}
+	}
+	if !hasIfAbsent {
+		t.Fatal("trusted example does not exercise one-time bootstrap seeds")
+	}
 }
 
 func TestExpandHome(t *testing.T) {
@@ -711,4 +721,235 @@ func withReleaseField(tool GitHubReleaseTool, field, value string) GitHubRelease
 		tool.Binary = value
 	}
 	return tool
+}
+
+func writeConfigFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectScopesAreTrustedOnly(t *testing.T) {
+	dir := t.TempDir()
+	global := filepath.Join(dir, "coop.toml")
+	writeConfigFile(t, global, `
+[[projects]]
+match = "/tmp/allowed"
+include_credentials = ["tok"]
+
+[credentials.tok]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "TOK" }
+`)
+	projectFile := filepath.Join(dir, "project", "coop.toml")
+	writeConfigFile(t, projectFile, `
+[[projects]]
+match = "/tmp/hostile"
+include_credentials = ["tok"]
+`)
+
+	var cfg Config
+	if err := mergeFile(&cfg, global, true); err != nil {
+		t.Fatalf("global merge: %v", err)
+	}
+	if err := mergeFile(&cfg, projectFile, false); err != nil {
+		t.Fatalf("project merge: %v", err)
+	}
+	if len(cfg.Projects) != 1 {
+		t.Fatalf("got %d project scopes, want 1 (project layer must be discarded)", len(cfg.Projects))
+	}
+	if cfg.Projects[0].Match != "/tmp/allowed" {
+		t.Fatalf("got match %q, want /tmp/allowed", cfg.Projects[0].Match)
+	}
+}
+
+func TestProjectScopeRequiresMatch(t *testing.T) {
+	dir := t.TempDir()
+	global := filepath.Join(dir, "coop.toml")
+	writeConfigFile(t, global, "[[projects]]\ninclude_credentials = []\n")
+	var cfg Config
+	err := mergeFile(&cfg, global, true)
+	if err == nil || !strings.Contains(err.Error(), "match is required") {
+		t.Fatalf("got %v, want an error mentioning \"match is required\"", err)
+	}
+}
+
+func TestProjectScopeMatchMustBeAbsoluteOrHome(t *testing.T) {
+	dir := t.TempDir()
+	global := filepath.Join(dir, "coop.toml")
+	writeConfigFile(t, global, "[[projects]]\nmatch = \"relative/path\"\n")
+	var cfg Config
+	err := mergeFile(&cfg, global, true)
+	if err == nil || !strings.Contains(err.Error(), "absolute or start with ~/") {
+		t.Fatalf("got %v, want an error about absolute or ~/ paths", err)
+	}
+}
+
+func TestProjectScopeValidatesSeedPoliciesInEveryLayer(t *testing.T) {
+	for _, trusted := range []bool{true, false} {
+		t.Run(fmt.Sprintf("trusted=%t", trusted), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "coop.toml")
+			writeConfigFile(t, path, `
+[[projects]]
+match = "/tmp/work"
+seed = [{ src = "~/.codex/rules", policy = "sometimes" }]
+`)
+			var cfg Config
+			err := mergeFile(&cfg, path, trusted)
+			if err == nil || !strings.Contains(err.Error(), `unknown policy "sometimes"`) {
+				t.Fatalf("scoped seed policy error = %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadFoldsMatchingProjectScopes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	matched := filepath.Join(home, "Projects", "sarcasticbird", "coop")
+	other := filepath.Join(home, "Projects", "elsewhere", "app")
+	for _, d := range []string{matched, other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedSrc := filepath.Join(home, "settings.toml")
+	if err := os.WriteFile(seedSrc, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, filepath.Join(home, ".config", "coop", "coop.toml"), `
+include_credentials = ["claude"]
+
+[credentials.claude]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "CLAUDE" }
+
+[credentials.git-sb]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "GH_TOKEN" }
+
+[[projects]]
+match = "`+filepath.Join(home, "Projects", "sarcasticbird")+`"
+include_credentials = ["git-sb"]
+seed = [{ src = "`+seedSrc+`", policy = "always" }]
+`)
+
+	cfg, err := Load(matched)
+	if err != nil {
+		t.Fatalf("load matched: %v", err)
+	}
+	if !slices.Contains(cfg.IncludeCredentials, "claude") {
+		t.Error("account-level grant must apply to a matched project")
+	}
+	if !slices.Contains(cfg.IncludeCredentials, "git-sb") {
+		t.Error("matched scope must contribute its grant")
+	}
+	if len(cfg.Seeds) != 1 {
+		t.Fatalf("got %d seeds, want 1 from the matched scope", len(cfg.Seeds))
+	}
+	// Scoped seeds must receive the same Dest/Policy defaulting as top-level ones.
+	if cfg.Seeds[0].Dest != seedSrc || cfg.Seeds[0].Policy != PolicyAlways {
+		t.Errorf("scoped seed missed defaulting: %+v", cfg.Seeds[0])
+	}
+
+	cfg, err = Load(other)
+	if err != nil {
+		t.Fatalf("load unmatched: %v", err)
+	}
+	if !slices.Contains(cfg.IncludeCredentials, "claude") {
+		t.Error("account-level grant must still apply to an unmatched project")
+	}
+	if slices.Contains(cfg.IncludeCredentials, "git-sb") {
+		t.Error("an unmatched project must not receive a scoped grant")
+	}
+	if len(cfg.Seeds) != 0 {
+		t.Fatalf("got %d seeds, want 0 for an unmatched project", len(cfg.Seeds))
+	}
+}
+
+func TestLoadRejectsUnknownScopedGrant(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	unmatched := filepath.Join(home, "elsewhere")
+	if err := os.MkdirAll(unmatched, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, filepath.Join(home, ".config", "coop", "coop.toml"), `
+[[projects]]
+match = "`+filepath.Join(home, "Projects")+`"
+include_credentials = ["missing"]
+`)
+	// A typo must surface in every directory, not only inside the project the
+	// scope targets.
+	_, err := Load(unmatched)
+	if err == nil || !strings.Contains(err.Error(), "unknown credential grant") {
+		t.Fatalf("got %v, want an error naming the unknown grant", err)
+	}
+}
+
+func TestLoadOverlappingScopesUnion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	project := filepath.Join(home, "Projects", "org", "repo")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, filepath.Join(home, ".config", "coop", "coop.toml"), `
+[credentials.broad]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "BROAD" }
+
+[credentials.narrow]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "NARROW" }
+
+[[projects]]
+match = "`+filepath.Join(home, "Projects")+`"
+include_credentials = ["broad"]
+
+[[projects]]
+match = "`+filepath.Join(home, "Projects", "org")+`"
+include_credentials = ["narrow"]
+`)
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, want := range []string{"broad", "narrow"} {
+		if !slices.Contains(cfg.IncludeCredentials, want) {
+			t.Errorf("overlapping scopes must union; missing %q", want)
+		}
+	}
+}
+
+func TestAuthNamespaceIsRejectedAsUnknown(t *testing.T) {
+	tests := map[string]string{
+		"top level": `
+[auth.codex]
+type = "oauth"
+scope = "machine"
+`,
+		"project scope": `
+[[projects]]
+match = "/tmp/work"
+[projects.auth.codex]
+type = "credential"
+name = "work"
+`,
+	}
+	for name, contents := range tests {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "coop.toml")
+			writeConfigFile(t, path, contents)
+			var cfg Config
+			err := mergeFile(&cfg, path, true)
+			if err == nil || !strings.Contains(err.Error(), "unknown keys") {
+				t.Fatalf("auth namespace error = %v", err)
+			}
+		})
+	}
 }

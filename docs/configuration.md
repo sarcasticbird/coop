@@ -46,6 +46,7 @@ come from an untrusted checkout.
 | `[[seed]]` | Effective | Validated but ignored |
 | `credentials` | Effective | Validated but ignored |
 | `include_credentials` | Effective | Parsed but ignored |
+| `[[projects]]` | Effective | Validated but ignored |
 
 “Ignored” means the project does not receive the capability. These keys are
 still recognized TOML, and some are validated, so malformed input may still
@@ -60,6 +61,7 @@ documentation; put trusted settings in the user file.
 | `resources`, `agents`, or `ssh` | The next `coop up` or interactive entry recreates the container |
 | `seed` | Applied on the next `coop up` or interactive entry |
 | `credentials` or `include_credentials` | Applied on the next interactive entry |
+| `[[projects]]` | Applied on the next `coop up` or interactive entry |
 | project `.flox` | Activated on the next entry from a governed directory |
 
 `coop status` reports whether the desired image needs a build and whether the
@@ -300,18 +302,23 @@ Policies are:
 | Policy | Behavior |
 | --- | --- |
 | `always` | Copy a file on every application, replacing the guest file |
-| `if-absent` | Copy a file only when the guest destination does not exist |
+| `if-absent` | Copy a file or complete directory only when the guest destination does not exist |
 | `overlay` | Merge a directory tree, adding and replacing without deleting guest-only files |
 
-Missing file sources are skipped. Missing or non-directory overlay sources are
-also skipped. Host-side symlinks are followed so Stow-managed sources work.
-File destinations reject symlinks, non-regular files, and symlinked parent
-paths. These checks reduce redirection into the mounted project, but a
-concurrently running guest can still race a check and write.
+Missing sources are skipped. Missing or non-directory overlay sources are also
+skipped. Host-side symlinks are followed so Stow-managed sources work.
+
+File writes use an atomic temporary file and reject symlink, non-regular, and
+symlinked-parent destinations. Directory `if-absent` extracts into a random
+sibling staging directory, then publishes the complete tree without replacing
+an existing destination. These checks reduce redirection into the mounted
+project, but a concurrently running guest can still race a check and write.
 
 Do not use `overlay` for credentials or other sensitive data. Overlay
 extraction may follow symlinks already present inside the guest destination.
-Use [session credentials](#credentials) for secrets.
+Prefer [session credentials](#credentials) for secrets when the tool supports
+an entry-scoped interface. Native clients that require durable login state can
+use the explicit `if-absent` recipe below.
 
 ### `credentials`
 
@@ -394,6 +401,41 @@ coop --credentials aws-dev,kubernetes opencode
 Defaults are followed by explicit selections, then the combined list is
 deduplicated. The flag may be repeated and also applies to `coop tui`. Commands
 that do not enter the guest, such as `coop up`, reject it.
+
+### `projects`
+
+```toml
+[[projects]]
+match               = "~/Projects/sarcasticbird"
+include_credentials = ["git-sarcasticbird"]
+seed                = [{ src = "~/.config/sb/netrc", dest = "~/.netrc" }]
+```
+
+This user-only array binds grants and seeds to a subset of projects. Top-level
+`include_credentials` and `[[seed]]` apply to every coop; a `[[projects]]` block
+applies only where `match` matches. Use it to keep a forge token with the
+organization it belongs to rather than handing it to every project you enter.
+
+`match` is a **path prefix, not a glob.** A leading `~/` expands against the
+host home, and both sides are canonicalized before comparison:
+
+- comparison happens at path-component boundaries, so `~/Projects/foo` does not
+  match `~/Projects/foobar`;
+- a bare-repo worktree at `<org>/<repo>/main` still matches a block naming
+  `<org>`, which a glob would miss because `*` does not cross a separator;
+- symlinks resolve, so a block may name either side of a link;
+- a `match` naming a path that does not exist on this machine simply does not
+  match. It is not an error — one user file may describe several machines, the
+  same reason a missing seed source is skipped rather than fatal.
+
+Blocks union. Overlapping blocks all apply, matched grants merge with
+account-level ones, and a project can never opt out of a grant it would
+otherwise receive. Every `include_credentials` name must refer to a defined
+grant even in a block that does not match, so a typo fails the load in any
+directory rather than only inside the project it targets.
+
+Scoped seeds behave exactly like top-level ones, including `dest` defaulting to
+`src` and the `always` policy default.
 
 ## Recipes
 
@@ -497,6 +539,52 @@ policy = "overlay"
 ```
 
 Use this only for non-sensitive content that the guest is allowed to read.
+
+### Initialize native agent login and rules once
+
+Agent state already lives in a project-local named volume. An `if-absent` seed
+can initialize selected files in that volume from the host without sharing live
+host state:
+
+```toml
+[agents.codex]
+state = "~/.codex"
+
+[[seed]]
+src = "~/.codex/auth.json"
+policy = "if-absent"
+
+[[seed]]
+src = "~/.codex/config.toml"
+policy = "if-absent"
+
+[[seed]]
+src = "~/.codex/rules"
+policy = "if-absent"
+
+[[seed]]
+src = "~/.agents/AGENTS.md"
+policy = "if-absent"
+```
+
+Every path is explicit; Coop does not maintain hidden Codex, Claude, or other
+provider defaults. Verify the native client's current credential path before
+adding it. Missing sources are skipped.
+
+Files under `~/.codex` persist in that project's Codex volume. Native refresh
+or logout changes only the project copy, and later entries do not overwrite
+it. A destination outside a configured state volume, such as
+`~/.agents/AGENTS.md`, lives in the disposable container root filesystem and
+is copied again after container recreation.
+
+The state-volume root itself already exists when seeds run, so `if-absent`
+intentionally leaves it untouched. Select the child files and directories you
+want rather than naming the complete `~/.codex` mount.
+
+There is no synchronization or writeback. `coop destroy` removes the project
+volume; the next newly created Coop snapshots the host paths again. Prefer
+[session credentials](#credentials) when a tool supports an entry-scoped
+environment variable, file path, Git credential store, or AWS profile.
 
 ### Remove persistent agent state
 
