@@ -5,21 +5,163 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
 	"github.com/sarcasticbird/coop/internal/tui"
 )
+
+func TestUpgradeChangedLockPrintsVersionsAndRebuildGuidance(t *testing.T) {
+	withUpgradeCore(t, func(context.Context, io.Writer, io.Writer) (core.UpgradeResult, error) {
+		return core.UpgradeResult{
+			Changed: true,
+			Changes: []core.PackageChange{{Name: "codex", From: "0.144.4", To: "0.146.0"}},
+		}, nil
+	})
+	t.Chdir(t.TempDir()) // upgrade is machine-wide, not project-scoped
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"upgrade"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"codex: 0.144.4 -> 0.146.0",
+		"Core lock upgraded.",
+		"Existing coops are stale",
+		"coop rebuild",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("upgrade output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestUpgradeChangedRevisionWithoutVersionChangeStillMarksCoopsStale(t *testing.T) {
+	withUpgradeCore(t, func(context.Context, io.Writer, io.Writer) (core.UpgradeResult, error) {
+		return core.UpgradeResult{Changed: true}, nil
+	})
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"upgrade"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Core package revisions changed.") ||
+		!strings.Contains(output.String(), "Existing coops are stale") {
+		t.Fatalf("revision-only output:\n%s", output.String())
+	}
+}
+
+func TestUpgradeUnchangedReportsCurrentWithoutStaleWarning(t *testing.T) {
+	withUpgradeCore(t, func(context.Context, io.Writer, io.Writer) (core.UpgradeResult, error) {
+		return core.UpgradeResult{}, nil
+	})
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"upgrade"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "already up to date") ||
+		strings.Contains(output.String(), "stale") {
+		t.Fatalf("unchanged output:\n%s", output.String())
+	}
+}
+
+func TestUpgradeFailureDoesNotInvokeAnyProjectLifecycleOperation(t *testing.T) {
+	withUpgradeCore(t, func(context.Context, io.Writer, io.Writer) (core.UpgradeResult, error) {
+		return core.UpgradeResult{}, errors.New("network unavailable")
+	})
+	oldRuntime := newRuntime
+	runtimeCalled := false
+	newRuntime = func() runtime.Runtime {
+		runtimeCalled = true
+		return runtime.NewMock()
+	}
+	t.Cleanup(func() { newRuntime = oldRuntime })
+	cmd := root()
+	cmd.SetArgs([]string{"upgrade"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "network unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+	if runtimeCalled {
+		t.Fatal("upgrade invoked project container runtime")
+	}
+}
+
+func TestRebuildMaterializesAndNamesImageFromActiveCoreLock(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(xdg, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(xdg, "cache"))
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	active := changedCoreVersion(t, image.EmbeddedCoreLock(), "codex", "99.0.0")
+	stateDir := filepath.Join(xdg, "state", "coop")
+	if err := core.Install(stateDir, active); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantImage := session.EffectiveImageNameWithCoreLock(cfg, mustLoadCore(t, stateDir))
+
+	oldBuild := buildImage
+	buildImage = func(args []string, _, _ io.Writer) error {
+		if len(args) < 3 || args[0] != "build" || args[1] != "-t" || args[2] != wantImage {
+			return errors.New("rebuild used wrong active-core image tag")
+		}
+		got, err := os.ReadFile(filepath.Join(args[len(args)-1], "core", ".flox", "env", "manifest.lock"))
+		if err != nil {
+			return err
+		}
+		var gotJSON, wantJSON any
+		if err := json.Unmarshal(got, &gotJSON); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(active, &wantJSON); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(gotJSON, wantJSON) {
+			return errors.New("rebuild materialized wrong active core lock")
+		}
+		return nil
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	cmd := root()
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRebuildResolvesMaterializesAndLocksGitHubReleaseTools(t *testing.T) {
 	m := runtime.NewMock()
@@ -604,7 +746,7 @@ func TestCredentialsFlagRejectedByNonEntryCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
-	for _, subcommand := range []string{"up", "down", "status", "ls", "doctor", "rebuild", "destroy"} {
+	for _, subcommand := range []string{"up", "down", "status", "ls", "doctor", "rebuild", "upgrade", "destroy"} {
 		t.Run(subcommand, func(t *testing.T) {
 			cmd := root()
 			cmd.SetArgs([]string{"--credentials", "token", subcommand})
@@ -613,6 +755,47 @@ func TestCredentialsFlagRejectedByNonEntryCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func withUpgradeCore(t *testing.T, upgrade func(context.Context, io.Writer, io.Writer) (core.UpgradeResult, error)) {
+	t.Helper()
+	old := upgradeCore
+	upgradeCore = upgrade
+	t.Cleanup(func() { upgradeCore = old })
+}
+
+func changedCoreVersion(t *testing.T, data []byte, installID, version string) []byte {
+	t.Helper()
+	var lock map[string]any
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range lock["packages"].([]any) {
+		pkg := value.(map[string]any)
+		if pkg["install_id"] == installID {
+			pkg["version"] = version
+			pkg["rev"] = "changed-" + version
+			out, err := json.MarshalIndent(lock, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return append(out, '\n')
+		}
+	}
+	t.Fatalf("package %q not found", installID)
+	return nil
+}
+
+func mustLoadCore(t *testing.T, stateDir string) []byte {
+	t.Helper()
+	lock, warning, err := core.Load(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warning != "" {
+		t.Fatalf("warning = %s", warning)
+	}
+	return lock
 }
 
 func TestEmptyCredentialsFlagRejectedByNonEntryCommand(t *testing.T) {

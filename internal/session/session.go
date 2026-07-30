@@ -19,6 +19,7 @@ import (
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/credential"
 	"github.com/sarcasticbird/coop/internal/lock"
 	"github.com/sarcasticbird/coop/internal/project"
@@ -34,6 +35,7 @@ type Session struct {
 	Cfg               config.Config
 	HostHome          string
 	GuestHome         string // == HostHome: the identical-path property
+	CoreLock          []byte
 	Output            io.Writer
 	CredentialManager *credential.Manager
 	revokeCredentials func(context.Context, []credential.Acquired) error
@@ -56,10 +58,18 @@ func New(rt runtime.Runtime, cwd string) (*Session, error) {
 	if err := releasetool.HydrateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("load GitHub release tool state: %w", err)
 	}
+	coreLock, warning, err := core.Active()
+	if err != nil {
+		return nil, fmt.Errorf("load core upgrade state: %w", err)
+	}
+	if warning != "" {
+		cfg.Warnings = append(cfg.Warnings, warning)
+	}
 	manager := credential.NewManager(root)
 	return &Session{
 		RT: rt, Project: root, Name: project.Name(root),
 		Cfg: cfg, HostHome: home, GuestHome: home,
+		CoreLock:          coreLock,
 		Output:            os.Stdout,
 		CredentialManager: manager,
 		revokeCredentials: credential.RevokeAll,
@@ -73,6 +83,15 @@ const DefaultImageName = "coop:latest"
 // a tag derived from their definition and package list, so changed build inputs
 // cannot silently reuse a stale image.
 func EffectiveImageName(cfg config.Config) string {
+	return EffectiveImageNameWithCoreLock(cfg, image.EmbeddedCoreLock())
+}
+
+// EffectiveImageNameWithCoreLock derives an image tag from configuration and
+// the selected machine-wide core lock.
+func EffectiveImageNameWithCoreLock(cfg config.Config, coreLock []byte) string {
+	if len(coreLock) == 0 {
+		coreLock = image.EmbeddedCoreLock()
+	}
 	pkgs := image.CanonicalPackages(cfg.Tools.Packages)
 	resolved := append([]config.ResolvedReleaseTool(nil), cfg.Tools.ResolvedReleases...)
 	sort.Slice(resolved, func(i, j int) bool { return resolved[i].Name < resolved[j].Name })
@@ -101,7 +120,7 @@ func EffectiveImageName(cfg config.Config) string {
 	sum := sha256.Sum256([]byte(cfg.Image.Name + "\x00" +
 		strings.Join(pkgs, "\x00") + "\x00" +
 		config.ReleaseSpecFingerprint(cfg.Tools.GitHubReleases) + "\x00" +
-		string(releaseJSON) + "\x00" + image.Fingerprint()))
+		string(releaseJSON) + "\x00" + image.FingerprintWithCoreLock(coreLock)))
 	// Strip a digest suffix, then only a tag colon after the final
 	// slash — registry ports (localhost:5000/team/coop:latest) and
 	// digest refs (repo@sha256:...) must both survive.
@@ -115,10 +134,15 @@ func EffectiveImageName(cfg config.Config) string {
 	return base + ":local-" + hex.EncodeToString(sum[:])[:12]
 }
 
+// DesiredImageName returns the image derived from this session's active lock.
+func (s *Session) DesiredImageName() string {
+	return EffectiveImageNameWithCoreLock(s.Cfg, s.CoreLock)
+}
+
 // EnsureImage requires a local build for every embedded image. The public beta
 // does not redistribute its third-party image contents.
 func (s *Session) EnsureImage() error {
-	name := EffectiveImageName(s.Cfg)
+	name := s.DesiredImageName()
 	exists, err := s.RT.ImageExists(name)
 	if err != nil {
 		return fmt.Errorf("inspect image %s: %w", name, err)
@@ -141,7 +165,7 @@ type ImageStatus struct {
 }
 
 func (s *Session) ImageStatus() (ImageStatus, error) {
-	desired := EffectiveImageName(s.Cfg)
+	desired := s.DesiredImageName()
 	status := ImageStatus{DesiredImage: desired}
 	state, err := s.RT.State(s.Name)
 	if err != nil {
@@ -184,7 +208,7 @@ func (s *Session) SpecFingerprint() string {
 	}
 	sort.Strings(vols)
 	canonical := fmt.Sprintf("v1|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s",
-		EffectiveImageName(s.Cfg), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
+		s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
 		s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","))
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])[:16]
@@ -290,7 +314,7 @@ func (s *Session) up(ctx context.Context) error {
 		}
 		err := s.RT.Run(runtime.RunSpec{
 			Name:   s.Name,
-			Image:  EffectiveImageName(s.Cfg),
+			Image:  s.DesiredImageName(),
 			CPUs:   s.Cfg.Resources.CPUs,
 			Memory: s.Cfg.Resources.Memory,
 			SSH:    s.Cfg.SSH, // default off — deliberate, global-config-only capability

@@ -88,6 +88,25 @@ includes Git, GitHub CLI, SSH, common shell tools, and the opencode, Claude
 Code, and Codex agents. Application runtimes such as Go, Node.js, and Python
 are project-owned.
 
+To update Coop's complete locked core independently of a Coop release:
+
+```sh
+coop upgrade
+# Existing coops keep running unchanged.
+
+cd ~/Projects/my-app
+coop status
+coop rebuild
+```
+
+`coop upgrade` is machine-wide for the current user. It resolves packages in a
+short-lived Apple container, so host Flox is not required. It changes the
+desired core lock but does not build images, stop containers, recreate coops,
+or modify project Flox environments and configured project tools. Existing
+coops become stale only when the lock changes; run `coop rebuild` in each
+project when ready to adopt it. Version one upgrades the complete core rather
+than individual core packages.
+
 ## Commands
 
 ```text
@@ -100,6 +119,7 @@ coop ls                   List all coops
 coop tui                  Open the fleet dashboard
 coop doctor               Check the host and trusted user configuration
 coop rebuild              Build the sandbox image locally
+coop upgrade              Upgrade the machine-wide locked core
 coop destroy              Delete the container and all project state volumes
 coop --version            Print the installed Coop version
 ```

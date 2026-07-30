@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/project"
 	"github.com/sarcasticbird/coop/internal/runtime"
@@ -24,7 +25,7 @@ func get(checks []Check, name string) *Check {
 }
 
 func TestMissingContainerCLIShortCircuits(t *testing.T) {
-	checks := Run(runtime.NewMock(), config.Default(), "/h", notFound)
+	checks := Run(runtime.NewMock(), config.Default(), "/h", notFound, image.EmbeddedCoreLock())
 	if len(checks) != 1 || checks[0].Status != Fail {
 		t.Errorf("expected single fail, got %+v", checks)
 	}
@@ -32,17 +33,29 @@ func TestMissingContainerCLIShortCircuits(t *testing.T) {
 
 func TestImageMissingRequiresLocalBuild(t *testing.T) {
 	m := runtime.NewMock()
-	checks := Run(m, config.Default(), "/h", found)
+	checks := Run(m, config.Default(), "/h", found, image.EmbeddedCoreLock())
 	c := get(checks, "sandbox image")
 	if c == nil || c.Status != Fail || !strings.Contains(c.Detail, "rebuild") {
 		t.Errorf("missing image should require a local build: %+v", c)
 	}
 }
 
+func TestDoctorUsesActiveCoreLockForImageCheck(t *testing.T) {
+	m := runtime.NewMock()
+	cfg := config.Default()
+	lock := append(image.EmbeddedCoreLock(), '\n')
+	desired := session.EffectiveImageNameWithCoreLock(cfg, lock)
+	m.Images = map[string]bool{desired: true}
+	check := get(Run(m, cfg, "/h", found, lock), "sandbox image")
+	if check == nil || check.Status != OK || !strings.Contains(check.Detail, desired) {
+		t.Fatalf("sandbox image check = %+v", check)
+	}
+}
+
 func TestNoSeedsIsOptional(t *testing.T) {
 	m := runtime.NewMock()
 	m.Images = map[string]bool{session.EffectiveImageName(config.Default()): true}
-	c := get(Run(m, config.Default(), "/h", found), "seeds")
+	c := get(Run(m, config.Default(), "/h", found, image.EmbeddedCoreLock()), "seeds")
 	if c == nil || c.Status != OK {
 		t.Fatalf("empty optional seed config should be healthy: %+v", c)
 	}
@@ -60,7 +73,7 @@ func TestSensitiveSeedPathsWarn(t *testing.T) {
 	}
 	m := runtime.NewMock()
 	m.Images = map[string]bool{session.EffectiveImageName(cfg): true}
-	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
+	c := get(Run(m, cfg, "/Users/u", found, image.EmbeddedCoreLock()), "credential seeds")
 	if c == nil || c.Status != Warn || !strings.Contains(c.Detail, "6 sensitive") {
 		t.Fatalf("warning = %+v", c)
 	}
@@ -74,7 +87,7 @@ func TestOrdinaryConfigAndSkillSeedsDoNotWarn(t *testing.T) {
 	}
 	m := runtime.NewMock()
 	m.Images = map[string]bool{session.EffectiveImageName(cfg): true}
-	c := get(Run(m, cfg, "/Users/u", found), "credential seeds")
+	c := get(Run(m, cfg, "/Users/u", found, image.EmbeddedCoreLock()), "credential seeds")
 	if c == nil || c.Status != OK {
 		t.Fatalf("ordinary seeds flagged as credentials: %+v", c)
 	}
@@ -84,7 +97,7 @@ func TestCustomImageMissingIsFail(t *testing.T) {
 	m := runtime.NewMock()
 	cfg := config.Default()
 	cfg.Tools.Packages = []string{"gemini-cli"}
-	c := get(Run(m, cfg, "/h", found), "sandbox image")
+	c := get(Run(m, cfg, "/h", found, image.EmbeddedCoreLock()), "sandbox image")
 	if c == nil || c.Status != Fail || !strings.Contains(c.Detail, "rebuild") {
 		t.Errorf("custom missing image should fail toward rebuild: %+v", c)
 	}
@@ -102,7 +115,7 @@ func TestLegacyArtifactsDetected(t *testing.T) {
 	m.Volumes["coop-legacyapp-opencode"] = true // old separator
 	m.Volumes["coop-app-0123456789abcdef--opencode"] = true
 
-	c := get(Run(m, config.Default(), "/h", found), "legacy artifacts")
+	c := get(Run(m, config.Default(), "/h", found, image.EmbeddedCoreLock()), "legacy artifacts")
 	if c == nil || c.Status != Warn {
 		t.Fatalf("expected legacy warn: %+v", c)
 	}

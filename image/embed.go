@@ -26,13 +26,23 @@ var files embed.FS
 // local extra-package builds.
 const NixpkgsRef = "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea"
 
+// FloxBaseImage is shared by sandbox builds and the disposable core upgrader.
+const FloxBaseImage = "ghcr.io/flox/flox:latest@sha256:04f2254909363974b049b6930a425f179bb1eaa194b1949198a44e4716a25782"
+
+const coreLockPath = "core/.flox/env/manifest.lock"
+
 var embeddedFiles = []string{
 	"Containerfile",
 	"coop-user-env",
 	"zshrc",
 	"core/.flox/env.json",
 	"core/.flox/env/manifest.toml",
-	"core/.flox/env/manifest.lock",
+	coreLockPath,
+}
+
+var coreDefinitionFiles = []string{
+	"core/.flox/env.json",
+	"core/.flox/env/manifest.toml",
 }
 
 var corePackages = []string{
@@ -46,31 +56,82 @@ var corePackages = []string{
 // environment. The returned slice is safe for callers to modify.
 func CorePackages() []string { return append([]string(nil), corePackages...) }
 
-// Fingerprint identifies the embedded build inputs. Local image tags include
-// it so a changed Containerfile or shell setup cannot silently reuse an older
-// image under the same configuration.
+// EmbeddedCoreLock returns a copy of the release-owned fallback lock.
+func EmbeddedCoreLock() []byte {
+	return embeddedCoreFile(coreLockPath)
+}
+
+// EmbeddedCoreEnvJSON returns the release-owned Flox environment metadata.
+func EmbeddedCoreEnvJSON() []byte {
+	return embeddedCoreFile("core/.flox/env.json")
+}
+
+// EmbeddedCoreManifest returns the immutable release-owned Flox manifest.
+func EmbeddedCoreManifest() []byte {
+	return embeddedCoreFile("core/.flox/env/manifest.toml")
+}
+
+func embeddedCoreFile(name string) []byte {
+	data, err := files.ReadFile(name)
+	if err != nil {
+		panic(fmt.Sprintf("embedded %s: %v", name, err))
+	}
+	return append([]byte(nil), data...)
+}
+
+// CoreDefinitionFingerprint identifies the immutable manifest generation that
+// an upgraded core lock must match. It deliberately excludes the mutable lock.
+func CoreDefinitionFingerprint() string {
+	return fingerprintFSFull(files, coreDefinitionFiles, "core-definition-v1", nil)
+}
+
+// Fingerprint identifies the embedded build inputs with the release-owned
+// fallback lock.
 func Fingerprint() string {
-	return fingerprintFS(files, embeddedFiles, NixpkgsRef)
+	return FingerprintWithCoreLock(EmbeddedCoreLock())
+}
+
+// FingerprintWithCoreLock identifies all build inputs with lock as the chosen
+// core lock. Local image tags include it so upgraded cores cannot silently
+// reuse an older image under the same configuration.
+func FingerprintWithCoreLock(lock []byte) string {
+	return fingerprintFSFull(files, embeddedFiles, NixpkgsRef, map[string][]byte{
+		coreLockPath: lock,
+	})[:12]
 }
 
 func fingerprintFS(fsys fs.FS, names []string, packageSource string) string {
+	return fingerprintFSFull(fsys, names, packageSource, nil)[:12]
+}
+
+func fingerprintFSFull(fsys fs.FS, names []string, packageSource string, overrides map[string][]byte) string {
 	h := sha256.New()
 	_, _ = h.Write([]byte("nixpkgs-ref\x00" + packageSource + "\x00"))
 	for _, name := range names {
-		data, err := fs.ReadFile(fsys, name)
-		if err != nil {
-			panic(fmt.Sprintf("embedded %s: %v", name, err))
+		data, ok := overrides[name]
+		if !ok {
+			var err error
+			data, err = fs.ReadFile(fsys, name)
+			if err != nil {
+				panic(fmt.Sprintf("embedded %s: %v", name, err))
+			}
 		}
 		_, _ = h.Write([]byte(name))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(data)
 	}
-	return hex.EncodeToString(h.Sum(nil))[:12]
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Materialize writes the build context to a temp directory and returns
 // its path. Caller removes it.
 func Materialize(packages []string, releases []config.ResolvedReleaseTool) (dir string, retErr error) {
+	return MaterializeWithCoreLock(packages, releases, EmbeddedCoreLock())
+}
+
+// MaterializeWithCoreLock writes the build context using lock as the selected
+// core environment lock. Caller removes the returned directory.
+func MaterializeWithCoreLock(packages []string, releases []config.ResolvedReleaseTool, lock []byte) (dir string, retErr error) {
 	dir, err := os.MkdirTemp("", "coop-image-")
 	if err != nil {
 		return "", fmt.Errorf("create image build context: %w", err)
@@ -81,9 +142,12 @@ func Materialize(packages []string, releases []config.ResolvedReleaseTool) (dir 
 		}
 	}()
 	for _, name := range embeddedFiles {
-		data, err := files.ReadFile(name)
-		if err != nil {
-			return "", fmt.Errorf("embedded %s: %w", name, err)
+		data := lock
+		if name != coreLockPath {
+			data, err = files.ReadFile(name)
+			if err != nil {
+				return "", fmt.Errorf("embedded %s: %w", name, err)
+			}
 		}
 		path := filepath.Join(dir, name)
 		parent := filepath.Dir(path)

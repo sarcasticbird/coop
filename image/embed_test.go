@@ -2,6 +2,7 @@ package image
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"io"
@@ -18,6 +19,31 @@ import (
 
 	"github.com/sarcasticbird/coop/internal/config"
 )
+
+func TestFingerprintWithCoreLockChangesOnlyForChosenLock(t *testing.T) {
+	embedded := EmbeddedCoreLock()
+	changed := append([]byte(nil), embedded...)
+	changed = append(changed, '\n')
+	if FingerprintWithCoreLock(embedded) == FingerprintWithCoreLock(changed) {
+		t.Fatal("explicit core lock did not affect image fingerprint")
+	}
+}
+
+func TestMaterializeWithCoreLockWritesChosenLock(t *testing.T) {
+	chosen := []byte(`{"lockfile-version":1}`)
+	dir, err := MaterializeWithCoreLock(nil, nil, chosen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	got, err := os.ReadFile(filepath.Join(dir, "core/.flox/env/manifest.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, chosen) {
+		t.Fatalf("materialized lock = %q, want %q", got, chosen)
+	}
+}
 
 func TestEmbeddedBuildContext(t *testing.T) {
 	if len(Fingerprint()) != 12 {
@@ -46,6 +72,16 @@ func TestEmbeddedBuildContext(t *testing.T) {
 	}
 	if !strings.Contains(string(containerfile), "ARG NIXPKGS_REF="+NixpkgsRef) {
 		t.Fatal("Go and Containerfile nixpkgs pins differ")
+	}
+}
+
+func TestContainerfileUsesFloxBaseImage(t *testing.T) {
+	data, err := files.ReadFile("Containerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "FROM "+FloxBaseImage+"\n") {
+		t.Fatalf("Containerfile base image differs from upgrade resolver image %q", FloxBaseImage)
 	}
 }
 
