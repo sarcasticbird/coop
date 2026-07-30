@@ -131,7 +131,7 @@ embeds:
 
 - a digest-pinned Flox base image reference;
 - the Containerfile and shell wrapper;
-- an exact Flox lock for the core workbench;
+- the core workbench manifest and an exact fallback lock;
 - an immutable Nixpkgs revision for configured packages;
 - trusted user GitHub release declarations and their rebuild-time resolutions.
 
@@ -148,13 +148,44 @@ The derived `local-...` image tag hashes:
 - the configured `image.name`;
 - the effective, sorted package set;
 - the canonical GitHub release declarations and resolved tags/digests;
-- the embedded image files;
+- the embedded image files and active core lock;
 - the pinned package source.
 
 Changing any input produces a different desired tag. `coop status` reports
 both the running and desired image, whether the desired build is missing, and
 whether recreation is pending. Coop never removes a working container before
 confirming that its replacement image exists.
+
+### Core upgrades and project rebuilds
+
+`coop upgrade` and `coop rebuild` deliberately own different transitions:
+
+- `coop upgrade` advances the user-local, machine-wide desired core lock;
+- `coop rebuild` builds the current project's image from that active lock.
+
+The upgrade resolver runs Flox inside a short-lived, digest-pinned Apple
+container. Flox is not required on the host. Version one upgrades every
+package in Coop's core manifest; it does not accept a package name.
+
+The active lock is derived state under
+`${XDG_STATE_HOME:-$HOME/.local/state}/coop/core/`, keyed by the embedded core
+manifest fingerprint. A Coop release with a different manifest therefore
+cannot consume an incompatible older upgraded lock. Failed resolution,
+validation, or persistence leaves the previous active lock untouched.
+
+`coop upgrade` does not build an image or stop, start, remove, or recreate any
+project container. It also does not change configured user/project packages,
+GitHub release tools, or project Flox environments. When the lock changes, the
+desired image tag changes naturally. `coop status` then reports the project as
+requiring a rebuild, while the existing container remains intact. The user
+adopts the new core per project:
+
+```sh
+coop upgrade
+cd ~/Projects/my-app
+coop status
+coop rebuild
+```
 
 ## Tool lookup and Flox
 
@@ -216,12 +247,16 @@ coop up
 Do not use `coop destroy` for this recovery path; it also removes agent-state
 volumes.
 
-If the desired image is missing after a Coop upgrade or tool change, run:
+If the desired image is missing after `coop upgrade`, a Coop binary upgrade,
+or a tool change, explicitly build it for the current project:
 
 ```sh
 coop rebuild
 coop up
 ```
+
+This stale state does not require `coop destroy`; the existing container and
+agent-state volumes remain available until the rebuilt image is ready.
 
 ## Current limits
 

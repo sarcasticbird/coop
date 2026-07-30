@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/credential"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
@@ -1022,6 +1024,92 @@ func TestEffectiveImageNameRegistryPort(t *testing.T) {
 	digest := config.Config{Image: config.Image{Name: "repo/coop@sha256:deadbeef"}, Tools: config.Tools{Packages: []string{"x"}}}
 	if got := EffectiveImageName(digest); !strings.HasPrefix(got, "repo/coop:local-") {
 		t.Errorf("digest ref corrupted: %q", got)
+	}
+}
+
+func TestDesiredImageChangesWithCoreLock(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
+	embedded := s.DesiredImageName()
+	s.CoreLock = append(image.EmbeddedCoreLock(), '\n')
+	if got := s.DesiredImageName(); got == embedded {
+		t.Fatal("changed core lock did not change desired image")
+	}
+}
+
+func TestImageStatusMarksUpgradedCoreAsRebuildRequiredWithoutMutation(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	oldImage := s.DesiredImageName()
+	m.Existing[s.Name] = true
+	m.ContainerImages = map[string]string{s.Name: oldImage}
+	m.ContainerLabels = map[string]map[string]string{s.Name: {SpecLabel: s.SpecFingerprint()}}
+	s.CoreLock = append(image.EmbeddedCoreLock(), '\n')
+
+	status, err := s.ImageStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.RebuildRequired || !status.RecreationPending {
+		t.Fatalf("status = %+v", status)
+	}
+	if len(m.Stopped) != 0 || len(m.Removed) != 0 {
+		t.Fatalf("status mutated container: stopped=%v removed=%v", m.Stopped, m.Removed)
+	}
+}
+
+func TestUpgradedCoreRefusesContainerReplacementUntilImageExists(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	oldImage := s.DesiredImageName()
+	m.Existing[s.Name] = true
+	m.ContainerImages = map[string]string{s.Name: oldImage}
+	m.ContainerLabels = map[string]map[string]string{s.Name: {SpecLabel: s.SpecFingerprint()}}
+	s.CoreLock = append(image.EmbeddedCoreLock(), '\n')
+
+	err := s.Up()
+	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(m.Stopped) != 0 || len(m.Removed) != 0 {
+		t.Fatalf("missing upgraded image mutated container: stopped=%v removed=%v", m.Stopped, m.Removed)
+	}
+}
+
+func TestNewLoadsActiveCoreLockAndSurfacesInvalidStateWarning(t *testing.T) {
+	home := t.TempDir()
+	xdgState := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", xdgState)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(xdgState, "coop")
+	if err := core.Install(stateDir, image.EmbeddedCoreLock()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(runtime.NewMock(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.CoreLock) == 0 {
+		t.Fatal("session did not load active core lock")
+	}
+
+	path := filepath.Join(stateDir, "core", image.CoreDefinitionFingerprint(), "manifest.lock")
+	if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err = New(runtime.NewMock(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(s.Cfg.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "invalid core upgrade state ignored")
+	}) {
+		t.Fatalf("warnings = %v", s.Cfg.Warnings)
 	}
 }
 

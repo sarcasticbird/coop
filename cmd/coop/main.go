@@ -17,6 +17,7 @@ import (
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/doctor"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
@@ -76,6 +77,13 @@ var (
 	}
 	resolveReleaseTools = func(ctx context.Context, specs []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
 		return (releasetool.Resolver{}).Resolve(ctx, specs)
+	}
+	upgradeCore = func(ctx context.Context, stdout, stderr io.Writer) (core.UpgradeResult, error) {
+		stateDir, err := core.StateDir()
+		if err != nil {
+			return core.UpgradeResult{}, err
+		}
+		return (core.Upgrader{StateDir: stateDir}).Upgrade(ctx, stdout, stderr)
 	}
 	saveReleaseToolLock             = releasetool.SaveLock
 	pruneReleaseToolCache           = releasetool.PruneCache
@@ -221,6 +229,13 @@ can add tools through coop.toml or an optional project flox environment.`,
 				if err := releasetool.HydrateConfig(&cfg); err != nil {
 					return fmt.Errorf("load GitHub release tool state: %w", err)
 				}
+				coreLock, warning, err := core.Active()
+				if err != nil {
+					return fmt.Errorf("load core upgrade state: %w", err)
+				}
+				if warning != "" {
+					cfg.Warnings = append(cfg.Warnings, warning)
+				}
 				writeConfigWarnings(cfg, cmd.ErrOrStderr())
 				home, err := os.UserHomeDir()
 				if err != nil {
@@ -228,7 +243,7 @@ can add tools through coop.toml or an optional project flox environment.`,
 				}
 				fmt.Printf("configuration: global\n\n")
 				failed := false
-				for _, c := range doctor.Run(newRuntime(), cfg, home, lookPath) {
+				for _, c := range doctor.Run(newRuntime(), cfg, home, lookPath, coreLock) {
 					mark := map[doctor.Status]string{
 						doctor.OK: "ok  ", doctor.Warn: "warn", doctor.Fail: "FAIL",
 					}[c.Status]
@@ -278,12 +293,12 @@ can add tools through coop.toml or an optional project flox environment.`,
 				}
 				buildCfg := s.Cfg
 				buildCfg.Tools.ResolvedReleases = resolved
-				ctx, err := image.Materialize(buildCfg.Tools.Packages, resolved)
+				ctx, err := image.MaterializeWithCoreLock(buildCfg.Tools.Packages, resolved, s.CoreLock)
 				if err != nil {
 					return err
 				}
 				defer func() { _ = os.RemoveAll(ctx) }()
-				desiredImage := session.EffectiveImageName(buildCfg)
+				desiredImage := session.EffectiveImageNameWithCoreLock(buildCfg, s.CoreLock)
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
 					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nrelease tools:  %s\nimage:          %s\n",
 					len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
@@ -307,6 +322,41 @@ can add tools through coop.toml or an optional project flox environment.`,
 				}
 				if err := pruneReleaseToolCache(resolved); err != nil {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coop: warning: prune GitHub release tool cache: %v\n", err)
+				}
+				return nil
+			}},
+		&cobra.Command{Use: "upgrade", Args: cobra.NoArgs, Short: "Upgrade Coop's machine-wide locked core",
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
+				result, err := upgradeCore(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				if err != nil {
+					return fmt.Errorf("upgrade core: %w", err)
+				}
+				if !result.Changed {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Core packages are already up to date."); err != nil {
+						return fmt.Errorf("write upgrade summary: %w", err)
+					}
+					return nil
+				}
+				if len(result.Changes) == 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Core package revisions changed."); err != nil {
+						return fmt.Errorf("write upgrade summary: %w", err)
+					}
+				} else {
+					for _, change := range result.Changes {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s -> %s\n", change.Name, change.From, change.To); err != nil {
+							return fmt.Errorf("write upgrade summary: %w", err)
+						}
+					}
+				}
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Core lock upgraded."); err != nil {
+					return fmt.Errorf("write upgrade summary: %w", err)
+				}
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(),
+					"Existing coops are stale; run `coop rebuild` in each project when ready."); err != nil {
+					return fmt.Errorf("write upgrade summary: %w", err)
 				}
 				return nil
 			}},

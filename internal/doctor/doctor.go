@@ -34,7 +34,7 @@ type Check struct {
 var currentName = regexp.MustCompile(`^coop-.*-[0-9a-f]{16}$`)
 
 // Run executes all checks. lookPath is injectable for tests.
-func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(string) (string, error)) []Check {
+func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(string) (string, error), coreLock []byte) []Check {
 	seeds := cfg.Seeds
 	var checks []Check
 	add := func(s Status, name, detail string) {
@@ -56,7 +56,7 @@ func Run(rt runtime.Runtime, cfg config.Config, hostHome string, lookPath func(s
 	add(OK, "container apiserver", "running")
 
 	// image — checked via the same derived-tag logic sessions use
-	imgName := session.EffectiveImageName(cfg)
+	imgName := session.EffectiveImageNameWithCoreLock(cfg, coreLock)
 	exists, imgErr := rt.ImageExists(imgName)
 	switch {
 	case imgErr != nil:
