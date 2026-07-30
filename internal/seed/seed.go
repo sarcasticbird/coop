@@ -183,7 +183,7 @@ func createTarArchive(ctx context.Context, src string) (*os.File, error) {
 	if goos == "darwin" {
 		tarArgs = append([]string{"--no-xattrs"}, tarArgs...)
 	}
-	tarCmd := exec.CommandContext(ctx, "tar", tarArgs...)
+	tarCmd := hostTarCommand(ctx, tarArgs...)
 	var stderr bytes.Buffer
 	tarCmd.Stderr = &stderr
 	if err := tarCmd.Run(); err != nil {
@@ -209,7 +209,7 @@ func startTar(ctx context.Context, src string) (*exec.Cmd, io.ReadCloser, error)
 	if goos == "darwin" {
 		tarArgs = append([]string{"--no-xattrs"}, tarArgs...)
 	}
-	tarCmd := exec.CommandContext(ctx, "tar", tarArgs...)
+	tarCmd := hostTarCommand(ctx, tarArgs...)
 	pipe, err := tarCmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
@@ -218,6 +218,14 @@ func startTar(ctx context.Context, src string) (*exec.Cmd, io.ReadCloser, error)
 		return nil, nil, err
 	}
 	return tarCmd, pipe, nil
+}
+
+func hostTarCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "tar", args...)
+	if goos == "darwin" {
+		cmd.Env = append(os.Environ(), "COPYFILE_DISABLE=1")
+	}
+	return cmd
 }
 
 // overlayDir tars the host tree (dereferencing symlinks, no macOS
