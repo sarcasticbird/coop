@@ -7,8 +7,8 @@ mounts one project read-write at the same path it has on the host, keeps agent
 state in project-specific volumes, and gives repositories a declarative
 `coop.toml` for resources and tools. Docker is not required.
 
-Coop is pre-1.0. Command and configuration behavior may change between beta
-versions.
+Coop is pre-1.0. Command and configuration behavior may change between
+releases.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ brew install gh
 Download and verify the exact release:
 
 ```sh
-version=v0.1.0-beta.6
+version=v0.1.1
 archive="coop_${version}_darwin_arm64.tar.gz"
 gh release download "$version" -R sarcasticbird/coop \
   -p "$archive" -p checksums.txt
@@ -78,7 +78,7 @@ coop rebuild
 coop claude
 ```
 
-The beta builds its sandbox image locally rather than publishing one. Run
+Coop builds its sandbox image locally rather than publishing one. Run
 `coop rebuild` once after installation, after changing configured tools, or
 after upgrading to a release with different embedded image inputs. Rebuild is
 the only command that resolves configured GitHub release tools.
