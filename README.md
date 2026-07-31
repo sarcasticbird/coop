@@ -15,12 +15,9 @@ releases.
 - macOS 26 or later on Apple silicon
 - Apple's `container` CLI and a running container service
 
-Install and start Apple's runtime:
-
-```sh
-brew install container
-container system start
-```
+Both install methods below provide Apple's `container` CLI: the Homebrew
+formula pulls it in as a dependency, and the manual path installs it
+directly. Each method shows when to start the container service.
 
 Flox is built into the guest image; it is not a host prerequisite. A project
 `.flox` is optional and useful when the repository wants the same pinned
@@ -28,17 +25,35 @@ toolchain inside and outside Coop.
 
 ## Install
 
-Install the [GitHub CLI](https://cli.github.com/) if needed, then download the
-current public release. Authentication is not required for the release assets.
+```sh
+brew install sarcasticbird/tap/coop
+container system start
+```
+
+The formula builds coop from the tagged source on your machine and installs
+Apple's `container` runtime as a dependency; start its service once per boot
+as shown. Then:
 
 ```sh
-brew install gh
+coop --version
+coop doctor
+```
+
+### Alternative: manual download
+
+Install Apple's runtime and the [GitHub CLI](https://cli.github.com/) if
+needed, then download the current public release. Authentication is not
+required for the release assets.
+
+```sh
+brew install container gh
+container system start
 ```
 
 Download and verify the exact release:
 
 ```sh
-version=v0.1.1
+version=v0.1.2
 archive="coop_${version}_darwin_arm64.tar.gz"
 gh release download "$version" -R sarcasticbird/coop \
   -p "$archive" -p checksums.txt
@@ -48,20 +63,18 @@ mkdir -p "$HOME/.local/bin"
 install -m 0755 coop "$HOME/.local/bin/coop"
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH`, then run:
+Ensure `$HOME/.local/bin` is on `PATH`. Release binaries target Apple silicon
+and are not Developer ID signed or notarized. Downloads through `gh` do not
+carry browser quarantine metadata; macOS may treat a browser download
+differently.
+
+### Build from source
+
+Install Apple's runtime and Go 1.26.5 or later:
 
 ```sh
-coop --version
-coop doctor
-```
-
-Release binaries target Apple silicon and are not Developer ID signed or
-notarized. Downloads through `gh` do not carry browser quarantine metadata;
-macOS may treat a browser download differently.
-
-To build from source, install Go 1.26.5 or later:
-
-```sh
+brew install container go
+container system start
 git clone https://github.com/sarcasticbird/coop.git
 cd coop
 mkdir -p "$HOME/.local/bin"
@@ -74,12 +87,12 @@ From a project directory:
 
 ```sh
 cd ~/Projects/my-app
-coop rebuild
 coop claude
 ```
 
-Coop builds its sandbox image locally rather than publishing one. Run
-`coop rebuild` once after installation, after changing configured tools, or
+The first time you enter a project, coop offers to build the sandbox image —
+the first build takes a few minutes. Coop builds this image locally rather
+than publishing one. Run `coop rebuild` after changing configured tools or
 after upgrading to a release with different embedded image inputs. Rebuild is
 the only command that resolves configured GitHub release tools.
 

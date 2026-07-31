@@ -56,6 +56,16 @@ cannot provide.
    /tmp/coop-rc destroy
    ```
 
+   Also confirm the interactive first-build paths. They require a project
+   whose image does not exist yet, so run them BEFORE the `coop rebuild`
+   step above, or use a second scratch project with a different tool set
+   (its image name differs, so it is unbuilt): run `/tmp/coop-rc` at a
+   terminal and confirm it prompts `Build it now? [Y/n]`, declines cleanly
+   on `n`, and on accept builds, prints the helpful-commands block, and
+   enters the shell. After any rebuild, `container ls -a` must show the
+   `buildkit` container stopped (unless it was running before the build
+   started).
+
 4. Exercise configured and project tool layering:
 
    - Add `[tools] packages = ["hello"]` to the scratch `coop.toml`, rebuild,
@@ -105,6 +115,21 @@ cannot provide.
    `CGO_ENABLED=0` (the module is pure Go), and publishes the release.
    Verify the run succeeded and the asset downloads.
 
+8. Update the Homebrew tap. Compute the source tarball digest and point
+   `Formula/coop.rb` in `sarcasticbird/homebrew-tap` at the new tag:
+
+   ```sh
+   curl -sL "https://github.com/sarcasticbird/coop/archive/refs/tags/$version.tar.gz" | shasum -a 256
+   ```
+
+   Bump `url` and `sha256`, then verify locally before pushing the tap:
+
+   ```sh
+   brew reinstall --build-from-source sarcasticbird/tap/coop
+   brew test sarcasticbird/tap/coop
+   brew audit --strict sarcasticbird/tap/coop
+   ```
+
 If the workflow fails after the tag is pushed, fix the problem, delete
 the tag locally and on the remote, and re-tag. Do not reuse a tag that
 already produced a published release; cut the next pre-release number
@@ -126,8 +151,10 @@ mkdir -p "$HOME/.local/bin"
 install -m 0755 coop "$HOME/.local/bin/coop"
 ```
 
-Browser downloads carry quarantine metadata, and macOS may refuse to run the
-ad-hoc-signed, non-notarized binary. Downloads via `gh` or `curl` do not
-normally receive browser quarantine metadata. Developer ID signing and
-notarization are prerequisites for distribution channels that require trusted
-macOS binaries, such as a Homebrew tap.
+The Homebrew tap (`brew install sarcasticbird/tap/coop`) builds from the
+tagged source on the user's machine, so it does not distribute the unsigned
+binary. Browser downloads of the release binary carry quarantine metadata,
+and macOS may refuse to run the ad-hoc-signed, non-notarized binary;
+downloads via `gh` or `curl` do not normally receive quarantine metadata.
+Developer ID signing and notarization remain prerequisites for any channel
+that distributes the prebuilt binary to trusted-macOS users.
