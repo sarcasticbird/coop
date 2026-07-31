@@ -40,9 +40,25 @@ type Metadata struct {
 type Acquired struct {
 	Selected Selected
 	payload  []byte
+	userPass *userPasswordMaterial
 	aws      *AWSCredentials
 	metadata Metadata
 	revoke   func(context.Context) error
+}
+
+// userPasswordMaterial is structured secret material returned by a credential
+// helper. Its fields stay private so ordinary formatting cannot reveal them.
+type userPasswordMaterial struct {
+	protocol string
+	host     string
+	path     string
+	username string
+	password string
+}
+
+// Format prevents structured credentials from appearing in diagnostics.
+func (userPasswordMaterial) Format(state fmt.State, _ rune) {
+	_, _ = fmt.Fprint(state, "<username-password credential redacted>")
 }
 
 // Format prevents diagnostic formatting from recursively exposing private

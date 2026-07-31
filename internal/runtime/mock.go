@@ -26,6 +26,7 @@ type Mock struct {
 	Infos           []ContainerInfo
 	Images          map[string]bool
 	ImageErr        error
+	ListErr         error
 	ContainerImages map[string]string
 	ContainerLabels map[string]map[string]string
 	LabelErr        error
@@ -118,7 +119,12 @@ func (m *Mock) Remove(name string) error {
 	return nil
 }
 
-func (m *Mock) List() (string, error) { return "", nil }
+func (m *Mock) List() (string, error) {
+	if m.ListErr != nil {
+		return "", m.ListErr
+	}
+	return "", nil
+}
 
 func (m *Mock) Containers() ([]ContainerInfo, error) { return m.Infos, nil }
 

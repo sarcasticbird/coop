@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -115,6 +118,113 @@ func TestBuildBundleInjectionAdapters(t *testing.T) {
 	}
 	if !bytes.Contains(bundle.files[2].data, []byte("[coop]")) || bytes.Contains(bundle.files[2].data, []byte("[dev]")) {
 		t.Fatalf("AWS file uses wrong profile: %s", bundle.files[2].data)
+	}
+}
+
+func TestBuildBundleProjectsGitCredentialToGitAndGitHubCLI(t *testing.T) {
+	const secret = "token:@/"
+	lease := GuestLease{Dir: "/dev/shm/coop-credentials/lease"}
+	acquired := []Acquired{{
+		Selected: Selected{Name: "github", Spec: config.Credential{
+			Source: config.CredentialSource{Type: "git-credential", URL: "https://github.com/sarcasticbird"},
+			Expose: []config.CredentialInjection{
+				{Type: "git-credential-store"},
+				{Type: "environment", Name: "GH_TOKEN", Field: "password"},
+			},
+		}},
+		userPass: &userPasswordMaterial{
+			protocol: "https",
+			host:     "github.com",
+			path:     "sarcasticbird",
+			username: "coop user",
+			password: secret,
+		},
+	}}
+
+	bundle, err := BuildBundle(acquired, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(bundle.env["GH_TOKEN"]); got != secret {
+		t.Fatalf("GH_TOKEN projection = %q", got)
+	}
+	if len(bundle.files) != 1 {
+		t.Fatalf("Git credential files = %d, want 1", len(bundle.files))
+	}
+	if got, want := string(bundle.files[0].data), "https://coop%20user:token%3A%40%2F@github.com/sarcasticbird\n"; got != want {
+		t.Fatalf("Git store projection = %q, want %q", got, want)
+	}
+	if bundle.files[0].mode != 0o600 {
+		t.Fatalf("Git store mode = %o", bundle.files[0].mode)
+	}
+	if got := string(bundle.env["GIT_CONFIG_VALUE_1"]); got != "store --file "+lease.Dir+"/files/000" {
+		t.Fatalf("Git helper projection = %q", got)
+	}
+	if got := string(bundle.env["GIT_CONFIG_COUNT"]); got != "3" {
+		t.Fatalf("structured Git config count = %q", got)
+	}
+	if got := string(bundle.env["GIT_CONFIG_KEY_2"]); got != "credential.https://github.com/sarcasticbird.useHttpPath" {
+		t.Fatalf("Git path override key = %q", got)
+	}
+	if got := string(bundle.env["GIT_CONFIG_VALUE_2"]); got != "false" {
+		t.Fatalf("Git path override value = %q", got)
+	}
+	if got := fmt.Sprintf("%+v", bundle); strings.Contains(got, secret) || strings.Contains(got, "coop user") {
+		t.Fatalf("bundle formatting exposed structured credential: %s", got)
+	}
+}
+
+func TestBuildBundleGitStoreOverridesGuestUseHttpPath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	lease := GuestLease{Dir: filepath.Join(t.TempDir(), "lease")}
+	bundle, err := BuildBundle([]Acquired{{
+		Selected: Selected{Name: "github", Spec: config.Credential{
+			Source: config.CredentialSource{Type: "git-credential", URL: "https://github.com/sarcasticbird"},
+			Expose: []config.CredentialInjection{{Type: "git-credential-store"}},
+		}},
+		userPass: &userPasswordMaterial{
+			protocol: "https", host: "github.com", path: "sarcasticbird",
+			username: "coop-user", password: "test-token",
+		},
+	}}, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(lease.Dir, "files"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lease.Dir, "files", "000"), bundle.files[0].data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[credential \"https://github.com\"]\n\tuseHttpPath = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("git", "credential", "fill")
+	cmd.Dir = home
+	cmd.Stdin = strings.NewReader("protocol=https\nhost=github.com\npath=sarcasticbird/coop.git\n\n")
+	env := make([]string, 0, len(os.Environ())+len(bundle.env)+2)
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if name == "HOME" || name == "GIT_TERMINAL_PROMPT" || strings.HasPrefix(name, "GIT_CONFIG_") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env, "HOME="+home, "GIT_TERMINAL_PROMPT=0")
+	for _, name := range SortedEnvNames(bundle.env) {
+		env = append(env, name+"="+string(bundle.env[name]))
+	}
+	cmd.Env = env
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Git lookup with guest useHttpPath=true failed: %v", err)
+	}
+	if !bytes.Contains(output, []byte("password=test-token\n")) {
+		t.Fatal("temporary Git store did not satisfy the repository credential lookup")
 	}
 }
 

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/sarcasticbird/coop/internal/config"
 )
 
 const (
@@ -91,75 +94,181 @@ func BuildBundle(acquired []Acquired, lease GuestLease) (Bundle, error) {
 		bundle.metadata = append(bundle.metadata, NamedMetadata{Name: item.Selected.Name, Metadata: item.metadata})
 		relative := fmt.Sprintf("files/%03d", i)
 		guestPath := path.Join(lease.Dir, relative)
-		inject := item.Selected.Spec.Inject
-		switch inject.Type {
-		case "environment":
-			if err := addEnv(inject.Name, item.payload); err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+		var stagedFile []byte
+		fileStaged := false
+		ensureFile := func(data []byte) error {
+			if fileStaged {
+				if !bytes.Equal(stagedFile, data) {
+					return errors.New("credential exposures require different file contents")
+				}
+				return nil
 			}
-		case "file":
-			if err := addFile(relative, item.payload); err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+			if err := addFile(relative, data); err != nil {
+				return err
 			}
-			if err := addEnv(inject.PathEnv, []byte(guestPath)); err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
-			}
-		case "git-credential-store":
-			if err := addFile(relative, item.payload); err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
-			}
-			gitEnv := map[string]string{
-				"GIT_CONFIG_COUNT":   "2",
-				"GIT_CONFIG_KEY_0":   "credential.helper",
-				"GIT_CONFIG_VALUE_0": "",
-				"GIT_CONFIG_KEY_1":   "credential.helper",
-				"GIT_CONFIG_VALUE_1": "store --file " + guestPath,
-			}
-			for _, name := range []string{
-				"GIT_CONFIG_COUNT",
-				"GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
-				"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1",
-			} {
-				if err := addEnv(name, []byte(gitEnv[name])); err != nil {
+			stagedFile = bytes.Clone(data)
+			fileStaged = true
+			return nil
+		}
+
+		for _, expose := range config.Exposures(item.Selected.Spec) {
+			switch expose.Type {
+			case "environment":
+				value, err := environmentExposureValue(item, expose)
+				if err != nil {
 					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
 				}
-			}
-		case "aws":
-			if item.aws == nil {
-				return Bundle{}, fmt.Errorf("credential %q: AWS material is missing", item.Selected.Name)
-			}
-			awsFile, err := buildAWSFile(*item.aws)
-			if err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
-			}
-			if err := addFile(relative, awsFile); err != nil {
-				return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
-			}
-			awsEnv := map[string]string{
-				"AWS_SHARED_CREDENTIALS_FILE": guestPath,
-				"AWS_PROFILE":                 "coop",
-				"AWS_EC2_METADATA_DISABLED":   "true",
-			}
-			for _, name := range []string{"AWS_EC2_METADATA_DISABLED", "AWS_PROFILE", "AWS_SHARED_CREDENTIALS_FILE"} {
-				if err := addEnv(name, []byte(awsEnv[name])); err != nil {
+				if err := addEnv(expose.Name, value); err != nil {
 					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
 				}
-			}
-			for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
-				total += len(name)
-				if total > MaxBundleBytes {
-					return Bundle{}, ErrBundleTooLarge
+			case "file":
+				if item.userPass != nil || item.aws != nil {
+					return Bundle{}, fmt.Errorf("credential %q: file exposure requires opaque material", item.Selected.Name)
 				}
-				bundle.unsetEnv = append(bundle.unsetEnv, name)
+				if err := ensureFile(item.payload); err != nil {
+					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+				}
+				if err := addEnv(expose.PathEnv, []byte(guestPath)); err != nil {
+					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+				}
+			case "git-credential-store":
+				store := item.payload
+				gitConfigCount := "2"
+				gitConfigNames := []string{
+					"GIT_CONFIG_COUNT",
+					"GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
+					"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1",
+				}
+				if item.userPass != nil {
+					var err error
+					store, err = buildGitCredentialStore(*item.userPass)
+					if err != nil {
+						return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+					}
+					gitConfigCount = "3"
+					gitConfigNames = append(gitConfigNames, "GIT_CONFIG_KEY_2", "GIT_CONFIG_VALUE_2")
+				} else if item.aws != nil {
+					return Bundle{}, fmt.Errorf("credential %q: Git store exposure requires username-password or opaque material", item.Selected.Name)
+				}
+				if err := ensureFile(store); err != nil {
+					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+				}
+				gitEnv := map[string]string{
+					"GIT_CONFIG_COUNT":   gitConfigCount,
+					"GIT_CONFIG_KEY_0":   "credential.helper",
+					"GIT_CONFIG_VALUE_0": "",
+					"GIT_CONFIG_KEY_1":   "credential.helper",
+					"GIT_CONFIG_VALUE_1": "store --file " + guestPath,
+				}
+				if item.userPass != nil {
+					key, err := gitCredentialUseHTTPPathKey(*item.userPass)
+					if err != nil {
+						return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+					}
+					gitEnv["GIT_CONFIG_KEY_2"] = key
+					gitEnv["GIT_CONFIG_VALUE_2"] = "false"
+				}
+				for _, name := range gitConfigNames {
+					if err := addEnv(name, []byte(gitEnv[name])); err != nil {
+						return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+					}
+				}
+			case "aws":
+				if item.aws == nil {
+					return Bundle{}, fmt.Errorf("credential %q: AWS material is missing", item.Selected.Name)
+				}
+				awsFile, err := buildAWSFile(*item.aws)
+				if err != nil {
+					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+				}
+				if err := ensureFile(awsFile); err != nil {
+					return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+				}
+				awsEnv := map[string]string{
+					"AWS_SHARED_CREDENTIALS_FILE": guestPath,
+					"AWS_PROFILE":                 "coop",
+					"AWS_EC2_METADATA_DISABLED":   "true",
+				}
+				for _, name := range []string{"AWS_EC2_METADATA_DISABLED", "AWS_PROFILE", "AWS_SHARED_CREDENTIALS_FILE"} {
+					if err := addEnv(name, []byte(awsEnv[name])); err != nil {
+						return Bundle{}, fmt.Errorf("credential %q: %w", item.Selected.Name, err)
+					}
+				}
+				for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+					total += len(name)
+					if total > MaxBundleBytes {
+						return Bundle{}, ErrBundleTooLarge
+					}
+					bundle.unsetEnv = append(bundle.unsetEnv, name)
+				}
+			default:
+				return Bundle{}, fmt.Errorf("credential %q: unsupported injection type %q", item.Selected.Name, expose.Type)
 			}
-		default:
-			return Bundle{}, fmt.Errorf("credential %q: unsupported injection type %q", item.Selected.Name, inject.Type)
 		}
 	}
 
 	slices.SortFunc(bundle.files, func(a, b SecretFile) int { return strings.Compare(a.path, b.path) })
 	slices.Sort(bundle.unsetEnv)
 	return bundle, nil
+}
+
+func environmentExposureValue(item *Acquired, expose config.CredentialInjection) ([]byte, error) {
+	if expose.Field == "" {
+		if item.userPass != nil || item.aws != nil {
+			return nil, errors.New("environment exposure without field requires opaque material")
+		}
+		return item.payload, nil
+	}
+	if item.userPass == nil {
+		return nil, fmt.Errorf("environment field %q requires username-password material", expose.Field)
+	}
+	switch expose.Field {
+	case "username":
+		return []byte(item.userPass.username), nil
+	case "password":
+		return []byte(item.userPass.password), nil
+	default:
+		return nil, fmt.Errorf("unsupported username-password field %q", expose.Field)
+	}
+}
+
+func buildGitCredentialStore(material userPasswordMaterial) ([]byte, error) {
+	if material.protocol != "https" || material.host == "" || material.username == "" || material.password == "" {
+		return nil, errors.New("git credential material is incomplete")
+	}
+	credentialURL, err := gitCredentialTargetURL(material)
+	if err != nil {
+		return nil, err
+	}
+	credentialURL.User = url.UserPassword(material.username, material.password)
+	return []byte(credentialURL.String() + "\n"), nil
+}
+
+func gitCredentialUseHTTPPathKey(material userPasswordMaterial) (string, error) {
+	target, err := gitCredentialTargetURL(material)
+	if err != nil {
+		return "", err
+	}
+	return "credential." + target.String() + ".useHttpPath", nil
+}
+
+func gitCredentialTargetURL(material userPasswordMaterial) (url.URL, error) {
+	if material.protocol != "https" || material.host == "" {
+		return url.URL{}, errors.New("git credential target is incomplete")
+	}
+	for _, value := range []string{material.protocol, material.host, material.path} {
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return url.URL{}, errors.New("git credential target contains invalid control characters")
+		}
+	}
+	credentialURL := url.URL{
+		Scheme: material.protocol,
+		Host:   material.host,
+	}
+	if material.path != "" {
+		credentialURL.Path = "/" + material.path
+	}
+	return credentialURL, nil
 }
 
 func buildAWSFile(credentials AWSCredentials) ([]byte, error) {

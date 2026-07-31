@@ -11,9 +11,9 @@
 # SSH-agent forwarding is deliberately off by default.
 ssh = false
 
-# Included grants are acquired for every interactive entry. Other grants can
-# be selected for one entry with --credentials.
-include_credentials = ["git"]
+# Top-level include_credentials applies to every project. Prefer the scoped
+# [[projects]] grants below for account credentials.
+include_credentials = []
 
 [image]
 name = "coop:latest"
@@ -66,13 +66,9 @@ policy = "overlay"
 src = "~/.config/example/bootstrap"
 policy = "if-absent"
 
-# Native agent login and portable rules use the same one-way primitive. Enable
-# only the paths you deliberately want copied into each new project's state:
-#
-# [[seed]]
-# src = "~/.codex/auth.json"
-# policy = "if-absent"
-#
+# Portable agent configuration and rules may use the one-way seed primitive.
+# Native login state belongs to the agent inside its per-project state volume;
+# do not seed auth.json or an equivalent login store.
 # [[seed]]
 # src = "~/.codex/config.toml"
 # policy = "if-absent"
@@ -97,13 +93,12 @@ src = "~/bin/gh-example"
 dest = "~/.local/share/gh/extensions/gh-example/gh-example"
 policy = "always"
 
-[credentials.git]
-source = { type = "file", path = "~/.git-credentials" }
-inject = { type = "git-credential-store" }
-
-[credentials.github]
-source = { type = "command", argv = ["gh", "auth", "token"] }
-inject = { type = "environment", name = "GH_TOKEN" }
+[credentials.github-sarcasticbird]
+source = { type = "git-credential", url = "https://github.com/sarcasticbird" }
+expose = [
+  { type = "git-credential-store" },
+  { type = "environment", name = "GH_TOKEN", field = "password" },
+]
 
 [credentials.kubernetes]
 source = { type = "file", path = "~/.kube/config" }
@@ -123,9 +118,8 @@ require_expiration = true
 # handing it to every project you enter.
 [[projects]]
 match               = "~/Projects/sarcasticbird"
-include_credentials = ["github"]
+include_credentials = ["github-sarcasticbird"]
 
 [[projects]]
 match               = "~/Projects/work"
 include_credentials = ["kubernetes", "aws-dev"]
-seed                = [{ src = "~/.config/work/netrc", dest = "~/.netrc" }]

@@ -120,6 +120,13 @@ An interactive entry performs more work than `coop up`:
 Credential acquisition finishes before Coop changes VM state. This avoids
 tearing down a working container when a host credential helper fails.
 
+Acquisition returns typed material. Bundle construction may project one result
+into several constrained interfaces before staging; for example, one host
+`git credential fill` result can create a temporary Git store and a `GH_TOKEN`
+environment value. Every file remains inside the same randomized tmpfs lease,
+and the entry wrapper removes the whole lease on exit. See
+[Credentials](credentials.md) for source trust, Keychain setup, and migration.
+
 Running `coop` without a guest command opens `zsh -l`. Arguments after a guest
 command are passed through unchanged. Coop options, including
 `--credentials`, must appear before that command.

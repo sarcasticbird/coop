@@ -317,18 +317,21 @@ project, but a concurrently running guest can still race a check and write.
 Do not use `overlay` for credentials or other sensitive data. Overlay
 extraction may follow symlinks already present inside the guest destination.
 Prefer [session credentials](#credentials) for secrets when the tool supports
-an entry-scoped interface. Native clients that require durable login state can
-use the explicit `if-absent` recipe below.
+an entry-scoped interface. Native clients that require durable interactive
+login state should create it inside their project-specific agent volume.
 
 ### `credentials`
 
 Credential grants are named, trusted user definitions. A grant separates
-host-side acquisition (`source`) from guest-side exposure (`inject`):
+host-side acquisition (`source`) from one or more guest projections (`expose`):
 
 ```toml
-[credentials.github]
-source = { type = "command", argv = ["gh", "auth", "token"] }
-inject = { type = "environment", name = "GH_TOKEN" }
+[credentials.github-sarcasticbird]
+source = { type = "git-credential", url = "https://github.com/sarcasticbird" }
+expose = [
+  { type = "git-credential-store" },
+  { type = "environment", name = "GH_TOKEN", field = "password" },
+]
 ```
 
 Project credential tables are validated but ignored. Up to 32 grants may be
@@ -341,6 +344,7 @@ follow the same 63-character lowercase naming grammar as agents.
 | --- | --- | --- |
 | `file` | `path` | Reads a regular host file; path must be absolute or start with `~/` |
 | `command` | `argv` | Executes argv directly on the host and treats stdout as secret |
+| `git-credential` | `url` | Runs host `git credential fill` for one fixed HTTPS URL and returns username/password material |
 | `aws-profile` | `profile` | Runs the host AWS CLI's credential export for the named profile |
 
 A source must not include fields belonging to another source type. File paths
@@ -350,17 +354,34 @@ contain `/` must be absolute; bare names resolve through a sanitized host
 `PATH`. Commands run from the trusted host home with a restricted environment,
 not from the project directory, and have a ten-minute timeout.
 
+A `git-credential` URL must use HTTPS, include a host, and contain no userinfo,
+query, or fragment. Its optional path is part of the trusted grant. Coop sends
+the normalized protocol, host, and path through Git's credential protocol; it
+does not derive them from a repository remote. Host Git configuration and its
+helper chain are trusted executable inputs. On macOS, the recommended helper
+is `git-credential-osxkeychain`. Git merges request fields into the output from
+`git credential fill`, so a returned path confirms that Git preserved the
+configured request but does not attest which backend record supplied the
+secret. A helper may intentionally ignore paths; backend record scope remains
+trusted host configuration.
+
 Each acquired payload is limited to 1 MiB; the complete guest bundle is limited
 to 8 MiB.
 
-#### Injections
+#### Exposures
 
-| Injection type | Fields | Compatible source |
+| Exposure type | Fields | Compatible source/material |
 | --- | --- | --- |
-| `environment` | `name` | `file` or `command` |
-| `file` | `path_env` | `file` or `command` |
-| `git-credential-store` | None | `file` |
+| `environment` | `name` | Opaque `file` or `command` payload |
+| `environment` | `name`, `field = "username"` or `"password"` | `git-credential` |
+| `file` | `path_env` | Opaque `file` or `command` payload |
+| `git-credential-store` | None | `git-credential`, or legacy opaque `file` payload |
 | `aws` | None | `aws-profile` |
+
+`expose` is an array and may project one acquisition into several interfaces.
+The singular `inject = { ... }` table remains supported for existing
+configuration as one exposure. Defining both, defining neither, or providing
+an empty `expose` array is an error.
 
 Environment names and `path_env` values must be valid shell environment
 identifiers. Selected grants may not claim the same injected environment or
@@ -380,6 +401,9 @@ the lease when that command exits. Other guest-root processes can read or copy
 staged material, and cleanup cannot revoke a copy they retain. Secrets are not
 stored in container arguments, labels, mounts, project files, seeds, or named
 volumes.
+
+For the operational model, macOS Keychain setup, GitHub example, migration,
+and cleanup checklist, read [Credentials](credentials.md).
 
 ### `include_credentials`
 
@@ -407,8 +431,7 @@ that do not enter the guest, such as `coop up`, reject it.
 ```toml
 [[projects]]
 match               = "~/Projects/sarcasticbird"
-include_credentials = ["git-sarcasticbird"]
-seed                = [{ src = "~/.config/sb/netrc", dest = "~/.netrc" }]
+include_credentials = ["github-sarcasticbird"]
 ```
 
 This user-only array binds grants and seeds to a subset of projects. Top-level
@@ -540,19 +563,15 @@ policy = "overlay"
 
 Use this only for non-sensitive content that the guest is allowed to read.
 
-### Initialize native agent login and rules once
+### Initialize portable agent configuration and rules
 
-Agent state already lives in a project-local named volume. An `if-absent` seed
-can initialize selected files in that volume from the host without sharing live
-host state:
+Agent state already lives in a project-local named volume. Let the native agent
+create login state there through its own interactive flow. Seed only portable,
+non-secret configuration and rules:
 
 ```toml
 [agents.codex]
 state = "~/.codex"
-
-[[seed]]
-src = "~/.codex/auth.json"
-policy = "if-absent"
 
 [[seed]]
 src = "~/.codex/config.toml"
@@ -568,12 +587,16 @@ policy = "if-absent"
 ```
 
 Every path is explicit; Coop does not maintain hidden Codex, Claude, or other
-provider defaults. Verify the native client's current credential path before
-adding it. Missing sources are skipped.
+provider defaults. Missing sources are skipped. Do not seed `auth.json` or an
+equivalent provider login store; `coop doctor` treats recognized sensitive
+seed paths as failures. Recognized Git paths include `.git-credentials` and
+custom `~/.config/git/credentials-*` stores. The check covers source and
+destination paths in every trusted `[[projects]]` scope, not only the scope
+matching the current project.
 
-Files under `~/.codex` persist in that project's Codex volume. Native refresh
-or logout changes only the project copy, and later entries do not overwrite
-it. A destination outside a configured state volume, such as
+Files under `~/.codex` persist in that project's Codex volume. Native login,
+refresh, or logout changes only the project copy. A destination outside a
+configured state volume, such as
 `~/.agents/AGENTS.md`, lives in the disposable container root filesystem and
 is copied again after container recreation.
 
@@ -582,9 +605,9 @@ intentionally leaves it untouched. Select the child files and directories you
 want rather than naming the complete `~/.codex` mount.
 
 There is no synchronization or writeback. `coop destroy` removes the project
-volume; the next newly created Coop snapshots the host paths again. Prefer
-[session credentials](#credentials) when a tool supports an entry-scoped
-environment variable, file path, Git credential store, or AWS profile.
+volume. Prefer [session credentials](#credentials) when a tool supports an
+entry-scoped environment variable, file path, Git credential store, or AWS
+profile.
 
 ### Remove persistent agent state
 

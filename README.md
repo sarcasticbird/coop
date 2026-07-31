@@ -170,6 +170,8 @@ select publisher-controlled executable assets.
 
 The full [`coop.toml` reference](docs/configuration.md) documents every key,
 default, merge rule, trust boundary, validation rule, and lifecycle effect.
+The [credential guide](docs/credentials.md) covers macOS Keychain-backed Git
+and `gh`, project authorization, agent-owned login state, migration, and cleanup.
 Start from:
 
 - [trusted user example](examples/coop.user.toml)
