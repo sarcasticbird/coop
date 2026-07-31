@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
 	"github.com/sarcasticbird/coop/image"
@@ -76,7 +77,8 @@ var (
 		}
 		return nil
 	}
-	stopBuilder = func() error {
+	stdinIsTerminal = func() bool { return isatty.IsTerminal(os.Stdin.Fd()) }
+	stopBuilder     = func() error {
 		// Bounded: a wedged container service must not hang the rebuild
 		// after the build itself has already finished.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -141,6 +143,9 @@ can add tools through coop.toml or an optional project flox environment.`,
 			if err != nil {
 				return err
 			}
+			if err := maybeOfferFirstBuild(cmd, s); err != nil {
+				return err
+			}
 			return runSession(s, cwd, args, credentials)
 		},
 	}
@@ -169,6 +174,9 @@ can add tools through coop.toml or an optional project flox environment.`,
 				}
 				s, _, err := current()
 				if err != nil {
+					return err
+				}
+				if err := maybeOfferFirstBuild(cmd, s); err != nil {
 					return err
 				}
 				return s.Up()
@@ -285,6 +293,9 @@ can add tools through coop.toml or an optional project flox environment.`,
 						return err
 					}
 					writeConfigWarnings(s.Cfg, warningOutput)
+					if err := maybeOfferFirstBuild(cmd, s); err != nil {
+						return err
+					}
 					return runSession(s, res.EnterWorkdir, nil, credentials)
 				}
 				return nil
@@ -298,7 +309,8 @@ can add tools through coop.toml or an optional project flox environment.`,
 				if err != nil {
 					return err
 				}
-				return runRebuild(cmd.Context(), s, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				_, err = runRebuild(cmd.Context(), s, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return err
 			}},
 		&cobra.Command{Use: "upgrade", Args: cobra.NoArgs, Short: "Upgrade Coop's machine-wide locked core",
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -359,16 +371,84 @@ can add tools through coop.toml or an optional project flox environment.`,
 // builds in; `container builder` subcommands manage it by this fixed name.
 const builderContainerName = "buildkit"
 
-func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Writer) error {
+const firstBuildPrompt = "No sandbox image for this project yet — the first build takes a few minutes. Build it now? [Y/n] "
+
+const firstBuildNextSteps = `Sandbox image built. Helpful commands:
+  coop            open a shell in this project's coop
+  coop claude     run Claude Code in the coop
+  coop status     show container and image state
+  coop tui        fleet dashboard for every coop
+  coop doctor     check the host configuration
+`
+
+// maybeOfferFirstBuild turns the missing-image hard error into an
+// interactive offer when a human is at the terminal. Non-interactive
+// callers keep the hard error from the session layer: no hangs, no
+// surprise multi-minute builds.
+func maybeOfferFirstBuild(cmd *cobra.Command, s *session.Session) error {
+	if !stdinIsTerminal() {
+		return nil
+	}
+	status, err := s.ImageStatus()
+	if err != nil {
+		// Advisory preflight only — session reconciliation reports the
+		// real failure with full context if the runtime is broken.
+		return nil
+	}
+	if !status.RebuildRequired {
+		return nil
+	}
+	// Offer only the true first-time experience: no container exists at
+	// all. An existing container keeps working without its image tag,
+	// and a stale one (pending recreation after tool or core changes)
+	// keeps the explicit `coop rebuild` migration workflow — recreation
+	// discards root-filesystem changes and deserves a deliberate step.
+	if status.State != runtime.StateAbsent {
+		return nil
+	}
+	// The prompt goes to stderr so it stays visible when stdout is
+	// redirected; the entry command's own output still owns stdout.
+	if _, err := fmt.Fprint(cmd.ErrOrStderr(), firstBuildPrompt); err != nil {
+		return fmt.Errorf("write first-build prompt: %w", err)
+	}
+	line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	answer := strings.ToLower(strings.TrimSpace(line))
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		// A broken input stream is not consent to a multi-minute
+		// build, even if partial input arrived before it failed.
+		return fmt.Errorf("read first-build prompt response: %w", readErr)
+	}
+	if readErr != nil && answer == "" {
+		// EOF (Ctrl-D) with no input is a decline, not the default
+		// yes; keep the explicit-rebuild error.
+		return s.EnsureImage()
+	}
+	if answer != "" && answer != "y" {
+		return s.EnsureImage()
+	}
+	resolved, err := runRebuild(cmd.Context(), s, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	if err != nil {
+		return err
+	}
+	// The freshly built image embeds the just-resolved release tools;
+	// adopt them so this session's desired image is the one just built.
+	s.Cfg.Tools.ResolvedReleases = resolved
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), firstBuildNextSteps); err != nil {
+		return fmt.Errorf("write first-build next steps: %w", err)
+	}
+	return nil
+}
+
+func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Writer) ([]config.ResolvedReleaseTool, error) {
 	resolved, err := resolveReleaseTools(ctx, s.Cfg.Tools.GitHubReleases)
 	if err != nil {
-		return fmt.Errorf("resolve GitHub release tools: %w", err)
+		return nil, fmt.Errorf("resolve GitHub release tools: %w", err)
 	}
 	buildCfg := s.Cfg
 	buildCfg.Tools.ResolvedReleases = resolved
 	buildDir, err := image.MaterializeWithCoreLock(buildCfg.Tools.Packages, resolved, s.CoreLock)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(buildDir) }()
 	desiredImage := session.EffectiveImageNameWithCoreLock(buildCfg, s.CoreLock)
@@ -377,7 +457,7 @@ func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Write
 		len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
 		formatToolList(s.Cfg.Tools.ProjectPackages),
 		formatReleaseTools(s.Cfg.Tools.GitHubReleases, resolved), desiredImage); err != nil {
-		return fmt.Errorf("write rebuild summary: %w", err)
+		return nil, fmt.Errorf("write rebuild summary: %w", err)
 	}
 	args := []string{"build",
 		"-t", desiredImage,
@@ -399,19 +479,19 @@ func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Write
 		}
 	}
 	if buildErr != nil {
-		return fmt.Errorf("build image %q: %w", desiredImage, buildErr)
+		return nil, fmt.Errorf("build image %q: %w", desiredImage, buildErr)
 	}
 	stateDir, err := releasetool.StateDir()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := saveReleaseToolLock(stateDir, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
-		return fmt.Errorf("save GitHub release tool state: %w", err)
+		return nil, fmt.Errorf("save GitHub release tool state: %w", err)
 	}
 	if err := pruneReleaseToolCache(resolved); err != nil {
 		_, _ = fmt.Fprintf(stderr, "coop: warning: prune GitHub release tool cache: %v\n", err)
 	}
-	return nil
+	return resolved, nil
 }
 
 func formatToolList(packages []string) string {

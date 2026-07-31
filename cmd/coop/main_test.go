@@ -696,6 +696,201 @@ func TestRebuildStopsBuilderEvenWhenBuildFails(t *testing.T) {
 	}
 }
 
+func withTerminalStdin(t *testing.T, isTTY bool) {
+	t.Helper()
+	old := stdinIsTerminal
+	stdinIsTerminal = func() bool { return isTTY }
+	t.Cleanup(func() { stdinIsTerminal = old })
+}
+
+func TestEntryOffersFirstBuildAndContinues(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	withTerminalStdin(t, true)
+	withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func(args []string, _, _ io.Writer) error {
+		m.Images = map[string]bool{args[2]: true}
+		return nil
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetIn(strings.NewReader("\n"))
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !entered {
+		t.Fatal("entry did not continue into the session after first build")
+	}
+	for _, want := range []string{
+		"first build takes a few minutes",
+		"Sandbox image built. Helpful commands:",
+		"coop tui",
+		"coop doctor",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestEntryDeclinedFirstBuildFailsWithRebuildGuidance(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	withTerminalStdin(t, true)
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetIn(strings.NewReader("n\n"))
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
+		t.Fatalf("declined build error = %v, want coop rebuild guidance", err)
+	}
+	if entered {
+		t.Fatal("declined build must not enter the session")
+	}
+}
+
+func TestEntryNonInteractiveSkipsFirstBuildPrompt(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	withTerminalStdin(t, false)
+	oldSession := runSession
+	runSession = func(*session.Session, string, []string, []string) error { return nil }
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("non-interactive entry must not prompt:\n%s", output.String())
+	}
+}
+
+func TestEntrySkipsPromptWhenImagePresent(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir()) // force the embedded core lock so the image name is deterministic
+	withTerminalStdin(t, true)
+	cfg, err := config.Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Images = map[string]bool{session.EffectiveImageNameWithCoreLock(cfg, image.EmbeddedCoreLock()): true}
+	oldSession := runSession
+	runSession = func(*session.Session, string, []string, []string) error { return nil }
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("present image must not prompt:\n%s", output.String())
+	}
+}
+
+func TestUpDeclinedFirstBuildCreatesNothing(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	emptyProject(t)
+	withTerminalStdin(t, true)
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetIn(strings.NewReader("n\n"))
+	cmd.SetArgs([]string{"up"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
+		t.Fatalf("up declined build error = %v, want coop rebuild guidance", err)
+	}
+	if len(m.Run_) != 0 {
+		t.Fatalf("declined build must not create a container: %v", m.Run_)
+	}
+}
+
+func TestTUIEntryOffersFirstBuild(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withTerminalStdin(t, true)
+	withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func(args []string, _, _ io.Writer) error {
+		m.Images = map[string]bool{args[2]: true}
+		return nil
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+	oldTUI, oldSession := runTUI, runSession
+	runTUI = func(runtime.Runtime) (tui.Result, error) {
+		return tui.Result{EnterWorkdir: project}, nil
+	}
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() {
+		runTUI = oldTUI
+		runSession = oldSession
+	})
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetIn(strings.NewReader("\n"))
+	cmd.SetArgs([]string{"tui"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !entered {
+		t.Fatal("TUI entry did not continue after first build")
+	}
+	if !strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("TUI entry missing first-build prompt:\n%s", output.String())
+	}
+}
+
 func TestRebuildUnknownBuilderStateSkipsStop(t *testing.T) {
 	m := runtime.NewMock()
 	m.StateErr = errors.New("runtime flaked")
@@ -720,6 +915,265 @@ func TestRebuildUnknownBuilderStateSkipsStop(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "builder state unknown") {
 		t.Fatalf("missing unknown-state warning:\n%s", errOut.String())
+	}
+}
+
+func TestEntryPromptEOFDeclines(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	withTerminalStdin(t, true)
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
+		t.Fatalf("EOF at prompt error = %v, want coop rebuild guidance", err)
+	}
+	if entered {
+		t.Fatal("EOF at prompt must not start a build or enter the session")
+	}
+}
+
+// faultyReader yields partial input and then a non-EOF error, like a
+// terminal that disappears mid-read.
+type faultyReader struct{ read bool }
+
+func (r *faultyReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, errors.New("tty gone")
+	}
+	r.read = true
+	return copy(p, "y"), errors.New("tty gone")
+}
+
+func TestEntryPromptReadFailureRejectsPartialConsent(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	withTerminalStdin(t, true)
+	oldBuild := buildImage
+	built := false
+	buildImage = func([]string, io.Writer, io.Writer) error {
+		built = true
+		return nil
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetIn(&faultyReader{})
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "read first-build prompt response") {
+		t.Fatalf("read failure error = %v, want wrapped read error", err)
+	}
+	if built || entered {
+		t.Fatalf("read failure consented anyway: built=%t entered=%t", built, entered)
+	}
+}
+
+func TestEntryCurrentContainerWithoutImageTagSkipsPrompt(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	withTerminalStdin(t, true)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A current container whose image tag was deleted from the store:
+	// spec and image labels match, only the tag is gone. Entry must
+	// reuse it without prompting for a build.
+	s0, err := session.New(m, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Existing[s0.Name] = true
+	m.Started = append(m.Started, s0.Name)
+	m.ContainerImages = map[string]string{s0.Name: s0.DesiredImageName()}
+	m.ContainerLabels = map[string]map[string]string{s0.Name: {session.SpecLabel: s0.SpecFingerprint()}}
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !entered {
+		t.Fatal("current container must be entered without a build prompt")
+	}
+	if strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("current container prompted for a build:\n%s", output.String())
+	}
+}
+
+func TestEntryStaleContainerKeepsExplicitRebuildWorkflow(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	withTerminalStdin(t, true)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A stale container (spec mismatch, e.g. after tool changes) with the
+	// replacement image missing: recreation discards rootfs state, so it
+	// must stay behind the explicit `coop rebuild` step, never the
+	// default-yes first-build prompt.
+	s0, err := session.New(m, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Existing[s0.Name] = true
+	m.Started = append(m.Started, s0.Name)
+	m.ContainerImages = map[string]string{s0.Name: "coop:local-oldcfg"}
+	m.ContainerLabels = map[string]map[string]string{s0.Name: {session.SpecLabel: "stale"}}
+	oldSession := runSession
+	runSession = func(*session.Session, string, []string, []string) error { return nil }
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("stale container got the first-build prompt:\n%s", output.String())
+	}
+}
+
+func TestEntryPreflightFailureDefersToSession(t *testing.T) {
+	m := runtime.NewMock()
+	m.StateErr = errors.New("runtime flaked")
+	withRuntime(t, m)
+	emptyProject(t)
+	withTerminalStdin(t, true)
+	oldSession := runSession
+	entered := false
+	runSession = func(*session.Session, string, []string, []string) error {
+		entered = true
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !entered {
+		t.Fatal("preflight failure must defer to the session, not block entry")
+	}
+	if strings.Contains(output.String(), "Build it now?") {
+		t.Fatalf("preflight failure prompted anyway:\n%s", output.String())
+	}
+}
+
+func TestEntryFirstBuildAdoptsResolvedReleaseTools(t *testing.T) {
+	m := runtime.NewMock()
+	withRuntime(t, m)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte(`
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	withTerminalStdin(t, true)
+	withStopBuilderHook(t, nil)
+	cached := filepath.Join(t.TempDir(), "kata")
+	if err := os.WriteFile(cached, []byte("verified-kata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldResolve := resolveReleaseTools
+	resolveReleaseTools = func(context.Context, []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
+		return []config.ResolvedReleaseTool{{
+			Name: "kata", Repo: "kenn-io/kata", RequestedTag: "latest", Tag: "v0.10.0",
+			Asset: "kata_0.10.0_linux_arm64.tar.gz", Digest: "sha256:" + strings.Repeat("a", 64),
+			Binary: "kata", CachePath: cached,
+		}}, nil
+	}
+	t.Cleanup(func() { resolveReleaseTools = oldResolve })
+	oldBuild := buildImage
+	buildImage = func(args []string, _, _ io.Writer) error {
+		m.Images = map[string]bool{args[2]: true}
+		return nil
+	}
+	t.Cleanup(func() { buildImage = oldBuild })
+	oldSession := runSession
+	entered := false
+	var entryImageErr error
+	runSession = func(s *session.Session, _ string, _, _ []string) error {
+		entered = true
+		// The build tagged an image that embeds the resolved release
+		// tools; the continuing session must want that same image.
+		entryImageErr = s.EnsureImage()
+		return nil
+	}
+	t.Cleanup(func() { runSession = oldSession })
+
+	var output bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetIn(strings.NewReader("\n"))
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !entered {
+		t.Fatal("entry did not continue into the session after first build")
+	}
+	if entryImageErr != nil {
+		t.Fatalf("session desired image missing after first build: %v", entryImageErr)
 	}
 }
 
