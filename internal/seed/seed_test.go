@@ -39,6 +39,73 @@ func writeTemp(t *testing.T, name, content string, mode os.FileMode) string {
 	return p
 }
 
+func installTarRequiringCopyfileDisabled(t *testing.T) {
+	t.Helper()
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := writeTemp(t, "empty.tar", archive.String(), 0o600)
+	binDir := t.TempDir()
+	fakeTar := filepath.Join(binDir, "tar")
+	script := `#!/bin/sh
+if [ "$COPYFILE_DISABLE" != "1" ]; then
+  echo "COPYFILE_DISABLE is not enabled" >&2
+  exit 42
+fi
+out=-
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-chf" ]; then out="$2"; break; fi
+  shift
+done
+if [ "$out" = "-" ]; then
+  cat "$COOP_TEST_ARCHIVE"
+else
+  cat "$COOP_TEST_ARCHIVE" > "$out"
+fi
+`
+	if err := os.WriteFile(fakeTar, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COOP_TEST_ARCHIVE", archivePath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	oldGOOS := goos
+	goos = "darwin"
+	t.Cleanup(func() { goos = oldGOOS })
+}
+
+func TestDarwinDirectoryArchiveDisablesCopyfileMetadata(t *testing.T) {
+	installTarRequiringCopyfileDisabled(t)
+	src := t.TempDir()
+
+	archive, err := createTarArchive(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivePath := archive.Name()
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(archivePath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDarwinDirectoryOverlayDisablesCopyfileMetadata(t *testing.T) {
+	installTarRequiringCopyfileDisabled(t)
+	cmd, pipe, err := startTar(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, pipe); err != nil {
+		t.Fatal(err)
+	}
+	if err := finishTar(cmd, pipe, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAlwaysSeedsAndPreservesMode(t *testing.T) {
 	m := runtime.NewMock()
 	src := writeTemp(t, "wt", "#!/bin/sh\n", 0o755)
@@ -228,11 +295,11 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ "$out" = "-" ]; then
-  /bin/cat "$COOP_TEST_ARCHIVE"
+  cat "$COOP_TEST_ARCHIVE"
 else
-  /bin/cat "$COOP_TEST_ARCHIVE" > "$out"
+  cat "$COOP_TEST_ARCHIVE" > "$out"
 fi
-/bin/echo "source changed while reading" >&2
+echo "source changed while reading" >&2
 exit 1
 `
 	if err := os.WriteFile(fakeTar, []byte(script), 0o755); err != nil {
