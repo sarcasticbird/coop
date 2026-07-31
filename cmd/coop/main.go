@@ -287,43 +287,7 @@ can add tools through coop.toml or an optional project flox environment.`,
 				if err != nil {
 					return err
 				}
-				resolved, err := resolveReleaseTools(cmd.Context(), s.Cfg.Tools.GitHubReleases)
-				if err != nil {
-					return fmt.Errorf("resolve GitHub release tools: %w", err)
-				}
-				buildCfg := s.Cfg
-				buildCfg.Tools.ResolvedReleases = resolved
-				ctx, err := image.MaterializeWithCoreLock(buildCfg.Tools.Packages, resolved, s.CoreLock)
-				if err != nil {
-					return err
-				}
-				defer func() { _ = os.RemoveAll(ctx) }()
-				desiredImage := session.EffectiveImageNameWithCoreLock(buildCfg, s.CoreLock)
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
-					"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nrelease tools:  %s\nimage:          %s\n",
-					len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
-					formatToolList(s.Cfg.Tools.ProjectPackages),
-					formatReleaseTools(s.Cfg.Tools.GitHubReleases, resolved), desiredImage); err != nil {
-					return fmt.Errorf("write rebuild summary: %w", err)
-				}
-				args := []string{"build",
-					"-t", desiredImage,
-					"--build-arg", "GUEST_HOME=" + s.HostHome}
-				args = append(args, ctx)
-				if err := buildImage(args, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
-					return fmt.Errorf("build image %q: %w", desiredImage, err)
-				}
-				stateDir, err := releasetool.StateDir()
-				if err != nil {
-					return err
-				}
-				if err := saveReleaseToolLock(stateDir, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
-					return fmt.Errorf("save GitHub release tool state: %w", err)
-				}
-				if err := pruneReleaseToolCache(resolved); err != nil {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coop: warning: prune GitHub release tool cache: %v\n", err)
-				}
-				return nil
+				return runRebuild(cmd.Context(), s, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}},
 		&cobra.Command{Use: "upgrade", Args: cobra.NoArgs, Short: "Upgrade Coop's machine-wide locked core",
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -378,6 +342,46 @@ can add tools through coop.toml or an optional project flox environment.`,
 			}},
 	)
 	return rootCmd
+}
+
+func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Writer) error {
+	resolved, err := resolveReleaseTools(ctx, s.Cfg.Tools.GitHubReleases)
+	if err != nil {
+		return fmt.Errorf("resolve GitHub release tools: %w", err)
+	}
+	buildCfg := s.Cfg
+	buildCfg.Tools.ResolvedReleases = resolved
+	buildDir, err := image.MaterializeWithCoreLock(buildCfg.Tools.Packages, resolved, s.CoreLock)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(buildDir) }()
+	desiredImage := session.EffectiveImageNameWithCoreLock(buildCfg, s.CoreLock)
+	if _, err := fmt.Fprintf(stdout,
+		"core tools:     %d packages\nglobal tools:   %s\nproject tools:  %s\nrelease tools:  %s\nimage:          %s\n",
+		len(image.CorePackages()), formatToolList(s.Cfg.Tools.GlobalPackages),
+		formatToolList(s.Cfg.Tools.ProjectPackages),
+		formatReleaseTools(s.Cfg.Tools.GitHubReleases, resolved), desiredImage); err != nil {
+		return fmt.Errorf("write rebuild summary: %w", err)
+	}
+	args := []string{"build",
+		"-t", desiredImage,
+		"--build-arg", "GUEST_HOME=" + s.HostHome}
+	args = append(args, buildDir)
+	if err := buildImage(args, stdout, stderr); err != nil {
+		return fmt.Errorf("build image %q: %w", desiredImage, err)
+	}
+	stateDir, err := releasetool.StateDir()
+	if err != nil {
+		return err
+	}
+	if err := saveReleaseToolLock(stateDir, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
+		return fmt.Errorf("save GitHub release tool state: %w", err)
+	}
+	if err := pruneReleaseToolCache(resolved); err != nil {
+		_, _ = fmt.Fprintf(stderr, "coop: warning: prune GitHub release tool cache: %v\n", err)
+	}
+	return nil
 }
 
 func formatToolList(packages []string) string {
