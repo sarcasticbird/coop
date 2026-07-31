@@ -23,11 +23,17 @@ import (
 // Runner executes one acquisition command directly from its argv.
 type Runner func(context.Context, string, []string) ([]byte, error)
 
+// GitCredentialRunner executes Git's credential protocol with request bytes on
+// stdin. The separate dependency prevents generic command sources from gaining
+// a secret-bearing stdin interface.
+type GitCredentialRunner func(context.Context, string, []byte) ([]byte, error)
+
 // Manager contains host dependencies used during credential acquisition.
 type Manager struct {
-	OpenFile func(string) (*os.File, error)
-	Run      Runner
-	Now      func() time.Time
+	OpenFile      func(string) (*os.File, error)
+	Run           Runner
+	GitCredential GitCredentialRunner
+	Now           func() time.Time
 
 	projectRoot string
 	acquire     func(context.Context, string, Selected) (Acquired, error)
@@ -40,6 +46,9 @@ func NewManager(projectRoot string) *Manager {
 		OpenFile: openCredentialFile,
 		Run: func(ctx context.Context, home string, argv []string) ([]byte, error) {
 			return runCommand(ctx, home, projectRoot, argv)
+		},
+		GitCredential: func(ctx context.Context, home string, request []byte) ([]byte, error) {
+			return runGitCredential(ctx, home, projectRoot, request)
 		},
 		Now:         time.Now,
 		projectRoot: projectRoot,
@@ -87,6 +96,8 @@ func (m *Manager) acquireOne(ctx context.Context, home string, selected Selected
 		payload, err = m.acquireCommand(ctx, home, selected.Spec.Source.Argv)
 	case "aws-profile":
 		return m.acquireAWS(ctx, home, selected)
+	case "git-credential":
+		return m.acquireGitCredential(ctx, home, selected)
 	default:
 		return Acquired{}, fmt.Errorf("unsupported source type %q", selected.Spec.Source.Type)
 	}

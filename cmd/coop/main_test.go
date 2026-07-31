@@ -451,6 +451,7 @@ func TestStatusReportsDesiredRunningAndPendingState(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)

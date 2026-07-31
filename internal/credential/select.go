@@ -31,11 +31,13 @@ func Resolve(cfg config.Config, requested []string) ([]Selected, error) {
 		if !ok {
 			return nil, fmt.Errorf("credential %q: unknown grant", name)
 		}
-		for _, claim := range injectionClaims(spec.Inject) {
-			if owner, ok := claims[claim]; ok {
-				return nil, fmt.Errorf("credentials %q and %q both inject %s", owner, name, claim)
+		for _, exposure := range config.Exposures(spec) {
+			for _, claim := range injectionClaims(exposure) {
+				if owner, ok := claims[claim]; ok {
+					return nil, fmt.Errorf("credentials %q and %q both inject %s", owner, name, claim)
+				}
+				claims[claim] = name
 			}
-			claims[claim] = name
 		}
 		selected = append(selected, Selected{Name: name, Spec: spec})
 	}
@@ -56,6 +58,8 @@ func injectionClaims(inject config.CredentialInjection) []string {
 			"GIT_CONFIG_VALUE_0",
 			"GIT_CONFIG_KEY_1",
 			"GIT_CONFIG_VALUE_1",
+			"GIT_CONFIG_KEY_2",
+			"GIT_CONFIG_VALUE_2",
 		}
 	case "aws":
 		return []string{

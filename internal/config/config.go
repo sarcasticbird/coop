@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -55,9 +56,10 @@ type ProjectScope struct {
 // Coop acquires secret material; Inject controls how an interactive guest
 // process receives it. Credential configuration is honored only globally.
 type Credential struct {
-	Source            CredentialSource    `toml:"source"`
-	Inject            CredentialInjection `toml:"inject"`
-	RequireExpiration bool                `toml:"require_expiration"`
+	Source            CredentialSource      `toml:"source"`
+	Inject            CredentialInjection   `toml:"inject"`
+	Expose            []CredentialInjection `toml:"expose"`
+	RequireExpiration bool                  `toml:"require_expiration"`
 }
 
 // CredentialSource describes host-side acquisition without containing the
@@ -67,6 +69,7 @@ type CredentialSource struct {
 	Path    string   `toml:"path"`
 	Argv    []string `toml:"argv"`
 	Profile string   `toml:"profile"`
+	URL     string   `toml:"url"`
 }
 
 // CredentialInjection describes the guest-visible shape of a credential.
@@ -74,6 +77,19 @@ type CredentialInjection struct {
 	Type    string `toml:"type"`
 	Name    string `toml:"name"`
 	PathEnv string `toml:"path_env"`
+	Field   string `toml:"field"`
+}
+
+// Exposures returns the configured guest projections. Inject is retained as
+// the singular compatibility form for existing configuration.
+func Exposures(credential Credential) []CredentialInjection {
+	if credential.Expose != nil {
+		return append([]CredentialInjection(nil), credential.Expose...)
+	}
+	if credential.Inject.Type == "" {
+		return nil
+	}
+	return []CredentialInjection{credential.Inject}
 }
 
 // Agent declares one coding agent the coop hosts. State is the guest
@@ -272,6 +288,11 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 	}
 	if !trusted && releaseToolsDefined {
 		return fmt.Errorf("%s: tools.github_release is supported only in trusted user configuration", path)
+	}
+	for name := range layer.Credentials {
+		if md.IsDefined("credentials", name, "inject") && md.IsDefined("credentials", name, "expose") {
+			return fmt.Errorf("%s: credential %q cannot define both inject and expose", path, name)
+		}
 	}
 	if err := validateLayer(&layer, trusted,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
@@ -605,18 +626,21 @@ func validateSeedPolicies(seeds []Seed) error {
 
 func validateCredential(name string, credential Credential) error {
 	source := credential.Source
+	material := ""
 	switch source.Type {
 	case "file":
+		material = "opaque"
 		if source.Path == "" {
 			return fmt.Errorf("credential %q: file source requires path", name)
 		}
 		if !filepath.IsAbs(source.Path) && !strings.HasPrefix(source.Path, "~/") {
 			return fmt.Errorf("credential %q: file source path must be absolute or start with ~/", name)
 		}
-		if len(source.Argv) > 0 || source.Profile != "" {
+		if len(source.Argv) > 0 || source.Profile != "" || source.URL != "" {
 			return fmt.Errorf("credential %q: file source contains fields for another source type", name)
 		}
 	case "command":
+		material = "opaque"
 		if len(source.Argv) == 0 || source.Argv[0] == "" {
 			return fmt.Errorf("credential %q: command source requires argv", name)
 		}
@@ -628,59 +652,109 @@ func validateCredential(name string, credential Credential) error {
 				return fmt.Errorf("credential %q: command argv contains a NUL byte", name)
 			}
 		}
-		if source.Path != "" || source.Profile != "" {
+		if source.Path != "" || source.Profile != "" || source.URL != "" {
 			return fmt.Errorf("credential %q: command source contains fields for another source type", name)
 		}
 	case "aws-profile":
+		material = "aws"
 		if source.Profile == "" {
 			return fmt.Errorf("credential %q: aws-profile source requires profile", name)
 		}
-		if source.Path != "" || len(source.Argv) > 0 {
+		if source.Path != "" || len(source.Argv) > 0 || source.URL != "" {
 			return fmt.Errorf("credential %q: aws-profile source contains fields for another source type", name)
+		}
+	case "git-credential":
+		material = "username-password"
+		if source.URL == "" {
+			return fmt.Errorf("credential %q: git-credential source requires url", name)
+		}
+		parsed, err := url.Parse(source.URL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return fmt.Errorf("credential %q: git-credential source url must be an HTTPS URL with a host", name)
+		}
+		if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+			return fmt.Errorf("credential %q: git-credential source url must not contain userinfo, query, or fragment", name)
+		}
+		if strings.ContainsAny(parsed.Path, "\x00\r\n") {
+			return fmt.Errorf("credential %q: git-credential source url path contains a control character", name)
+		}
+		if source.Path != "" || len(source.Argv) > 0 || source.Profile != "" {
+			return fmt.Errorf("credential %q: git-credential source contains fields for another source type", name)
 		}
 	default:
 		return fmt.Errorf("credential %q: unknown source type %q", name, source.Type)
 	}
 
-	inject := credential.Inject
-	if source.Type == "aws-profile" && inject.Type != "aws" {
-		return fmt.Errorf("credential %q: aws-profile source requires aws injection", name)
+	hasInject := credential.Inject.Type != "" || credential.Inject.Name != "" || credential.Inject.PathEnv != "" || credential.Inject.Field != ""
+	if hasInject && credential.Expose != nil {
+		return fmt.Errorf("credential %q: cannot define both inject and expose", name)
 	}
-	switch inject.Type {
-	case "environment":
-		if !environmentName.MatchString(inject.Name) {
-			return fmt.Errorf("credential %q: environment injection requires a valid name", name)
+	exposures := Exposures(credential)
+	if len(exposures) == 0 {
+		return fmt.Errorf("credential %q: requires inject or at least one expose entry", name)
+	}
+	for i, expose := range exposures {
+		if err := validateCredentialExposure(name, material, source.Type, expose); err != nil {
+			if credential.Expose != nil {
+				return fmt.Errorf("credential %q expose[%d]: %w", name, i, err)
+			}
+			return err
 		}
-		if inject.PathEnv != "" {
-			return fmt.Errorf("credential %q: environment injection contains path_env", name)
-		}
-	case "file":
-		if !environmentName.MatchString(inject.PathEnv) {
-			return fmt.Errorf("credential %q: file injection requires a valid path_env", name)
-		}
-		if inject.Name != "" {
-			return fmt.Errorf("credential %q: file injection contains name", name)
-		}
-	case "git-credential-store":
-		if inject.Name != "" || inject.PathEnv != "" {
-			return fmt.Errorf("credential %q: git-credential-store injection contains unused fields", name)
-		}
-		if source.Type != "file" {
-			return fmt.Errorf("credential %q: git-credential-store injection requires a file source", name)
-		}
-	case "aws":
-		if inject.Name != "" || inject.PathEnv != "" {
-			return fmt.Errorf("credential %q: aws injection contains unused fields", name)
-		}
-		if source.Type != "aws-profile" {
-			return fmt.Errorf("credential %q: aws injection requires an aws-profile source", name)
-		}
-	default:
-		return fmt.Errorf("credential %q: unknown injection type %q", name, inject.Type)
 	}
 
 	if credential.RequireExpiration && source.Type != "aws-profile" {
 		return fmt.Errorf("credential %q: require_expiration requires a source that reports expiration", name)
+	}
+	return nil
+}
+
+func validateCredentialExposure(name, material, sourceType string, expose CredentialInjection) error {
+	switch expose.Type {
+	case "environment":
+		if !environmentName.MatchString(expose.Name) {
+			return fmt.Errorf("credential %q: environment injection requires a valid name", name)
+		}
+		if expose.PathEnv != "" {
+			return fmt.Errorf("credential %q: environment injection contains path_env", name)
+		}
+		switch expose.Field {
+		case "":
+			if material != "opaque" {
+				return fmt.Errorf("credential %q: environment injection without field requires opaque material", name)
+			}
+		case "username", "password":
+			if material != "username-password" {
+				return fmt.Errorf("credential %q: environment field %q requires username-password material", name, expose.Field)
+			}
+		default:
+			return fmt.Errorf("credential %q: unknown environment field %q", name, expose.Field)
+		}
+	case "file":
+		if !environmentName.MatchString(expose.PathEnv) {
+			return fmt.Errorf("credential %q: file injection requires a valid path_env", name)
+		}
+		if expose.Name != "" || expose.Field != "" {
+			return fmt.Errorf("credential %q: file injection contains name", name)
+		}
+		if material != "opaque" {
+			return fmt.Errorf("credential %q: file injection requires opaque material", name)
+		}
+	case "git-credential-store":
+		if expose.Name != "" || expose.PathEnv != "" || expose.Field != "" {
+			return fmt.Errorf("credential %q: git-credential-store injection contains unused fields", name)
+		}
+		if sourceType != "file" && sourceType != "git-credential" {
+			return fmt.Errorf("credential %q: git-credential-store injection requires a file or git-credential source", name)
+		}
+	case "aws":
+		if expose.Name != "" || expose.PathEnv != "" || expose.Field != "" {
+			return fmt.Errorf("credential %q: aws injection contains unused fields", name)
+		}
+		if sourceType != "aws-profile" {
+			return fmt.Errorf("credential %q: aws injection requires an aws-profile source", name)
+		}
+	default:
+		return fmt.Errorf("credential %q: unknown injection type %q", name, expose.Type)
 	}
 	return nil
 }

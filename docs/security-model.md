@@ -101,11 +101,11 @@ This makes it suitable for explicit one-time initialization, but the resulting
 tree is ordinary guest state with the same guest-root exposure as any agent
 volume.
 
-Seeding a native login file into an agent-state volume creates a persistent
-project copy. Host refresh or logout does not update that copy; guest refresh
-or logout does not update the host or another project. The native client owns
-expiration and recovery. `coop destroy` deletes the project copy, and a new
-Coop may snapshot the then-current host file again.
+Native agent login state belongs to the provider inside its project-specific
+agent volume. Seeding a host login file would create a disconnected persistent
+copy whose refresh and logout behavior diverges from the host. Maintained
+examples do not do this, and `coop doctor` fails on recognized sensitive seed
+paths.
 
 Coop does not know which agent paths are portable. Broad directory seeds can
 expose host history, settings, plugins, logs, and caches to every project
@@ -136,7 +136,19 @@ Host acquisition is hardened as follows:
 - bare executable names resolve through a sanitized `PATH` that excludes the
   project;
 - commands run from the trusted host home with a restricted environment;
+- `git-credential` sources invoke host `git credential fill` without a shell
+  for one fixed HTTPS URL and strictly validate the bounded response;
 - payload and bundle sizes are bounded.
+
+The configured source URL and matching `[[projects]]` path are trusted user
+authorization. Repository remotes never retarget a grant. Git's configuration
+and helper chain are nevertheless trusted executable host inputs: Git helpers
+may name external programs. macOS Keychain is the recommended static-secret
+backend through `git-credential-osxkeychain`, not a claim that every configured
+helper uses Keychain or enforces URL paths. Git echoes request target fields in
+`credential fill` output; those fields are not backend provenance. Where paths
+separate credentials, verify the backend record directly with an unmatched
+negative control.
 
 Selected secrets are streamed over stdin into a unique mode-0700 directory
 below `/dev/shm/coop-credentials`. They are exposed to one interactive command
@@ -146,7 +158,17 @@ command and scrubs abandoned leases before a later entry.
 
 Secret values are not intentionally stored in container arguments, labels,
 mount definitions, project files, seeds, or named volumes. Coop diagnostics
-format acquired and staged secret objects as redacted.
+format acquired and staged secret objects as redacted. `coop doctor` runs its
+configuration security audit even when the container CLI or apiserver is
+unavailable. It fails recognized secret seeds, including broad `~/.codex`,
+`~/.config/gh`, and `~/.config/git` directories and custom Git stores at
+`~/.config/git/credentials-*`, across every trusted project scope even when
+that scope does not match the current directory.
+
+Keychain protects the host credential at rest. It does not protect a credential
+after the user authorizes Coop to expose it to a guest. A GitHub grant can feed
+both Git's temporary credential-store interface and `gh`'s `GH_TOKEN` from one
+acquisition without persisting either guest login store.
 
 These controls limit routine exposure; they are not a boundary against guest
 root. A root process in the persistent container can read another process's
@@ -158,6 +180,16 @@ guest code, and prefer narrowly scoped, short-lived, revocable grants.
 Coop does not refresh a credential during a long-running entry. Cleanup removes
 guest exposure; it cannot revoke source material unless the source itself
 provides a revocation mechanism.
+
+Migrating a static token from a plaintext file to Keychain improves future
+host storage but does not invalidate old host or guest copies. Provider-side
+rotation is the only way to revoke that earlier exposure.
+
+Interactive OAuth, device authorization, refresh tokens, and account switching
+for Codex, Claude, and similar agents remain provider-owned state. Coop brokers
+an agent secret only when the provider documents a non-persistent environment
+or temporary-file interface. See [Credentials](credentials.md) for the complete
+boundary and migration guide.
 
 ## SSH-agent forwarding
 

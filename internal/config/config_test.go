@@ -527,6 +527,142 @@ require_expiration = true
 	}
 }
 
+func TestCredentialExposeAcceptsGitCredentialForGitAndGitHubCLI(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/sarcasticbird" }
+expose = [
+  { type = "git-credential-store" },
+  { type = "environment", name = "GH_TOKEN", field = "password" },
+]
+`)
+
+	if _, err := Load(""); err != nil {
+		t.Fatalf("valid multi-exposure credential rejected: %v", err)
+	}
+}
+
+func TestCredentialExposeValidation(t *testing.T) {
+	cases := map[string]string{
+		"both inject and expose": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+inject = { type = "git-credential-store" }
+expose = [{ type = "environment", name = "GH_TOKEN", field = "password" }]
+`,
+		"empty inject and expose": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+inject = {}
+expose = [{ type = "git-credential-store" }]
+`,
+		"empty expose": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+expose = []
+`,
+		"missing exposure": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+`,
+		"non https url": `
+[credentials.github]
+source = { type = "git-credential", url = "http://github.com/acme" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"url userinfo": `
+[credentials.github]
+source = { type = "git-credential", url = "https://user@github.com/acme" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"url query": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme?owner=other" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"url fragment": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme#other" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"encoded line break": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme%0Ahost=evil.example" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"missing url host": `
+[credentials.github]
+source = { type = "git-credential", url = "https:///acme" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"git source with unrelated field": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme", path = "~/.secret" }
+expose = [{ type = "git-credential-store" }]
+`,
+		"opaque environment selects field": `
+[credentials.token]
+source = { type = "command", argv = ["token"] }
+expose = [{ type = "environment", name = "TOKEN", field = "password" }]
+`,
+		"structured environment omits field": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+expose = [{ type = "environment", name = "GH_TOKEN" }]
+`,
+		"unknown structured field": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+expose = [{ type = "environment", name = "GH_TOKEN", field = "token" }]
+`,
+		"structured file exposure": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+expose = [{ type = "file", path_env = "TOKEN_FILE" }]
+`,
+		"git store with command source": `
+[credentials.github]
+source = { type = "command", argv = ["token"] }
+expose = [{ type = "git-credential-store" }]
+`,
+		"aws exposure with git source": `
+[credentials.github]
+source = { type = "git-credential", url = "https://github.com/acme" }
+expose = [{ type = "aws" }]
+`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), content)
+			if _, err := Load(""); err == nil {
+				t.Fatal("invalid credential exposure accepted")
+			}
+		})
+	}
+}
+
+func TestExposuresPreservesLegacyInjectAndReturnsCopy(t *testing.T) {
+	legacy := Credential{Inject: CredentialInjection{Type: "environment", Name: "TOKEN"}}
+	if got := Exposures(legacy); len(got) != 1 || got[0] != legacy.Inject {
+		t.Fatalf("legacy exposure = %+v", got)
+	}
+
+	spec := Credential{Expose: []CredentialInjection{
+		{Type: "git-credential-store"},
+		{Type: "environment", Name: "GH_TOKEN", Field: "password"},
+	}}
+	got := Exposures(spec)
+	got[0].Type = "changed"
+	if spec.Expose[0].Type != "git-credential-store" {
+		t.Fatal("Exposures returned mutable configuration storage")
+	}
+}
+
 func TestProjectLayerValidation(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)

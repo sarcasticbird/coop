@@ -71,6 +71,10 @@ func TestResolveRejectsInjectionConflicts(t *testing.T) {
 			"one": fileGrant("git-credential-store", ""),
 			"two": commandEnvGrant("GIT_CONFIG_VALUE_1"),
 		},
+		"git path adapter variable": {
+			"one": fileGrant("git-credential-store", ""),
+			"two": commandEnvGrant("GIT_CONFIG_VALUE_2"),
+		},
 		"aws grants": {
 			"one": awsGrant("one"),
 			"two": awsGrant("two"),
@@ -97,6 +101,24 @@ func TestResolveRejectsInjectionConflicts(t *testing.T) {
 				t.Fatalf("conflict accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestResolveRejectsConflictsAcrossAllCredentialExposures(t *testing.T) {
+	grants := map[string]config.Credential{
+		"github": {
+			Source: config.CredentialSource{Type: "git-credential", URL: "https://github.com/sarcasticbird"},
+			Expose: []config.CredentialInjection{
+				{Type: "git-credential-store"},
+				{Type: "environment", Name: "GH_TOKEN", Field: "password"},
+			},
+		},
+		"other": commandEnvGrant("GH_TOKEN"),
+	}
+
+	_, err := Resolve(config.Config{Credentials: grants}, []string{"github", "other"})
+	if err == nil || !strings.Contains(err.Error(), "GH_TOKEN") {
+		t.Fatalf("multi-exposure environment conflict accepted: %v", err)
 	}
 }
 

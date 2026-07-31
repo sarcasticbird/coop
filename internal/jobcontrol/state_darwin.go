@@ -13,7 +13,9 @@ const darwinProcessStopped = 4
 
 func processStopped(pid int) (bool, error) {
 	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) {
+	// SysctlKinfoProc reports EIO when kern.proc.pid returns no KinfoProc bytes,
+	// which is the normal result after the observed child has been reaped.
+	if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EIO) {
 		return false, nil
 	}
 	if err != nil {
