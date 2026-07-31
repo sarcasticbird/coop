@@ -12,6 +12,7 @@ import (
 	buildinfo "runtime/debug"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -72,6 +73,16 @@ var (
 		build.Stdout, build.Stderr = stdout, stderr
 		if err := build.Run(); err != nil {
 			return fmt.Errorf("run container image build: %w", err)
+		}
+		return nil
+	}
+	stopBuilder = func() error {
+		// Bounded: a wedged container service must not hang the rebuild
+		// after the build itself has already finished.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "container", "builder", "stop").CombinedOutput(); err != nil {
+			return fmt.Errorf("container builder stop: %v: %s", err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
@@ -344,6 +355,10 @@ can add tools through coop.toml or an optional project flox environment.`,
 	return rootCmd
 }
 
+// builderContainerName is the container Apple's `container build` runs
+// builds in; `container builder` subcommands manage it by this fixed name.
+const builderContainerName = "buildkit"
+
 func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Writer) error {
 	resolved, err := resolveReleaseTools(ctx, s.Cfg.Tools.GitHubReleases)
 	if err != nil {
@@ -368,8 +383,23 @@ func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Write
 		"-t", desiredImage,
 		"--build-arg", "GUEST_HOME=" + s.HostHome}
 	args = append(args, buildDir)
-	if err := buildImage(args, stdout, stderr); err != nil {
-		return fmt.Errorf("build image %q: %w", desiredImage, err)
+	// The build starts Apple's buildkit builder VM and leaves it running.
+	// Stop it afterward only if this build is what started it — a builder
+	// that was already running may be serving someone else's build. When
+	// its prior state cannot be determined, leave it alone. This is
+	// best-effort: Apple's builder has no ownership API, so a build racing
+	// between the state check and the stop can still be affected.
+	builderState, builderStateErr := s.RT.State(builderContainerName)
+	buildErr := buildImage(args, stdout, stderr)
+	if builderStateErr != nil {
+		_, _ = fmt.Fprintf(stderr, "coop: warning: builder state unknown, leaving builder VM running: %v\n", builderStateErr)
+	} else if builderState != runtime.StateRunning {
+		if err := stopBuilder(); err != nil {
+			_, _ = fmt.Fprintf(stderr, "coop: warning: stop builder VM: %v\n", err)
+		}
+	}
+	if buildErr != nil {
+		return fmt.Errorf("build image %q: %w", desiredImage, buildErr)
 	}
 	stateDir, err := releasetool.StateDir()
 	if err != nil {

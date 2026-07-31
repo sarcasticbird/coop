@@ -113,6 +113,7 @@ func TestUpgradeFailureDoesNotInvokeAnyProjectLifecycleOperation(t *testing.T) {
 func TestRebuildMaterializesAndNamesImageFromActiveCoreLock(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)
+	withStopBuilderHook(t, nil)
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(xdg, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
@@ -166,6 +167,7 @@ func TestRebuildMaterializesAndNamesImageFromActiveCoreLock(t *testing.T) {
 func TestRebuildResolvesMaterializesAndLocksGitHubReleaseTools(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)
+	withStopBuilderHook(t, nil)
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
@@ -266,6 +268,7 @@ binary = "kata"
 
 func TestRebuildDoesNotSaveReleaseLockWhenImageBuildFails(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
+	withStopBuilderHook(t, nil)
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
@@ -346,6 +349,7 @@ binary = "kata"
 
 func TestRebuildWithoutReleaseToolsPersistsEmptyStateAndPrunesCache(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
+	withStopBuilderHook(t, nil)
 	emptyProject(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	oldSave, oldPrune, oldBuild := saveReleaseToolLock, pruneReleaseToolCache, buildImage
@@ -378,6 +382,7 @@ func TestRebuildWithoutReleaseToolsPersistsEmptyStateAndPrunesCache(t *testing.T
 func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)
+	withStopBuilderHook(t, nil)
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
@@ -586,6 +591,135 @@ func TestConfigWarningWriteFailureDoesNotBlockCommand(t *testing.T) {
 	cmd.SetArgs([]string{"status"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("advisory warning blocked command: %v", err)
+	}
+}
+
+func withStopBuilderHook(t *testing.T, stopErr error) *int {
+	t.Helper()
+	old := stopBuilder
+	stops := new(int)
+	stopBuilder = func() error { *stops++; return stopErr }
+	t.Cleanup(func() { stopBuilder = old })
+	return stops
+}
+
+// startBuilder marks the buildkit builder container as already running.
+func startBuilder(m *runtime.Mock) {
+	m.Existing[builderContainerName] = true
+	m.Started = append(m.Started, builderContainerName)
+}
+
+func TestRebuildStopsBuilderItStarted(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stops := withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func([]string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if *stops != 1 {
+		t.Fatalf("builder stops = %d, want 1", *stops)
+	}
+}
+
+func TestRebuildLeavesPreRunningBuilderAlone(t *testing.T) {
+	m := runtime.NewMock()
+	startBuilder(m)
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stops := withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func([]string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if *stops != 0 {
+		t.Fatalf("builder stops = %d, want 0 (builder was already running)", *stops)
+	}
+}
+
+func TestRebuildStopFailureWarnsButSucceeds(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	withStopBuilderHook(t, errors.New("builder busy"))
+	oldBuild := buildImage
+	buildImage = func([]string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	var errOut bytes.Buffer
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("stop failure must not fail rebuild: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "coop: warning: stop builder VM: builder busy") {
+		t.Fatalf("missing stop warning:\n%s", errOut.String())
+	}
+}
+
+func TestRebuildStopsBuilderEvenWhenBuildFails(t *testing.T) {
+	withRuntime(t, runtime.NewMock())
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stops := withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func([]string, io.Writer, io.Writer) error { return errors.New("build failed") }
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("build failure must propagate")
+	}
+	if *stops != 1 {
+		t.Fatalf("builder stops = %d, want 1 (stop still runs on build failure)", *stops)
+	}
+}
+
+func TestRebuildUnknownBuilderStateSkipsStop(t *testing.T) {
+	m := runtime.NewMock()
+	m.StateErr = errors.New("runtime flaked")
+	withRuntime(t, m)
+	emptyProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stops := withStopBuilderHook(t, nil)
+	oldBuild := buildImage
+	buildImage = func([]string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() { buildImage = oldBuild })
+
+	var errOut bytes.Buffer
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"rebuild"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unknown builder state must not fail rebuild: %v", err)
+	}
+	if *stops != 0 {
+		t.Fatalf("builder stops = %d, want 0 (state unknown — never stop a builder we may not own)", *stops)
+	}
+	if !strings.Contains(errOut.String(), "builder state unknown") {
+		t.Fatalf("missing unknown-state warning:\n%s", errOut.String())
 	}
 }
 
