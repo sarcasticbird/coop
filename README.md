@@ -15,9 +15,9 @@ releases.
 - macOS 26 or later on Apple silicon
 - Apple's `container` CLI and a running container service
 
-Both install methods below provide Apple's `container` CLI: the Homebrew
-formula pulls it in as a dependency, and the manual path installs it
-directly. Each method shows when to start the container service.
+The preferred Homebrew formula installs Apple's `container` CLI as a
+dependency. When installing coop from source with Go, install the runtime
+separately as described below.
 
 Flox is built into the guest image; it is not a host prerequisite. A project
 `.flox` is optional and useful when the repository wants the same pinned
@@ -39,47 +39,23 @@ coop --version
 coop doctor
 ```
 
-### Alternative: manual download
-
-Install Apple's runtime and the [GitHub CLI](https://cli.github.com/) if
-needed, then download the current public release. Authentication is not
-required for the release assets.
+Or install the current release from source with Go 1.26.5 or later:
 
 ```sh
-brew install container gh
-container system start
+go install github.com/sarcasticbird/coop/cmd/coop@v0.1.2
+coop --version
+coop doctor
 ```
 
-Download and verify the exact release:
+`go install` writes to `$(go env GOPATH)/bin`; make sure that directory is on
+your `PATH`. Unlike the Homebrew formula, this path does not install Apple's
+runtime. Install it separately with `brew install container`, then start its
+service with `container system start`.
 
-```sh
-version=v0.1.2
-archive="coop_${version}_darwin_arm64.tar.gz"
-gh release download "$version" -R sarcasticbird/coop \
-  -p "$archive" -p checksums.txt
-shasum -a 256 -c checksums.txt
-tar -xzf "$archive" coop
-mkdir -p "$HOME/.local/bin"
-install -m 0755 coop "$HOME/.local/bin/coop"
-```
-
-Ensure `$HOME/.local/bin` is on `PATH`. Release binaries target Apple silicon
-and are not Developer ID signed or notarized. Downloads through `gh` do not
-carry browser quarantine metadata; macOS may treat a browser download
-differently.
-
-### Build from source
-
-Install Apple's runtime and Go 1.26.5 or later:
-
-```sh
-brew install container go
-container system start
-git clone https://github.com/sarcasticbird/coop.git
-cd coop
-mkdir -p "$HOME/.local/bin"
-go build -trimpath -o "$HOME/.local/bin/coop" ./cmd/coop
-```
+Prebuilt archives are attached to the
+[`v0.1.2` release](https://github.com/sarcasticbird/coop/releases/tag/v0.1.2).
+Verify an archive against `checksums.txt` before installing it. Release
+binaries target Apple silicon and are not Developer ID signed or notarized.
 
 ## Quick start
 
