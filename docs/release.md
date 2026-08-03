@@ -38,7 +38,7 @@ cannot provide.
 
    ```sh
    mkdir -p /tmp/coop-rc-project
-   : > /tmp/coop-rc-project/coop.toml
+   : > /tmp/coop-rc-project/.coop.toml
    cd /tmp/coop-rc-project
    /tmp/coop-rc rebuild
    /tmp/coop-rc status
@@ -68,8 +68,12 @@ cannot provide.
 
 4. Exercise configured and project tool layering:
 
-   - Add `[tools] packages = ["hello"]` to the scratch `coop.toml`, rebuild,
+   - Add `[tools] packages = ["hello"]` to the scratch `.coop.toml`, rebuild,
      and confirm `hello` is available to an entered command.
+   - Add a sibling scratch directory through top-level `mount`, confirm it is
+     present at the identical path, and verify both read-only and read-write
+     access. Confirm `/`, the host home, and a path overlapping the selected
+     project are rejected.
    - Add a configured package that also provides a core command and confirm
      the command still resolves from the locked core path.
    - Confirm Coop maintenance still succeeds and the configured profile is
@@ -82,7 +86,7 @@ cannot provide.
      separate argv values.
    - Request one nonexistent package and confirm the failed rebuild leaves the
      previous image and container usable.
-   - In trusted user configuration, add one exact-tag and one `latest`
+   - In local configuration, add one exact-tag and one `latest`
      `[[tools.github_release]]` entry whose releases publish API SHA-256
      digests. Rebuild and confirm both Linux arm64 commands run.
    - Run `coop status` without network access and confirm it reports the locked

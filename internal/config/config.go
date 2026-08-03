@@ -1,6 +1,5 @@
-// Package config loads coop configuration: a global file at
-// ~/.config/coop/coop.toml merged with an optional per-project coop.toml
-// (which doubles as the project-root marker).
+// Package config loads Coop configuration from a machine-wide user file and
+// an optional machine-local project .coop.toml.
 package config
 
 import (
@@ -18,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/sarcasticbird/coop/internal/project"
 )
 
 // SeedPolicy controls how a seed entry is applied on session entry.
@@ -43,9 +43,25 @@ type Seed struct {
 	Policy SeedPolicy `toml:"policy"`
 }
 
-// ProjectScope binds credentials and seeds to project roots under Match.
-// Trusted user configuration only: a repository must never be able to grant
-// itself credentials or seed host files by describing its own path.
+// MountAccess controls whether an additional host directory is writable from
+// the guest.
+type MountAccess string
+
+const (
+	MountReadOnly  MountAccess = "read-only"
+	MountReadWrite MountAccess = "read-write"
+)
+
+// Mount is an additional identical-path host directory exposed to a project.
+type Mount struct {
+	Source string      `toml:"source"`
+	Access MountAccess `toml:"access"`
+}
+
+// ReadOnly reports the runtime bind-mount mode. The safe default is read-only.
+func (m Mount) ReadOnly() bool { return m.Access != MountReadWrite }
+
+// ProjectScope binds credentials and seeds to roots under Match.
 type ProjectScope struct {
 	Match              string   `toml:"match"`
 	IncludeCredentials []string `toml:"include_credentials"`
@@ -54,7 +70,8 @@ type ProjectScope struct {
 
 // Credential is a trusted, named host credential grant. Source controls how
 // Coop acquires secret material; Inject controls how an interactive guest
-// process receives it. Credential configuration is honored only globally.
+// process receives it. Machine-wide and machine-local project files may both
+// define grants.
 type Credential struct {
 	Source            CredentialSource      `toml:"source"`
 	Inject            CredentialInjection   `toml:"inject"`
@@ -110,10 +127,11 @@ type Config struct {
 	IncludeCredentials []string              `toml:"include_credentials"`
 	Credentials        map[string]Credential `toml:"credentials"`
 	Projects           []ProjectScope        `toml:"projects"`
+	Mounts             []Mount               `toml:"mount"`
 	// SSH forwards the host SSH agent socket into coops. Default OFF:
 	// it grants guests the ability to sign/authenticate as you, which
 	// combined with network egress is an exfiltration-adjacent
-	// capability. Enable deliberately, global config only.
+	// capability. Enable deliberately in machine or local project config.
 	SSH bool `toml:"ssh"`
 	// Warnings contains non-fatal migration guidance discovered while loading.
 	// It is runtime metadata, never TOML input.
@@ -150,8 +168,8 @@ const (
 	maxReleaseFieldLen    = 256
 )
 
-// GitHubReleaseTool declares one public GitHub release asset installed from
-// trusted user configuration. Project configuration may not add release tools.
+// GitHubReleaseTool declares one public GitHub release asset installed in the
+// guest image.
 type GitHubReleaseTool struct {
 	Name   string `toml:"name" json:"name"`
 	Repo   string `toml:"repo" json:"repo"`
@@ -195,28 +213,30 @@ func Default() Config {
 	}
 }
 
-// Load merges: defaults <- global (~/.config/coop/coop.toml) <- project
-// (<projectRoot>/coop.toml). projectRoot may be empty.
-//
-// Trust boundary: the project file is repository-controlled — an
-// untrusted checkout must not be able to seed host files (exfiltration)
-// or swap the sandbox image. Seeds and image are honored from the
-// GLOBAL layer only; project layers may set resources and agents.
+// Load merges defaults <- machine-wide user config <- machine-local project
+// .coop.toml. The project file is intentionally Git-ignored and has the same
+// authority as the user file, while retaining project package provenance.
 func Load(projectRoot string) (Config, error) {
 	cfg := Default()
 
 	global := filepath.Join(configHome(), "coop", "coop.toml")
-	if err := mergeFile(&cfg, global, true); err != nil {
+	if err := mergeFile(&cfg, global, false); err != nil {
 		return cfg, fmt.Errorf("global config: %w", err)
 	}
 	if projectRoot != "" {
-		if err := mergeFile(&cfg, filepath.Join(projectRoot, "coop.toml"), false); err != nil {
+		if err := project.ValidateLocalConfig(projectRoot); err != nil {
+			return cfg, err
+		}
+		if err := mergeFile(&cfg, filepath.Join(projectRoot, ".coop.toml"), true); err != nil {
 			return cfg, fmt.Errorf("project config: %w", err)
 		}
 	}
 	// Fold before seed defaulting and validateMerged below, so scoped seeds get
 	// the same Dest/Policy defaults and scoped grants the same deduplication.
 	if err := applyProjectScopes(&cfg, projectRoot); err != nil {
+		return cfg, err
+	}
+	if err := resolveMounts(&cfg, projectRoot); err != nil {
 		return cfg, err
 	}
 	cfg.Tools.GlobalPackages = canonicalPackages(cfg.Tools.GlobalPackages)
@@ -256,7 +276,7 @@ func ExpandHome(path, home string) string {
 	return path
 }
 
-func mergeFile(cfg *Config, path string, trusted bool) error {
+func mergeFile(cfg *Config, path string, project bool) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -278,43 +298,36 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		return fmt.Errorf("%s: unknown keys: %s", path, strings.Join(keys, ", "))
 	}
 	toolsDefined := md.IsDefined("tools", "packages")
-	releaseToolsDefined := md.IsDefined("tools", "github_release")
 	legacyToolsDefined := md.IsDefined("image", "extra_packages")
 	if toolsDefined && legacyToolsDefined {
 		return fmt.Errorf("%s: cannot define both tools.packages and deprecated image.extra_packages", path)
-	}
-	if !trusted && legacyToolsDefined {
-		return fmt.Errorf("%s: project image.extra_packages is not supported; use tools.packages", path)
-	}
-	if !trusted && releaseToolsDefined {
-		return fmt.Errorf("%s: tools.github_release is supported only in trusted user configuration", path)
 	}
 	for name := range layer.Credentials {
 		if md.IsDefined("credentials", name, "inject") && md.IsDefined("credentials", name, "expose") {
 			return fmt.Errorf("%s: credential %q cannot define both inject and expose", path, name)
 		}
 	}
-	if err := validateLayer(&layer, trusted,
+	if err := validateLayer(&layer,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	if trusted && layer.SSH {
-		cfg.SSH = true
+	if md.IsDefined("ssh") {
+		cfg.SSH = layer.SSH
 	}
-	if trusted && layer.Image.Name != "" {
+	if layer.Image.Name != "" {
 		cfg.Image.Name = layer.Image.Name
 	}
 	packages := layer.Tools.Packages
-	if trusted && legacyToolsDefined {
+	if legacyToolsDefined {
 		packages = layer.Image.ExtraPackages
 		cfg.Warnings = append(cfg.Warnings, "image.extra_packages is deprecated; use tools.packages")
 	}
-	if trusted {
-		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, packages...)
-		cfg.Tools.GitHubReleases = append(cfg.Tools.GitHubReleases, layer.Tools.GitHubReleases...)
-	} else {
+	if project {
 		cfg.Tools.ProjectPackages = append(cfg.Tools.ProjectPackages, packages...)
+	} else {
+		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, packages...)
 	}
+	cfg.Tools.GitHubReleases = append(cfg.Tools.GitHubReleases, layer.Tools.GitHubReleases...)
 	if layer.Resources.CPUs != 0 {
 		cfg.Resources.CPUs = layer.Resources.CPUs
 	}
@@ -329,17 +342,16 @@ func mergeFile(cfg *Config, path string, trusted bool) error {
 		}
 		cfg.Agents[name] = agent
 	}
-	if trusted {
-		if cfg.Credentials == nil {
-			cfg.Credentials = make(map[string]Credential)
-		}
-		for name, grant := range layer.Credentials {
-			cfg.Credentials[name] = grant
-		}
-		cfg.IncludeCredentials = append(cfg.IncludeCredentials, layer.IncludeCredentials...)
-		cfg.Seeds = append(cfg.Seeds, layer.Seeds...)
-		cfg.Projects = append(cfg.Projects, layer.Projects...)
+	if cfg.Credentials == nil {
+		cfg.Credentials = make(map[string]Credential)
 	}
+	for name, grant := range layer.Credentials {
+		cfg.Credentials[name] = grant
+	}
+	cfg.IncludeCredentials = append(cfg.IncludeCredentials, layer.IncludeCredentials...)
+	cfg.Seeds = append(cfg.Seeds, layer.Seeds...)
+	cfg.Projects = append(cfg.Projects, layer.Projects...)
+	cfg.Mounts = append(cfg.Mounts, layer.Mounts...)
 	return nil
 }
 
@@ -355,11 +367,12 @@ const (
 	maxAgents       = 32
 )
 
-// validateLayer enforces the grammar untrusted (and trusted) layers
-// must satisfy. Untrusted layers additionally get resource caps —
-// a repository must not be able to request the whole machine.
-func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
+// validateLayer enforces the configuration grammar for one file.
+func validateLayer(layer *Config, hasCPUs, hasMemory bool) error {
 	if err := validateProjectScopes(layer.Projects); err != nil {
+		return err
+	}
+	if err := validateMounts(layer.Mounts); err != nil {
 		return err
 	}
 	if err := validateToolPackages(layer.Tools.Packages); err != nil {
@@ -414,14 +427,6 @@ func validateLayer(layer *Config, trusted, hasCPUs, hasMemory bool) error {
 	}
 	if err := validateCredentialLayer(layer); err != nil {
 		return err
-	}
-	if !trusted {
-		if layer.Resources.CPUs > maxProjectCPUs {
-			return fmt.Errorf("project config requests %d cpus (max %d)", layer.Resources.CPUs, maxProjectCPUs)
-		}
-		if layer.Resources.Memory != "" && memoryOverCap(layer.Resources.Memory) {
-			return fmt.Errorf("project config requests memory %s (max %dG)", layer.Resources.Memory, maxProjectMemG)
-		}
 	}
 	return nil
 }
@@ -530,11 +535,20 @@ func ReleaseSpecFingerprint(tools []GitHubReleaseTool) string {
 
 // validateMerged catches aliases introduced across config layers. Two agents
 // targeting the same normalized directory would mount different named volumes
-// at one guest path, making persistence depend on CLI argument ordering.
+// at one guest path, while an overlapping bind mount could hide agent state or
+// make container creation depend on runtime mount precedence.
 func validateMerged(cfg *Config) error {
+	if len(cfg.Credentials) > MaxCredentialGrants {
+		return fmt.Errorf("configured credential grant count %d exceeds maximum %d", len(cfg.Credentials), MaxCredentialGrants)
+	}
 	if len(cfg.Agents) > maxAgents {
 		return fmt.Errorf("configured agent count %d exceeds maximum %d", len(cfg.Agents), maxAgents)
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory for agent state: %w", err)
+	}
+	home = canonicalPath(home)
 	names := make([]string, 0, len(cfg.Agents))
 	for name := range cfg.Agents {
 		names = append(names, name)
@@ -542,14 +556,20 @@ func validateMerged(cfg *Config) error {
 	sort.Strings(names)
 	owners := make(map[string]string, len(names))
 	for _, name := range names {
-		target := filepath.Clean(strings.TrimPrefix(cfg.Agents[name].State, "~/"))
+		target := canonicalPath(ExpandHome(cfg.Agents[name].State, home))
 		for existing, owner := range owners {
-			if target == existing || strings.HasPrefix(target, existing+string(filepath.Separator)) ||
-				strings.HasPrefix(existing, target+string(filepath.Separator)) {
+			if pathsOverlap(target, existing) {
 				return fmt.Errorf("agents %s and %s have overlapping normalized state targets %q and %q", owner, name, existing, target)
 			}
 		}
 		owners[target] = name
+	}
+	for _, mount := range cfg.Mounts {
+		for target, owner := range owners {
+			if pathsOverlap(mount.Source, target) {
+				return fmt.Errorf("mount source %q overlaps agent %s state target %q; disable the agent or choose a separate mount", mount.Source, owner, target)
+			}
+		}
 	}
 
 	seen := make(map[string]struct{}, len(cfg.IncludeCredentials))
@@ -569,6 +589,13 @@ func validateMerged(cfg *Config) error {
 		return err
 	}
 	return nil
+}
+
+func pathsOverlap(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	return a == b || strings.HasPrefix(a, b+string(filepath.Separator)) ||
+		strings.HasPrefix(b, a+string(filepath.Separator))
 }
 
 func validateCredentialLayer(layer *Config) error {
@@ -595,9 +622,7 @@ func validateCredentialLayer(layer *Config) error {
 	return nil
 }
 
-// validateProjectScopes checks scope shape in every layer, trusted or not. An
-// untrusted layer's scopes are discarded during merge rather than applied, but
-// malformed input still fails loudly instead of being silently ignored.
+// validateProjectScopes checks scope shape in every configuration layer.
 func validateProjectScopes(scopes []ProjectScope) error {
 	for i, scope := range scopes {
 		if strings.TrimSpace(scope.Match) == "" {
@@ -608,6 +633,26 @@ func validateProjectScopes(scopes []ProjectScope) error {
 		}
 		if err := validateSeedPolicies(scope.Seeds); err != nil {
 			return fmt.Errorf("projects[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateMounts(mounts []Mount) error {
+	for i, mount := range mounts {
+		if strings.TrimSpace(mount.Source) == "" {
+			return fmt.Errorf("mount[%d]: source is required", i)
+		}
+		if !filepath.IsAbs(mount.Source) && !strings.HasPrefix(mount.Source, "~/") {
+			return fmt.Errorf("mount[%d]: source %q must be absolute or start with ~/", i, mount.Source)
+		}
+		if strings.ContainsAny(mount.Source, ",=") {
+			return fmt.Errorf("mount[%d]: source %q contains unsupported runtime mount characters ',' or '='", i, mount.Source)
+		}
+		switch mount.Access {
+		case "", MountReadOnly, MountReadWrite:
+		default:
+			return fmt.Errorf("mount[%d]: unknown access %q", i, mount.Access)
 		}
 	}
 	return nil
@@ -759,23 +804,7 @@ func validateCredentialExposure(name, material, sourceType string, expose Creden
 	return nil
 }
 
-const (
-	maxProjectCPUs = 8
-	maxProjectMemG = 16
-)
-
 var memoryFormat = regexp.MustCompile(`^[0-9]+[GM]$`)
-
-func memoryOverCap(m string) bool {
-	n, err := strconv.Atoi(m[:len(m)-1])
-	if err != nil {
-		return true
-	}
-	if strings.HasSuffix(m, "M") {
-		return n > maxProjectMemG*1024
-	}
-	return n > maxProjectMemG
-}
 
 func configHome() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {

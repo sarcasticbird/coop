@@ -10,18 +10,19 @@ For vulnerability reporting, see the repository
 
 ## Trust boundaries
 
-Coop distinguishes two configuration authorities:
+Coop loads two machine-local configuration layers with equal authority:
 
-- **Trusted user configuration** belongs to the person running Coop and may
-  select the image namespace, read host seed sources, forward the SSH agent,
-  define credential grants, and select public GitHub release executables.
-- **Project configuration** may be controlled by the checked-out repository.
-  It may request capped resources, additive packages from Coop's pinned
-  Nixpkgs source, and persistent agent-state directories.
+- machine-wide settings from `~/.config/coop/coop.toml` (or the XDG equivalent);
+- project settings from an ignored `<project-root>/.coop.toml`.
 
-Project configuration cannot make host seed reads, enable SSH-agent forwarding,
-select a different image namespace, or define effective host credential grants.
-See the exact [trust matrix](configuration.md#trust-boundary).
+Coop does not load a committed project `coop.toml`. Keep `.coop.toml`
+Git-ignored because it may contain private paths and host capabilities.
+
+The project itself is mounted read-write, so guest code can modify
+`.coop.toml`. A running container does not gain capabilities immediately, but
+the next host-side Coop invocation loads the changed file. This KISS model
+treats local project configuration as user-owned rather than repository-owned;
+review it after running code you do not trust.
 
 Repository tool declarations are constrained package identifiers, not arbitrary
 URLs, flakes, paths, or install hooks. The locked core workbench remains ahead
@@ -29,7 +30,7 @@ of configured tools on `PATH`, so a project package cannot shadow the core
 `git`, `gh`, `ssh`, `curl`, or credential-transport binaries used by normal
 entries.
 
-GitHub release tools are a separate trusted-user capability. Coop accepts only
+For GitHub release tools, Coop accepts only
 public repositories, GitHub-hosted HTTPS downloads, `.tar.gz` archives, and a
 single configured regular file. It rejects traversal paths, links, devices,
 oversized inputs, missing or ambiguous assets, and assets without a
@@ -53,12 +54,27 @@ project root. It does not automatically mount the rest of the home directory.
 Host data crosses into the guest only through:
 
 - the selected project mount;
-- trusted user seeds;
+- additional identical-path mounts declared by local configuration;
+- configured seeds;
 - configured named credentials selected for one entry;
 - optional SSH-agent forwarding;
 - runtime and virtualization interfaces provided by Apple's stack.
 
+Project `.coop.toml` has host-side authority but must remain machine-local.
+Coop refuses to load it when Git tracks it, so repository content cannot grant
+itself mounts, credentials, SSH forwarding, or other configuration authority.
+If a checkout is present but Git cannot determine tracking state, Coop fails
+closed instead of loading the file. Tracking detection compares filesystem
+identities, including case aliases on the default macOS filesystem.
+This does not make the file guest-proof: the writable project mount lets guest
+code change an ignored `.coop.toml` for a later host-side invocation.
+
 Do not place unrelated secrets in a project directory that will be mounted.
+Treat every additional mount as part of the same guest-root trust domain as the
+selected project. Read-only prevents guest writes through that mount but does
+not prevent disclosure; read-write also permits immediate host-visible changes.
+Coop rejects additional mounts that overlap enabled agent-state volumes so a
+bind mount cannot hide or replace persistent agent data.
 
 ## Guest authority and persistence
 
@@ -79,8 +95,8 @@ guest root.
 
 ## Seeds
 
-Seeds are a trusted user capability to copy host material into a running guest.
-The project file cannot create effective seed rules.
+Seeds copy host material into a running guest and may be declared machine-wide
+or in the ignored project `.coop.toml`.
 
 A top-level seed applies to every coop. A seed inside a `[[projects]]` block
 applies only where its `match` matches, and the same holds for the grants that
@@ -116,15 +132,14 @@ guest destination tree. Use it only for non-sensitive content such as skills,
 plugins, or documentation. Never use it for credentials.
 
 An executable seed gives the guest that executable with the same authority as
-other guest software. Keep executable seeds in trusted user configuration and
-seed only material every process in that project container may run or read.
+other guest software. Seed only material every process in that project
+container may run or read.
 
 ## Session credentials
 
-Named credentials are defined only by trusted user configuration. The project
-may not choose host file paths or credential commands. Defaults from
-`include_credentials` and explicit `--credentials` selections are validated
-and deduplicated before acquisition.
+Named credentials may be defined machine-wide or in the ignored project
+`.coop.toml`. Defaults from `include_credentials` and explicit `--credentials`
+selections are validated and deduplicated before acquisition.
 
 Host acquisition is hardened as follows:
 
@@ -140,7 +155,7 @@ Host acquisition is hardened as follows:
   for one fixed HTTPS URL and strictly validate the bounded response;
 - payload and bundle sizes are bounded.
 
-The configured source URL and matching `[[projects]]` path are trusted user
+The configured source URL and matching `[[projects]]` path are local user
 authorization. Repository remotes never retarget a grant. Git's configuration
 and helper chain are nevertheless trusted executable host inputs: Git helpers
 may name external programs. macOS Keychain is the recommended static-secret
@@ -193,8 +208,8 @@ boundary and migration guide.
 
 ## SSH-agent forwarding
 
-SSH-agent forwarding is off by default and can be enabled only from trusted
-user configuration:
+SSH-agent forwarding is off by default and can be enabled by either local
+configuration layer:
 
 ```toml
 ssh = true

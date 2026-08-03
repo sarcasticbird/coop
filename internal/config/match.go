@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ func matchesProject(match, hostHome, projectRoot string) bool {
 }
 
 // applyProjectScopes folds every scope matching projectRoot into effective
-// policy. Credentials and seeds from every matching scope union.
+// credential and seed policy.
 func applyProjectScopes(cfg *Config, projectRoot string) error {
 	if len(cfg.Projects) == 0 {
 		return nil
@@ -51,6 +52,70 @@ func applyProjectScopes(cfg *Config, projectRoot string) error {
 		cfg.Seeds = append(cfg.Seeds, scope.Seeds...)
 	}
 	return nil
+}
+
+func resolveMounts(cfg *Config, projectRoot string) error {
+	if len(cfg.Mounts) == 0 {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
+	resolved := make([]Mount, 0, len(cfg.Mounts))
+	for i, mount := range cfg.Mounts {
+		mount, err := resolveMount(mount, home, projectRoot)
+		if err != nil {
+			return fmt.Errorf("mount[%d]: %w", i, err)
+		}
+		resolved = append(resolved, mount)
+	}
+	cfg.Mounts = canonicalMounts(resolved)
+	return nil
+}
+
+func resolveMount(mount Mount, home, projectRoot string) (Mount, error) {
+	source := canonicalPath(ExpandHome(mount.Source, home))
+	if strings.ContainsAny(source, ",=") {
+		return Mount{}, fmt.Errorf("source %q contains unsupported runtime mount characters ',' or '='", source)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return Mount{}, fmt.Errorf("inspect source %q: %w", source, err)
+	}
+	if !info.IsDir() {
+		return Mount{}, fmt.Errorf("source %q is not a directory", source)
+	}
+	canonicalHome := canonicalPath(home)
+	if sharesAncestor(canonicalHome, source) {
+		return Mount{}, fmt.Errorf("refusing broad source %q", source)
+	}
+	if projectRoot != "" {
+		canonicalProject := canonicalPath(projectRoot)
+		if sharesAncestor(source, canonicalProject) || sharesAncestor(canonicalProject, source) {
+			return Mount{}, fmt.Errorf("source %q overlaps project %q", source, canonicalProject)
+		}
+	}
+	if mount.Access == "" {
+		mount.Access = MountReadOnly
+	}
+	mount.Source = source
+	return mount, nil
+}
+
+func canonicalMounts(mounts []Mount) []Mount {
+	bySource := make(map[string]MountAccess, len(mounts))
+	for _, mount := range mounts {
+		if existing, ok := bySource[mount.Source]; !ok || (existing == MountReadOnly && mount.Access == MountReadWrite) {
+			bySource[mount.Source] = mount.Access
+		}
+	}
+	canonical := make([]Mount, 0, len(bySource))
+	for source, access := range bySource {
+		canonical = append(canonical, Mount{Source: source, Access: access})
+	}
+	sort.Slice(canonical, func(i, j int) bool { return canonical[i].Source < canonical[j].Source })
+	return canonical
 }
 
 // canonicalPath resolves symlinks when the path exists and falls back to a

@@ -61,7 +61,7 @@ func TestResolveMarkerWins(t *testing.T) {
 	root := tempDir(t)
 	sub := filepath.Join(root, "org", "repo", "deep")
 	mustMkdir(t, sub)
-	mustWrite(t, filepath.Join(root, "org", "coop.toml"), "")
+	mustWrite(t, filepath.Join(root, "org", ".coop.toml"), "")
 	// a git repo below the marker must NOT win
 	gitInit(t, filepath.Join(root, "org", "repo"))
 
@@ -71,6 +71,96 @@ func TestResolveMarkerWins(t *testing.T) {
 	}
 	if want := filepath.Join(root, "org"); got != want {
 		t.Errorf("Resolve = %q, want marker dir %q", got, want)
+	}
+}
+
+func TestResolveCommittedConfigIsNotMarker(t *testing.T) {
+	root := tempDir(t)
+	project := filepath.Join(root, "project")
+	sub := filepath.Join(project, "nested")
+	mustMkdir(t, sub)
+	mustWrite(t, filepath.Join(root, "coop.toml"), "")
+	gitInit(t, project)
+
+	got, err := Resolve(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != project {
+		t.Errorf("Resolve = %q, want Git root %q", got, project)
+	}
+}
+
+func TestResolveRejectsTrackedLocalConfig(t *testing.T) {
+	root := tempDir(t)
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".coop.toml"), "")
+	cmd := exec.Command("git", "add", ".coop.toml")
+	cmd.Dir = root
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git add unavailable: %v", err)
+	}
+
+	_, err := Resolve(root)
+	if err == nil || !strings.Contains(err.Error(), "tracked") {
+		t.Fatalf("tracked .coop.toml error = %v", err)
+	}
+}
+
+func TestResolveRejectsCaseAliasedTrackedLocalConfig(t *testing.T) {
+	root := tempDir(t)
+	gitInit(t, root)
+	trackedPath := filepath.Join(root, ".COOP.toml")
+	mustWrite(t, trackedPath, "ssh = true\n")
+	configInfo, err := os.Stat(filepath.Join(root, ".coop.toml"))
+	if err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	trackedInfo, err := os.Stat(trackedPath)
+	if err != nil || !os.SameFile(configInfo, trackedInfo) {
+		t.Skip("filesystem does not alias case variants")
+	}
+	cmd := exec.Command("git", "add", ".COOP.toml")
+	cmd.Dir = root
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git add unavailable: %v", err)
+	}
+
+	_, err = Resolve(root)
+	if err == nil || !strings.Contains(err.Error(), "tracked") {
+		t.Fatalf("case-aliased tracked .coop.toml error = %v", err)
+	}
+}
+
+func TestResolveAllowsIgnoredLocalConfig(t *testing.T) {
+	root := tempDir(t)
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".gitignore"), "/.coop.toml\n")
+	mustWrite(t, filepath.Join(root, ".coop.toml"), "")
+	cmd := exec.Command("git", "add", ".gitignore")
+	cmd.Dir = root
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git add unavailable: %v", err)
+	}
+
+	got, err := Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root {
+		t.Fatalf("Resolve = %q, want ignored marker %q", got, root)
+	}
+}
+
+func TestResolveRejectsLocalConfigWhenGitInspectionFails(t *testing.T) {
+	root := tempDir(t)
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".coop.toml"), "")
+	t.Setenv("PATH", "")
+
+	_, err := Resolve(root)
+	if err == nil || !strings.Contains(err.Error(), "inspect Git repository") {
+		t.Fatalf("Git inspection error = %v", err)
 	}
 }
 

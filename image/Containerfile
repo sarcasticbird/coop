@@ -41,7 +41,7 @@ RUN mkdir -p /opt/coop-tools && \
     done < /tmp/configured-packages.txt && \
     rm /tmp/configured-packages.txt
 
-# User-trusted GitHub release tools are resolved, checksum-verified, and safely
+# Locally configured GitHub release tools are resolved, checksum-verified, and safely
 # extracted by Coop before the build context is created. Copy one explicit
 # top-level archive because Apple's builder drops recursive directory contents.
 COPY release-tools.tar.gz /tmp/release-tools.tar.gz

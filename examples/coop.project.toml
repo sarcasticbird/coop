@@ -1,17 +1,20 @@
-# Repository-controlled project configuration
+# Machine-local project configuration
 #
-# Copy this file to <project-root>/coop.toml and keep only the settings the
-# project needs. Project configuration may set resources, additive tools, and
-# agent state. It cannot choose the image, read host seed sources, enable SSH
-# forwarding, or define credential grants.
+# Copy this file to <project-root>/.coop.toml and keep it Git-ignored. Coop
+# rejects tracked project config. The file loads after machine-wide config and
+# may override or expand any setting.
+
+# Additional host directories retain identical paths in the guest and default
+# to read-only. Uncomment and edit for this machine.
+# mount = [
+#   { source = "~/Projects/example/homebrew-tap", access = "read-write" },
+# ]
 
 [resources]
 cpus = 6
 memory = "12G"
 
 # Packages come from the Nixpkgs revision pinned by the installed Coop release.
-# Downloadable [[tools.github_release]] entries are rejected here; they belong
-# only in trusted user configuration.
 [tools]
 packages = ["go-task", "nodejs_22"]
 

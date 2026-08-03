@@ -2,9 +2,12 @@
 package project
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +18,7 @@ import (
 // Resolve determines the project root for a coop, walking up from dir.
 //
 // Resolution order:
-//  1. coop.toml marker (nearest ancestor) — explicit pin, e.g. for
+//  1. .coop.toml marker (nearest ancestor) — explicit pin, e.g. for
 //     pseudo-monorepos where the org root is the sandbox unit
 //  2. bare+worktree layout — git toplevel whose parent contains .bare/
 //     resolves to that parent (the whole project incl. all worktrees)
@@ -33,9 +36,13 @@ func Resolve(dir string) (string, error) {
 	}
 
 	root := abs
+	marker, err := findMarker(abs)
+	if err != nil {
+		return "", err
+	}
 	switch {
-	case findMarker(abs) != "":
-		root = findMarker(abs)
+	case marker != "":
+		root = marker
 	default:
 		if top := gitToplevel(abs); top != "" {
 			parent := filepath.Dir(top)
@@ -73,7 +80,7 @@ func guardBreadth(root string) error {
 		}
 	}
 	if deny[filepath.Clean(root)] {
-		return fmt.Errorf("refusing to sandbox %s — it spans your home directory or filesystem root; run coop from inside a project (or add a coop.toml marker)", root)
+		return fmt.Errorf("refusing to sandbox %s — it spans your home directory or filesystem root; run coop from inside a project (or add a .coop.toml marker)", root)
 	}
 	return nil
 }
@@ -108,15 +115,140 @@ const VolumeSep = "--"
 // permitted agent name. The path hash is never truncated.
 const maxProjectSlugLen = 255 - len(VolumeSep) - 63 - len("coop--") - 16
 
-func findMarker(start string) string {
+func findMarker(start string) (string, error) {
 	for dir := start; ; dir = filepath.Dir(dir) {
-		if isFile(filepath.Join(dir, "coop.toml")) {
-			return dir
+		if isFile(filepath.Join(dir, ".coop.toml")) {
+			if err := ValidateLocalConfig(dir); err != nil {
+				return "", err
+			}
+			return dir, nil
 		}
 		if dir == filepath.Dir(dir) { // filesystem root
-			return ""
+			return "", nil
 		}
 	}
+}
+
+// ValidateLocalConfig rejects a project .coop.toml tracked by Git. The file
+// has host-side authority and must remain machine-local rather than arriving
+// through a checkout.
+func ValidateLocalConfig(root string) error {
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if canonical, err := filepath.EvalSymlinks(root); err == nil {
+		root = canonical
+	}
+	configPath := filepath.Join(root, ".coop.toml")
+	if !isFile(configPath) {
+		return nil
+	}
+	hasRepository, err := hasGitMetadata(root)
+	if err != nil {
+		return fmt.Errorf("inspect Git repository for %s: %w", configPath, err)
+	}
+	if !hasRepository {
+		return nil
+	}
+	top, err := gitToplevelStrict(root)
+	if err != nil {
+		return fmt.Errorf("inspect Git repository for %s: %w", configPath, err)
+	}
+	rel, err := filepath.Rel(top, configPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("inspect Git repository for %s: file is outside reported top-level %s", configPath, top)
+	}
+	tracked, err := trackedByFileIdentity(top, configPath)
+	if err != nil {
+		return fmt.Errorf("inspect Git tracking for %s: %w", configPath, err)
+	}
+	if tracked {
+		return fmt.Errorf("refusing tracked project configuration %s; remove .coop.toml from Git and add it to .gitignore", configPath)
+	}
+	return nil
+}
+
+// trackedByFileIdentity compares the actual config file with tracked paths.
+// Git pathspec matching is case-sensitive even on default macOS filesystems,
+// where .COOP.toml and .coop.toml can name the same inode.
+func trackedByFileIdentity(top, configPath string) (bool, error) {
+	target, err := os.Stat(configPath)
+	if err != nil {
+		return false, err
+	}
+	cmd := exec.Command("git", "ls-files", "-z")
+	cmd.Dir = top
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	reader := bufio.NewReader(stdout)
+	tracked := false
+	for {
+		path, readErr := reader.ReadString(0)
+		path = strings.TrimSuffix(path, "\x00")
+		if path != "" && strings.EqualFold(filepath.Base(path), ".coop.toml") {
+			candidate, statErr := os.Stat(filepath.Join(top, filepath.FromSlash(path)))
+			switch {
+			case statErr == nil && os.SameFile(target, candidate):
+				tracked = true
+			case statErr != nil && !os.IsNotExist(statErr):
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return false, statErr
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return false, readErr
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		return false, err
+	}
+	return tracked, nil
+}
+
+// hasGitMetadata distinguishes a directory outside Git from a checkout that
+// Git cannot inspect. Every ordinary checkout, linked worktree, and checkout
+// using --separate-git-dir has a .git directory or control file.
+func hasGitMetadata(start string) (bool, error) {
+	for dir := start; ; dir = filepath.Dir(dir) {
+		_, err := os.Lstat(filepath.Join(dir, ".git"))
+		if err == nil {
+			return true, nil
+		}
+		if !os.IsNotExist(err) {
+			return false, err
+		}
+		if dir == filepath.Dir(dir) {
+			return false, nil
+		}
+	}
+}
+
+func gitToplevelStrict(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	top := strings.TrimSpace(string(out))
+	if top == "" {
+		return "", errors.New("git returned an empty top-level")
+	}
+	if canonical, err := filepath.EvalSymlinks(top); err == nil {
+		top = canonical
+	}
+	return top, nil
 }
 
 func gitToplevel(dir string) string {

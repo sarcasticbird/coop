@@ -1,4 +1,4 @@
-// Package releasetool resolves and materializes trusted user-declared GitHub
+// Package releasetool resolves and materializes locally configured GitHub
 // release executables without making ordinary Coop entry depend on the network.
 package releasetool
 
@@ -395,9 +395,15 @@ func LoadLock(stateDir string, specs []config.GitHubReleaseTool) ([]config.Resol
 	if len(specs) == 0 {
 		return nil, nil
 	}
-	data, err := os.ReadFile(filepath.Join(stateDir, "release-tools.lock"))
+	data, err := os.ReadFile(releaseLockPath(stateDir, specs))
 	if os.IsNotExist(err) {
-		return nil, nil
+		// v0.1.x stored only one machine-wide lock. Read it during migration;
+		// the next successful rebuild writes the project declaration's keyed
+		// lock without overwriting another project's state.
+		data, err = os.ReadFile(filepath.Join(stateDir, "release-tools.lock"))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read release tool lock: %w", err)
@@ -425,6 +431,10 @@ func LoadLock(stateDir string, specs []config.GitHubReleaseTool) ([]config.Resol
 	}
 	sort.Slice(lock.Tools, func(i, j int) bool { return lock.Tools[i].Name < lock.Tools[j].Name })
 	return lock.Tools, nil
+}
+
+func releaseLockPath(stateDir string, specs []config.GitHubReleaseTool) string {
+	return filepath.Join(stateDir, "release-tools", config.ReleaseSpecFingerprint(specs)+".lock")
 }
 
 func validateLockedTools(specs []config.GitHubReleaseTool, tools []config.ResolvedReleaseTool) error {
@@ -461,9 +471,17 @@ func validateLockedTools(specs []config.GitHubReleaseTool, tools []config.Resolv
 	return nil
 }
 
-// SaveLock atomically records a successful rebuild's resolved release tools.
-func SaveLock(stateDir string, specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) error {
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+// SaveLock atomically records a successful rebuild's resolved release tools
+// and updates the rebuilding project's active declaration reference.
+func SaveLock(stateDir, projectRoot string, specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) error {
+	if len(specs) == 0 {
+		if err := os.Remove(projectReferencePath(stateDir, projectRoot)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove release tool project reference: %w", err)
+		}
+		return nil
+	}
+	lockDir := filepath.Join(stateDir, "release-tools")
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return fmt.Errorf("create release tool state: %w", err)
 	}
 	portable := append([]config.ResolvedReleaseTool(nil), resolved...)
@@ -478,7 +496,7 @@ func SaveLock(stateDir string, specs []config.GitHubReleaseTool, resolved []conf
 		return fmt.Errorf("encode release tool lock: %w", err)
 	}
 	data = append(data, '\n')
-	tmp, err := os.CreateTemp(stateDir, ".release-tools-lock-*")
+	tmp, err := os.CreateTemp(lockDir, ".release-tools-lock-*")
 	if err != nil {
 		return fmt.Errorf("create release tool lock temporary file: %w", err)
 	}
@@ -499,30 +517,74 @@ func SaveLock(stateDir string, specs []config.GitHubReleaseTool, resolved []conf
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close release tool lock: %w", err)
 	}
-	if err := os.Rename(tmpName, filepath.Join(stateDir, "release-tools.lock")); err != nil {
+	if err := os.Rename(tmpName, releaseLockPath(stateDir, specs)); err != nil {
 		return fmt.Errorf("install release tool lock: %w", err)
+	}
+	return saveProjectReference(stateDir, projectRoot, config.ReleaseSpecFingerprint(specs))
+}
+
+func projectReferencePath(stateDir, projectRoot string) string {
+	sum := sha256.Sum256([]byte(projectRoot))
+	return filepath.Join(stateDir, "release-tools", "projects", hex.EncodeToString(sum[:])+".ref")
+}
+
+func saveProjectReference(stateDir, projectRoot, fingerprint string) error {
+	refPath := projectReferencePath(stateDir, projectRoot)
+	if err := os.MkdirAll(filepath.Dir(refPath), 0o700); err != nil {
+		return fmt.Errorf("create release tool project reference directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(refPath), ".project-ref-*")
+	if err != nil {
+		return fmt.Errorf("create release tool project reference: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("set release tool project reference mode: %w", err)
+	}
+	if _, err := io.WriteString(tmp, fingerprint+"\n"); err != nil {
+		return fmt.Errorf("write release tool project reference: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync release tool project reference: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close release tool project reference: %w", err)
+	}
+	if err := os.Rename(tmpName, refPath); err != nil {
+		return fmt.Errorf("install release tool project reference: %w", err)
 	}
 	return nil
 }
 
-// PruneCache removes digest entries that are not referenced by the newly
-// successful lock and have been inactive long enough that another concurrent
+// PruneCache removes digest entries that are not referenced by any saved
+// declaration set and have been inactive long enough that another concurrent
 // rebuild cannot reasonably still be materializing them.
-func PruneCache(resolved []config.ResolvedReleaseTool) error {
+func PruneCache(stateDir string, resolved []config.ResolvedReleaseTool) error {
 	cacheRoot, err := CacheDir()
 	if err != nil {
 		return err
 	}
-	return pruneCache(cacheRoot, resolved, time.Now())
+	return pruneCache(cacheRoot, stateDir, resolved, time.Now())
 }
 
-func pruneCache(cacheRoot string, resolved []config.ResolvedReleaseTool, now time.Time) error {
+func pruneCache(cacheRoot, stateDir string, resolved []config.ResolvedReleaseTool, now time.Time) error {
 	keep := make(map[string]struct{}, len(resolved))
 	for _, tool := range resolved {
 		digest, err := parseDigest(tool.Digest)
 		if err != nil {
 			return fmt.Errorf("prune release cache for %s: %w", tool.Name, err)
 		}
+		keep[digest] = struct{}{}
+	}
+	locked, err := lockedDigests(stateDir, now)
+	if err != nil {
+		return err
+	}
+	for digest := range locked {
 		keep[digest] = struct{}{}
 	}
 	cutoff := now.Add(-cachePruneGrace)
@@ -595,6 +657,85 @@ func pruneCache(cacheRoot string, resolved []config.ResolvedReleaseTool, now tim
 		}
 	}
 	return nil
+}
+
+// lockedDigests returns cache entries referenced by each project's current
+// version-one lock. Invalid derived state is not active state: ordinary entry
+// ignores it with a rebuild warning, so pruning may ignore it as well.
+func lockedDigests(stateDir string, now time.Time) (map[string]struct{}, error) {
+	keep := make(map[string]struct{})
+	paths := []string{filepath.Join(stateDir, "release-tools.lock")}
+	lockDir := filepath.Join(stateDir, "release-tools")
+	active, err := activeLockFingerprints(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(lockDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".lock") {
+				fingerprint := strings.TrimSuffix(entry.Name(), ".lock")
+				if _, referenced := active[fingerprint]; referenced {
+					paths = append(paths, filepath.Join(lockDir, entry.Name()))
+					continue
+				}
+				info, infoErr := entry.Info()
+				if infoErr != nil {
+					return nil, fmt.Errorf("inspect release tool lock %q: %w", entry.Name(), infoErr)
+				}
+				if info.ModTime().Before(now.Add(-cachePruneGrace)) {
+					if removeErr := os.Remove(filepath.Join(lockDir, entry.Name())); removeErr != nil && !os.IsNotExist(removeErr) {
+						return nil, fmt.Errorf("prune release tool lock %q: %w", entry.Name(), removeErr)
+					}
+				}
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read release tool locks: %w", err)
+	}
+	for _, filename := range paths {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			continue
+		}
+		var lock lockFile
+		if json.Unmarshal(data, &lock) != nil || lock.Version != 1 {
+			continue
+		}
+		for _, tool := range lock.Tools {
+			digest, err := parseDigest(tool.Digest)
+			if err == nil {
+				keep[digest] = struct{}{}
+			}
+		}
+	}
+	return keep, nil
+}
+
+func activeLockFingerprints(stateDir string) (map[string]struct{}, error) {
+	active := make(map[string]struct{})
+	refDir := filepath.Join(stateDir, "release-tools", "projects")
+	entries, err := os.ReadDir(refDir)
+	if os.IsNotExist(err) {
+		return active, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read release tool project references: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".ref") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(refDir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read release tool project reference %q: %w", entry.Name(), err)
+		}
+		fingerprint := strings.TrimSpace(string(data))
+		if _, err := parseDigest("sha256:" + fingerprint); err == nil {
+			active[fingerprint] = struct{}{}
+		}
+	}
+	return active, nil
 }
 
 // StateDir returns Coop's user-local derived state directory.

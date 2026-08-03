@@ -40,6 +40,27 @@ func TestParseListFiltersAndExtracts(t *testing.T) {
 	}
 }
 
+func TestProjectMountUsesExplicitLabelWithMultipleBindMounts(t *testing.T) {
+	data := []byte(`[{
+  "configuration": {
+    "id": "coop-project",
+    "labels": {"coop.project": "/Users/u/Projects/project"},
+    "mounts": [
+      {"type": {"virtiofs": {}}, "source": "/Users/u/Projects/shared", "destination": "/Users/u/Projects/shared"},
+      {"type": {"virtiofs": {}}, "source": "/Users/u/Projects/project", "destination": "/Users/u/Projects/project"}
+    ]
+  },
+  "status": {"state": "running"}
+}]`)
+	infos, err := parseList(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := infos[0].ProjectMount(); got != "/Users/u/Projects/project" {
+		t.Fatalf("project mount = %q, want labeled project path", got)
+	}
+}
+
 func TestParseContainerImage(t *testing.T) {
 	cases := []struct {
 		name    string
