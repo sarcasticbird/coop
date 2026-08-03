@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -33,15 +34,22 @@ src = "~/.config/opencode/opencode.jsonc"
 policy = "always"
 `)
 	proj := t.TempDir()
-	// project files are repository-controlled: image and seeds here
-	// simulate a malicious checkout and MUST be ignored
-	mustWrite(t, filepath.Join(proj, "coop.toml"), `
+	mountSource := filepath.Join(t.TempDir(), "homebrew-tap")
+	if err := os.Mkdir(mountSource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canonicalMountSource, err := filepath.EvalSymlinks(mountSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), `
+mount = [{ source = "`+mountSource+`", access = "read-write" }]
 [image]
-name = "attacker:latest"
+name = "project:latest"
 [resources]
 cpus = 8
 [[seed]]
-src = "~/.ssh/id_ed25519"
+src = "~/.config/project/tool.toml"
 policy = "always"
 `)
 
@@ -49,17 +57,68 @@ policy = "always"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Image.Name != "coop:latest" {
-		t.Errorf("SECURITY: project layer overrode image: %+v", cfg.Image)
+	if cfg.Image.Name != "project:latest" {
+		t.Errorf("project image override missing: %+v", cfg.Image)
 	}
-	if len(cfg.Seeds) != 1 {
-		t.Fatalf("SECURITY: project layer injected seeds: %+v", cfg.Seeds)
+	if len(cfg.Seeds) != 2 {
+		t.Fatalf("project seed expansion missing: %+v", cfg.Seeds)
 	}
 	if cfg.Resources.CPUs != 8 || cfg.Resources.Memory != "16G" {
 		t.Errorf("benign project/global merge wrong: %+v", cfg.Resources)
 	}
-	if cfg.Seeds[0].Dest != cfg.Seeds[0].Src {
-		t.Errorf("dest should default to src")
+	if len(cfg.Mounts) != 1 || cfg.Mounts[0].Source != canonicalMountSource || cfg.Mounts[0].Access != MountReadWrite {
+		t.Fatalf("project mount expansion missing: %+v", cfg.Mounts)
+	}
+}
+
+func TestLoadIgnoresCommittedProjectConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, "coop.toml"), `
+[image]
+name = "committed:latest"
+mount = [{ source = "/" }]
+`)
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
+[tools]
+packages = ["shellcheck"]
+[resources]
+cpus = 3
+`)
+
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.Tools.ProjectPackages, []string{"shellcheck"}) {
+		t.Fatalf("project packages = %v", cfg.Tools.ProjectPackages)
+	}
+	if cfg.Resources.CPUs != 3 {
+		t.Fatalf("local overlay cpus = %d, want 3", cfg.Resources.CPUs)
+	}
+	if cfg.Image.Name != "coop:latest" || len(cfg.Mounts) != 0 {
+		t.Fatalf("committed coop.toml was loaded: image=%q mounts=%+v", cfg.Image.Name, cfg.Mounts)
+	}
+}
+
+func TestLoadRejectsTrackedLocalProjectConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, ".coop.toml"), "ssh = true\n")
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = project
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	cmd = exec.Command("git", "add", ".coop.toml")
+	cmd.Dir = project
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git add unavailable: %v", err)
+	}
+
+	_, err := Load(project)
+	if err == nil || !strings.Contains(err.Error(), "tracked") {
+		t.Fatalf("tracked .coop.toml error = %v", err)
 	}
 }
 
@@ -107,7 +166,7 @@ func TestToolPackagesMergeCanonically(t *testing.T) {
 packages = ["shellcheck", "bat", "shellcheck"]
 `)
 	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, "coop.toml"), `
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [tools]
 packages = ["bat", "actionlint"]
 `)
@@ -133,7 +192,7 @@ func TestToolPackageIdentifiers(t *testing.T) {
 		t.Run("valid "+pkg, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			project := t.TempDir()
-			mustWrite(t, filepath.Join(project, "coop.toml"), "[tools]\npackages = [\""+pkg+"\"]\n")
+			mustWrite(t, filepath.Join(project, ".coop.toml"), "[tools]\npackages = [\""+pkg+"\"]\n")
 			if _, err := Load(project); err != nil {
 				t.Fatalf("valid package %q rejected: %v", pkg, err)
 			}
@@ -184,11 +243,11 @@ func TestToolPackagesBoundEffectiveUniqueSet(t *testing.T) {
 	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), toolPackageTOML(global))
 	project := t.TempDir()
 	// A duplicate at the boundary is allowed because the effective set remains 64.
-	mustWrite(t, filepath.Join(project, "coop.toml"), toolPackageTOML([]string{"global0"}))
+	mustWrite(t, filepath.Join(project, ".coop.toml"), toolPackageTOML([]string{"global0"}))
 	if _, err := Load(project); err != nil {
 		t.Fatalf("64 unique packages rejected: %v", err)
 	}
-	mustWrite(t, filepath.Join(project, "coop.toml"), toolPackageTOML([]string{"extra"}))
+	mustWrite(t, filepath.Join(project, ".coop.toml"), toolPackageTOML([]string{"extra"}))
 	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "64") {
 		t.Fatalf("65 unique packages accepted: %v", err)
 	}
@@ -228,10 +287,10 @@ binary = "kata"
 	}
 }
 
-func TestProjectGitHubReleaseToolsRejected(t *testing.T) {
+func TestProjectGitHubReleaseToolsLoad(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, "coop.toml"), `
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [[tools.github_release]]
 name = "kata"
 repo = "kenn-io/kata"
@@ -240,8 +299,12 @@ asset = "kata_{version}_linux_arm64.tar.gz"
 binary = "kata"
 `)
 
-	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "trusted user") {
-		t.Fatalf("project GitHub release tool accepted: %v", err)
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Tools.GitHubReleases) != 1 || cfg.Tools.GitHubReleases[0].Name != "kata" {
+		t.Fatalf("project GitHub release tool missing: %+v", cfg.Tools.GitHubReleases)
 	}
 }
 
@@ -332,19 +395,23 @@ packages = ["shellcheck"]
 	}
 }
 
-func TestProjectLegacyExtraPackagesRejected(t *testing.T) {
+func TestProjectLegacyExtraPackagesAlias(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, "coop.toml"), `
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [image]
 extra_packages = ["shellcheck"]
 `)
-	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "tools.packages") {
-		t.Fatalf("project legacy package field accepted: %v", err)
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.Tools.ProjectPackages, []string{"shellcheck"}) {
+		t.Fatalf("project legacy packages = %v", cfg.Tools.ProjectPackages)
 	}
 }
 
-func TestSSHGlobalOnlyDefaultOff(t *testing.T) {
+func TestSSHDefaultsOffAndProjectMayEnable(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	cfg, err := Load("")
@@ -352,13 +419,13 @@ func TestSSHGlobalOnlyDefaultOff(t *testing.T) {
 		t.Fatalf("ssh must default off: %v %v", cfg.SSH, err)
 	}
 	proj := t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"), "ssh = true\n")
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), "ssh = true\n")
 	cfg, err = Load(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.SSH {
-		t.Fatal("SECURITY: project config enabled ssh forwarding")
+	if !cfg.SSH {
+		t.Fatal("project config did not enable SSH forwarding")
 	}
 	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), "ssh = true\n")
 	cfg, err = Load("")
@@ -367,7 +434,23 @@ func TestSSHGlobalOnlyDefaultOff(t *testing.T) {
 	}
 }
 
-func TestCredentialConfigGlobalOnly(t *testing.T) {
+func TestProjectMayDisableMachineSSH(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), "ssh = true\n")
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, ".coop.toml"), "ssh = false\n")
+
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SSH {
+		t.Fatal("project ssh=false did not override machine ssh=true")
+	}
+}
+
+func TestCredentialConfigMergesFromProject(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
@@ -377,7 +460,7 @@ source = { type = "file", path = "~/.git-credentials" }
 inject = { type = "git-credential-store" }
 `)
 	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, "coop.toml"), `
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 include_credentials = ["aws-prod"]
 [credentials.aws-prod]
 source = { type = "command", argv = ["steal-host-secret"] }
@@ -388,21 +471,21 @@ inject = { type = "environment", name = "AWS_SECRET_ACCESS_KEY" }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(cfg.IncludeCredentials, ","); got != "git" {
+	if got := strings.Join(cfg.IncludeCredentials, ","); got != "git,aws-prod" {
 		t.Fatalf("project changed included credentials: %q", got)
 	}
-	if _, ok := cfg.Credentials["aws-prod"]; ok {
-		t.Fatal("SECURITY: project defined a host credential grant")
+	if _, ok := cfg.Credentials["aws-prod"]; !ok {
+		t.Fatal("project credential grant missing")
 	}
 	if got := cfg.Credentials["git"].Source.Path; got != "~/.git-credentials" {
 		t.Fatalf("global grant missing: %q", got)
 	}
 }
 
-func TestProjectCredentialConfigIsValidatedBeforeBeingIgnored(t *testing.T) {
+func TestProjectCredentialConfigIsValidated(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, "coop.toml"), `
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [credentials.bad]
 source = { type = "command", argv = ["./project-helper"] }
 inject = { type = "environment", name = "TOKEN" }
@@ -429,6 +512,59 @@ inject = { type = "git-credential-store" }
 	}
 	if got := strings.Join(cfg.IncludeCredentials, ","); got != "git" {
 		t.Fatalf("included credentials = %q", got)
+	}
+}
+
+func TestCredentialGrantLimitAppliesAfterLayerMerge(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	var global strings.Builder
+	for i := 0; i < MaxCredentialGrants; i++ {
+		fmt.Fprintf(&global, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"true\"] }\ninject = { type = \"environment\", name = \"TOKEN_%d\" }\n", i, i)
+	}
+	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), global.String())
+	project := t.TempDir()
+	mustWrite(t, filepath.Join(project, ".coop.toml"), `
+[credentials.extra]
+source = { type = "command", argv = ["true"] }
+inject = { type = "environment", name = "EXTRA_TOKEN" }
+`)
+
+	_, err := Load(project)
+	if err == nil || !strings.Contains(err.Error(), "credential grant count 33 exceeds maximum 32") {
+		t.Fatalf("merged credential limit error = %v", err)
+	}
+}
+
+func TestRejectsMountOverlapWithAgentState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	project := t.TempDir()
+	tests := []struct {
+		name       string
+		agentState string
+		mountPath  string
+	}{
+		{name: "equal", agentState: "~/shared", mountPath: filepath.Join(home, "shared")},
+		{name: "mount contains agent", agentState: "~/shared/agent", mountPath: filepath.Join(home, "shared")},
+		{name: "agent contains mount", agentState: "~/shared", mountPath: filepath.Join(home, "shared/child")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.MkdirAll(tt.mountPath, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mustWrite(t, filepath.Join(project, ".coop.toml"), fmt.Sprintf(`
+mount = [{ source = %q }]
+[agents.test]
+state = %q
+`, tt.mountPath, tt.agentState))
+			_, err := Load(project)
+			if err == nil || !strings.Contains(err.Error(), "overlaps agent") {
+				t.Fatalf("mount/agent overlap error = %v", err)
+			}
+		})
 	}
 }
 
@@ -667,8 +803,6 @@ func TestProjectLayerValidation(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	cases := map[string]string{
-		"cpu cap":           "[resources]\ncpus = 64\n",
-		"memory cap":        "[resources]\nmemory = \"128G\"\n",
 		"bad memory":        "[resources]\nmemory = \"lots\"\n",
 		"bad agent name":    "[agents.\"Bad--Name\"]\nstate = \"~/.x\"\n",
 		"state absolute":    "[agents.x]\nstate = \"/etc\"\n",
@@ -682,23 +816,28 @@ func TestProjectLayerValidation(t *testing.T) {
 	}
 	for name, content := range cases {
 		proj := t.TempDir()
-		mustWrite(t, filepath.Join(proj, "coop.toml"), content)
+		mustWrite(t, filepath.Join(proj, ".coop.toml"), content)
 		if _, err := Load(proj); err == nil {
 			t.Errorf("%s: accepted %q", name, content)
 		}
 	}
 	// normalized-but-confined paths remain acceptable
 	proj := t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"), "[agents.x]\nstate = \"~/a/b/../c\"\n")
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), "[agents.x]\nstate = \"~/a/b/../c\"\n")
 	if _, err := Load(proj); err != nil {
 		t.Errorf("confined normalized path rejected: %v", err)
+	}
+	proj = t.TempDir()
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), "[resources]\ncpus = 64\nmemory = \"128G\"\n")
+	if _, err := Load(proj); err != nil {
+		t.Errorf("machine-local resource override rejected: %v", err)
 	}
 }
 
 func TestLoadRejectsDuplicateNormalizedAgentTargets(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	proj := t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"), `
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), `
 [agents.other]
 state = "~/.local/share/cache/../opencode"
 `)
@@ -711,7 +850,7 @@ state = "~/.local/share/cache/../opencode"
 func TestLoadRejectsNestedAgentTargets(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	proj := t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"), `
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), `
 [agents.parent]
 state = "~/.agent"
 [agents.child]
@@ -726,7 +865,7 @@ state = "~/.agent/cache"
 func TestLoadBoundsAgentNamesAndCount(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	proj := t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"),
+	mustWrite(t, filepath.Join(proj, ".coop.toml"),
 		"[agents."+strings.Repeat("a", maxAgentNameLen+1)+"]\nstate = \"~/.agent\"\n")
 	if _, err := Load(proj); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("long agent name accepted: %v", err)
@@ -737,7 +876,7 @@ func TestLoadBoundsAgentNamesAndCount(t *testing.T) {
 		fmt.Fprintf(&content, "[agents.agent%d]\nstate = \"~/.agent%d\"\n", i, i)
 	}
 	proj = t.TempDir()
-	mustWrite(t, filepath.Join(proj, "coop.toml"), content.String())
+	mustWrite(t, filepath.Join(proj, ".coop.toml"), content.String())
 	if _, err := Load(proj); err == nil || !strings.Contains(err.Error(), "agent count") {
 		t.Fatalf("excessive agent count accepted: %v", err)
 	}
@@ -767,7 +906,7 @@ func TestExamplesLoad(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	copyFile(t, filepath.Join(root, "examples", "coop.user.toml"), filepath.Join(xdg, "coop", "coop.toml"))
-	copyFile(t, filepath.Join(root, "examples", "coop.project.toml"), filepath.Join(project, "coop.toml"))
+	copyFile(t, filepath.Join(root, "examples", "coop.project.toml"), filepath.Join(project, ".coop.toml"))
 
 	cfg, err := Load(project)
 	if err != nil {
@@ -869,46 +1008,12 @@ func writeConfigFile(t *testing.T, path, contents string) {
 	}
 }
 
-func TestProjectScopesAreTrustedOnly(t *testing.T) {
-	dir := t.TempDir()
-	global := filepath.Join(dir, "coop.toml")
-	writeConfigFile(t, global, `
-[[projects]]
-match = "/tmp/allowed"
-include_credentials = ["tok"]
-
-[credentials.tok]
-source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "TOK" }
-`)
-	projectFile := filepath.Join(dir, "project", "coop.toml")
-	writeConfigFile(t, projectFile, `
-[[projects]]
-match = "/tmp/hostile"
-include_credentials = ["tok"]
-`)
-
-	var cfg Config
-	if err := mergeFile(&cfg, global, true); err != nil {
-		t.Fatalf("global merge: %v", err)
-	}
-	if err := mergeFile(&cfg, projectFile, false); err != nil {
-		t.Fatalf("project merge: %v", err)
-	}
-	if len(cfg.Projects) != 1 {
-		t.Fatalf("got %d project scopes, want 1 (project layer must be discarded)", len(cfg.Projects))
-	}
-	if cfg.Projects[0].Match != "/tmp/allowed" {
-		t.Fatalf("got match %q, want /tmp/allowed", cfg.Projects[0].Match)
-	}
-}
-
 func TestProjectScopeRequiresMatch(t *testing.T) {
 	dir := t.TempDir()
 	global := filepath.Join(dir, "coop.toml")
 	writeConfigFile(t, global, "[[projects]]\ninclude_credentials = []\n")
 	var cfg Config
-	err := mergeFile(&cfg, global, true)
+	err := mergeFile(&cfg, global, false)
 	if err == nil || !strings.Contains(err.Error(), "match is required") {
 		t.Fatalf("got %v, want an error mentioning \"match is required\"", err)
 	}
@@ -919,15 +1024,15 @@ func TestProjectScopeMatchMustBeAbsoluteOrHome(t *testing.T) {
 	global := filepath.Join(dir, "coop.toml")
 	writeConfigFile(t, global, "[[projects]]\nmatch = \"relative/path\"\n")
 	var cfg Config
-	err := mergeFile(&cfg, global, true)
+	err := mergeFile(&cfg, global, false)
 	if err == nil || !strings.Contains(err.Error(), "absolute or start with ~/") {
 		t.Fatalf("got %v, want an error about absolute or ~/ paths", err)
 	}
 }
 
 func TestProjectScopeValidatesSeedPoliciesInEveryLayer(t *testing.T) {
-	for _, trusted := range []bool{true, false} {
-		t.Run(fmt.Sprintf("trusted=%t", trusted), func(t *testing.T) {
+	for _, project := range []bool{true, false} {
+		t.Run(fmt.Sprintf("project=%t", project), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "coop.toml")
 			writeConfigFile(t, path, `
 [[projects]]
@@ -935,11 +1040,40 @@ match = "/tmp/work"
 seed = [{ src = "~/.codex/rules", policy = "sometimes" }]
 `)
 			var cfg Config
-			err := mergeFile(&cfg, path, trusted)
+			err := mergeFile(&cfg, path, project)
 			if err == nil || !strings.Contains(err.Error(), `unknown policy "sometimes"`) {
 				t.Fatalf("scoped seed policy error = %v", err)
 			}
 		})
+	}
+}
+
+func TestValidatesMountsInEveryLayer(t *testing.T) {
+	cases := map[string]string{
+		"missing source":  `mount = [{ access = "read-only" }]`,
+		"relative source": `mount = [{ source = "../other" }]`,
+		"invalid access":  `mount = [{ source = "/tmp/other", access = "sometimes" }]`,
+	}
+	for name, declaration := range cases {
+		for _, project := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/project=%t", name, project), func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "coop.toml")
+				writeConfigFile(t, path, declaration+"\n")
+				var cfg Config
+				if err := mergeFile(&cfg, path, project); err == nil {
+					t.Fatalf("invalid mount accepted: %s", declaration)
+				}
+			})
+		}
+	}
+}
+
+func TestValidateMountsRejectsRuntimeGrammar(t *testing.T) {
+	for _, source := range []string{"/tmp/with,comma", "/tmp/with=equals"} {
+		err := validateMounts([]Mount{{Source: source}})
+		if err == nil || !strings.Contains(err.Error(), "unsupported") {
+			t.Fatalf("mount source %q error = %v", source, err)
+		}
 	}
 }
 
@@ -1004,6 +1138,83 @@ seed = [{ src = "`+seedSrc+`", policy = "always" }]
 	}
 	if len(cfg.Seeds) != 0 {
 		t.Fatalf("got %d seeds, want 0 for an unmatched project", len(cfg.Seeds))
+	}
+}
+
+func TestLoadProjectMount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	project := filepath.Join(home, "Projects", "sarcasticbird", "coop")
+	shared := filepath.Join(home, "Projects", "sarcasticbird", "homebrew-tap")
+	for _, dir := range []string{project, shared} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonicalShared, err := filepath.EvalSymlinks(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, filepath.Join(project, ".coop.toml"), `
+mount = [{ source = "`+shared+`", access = "read-write" }]
+`)
+
+	cfg, err := Load(project)
+	if err != nil {
+		t.Fatalf("load matching mount: %v", err)
+	}
+	if len(cfg.Mounts) != 1 {
+		t.Fatalf("got %d mounts, want 1", len(cfg.Mounts))
+	}
+	if got := cfg.Mounts[0].Source; got != canonicalShared {
+		t.Errorf("mount source = %q, want %q", got, canonicalShared)
+	}
+	if got := cfg.Mounts[0].Access; got != MountReadWrite {
+		t.Errorf("mount access = %q, want read-write", got)
+	}
+}
+
+func TestLoadRejectsMissingProjectMount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	project := filepath.Join(home, "Projects", "app")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(home, "Projects", "missing")
+	writeConfigFile(t, filepath.Join(project, ".coop.toml"), `
+mount = [{ source = "`+missing+`" }]
+`)
+	_, err := Load(project)
+	if err == nil || !strings.Contains(err.Error(), "inspect source") {
+		t.Fatalf("missing matched mount error = %v", err)
+	}
+}
+
+func TestLoadRejectsMountOverlappingProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	project := filepath.Join(home, "Projects", "app")
+	child := filepath.Join(project, "child")
+	for _, dir := range []string{project, child} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, source := range map[string]string{
+		"same":       project,
+		"ancestor":   filepath.Dir(project),
+		"descendant": child,
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeConfigFile(t, filepath.Join(project, ".coop.toml"), `
+mount = [{ source = "`+source+`" }]
+`)
+			_, err := Load(project)
+			if err == nil || !strings.Contains(err.Error(), "overlaps project") {
+				t.Fatalf("overlapping mount error = %v", err)
+			}
+		})
 	}
 }
 

@@ -6,10 +6,10 @@ versions and how to report a suspected vulnerability.
 
 ## Supported Versions
 
-coop is pre-1.0. Only the latest available beta version receives security
-fixes. Older beta versions and arbitrary development snapshots are not
-supported; a fix may require upgrading to a newer beta with incompatible CLI
-or configuration changes.
+coop is pre-1.0. Only the latest available release receives security fixes.
+Older releases and arbitrary development snapshots are not supported; a fix
+may require upgrading to a newer version with incompatible CLI or
+configuration changes.
 
 ## Reporting a Vulnerability
 

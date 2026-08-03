@@ -150,7 +150,7 @@ func TestUpUsesSessionLifecycleForSelectedProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(projectPath, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectPath, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	xdg := t.TempDir()
@@ -217,7 +217,7 @@ func TestDestroyUsesCurrentSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(projectPath, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectPath, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -258,7 +258,7 @@ func TestDestroyRefusesLegacyContainerIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(projectPath, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectPath, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

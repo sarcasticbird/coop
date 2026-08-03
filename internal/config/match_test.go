@@ -112,3 +112,34 @@ func TestMatchesProjectHandlesCaseAlias(t *testing.T) {
 		t.Error("a case alias must resolve to the same project ancestor")
 	}
 }
+
+func TestResolveMountRejectsCaseAliasedHome(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("case aliases are a macOS filesystem behavior")
+	}
+	home := t.TempDir()
+	alias := filepath.Join(filepath.Dir(home), strings.ToUpper(filepath.Base(home)))
+	if _, err := os.Stat(alias); err != nil {
+		t.Skip("temporary filesystem is case-sensitive")
+	}
+	_, err := resolveMount(Mount{Source: alias}, home, filepath.Join(home, "Projects", "app"))
+	if err == nil || !strings.Contains(err.Error(), "broad source") {
+		t.Fatalf("case-aliased home mount error = %v", err)
+	}
+}
+
+func TestResolveMountRejectsRuntimeGrammarAfterSymlinkExpansion(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "with,comma")
+	alias := filepath.Join(root, "alias")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolveMount(Mount{Source: alias}, t.TempDir(), "")
+	if err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("symlink-expanded mount grammar error = %v", err)
+	}
+}

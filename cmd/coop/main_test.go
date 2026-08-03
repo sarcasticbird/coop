@@ -119,7 +119,7 @@ func TestRebuildMaterializesAndNamesImageFromActiveCoreLock(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(xdg, "cache"))
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -185,7 +185,7 @@ binary = "kata"
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -205,13 +205,13 @@ binary = "kata"
 	}
 	saved := false
 	pruned := false
-	saveReleaseToolLock = func(_ string, specs []config.GitHubReleaseTool, got []config.ResolvedReleaseTool) error {
+	saveReleaseToolLock = func(_ string, projectRoot string, specs []config.GitHubReleaseTool, got []config.ResolvedReleaseTool) error {
 		saved = len(specs) == 1 && slices.EqualFunc(got, resolved, func(a, b config.ResolvedReleaseTool) bool {
 			return a.Name == b.Name && a.Digest == b.Digest
-		})
+		}) && projectRoot != ""
 		return nil
 	}
-	pruneReleaseToolCache = func(got []config.ResolvedReleaseTool) error {
+	pruneReleaseToolCache = func(_ string, got []config.ResolvedReleaseTool) error {
 		pruned = len(got) == 1 && got[0].Digest == resolved[0].Digest
 		return nil
 	}
@@ -287,7 +287,7 @@ binary = "kata"
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -301,7 +301,7 @@ binary = "kata"
 		Digest: "sha256:" + strings.Repeat("9", 64), Binary: "kata",
 	}}
 	stateDir := filepath.Join(xdg, "state", "coop")
-	if err := releasetool.SaveLock(stateDir, cfg.Tools.GitHubReleases, oldResolved); err != nil {
+	if err := releasetool.SaveLock(stateDir, project, cfg.Tools.GitHubReleases, oldResolved); err != nil {
 		t.Fatal(err)
 	}
 	cached := filepath.Join(t.TempDir(), "kata")
@@ -318,11 +318,11 @@ binary = "kata"
 	resolveReleaseTools = func(context.Context, []config.GitHubReleaseTool) ([]config.ResolvedReleaseTool, error) {
 		return newResolved, nil
 	}
-	saveReleaseToolLock = func(string, []config.GitHubReleaseTool, []config.ResolvedReleaseTool) error {
+	saveReleaseToolLock = func(string, string, []config.GitHubReleaseTool, []config.ResolvedReleaseTool) error {
 		t.Fatal("failed build saved release lock")
 		return nil
 	}
-	pruneReleaseToolCache = func([]config.ResolvedReleaseTool) error {
+	pruneReleaseToolCache = func(string, []config.ResolvedReleaseTool) error {
 		t.Fatal("failed build pruned release cache")
 		return nil
 	}
@@ -354,11 +354,11 @@ func TestRebuildWithoutReleaseToolsPersistsEmptyStateAndPrunesCache(t *testing.T
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	oldSave, oldPrune, oldBuild := saveReleaseToolLock, pruneReleaseToolCache, buildImage
 	saved, pruned := false, false
-	saveReleaseToolLock = func(_ string, specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) error {
-		saved = len(specs) == 0 && len(resolved) == 0
+	saveReleaseToolLock = func(_ string, projectRoot string, specs []config.GitHubReleaseTool, resolved []config.ResolvedReleaseTool) error {
+		saved = projectRoot != "" && len(specs) == 0 && len(resolved) == 0
 		return nil
 	}
-	pruneReleaseToolCache = func(resolved []config.ResolvedReleaseTool) error {
+	pruneReleaseToolCache = func(_ string, resolved []config.ResolvedReleaseTool) error {
 		pruned = len(resolved) == 0
 		return nil
 	}
@@ -392,7 +392,7 @@ func TestRebuildPrintsCanonicalInputsAndPreservesContainerOnFailure(t *testing.T
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), []byte("[tools]\npackages = [\"shellcheck\", \"actionlint\"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), []byte("[tools]\npackages = [\"shellcheck\", \"actionlint\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -458,7 +458,7 @@ func TestStatusReportsDesiredRunningAndPendingState(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -504,7 +504,7 @@ func TestLegacyToolAliasWarnsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -532,7 +532,7 @@ func emptyProject(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -577,7 +577,7 @@ func TestConfigWarningWriteFailureDoesNotBlockCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -849,7 +849,7 @@ func TestTUIEntryOffersFirstBuild(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	withTerminalStdin(t, true)
@@ -1123,7 +1123,7 @@ binary = "kata"
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -1192,7 +1192,7 @@ func TestCredentialsFlagAcceptsCommaAndRepeat(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -1219,7 +1219,7 @@ func TestCredentialsFlagRejectsExplicitEmptyValue(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -1235,7 +1235,7 @@ func TestCredentialsAfterAgentRemainGuestArgv(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -1262,7 +1262,7 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	oldTUI, oldSession := runTUI, runSession
@@ -1300,7 +1300,7 @@ func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1331,7 +1331,7 @@ func TestCredentialsFlagRejectedByNonEntryCommands(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
@@ -1421,7 +1421,7 @@ func TestResolvedVersionHonorsReleaseOverride(t *testing.T) {
 func TestListDoesNotLoadCurrentProject(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "coop.toml"), []byte("not valid toml ="), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".coop.toml"), []byte("not valid toml ="), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
@@ -1439,7 +1439,7 @@ func TestDoctorLoadsGlobalConfigFromHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if err := os.WriteFile(filepath.Join(home, "coop.toml"), []byte("not valid toml ="), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".coop.toml"), []byte("not valid toml ="), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
@@ -1484,7 +1484,7 @@ binary = "kata"
 		Asset:  "kata_0.12.1_linux_arm64.tar.gz",
 		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
 	}}
-	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), cfg.Tools.GitHubReleases, resolved); err != nil {
+	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), "", cfg.Tools.GitHubReleases, resolved); err != nil {
 		t.Fatal(err)
 	}
 	cfg.Tools.ResolvedReleases = resolved

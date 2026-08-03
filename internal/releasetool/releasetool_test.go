@@ -348,7 +348,7 @@ func TestReleaseLockRoundTripAndSpecMismatch(t *testing.T) {
 		Asset: "kata_0.10.0_linux_arm64.tar.gz", URL: "https://github.com/x",
 		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
 	}}
-	if err := SaveLock(state, specs, resolved); err != nil {
+	if err := SaveLock(state, "/projects/one", specs, resolved); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadLock(state, specs)
@@ -366,6 +366,162 @@ func TestReleaseLockRoundTripAndSpecMismatch(t *testing.T) {
 	}
 }
 
+func TestReleaseLocksAreIndependentBySpec(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	spec := func(name string) []config.GitHubReleaseTool {
+		return []config.GitHubReleaseTool{{
+			Name: name, Repo: "owner/" + name, Tag: "latest",
+			Asset: name + "_{version}_linux_arm64.tar.gz", Binary: name,
+		}}
+	}
+	resolved := func(name, digest string) []config.ResolvedReleaseTool {
+		return []config.ResolvedReleaseTool{{
+			Name: name, Repo: "owner/" + name, RequestedTag: "latest", Tag: "v1.0.0",
+			Asset: name + "_1.0.0_linux_arm64.tar.gz", Digest: "sha256:" + digest, Binary: name,
+		}}
+	}
+	firstSpecs, secondSpecs := spec("first"), spec("second")
+	if err := SaveLock(state, "/projects/first", firstSpecs, resolved("first", strings.Repeat("a", 64))); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveLock(state, "/projects/second", secondSpecs, resolved("second", strings.Repeat("b", 64))); err != nil {
+		t.Fatal(err)
+	}
+	for name, specs := range map[string][]config.GitHubReleaseTool{"first": firstSpecs, "second": secondSpecs} {
+		got, err := LoadLock(state, specs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Name != name {
+			t.Fatalf("%s lock = %+v", name, got)
+		}
+	}
+}
+
+func TestPruneCachePreservesEntriesReferencedByOtherLocks(t *testing.T) {
+	state := t.TempDir()
+	cacheRoot := t.TempDir()
+	now := time.Now()
+	spec := func(name string) []config.GitHubReleaseTool {
+		return []config.GitHubReleaseTool{{
+			Name: name, Repo: "owner/" + name, Tag: "latest",
+			Asset: name + "_{version}_linux_arm64.tar.gz", Binary: name,
+		}}
+	}
+	resolved := func(name, digest string) []config.ResolvedReleaseTool {
+		return []config.ResolvedReleaseTool{{
+			Name: name, Repo: "owner/" + name, RequestedTag: "latest", Tag: "v1.0.0",
+			Asset: name + "_1.0.0_linux_arm64.tar.gz", Digest: "sha256:" + digest, Binary: name,
+		}}
+	}
+	first := strings.Repeat("a", 64)
+	second := strings.Repeat("b", 64)
+	unreferenced := strings.Repeat("c", 64)
+	for name, digest := range map[string]string{"first": first, "second": second} {
+		if err := SaveLock(state, "/projects/"+name, spec(name), resolved(name, digest)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := now.Add(-2 * time.Hour)
+	for _, digest := range []string{first, second, unreferenced} {
+		archive := filepath.Join(cacheRoot, "archives", digest+".tar.gz")
+		binaryDir := filepath.Join(cacheRoot, "bin", digest)
+		if err := os.MkdirAll(binaryDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(archive), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(archive, []byte("archive"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(binaryDir, "tool"), []byte("binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(archive, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(binaryDir, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := pruneCache(cacheRoot, state, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, digest := range []string{first, second} {
+		if _, err := os.Stat(filepath.Join(cacheRoot, "archives", digest+".tar.gz")); err != nil {
+			t.Fatalf("locked cache entry %s was pruned: %v", digest, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "archives", unreferenced+".tar.gz")); !os.IsNotExist(err) {
+		t.Fatalf("old unreferenced archive was not pruned: %v", err)
+	}
+}
+
+func TestProjectReferenceReplacementMakesOldReleaseCacheCollectible(t *testing.T) {
+	state := t.TempDir()
+	cacheRoot := t.TempDir()
+	now := time.Now()
+	project := "/projects/one"
+	spec := func(name string) []config.GitHubReleaseTool {
+		return []config.GitHubReleaseTool{{
+			Name: name, Repo: "owner/" + name, Tag: "latest",
+			Asset: name + "_{version}_linux_arm64.tar.gz", Binary: name,
+		}}
+	}
+	resolved := func(name, digest string) []config.ResolvedReleaseTool {
+		return []config.ResolvedReleaseTool{{
+			Name: name, Repo: "owner/" + name, RequestedTag: "latest", Tag: "v1.0.0",
+			Asset: name + "_1.0.0_linux_arm64.tar.gz", Digest: "sha256:" + digest, Binary: name,
+		}}
+	}
+	first := strings.Repeat("a", 64)
+	second := strings.Repeat("b", 64)
+	firstResolved := resolved("first", first)
+	secondResolved := resolved("second", second)
+	if err := SaveLock(state, project, spec("first"), firstResolved); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveLock(state, project, spec("second"), secondResolved); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := now.Add(-2 * time.Hour)
+	for _, digest := range []string{first, second} {
+		archive := filepath.Join(cacheRoot, "archives", digest+".tar.gz")
+		if err := os.MkdirAll(filepath.Dir(archive), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(archive, []byte("archive"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(archive, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := pruneCache(cacheRoot, state, secondResolved, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "archives", first+".tar.gz")); !os.IsNotExist(err) {
+		t.Fatalf("superseded cache entry was not pruned: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "archives", second+".tar.gz")); err != nil {
+		t.Fatalf("current cache entry was pruned: %v", err)
+	}
+
+	if err := SaveLock(state, project, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneCache(cacheRoot, state, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "archives", second+".tar.gz")); !os.IsNotExist(err) {
+		t.Fatalf("release-free project retained old cache entry: %v", err)
+	}
+}
+
 func TestReleaseLockRejectsTamperedResolvedState(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -378,7 +534,7 @@ func TestReleaseLockRejectsTamperedResolvedState(t *testing.T) {
 		Asset:  "kata_0.10.0_linux_arm64.tar.gz",
 		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
 	}}
-	if err := SaveLock(state, specs, resolved); err != nil {
+	if err := SaveLock(state, "/projects/one", specs, resolved); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadLock(state, specs); err == nil || !strings.Contains(err.Error(), "unknown tool") {
@@ -387,6 +543,7 @@ func TestReleaseLockRejectsTamperedResolvedState(t *testing.T) {
 }
 
 func TestPruneCacheRemovesOnlyOldUnreferencedEntries(t *testing.T) {
+	state := t.TempDir()
 	cacheRoot := t.TempDir()
 	now := time.Now()
 	current := strings.Repeat("a", 64)
@@ -427,7 +584,7 @@ func TestPruneCacheRemovesOnlyOldUnreferencedEntries(t *testing.T) {
 		}
 	}
 	resolved := []config.ResolvedReleaseTool{{Digest: "sha256:" + current}}
-	if err := pruneCache(cacheRoot, resolved, now); err != nil {
+	if err := pruneCache(cacheRoot, state, resolved, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(cacheRoot, "archives", old+".tar.gz")); !os.IsNotExist(err) {

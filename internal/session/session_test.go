@@ -3,6 +3,8 @@ package session
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -55,7 +57,7 @@ func TestNewLoadsMatchingGitHubReleaseToolLockWithoutNetwork(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", xdgState)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	global := filepath.Join(xdgConfig, "coop", "coop.toml")
@@ -81,7 +83,7 @@ binary = "kata"
 		Asset: "kata_0.10.0_linux_arm64.tar.gz", URL: "https://github.com/example",
 		Digest: "sha256:" + strings.Repeat("a", 64), Binary: "kata",
 	}}
-	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), cfg.Tools.GitHubReleases, resolved); err != nil {
+	if err := releasetool.SaveLock(filepath.Join(xdgState, "coop"), project, cfg.Tools.GitHubReleases, resolved); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +104,7 @@ func TestNewTreatsMalformedGitHubReleaseToolLockAsUnresolved(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
 	t.Setenv("XDG_STATE_HOME", xdgState)
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	global := filepath.Join(xdgConfig, "coop", "coop.toml")
@@ -119,7 +121,15 @@ binary = "kata"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lockPath := filepath.Join(xdgState, "coop", "release-tools.lock")
+	lockPath := filepath.Join(
+		xdgState,
+		"coop",
+		"release-tools",
+		config.ReleaseSpecFingerprint([]config.GitHubReleaseTool{{
+			Name: "kata", Repo: "kenn-io/kata", Tag: "latest",
+			Asset: "kata_{version}_linux_arm64.tar.gz", Binary: "kata",
+		}})+".lock",
+	)
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -618,6 +628,9 @@ func TestUpCreatesContainerWithIdenticalPathMount(t *testing.T) {
 	if spec.SSH {
 		t.Errorf("SECURITY: ssh agent forwarding must default OFF")
 	}
+	if got := spec.Labels[runtime.ProjectLabel]; got != s.Project {
+		t.Errorf("project label = %q, want %q", got, s.Project)
+	}
 	if len(spec.Mounts) != 1 || spec.Mounts[0].Source != spec.Mounts[0].Target {
 		t.Errorf("identical-path mount violated: %+v", spec.Mounts)
 	}
@@ -637,6 +650,58 @@ func TestUpCreatesContainerWithIdenticalPathMount(t *testing.T) {
 	wantNames := []string{"coop-proj--claude", "coop-proj--codex", "coop-proj--opencode"}
 	if strings.Join(gotNames, ",") != strings.Join(wantNames, ",") {
 		t.Errorf("volumes not sorted before Run: %v", gotNames)
+	}
+}
+
+func TestUpAddsConfiguredMountsWithIdenticalPathsAndAccess(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Cfg.Mounts = []config.Mount{
+		{Source: "/Users/u/Projects/homebrew-tap", Access: config.MountReadWrite},
+		{Source: "/Users/u/Projects/reference", Access: config.MountReadOnly},
+	}
+
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	got := m.Run_[0].Mounts
+	if len(got) != 3 {
+		t.Fatalf("got %d mounts, want project plus two configured mounts: %+v", len(got), got)
+	}
+	if got[1].Source != "/Users/u/Projects/homebrew-tap" || got[1].Target != got[1].Source || got[1].ReadOnly {
+		t.Errorf("read-write configured mount = %+v", got[1])
+	}
+	if got[2].Source != "/Users/u/Projects/reference" || got[2].Target != got[2].Source || !got[2].ReadOnly {
+		t.Errorf("read-only configured mount = %+v", got[2])
+	}
+}
+
+func TestSpecFingerprintChangesWithConfiguredMounts(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
+	before := s.SpecFingerprint()
+	s.Cfg.Mounts = []config.Mount{{
+		Source: "/Users/u/Projects/homebrew-tap",
+		Access: config.MountReadWrite,
+	}}
+	if after := s.SpecFingerprint(); after == before {
+		t.Fatal("adding a configured mount did not change the container spec fingerprint")
+	}
+}
+
+func TestSpecFingerprintPreservesLegacyValueWithoutConfiguredMounts(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
+	vols := make([]string, 0, len(s.Cfg.Agents))
+	for agent, spec := range s.Cfg.Agents {
+		vols = append(vols, agent+"="+config.ExpandHome(spec.State, s.GuestHome))
+	}
+	slices.Sort(vols)
+	legacy := fmt.Sprintf("v1|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s",
+		s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
+		s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","))
+	sum := sha256.Sum256([]byte(legacy))
+	want := hex.EncodeToString(sum[:])[:16]
+	if got := s.SpecFingerprint(); got != want {
+		t.Fatalf("mount-free fingerprint = %q, want legacy %q", got, want)
 	}
 }
 
@@ -1083,7 +1148,7 @@ func TestNewLoadsActiveCoreLockAndSurfacesInvalidStateWarning(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", xdgState)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "coop.toml"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stateDir := filepath.Join(xdgState, "coop")

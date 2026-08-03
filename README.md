@@ -4,8 +4,8 @@ Run coding agents in a project-scoped Linux environment on Apple silicon.
 
 Coop uses Apple's [`container`](https://github.com/apple/container) runtime. It
 mounts one project read-write at the same path it has on the host, keeps agent
-state in project-specific volumes, and gives repositories a declarative
-`coop.toml` for resources and tools. Docker is not required.
+state in project-specific volumes, and loads machine-local project settings
+from an ignored `.coop.toml`. Docker is not required.
 
 Coop is pre-1.0. Command and configuration behavior may change between
 releases.
@@ -42,7 +42,7 @@ coop doctor
 Or install the current release from source with Go 1.26.5 or later:
 
 ```sh
-go install github.com/sarcasticbird/coop/cmd/coop@v0.1.2
+go install github.com/sarcasticbird/coop/cmd/coop@v0.2.0
 coop --version
 coop doctor
 ```
@@ -53,7 +53,7 @@ runtime. Install it separately with `brew install container`, then start its
 service with `container system start`.
 
 Prebuilt archives are attached to the
-[`v0.1.2` release](https://github.com/sarcasticbird/coop/releases/tag/v0.1.2).
+[`v0.2.0` release](https://github.com/sarcasticbird/coop/releases/tag/v0.2.0).
 Verify an archive against `checksums.txt` before installing it. Release
 binaries target Apple silicon and are not Developer ID signed or notarized.
 
@@ -106,7 +106,7 @@ coop down                 Stop it while preserving state volumes
 coop status               Show container and desired/running image state
 coop ls                   List all coops
 coop tui                  Open the fleet dashboard
-coop doctor               Check the host and trusted user configuration
+coop doctor               Check the host and local configuration
 coop rebuild              Build the sandbox image locally
 coop upgrade              Upgrade the machine-wide locked core
 coop destroy              Delete the container and all project state volumes
@@ -138,8 +138,8 @@ can access or retain them while staged.
 The sandbox image has four tool layers:
 
 1. Coop's locked core workbench;
-2. additive packages declared in user or project `coop.toml`;
-3. checksum-verified public GitHub release tools declared by the trusted user;
+2. additive packages declared in machine or project configuration;
+3. checksum-verified public GitHub release tools declared locally;
 4. an optional project `.flox`, activated at entry with highest precedence.
 
 See the [runtime model](docs/runtime.md) for project selection, image identity,
@@ -147,15 +147,16 @@ container lifecycle, persistence, tool ordering, recovery, and current limits.
 
 ## Configuration
 
-Coop loads trusted user configuration from
+Coop loads machine-wide configuration from
 `$XDG_CONFIG_HOME/coop/coop.toml` or `~/.config/coop/coop.toml`, then loads
-`<project-root>/coop.toml`.
+`<project-root>/.coop.toml` last. The project file is machine-local, must remain
+Git-ignored, and may override or expand any setting—including additional host
+directory mounts. Coop refuses a `.coop.toml` tracked by Git and does not load
+a committed project `coop.toml`.
 
-Repositories may declare capped resources, additive packages from Coop's
-pinned Nixpkgs source, and persistent agent state. Host file seeds,
-credential grants, SSH-agent forwarding, and image selection remain under
-trusted user control. GitHub release tools are also user-only because they
-select publisher-controlled executable assets.
+Upgrading from 0.1.x requires renaming any project `coop.toml` to the ignored
+`.coop.toml` form and moving scoped mounts into the project file. See the
+[migration guide](docs/configuration.md#migrating-from-01x).
 
 The full [`coop.toml` reference](docs/configuration.md) documents every key,
 default, merge rule, trust boundary, validation rule, and lifecycle effect.
@@ -163,8 +164,8 @@ The [credential guide](docs/credentials.md) covers macOS Keychain-backed Git
 and `gh`, project authorization, agent-owned login state, migration, and cleanup.
 Start from:
 
-- [trusted user example](examples/coop.user.toml)
-- [project example](examples/coop.project.toml)
+- [machine-wide example](examples/coop.user.toml)
+- [machine-local project example](examples/coop.project.toml)
 
 ## Security
 

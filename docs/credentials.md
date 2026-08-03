@@ -13,12 +13,12 @@ file, Git helper, or AWS shared-credentials interface.
 
 ## Trust and authorization
 
-Only trusted user configuration may define a credential, select a default
-credential, or bind one to a project path. A repository-controlled `coop.toml`
-is parsed and validated but cannot gain those capabilities.
+Machine-wide configuration and the ignored project `.coop.toml` may define a
+credential or select a default credential. Coop does not load a committed
+project `coop.toml`.
 
 `[[projects]]` is the authorization boundary. Its canonical path prefix decides
-which projects receive a grant. The source URL is also fixed in trusted user
+which projects receive a grant. The source URL is also fixed in local
 configuration. Coop never derives it from `.git/config` or another repository
 file, so changing a remote cannot retarget an authorized grant.
 

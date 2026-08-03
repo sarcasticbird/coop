@@ -1,12 +1,11 @@
-# Trusted user configuration
+# Machine-wide configuration
 #
 # Copy the settings you need to:
 #   $XDG_CONFIG_HOME/coop/coop.toml
 # or, when XDG_CONFIG_HOME is unset:
 #   ~/.config/coop/coop.toml
 #
-# This file can read host files and grant credentials. Do not copy these
-# settings into a repository-controlled coop.toml.
+# Put settings specific to one checkout in that project's ignored .coop.toml.
 
 # SSH-agent forwarding is deliberately off by default.
 ssh = false
@@ -22,8 +21,8 @@ name = "coop:latest"
 [tools]
 packages = ["gh", "shellcheck"]
 
-# Public GitHub release tools are trusted-user-only. "latest" is resolved only
-# by `coop rebuild`; use an exact tag when repeatability matters.
+# Public GitHub release tools may also be project-local. "latest" is resolved
+# only by `coop rebuild`; use an exact tag when repeatability matters.
 [[tools.github_release]]
 name = "kata"
 repo = "kenn-io/kata"

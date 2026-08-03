@@ -15,7 +15,11 @@ type ContainerInfo struct {
 	Memory  int64 // bytes
 	Started time.Time
 	Mounts  []MountInfo
+	Labels  map[string]string
 }
+
+// ProjectLabel records the primary project mount independently of mount order.
+const ProjectLabel = "coop.project"
 
 // MountInfo describes one mount. Bind distinguishes virtiofs bind
 // mounts from named volumes (whose sources are volume images under the
@@ -31,6 +35,14 @@ type MountInfo struct {
 // state volumes also live under HOME, so destination alone is not
 // enough.
 func (c ContainerInfo) ProjectMount() string {
+	if project := c.Labels[ProjectLabel]; project != "" {
+		for _, m := range c.Mounts {
+			if m.Bind && m.Source == project && m.Destination == project {
+				return project
+			}
+		}
+		return ""
+	}
 	for _, m := range c.Mounts {
 		if m.Bind && m.Source == m.Destination {
 			return m.Destination
@@ -44,7 +56,8 @@ func (c ContainerInfo) ProjectMount() string {
 // schema is Apple's, not ours.
 type listEntry struct {
 	Configuration struct {
-		ID        string `json:"id"`
+		ID        string            `json:"id"`
+		Labels    map[string]string `json:"labels"`
 		Resources struct {
 			CPUs          int   `json:"cpus"`
 			MemoryInBytes int64 `json:"memoryInBytes"`
@@ -90,6 +103,7 @@ func parseList(data []byte) ([]ContainerInfo, error) {
 			State:  e.Status.State,
 			CPUs:   e.Configuration.Resources.CPUs,
 			Memory: e.Configuration.Resources.MemoryInBytes,
+			Labels: e.Configuration.Labels,
 		}
 		if len(e.Status.Networks) > 0 {
 			info.IP = strings.Split(e.Status.Networks[0].IPv4Address, "/")[0]

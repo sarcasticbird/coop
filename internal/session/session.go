@@ -207,9 +207,19 @@ func (s *Session) SpecFingerprint() string {
 		vols = append(vols, agent+"="+config.ExpandHome(spec.State, s.GuestHome))
 	}
 	sort.Strings(vols)
+	var mounts []string
+	for _, mount := range s.Cfg.Mounts {
+		mounts = append(mounts, mount.Source+"="+string(mount.Access))
+	}
+	sort.Strings(mounts)
 	canonical := fmt.Sprintf("v1|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s",
 		s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
 		s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","))
+	if len(mounts) > 0 {
+		canonical = fmt.Sprintf("v2|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s|mounts=%s",
+			s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
+			s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","), strings.Join(mounts, ","))
+	}
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])[:16]
 }
@@ -309,6 +319,14 @@ func (s *Session) up(ctx context.Context) error {
 			})
 		}
 		sort.Slice(vols, func(i, j int) bool { return vols[i].Name < vols[j].Name })
+		mounts := []runtime.Mount{{Source: s.Project, Target: s.Project}}
+		for _, mount := range s.Cfg.Mounts {
+			mounts = append(mounts, runtime.Mount{
+				Source:   mount.Source,
+				Target:   mount.Source,
+				ReadOnly: mount.ReadOnly(),
+			})
+		}
 		if err := context.Cause(ctx); err != nil {
 			return err
 		}
@@ -317,12 +335,12 @@ func (s *Session) up(ctx context.Context) error {
 			Image:  s.DesiredImageName(),
 			CPUs:   s.Cfg.Resources.CPUs,
 			Memory: s.Cfg.Resources.Memory,
-			SSH:    s.Cfg.SSH, // default off — deliberate, global-config-only capability
-			Labels: map[string]string{SpecLabel: want},
+			SSH:    s.Cfg.SSH, // default off — deliberate trusted-local capability
+			Labels: map[string]string{SpecLabel: want, runtime.ProjectLabel: s.Project},
 			// HOME enforced at run time too, so custom images without a
 			// baked GUEST_HOME still honor the identical-path property.
 			Env:     map[string]string{"HOME": s.GuestHome},
-			Mounts:  []runtime.Mount{{Source: s.Project, Target: s.Project}},
+			Mounts:  mounts,
 			Volumes: vols,
 		})
 		if err != nil {

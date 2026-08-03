@@ -1,13 +1,12 @@
 # Configuration
 
-`coop.toml` is Coop's project interface. User configuration supplies trusted
-host integrations; project configuration declares the resources, tools, and
-agent state a repository needs.
+Coop has two machine-local configuration layers: a machine-wide `coop.toml`
+under the user's config directory and an ignored `.coop.toml` in each project.
 
 Start from the maintained examples:
 
-- [trusted user configuration](../examples/coop.user.toml)
-- [repository-controlled project configuration](../examples/coop.project.toml)
+- [machine-wide configuration](../examples/coop.user.toml)
+- [machine-local project configuration](../examples/coop.project.toml)
 
 Both examples are loaded by the production configuration parser in the test
 suite.
@@ -19,46 +18,77 @@ Coop loads configuration in this order:
 1. built-in defaults;
 2. `$XDG_CONFIG_HOME/coop/coop.toml`, when `XDG_CONFIG_HOME` is non-empty, otherwise
    `~/.config/coop/coop.toml`;
-3. `<project-root>/coop.toml`.
+3. `<project-root>/.coop.toml` as the project override and expansion layer.
 
 Missing files are allowed. Unknown keys, malformed values, and invalid
-combinations are errors. The project file also marks a
-[project boundary](runtime.md#project-selection).
+combinations are errors. `.coop.toml` also marks a
+[project boundary](runtime.md#project-selection). Coop does not load a
+committed `<project-root>/coop.toml`.
 
 Later layers override or extend earlier layers according to the key-specific
-merge rules below. This is not an unrestricted TOML overlay: sensitive
-host-facing settings only take effect from trusted user configuration.
+merge rules below.
+
+## Migrating from 0.1.x
+
+Version 0.2 stops loading a committed project `coop.toml`. For each project
+that used one:
+
+1. rename `<project-root>/coop.toml` to `<project-root>/.coop.toml`;
+2. add `/.coop.toml` to the project's `.gitignore`;
+3. record the tracked `coop.toml` deletion without adding the ignored dotfile;
+4. review the local file because every supported setting is now effective.
+
+Coop refuses to load a `.coop.toml` that Git tracks. This is an enforced trust
+boundary, not only a repository convention: remove the file from the index
+and keep the local copy ignored before invoking Coop. When a checkout is
+present but Git cannot verify tracking state, Coop fails closed and reports the
+inspection error. The check compares filesystem identities, so case aliases on
+the default macOS filesystem cannot bypass it.
+
+Additional mounts also move to the project file. Replace a machine-wide scope
+like this:
+
+```toml
+[[projects]]
+match = "~/Projects/sarcasticbird/wrap"
+mount = [
+  { source = "~/Projects/sarcasticbird/homebrew-tap", access = "read-write" },
+]
+```
+
+with this project-local file:
+
+```toml
+# ~/Projects/sarcasticbird/wrap/.coop.toml
+mount = [
+  { source = "~/Projects/sarcasticbird/homebrew-tap", access = "read-write" },
+]
+```
+
+Machine-wide `[[projects]]` scopes remain available for credentials and seeds
+that intentionally apply across several projects. The next `coop up` or entry
+recreates an existing container when the effective mount set changes; named
+agent-state volumes are preserved.
 
 ## Trust boundary
 
-The user file is controlled by the person running Coop. The project file may
-come from an untrusted checkout.
+Both files are user-owned, machine-local configuration and have the same
+authority. Keep every project `.coop.toml` Git-ignored: it may contain private
+paths, credential selectors, executable sources, and other host-specific
+configuration that must not enter a repository. Coop rejects the project file
+when it is tracked by the repository containing it.
 
-| Setting | User file | Project file |
-| --- | --- | --- |
-| `image.name` | Effective | Parsed but ignored |
-| deprecated `image.extra_packages` | Effective with a warning | Rejected |
-| `tools.packages` | Additive | Additive |
-| `[[tools.github_release]]` | Additive | Rejected |
-| `resources` | Effective | Effective within project caps |
-| `agents` | Keyed merge | Keyed merge |
-| `ssh` | Effective | Parsed but ignored |
-| `[[seed]]` | Effective | Validated but ignored |
-| `credentials` | Effective | Validated but ignored |
-| `include_credentials` | Effective | Parsed but ignored |
-| `[[projects]]` | Effective | Validated but ignored |
-
-“Ignored” means the project does not receive the capability. These keys are
-still recognized TOML, and some are validated, so malformed input may still
-fail configuration loading. Do not rely on ignored project settings as
-documentation; put trusted settings in the user file.
+The selected project is mounted read-write, so guest code can modify its
+`.coop.toml`. Such changes do not affect the running container, but the next
+host-side Coop invocation will load them. Review local configuration after
+running code you do not trust.
 
 ## When changes take effect
 
 | Change | Required action |
 | --- | --- |
 | `tools.packages`, `tools.github_release`, `image.name`, or Coop's embedded image inputs | Run `coop rebuild`; the next `coop up` or entry recreates the container |
-| `resources`, `agents`, or `ssh` | The next `coop up` or interactive entry recreates the container |
+| `resources`, `agents`, `ssh`, or `mount` | The next `coop up` or interactive entry recreates the container |
 | `seed` | Applied on the next `coop up` or interactive entry |
 | `credentials` or `include_credentials` | Applied on the next interactive entry |
 | `[[projects]]` | Applied on the next `coop up` or interactive entry |
@@ -81,8 +111,8 @@ name = "coop:latest"
 | --- | --- |
 | Type | String |
 | Default | `"coop:latest"` |
-| Layer | User only; project values are ignored |
-| Merge | A non-empty user value replaces the default |
+| Layer | Machine and project |
+| Merge | A later non-empty value replaces the earlier value |
 | Effect | Image rebuild, then container recreation |
 
 `image.name` supplies the base local image reference used to name Coop's
@@ -90,16 +120,15 @@ derived image. It does not replace the embedded Containerfile or locked core
 environment. The derived `local-...` tag incorporates the image name, embedded
 image fingerprint, pinned package source, and effective tool set.
 
-For one beta compatibility window, user configuration may use:
+For one beta compatibility window, either configuration layer may use:
 
 ```toml
 [image]
 extra_packages = ["shellcheck"]
 ```
 
-`image.extra_packages` is deprecated. It prints a warning, cannot be combined
-with `tools.packages`, and is rejected in project configuration. Migrate it to
-`[tools].packages`.
+`image.extra_packages` is deprecated. It prints a warning and cannot be
+combined with `tools.packages`. Migrate it to `[tools].packages`.
 
 ### `tools`
 
@@ -112,8 +141,8 @@ packages = ["actionlint", "nodePackages.prettier"]
 | --- | --- |
 | Type | Array of strings |
 | Default | Empty |
-| Layer | User and project |
-| Merge | User and project lists are combined, deduplicated, and sorted |
+| Layer | Machine and project |
+| Merge | Machine and project lists are combined, deduplicated, and sorted |
 | Effect | Image rebuild, then container recreation |
 
 Each value is a plain attribute path from the immutable Nixpkgs revision pinned
@@ -130,7 +159,7 @@ Configured tools are additive. The command lookup order is:
 1. an explicitly activated project `.flox`, when present;
 2. Coop's locked core tools;
 3. configured `tools.packages`;
-4. trusted GitHub release tools;
+4. configured GitHub release tools;
 5. operating-system fallback paths from the image.
 
 The core wins collisions with every configured tool, and a Nix package wins a
@@ -164,9 +193,8 @@ binary = "roborev"
 | `asset` | Exact `.tar.gz` asset name after placeholder expansion |
 | `binary` | Normalized relative path to the executable inside the archive |
 
-This repeated table is accepted only in trusted user configuration. It is for
-personal Linux commands that are not available from Coop's pinned Nixpkgs
-revision. Project configuration cannot select downloadable executables.
+This repeated table installs Linux commands that are not available from Coop's
+pinned Nixpkgs revision. It may be declared machine-wide or for one project.
 
 `asset` may contain `{tag}` and `{version}`. `{tag}` expands to the resolved
 tag verbatim; `{version}` removes one leading `v`. No other placeholder,
@@ -179,13 +207,18 @@ exact tag, requires exactly one matching asset with a GitHub-provided
 digest, and safely extracts exactly one configured regular file. The binary is
 cached by digest and copied into the locally built image.
 
-The resolved tag and digest are stored in
-`$XDG_STATE_HOME/coop/release-tools.lock`, or
-`~/.local/state/coop/release-tools.lock` when that variable is unset. Cached
-archives and binaries live below `$XDG_CACHE_HOME/coop/release-tools`, falling
-back to the platform user cache directory. After a successful rebuild, Coop
-prunes unreferenced digest entries and incomplete downloads that have been
-inactive for at least one hour; the grace period protects concurrent rebuilds.
+The resolved tag and digest are stored by declaration fingerprint below
+`$XDG_STATE_HOME/coop/release-tools/`, or
+`~/.local/state/coop/release-tools/` when that variable is unset. Separate
+declaration sets therefore keep separate locks instead of overwriting one
+machine-wide lock. A hashed project reference records which fingerprint each
+project most recently rebuilt; changing or removing that project's declarations
+replaces or removes the reference so stale locks and cache entries become
+collectible. Cached archives and binaries live below
+`$XDG_CACHE_HOME/coop/release-tools`, falling back to the platform user cache
+directory. After a successful rebuild, Coop prunes digest entries that are not
+referenced by any saved lock, plus incomplete downloads that have been inactive
+for at least one hour; the grace period protects concurrent rebuilds.
 Normal entry and `coop status` use the lock without network access. Changing a
 declaration invalidates the lock; run `coop rebuild` to resolve it again. With
 `"latest"`, only a later rebuild checks for a newer release. Use an exact tag
@@ -210,8 +243,6 @@ memory = "12G"
 
 Resources may be set in either layer and cause container recreation. Memory is
 a positive whole number followed by `G` or `M`, such as `"8G"` or `"512M"`.
-Project configuration is capped at 8 CPUs and 16 GB (or 16384 MB). Trusted user
-configuration must still be positive but is not subject to those project caps.
 
 ### `agents`
 
@@ -266,8 +297,8 @@ ssh = true
 | --- | --- |
 | Type | Boolean |
 | Default | `false` |
-| Layer | User only; project values are ignored |
-| Merge | Enabling it in user configuration turns it on |
+| Layer | Machine and project |
+| Merge | A later explicitly configured value replaces the earlier value |
 | Effect | Container recreation |
 
 This forwards the host SSH-agent socket, not private-key files. It lets guest
@@ -292,8 +323,8 @@ policy = "always"
 | `dest` | String | Same as `src` |
 | `policy` | String | `"always"` |
 
-Seeds only take effect from user configuration. A leading `~/` in `src`
-expands against the host home; in `dest` it expands against the guest home.
+Seeds may be declared in either layer. A leading `~/` in `src` expands against
+the host home; in `dest` it expands against the guest home.
 The homes have the same absolute path inside and outside Coop. Absolute guest
 destinations such as `/usr/local/bin/example-tool` are also supported.
 
@@ -322,7 +353,7 @@ login state should create it inside their project-specific agent volume.
 
 ### `credentials`
 
-Credential grants are named, trusted user definitions. A grant separates
+Credential grants are named, machine-local definitions. A grant separates
 host-side acquisition (`source`) from one or more guest projections (`expose`):
 
 ```toml
@@ -334,9 +365,9 @@ expose = [
 ]
 ```
 
-Project credential tables are validated but ignored. Up to 32 grants may be
-defined, and up to 16 unique grants may be selected for one entry. Grant names
-follow the same 63-character lowercase naming grammar as agents.
+Up to 32 grants may be defined, and up to 16 unique grants may be selected for
+one entry. Grant names follow the same 63-character lowercase naming grammar
+as agents.
 
 #### Sources
 
@@ -411,9 +442,9 @@ and cleanup checklist, read [Credentials](credentials.md).
 include_credentials = ["git"]
 ```
 
-This top-level user-only array selects grants for every interactive entry. A
-project value is ignored. Names must refer to defined grants. Duplicates are
-removed while preserving order.
+This top-level array selects grants for every interactive entry in its scope.
+Names must refer to defined grants. Duplicates are removed while preserving
+order.
 
 The `--credentials` flag adds grants for one entry:
 
@@ -426,6 +457,28 @@ Defaults are followed by explicit selections, then the combined list is
 deduplicated. The flag may be repeated and also applies to `coop tui`. Commands
 that do not enter the guest, such as `coop up`, reject it.
 
+### `mount`
+
+```toml
+mount = [
+  { source = "~/Projects/sarcasticbird/homebrew-tap", access = "read-write" },
+]
+```
+
+Each entry exposes one existing host directory at the same canonical absolute
+path inside the guest. `source` must be absolute or begin with `~/`. `access`
+defaults to `read-only`; use `read-write` only when the guest must modify the
+host directory. The filesystem root, host home, ancestors of the host home,
+paths overlapping the selected project, and paths overlapping an enabled
+agent's persistent state directory are refused. Disable the conflicting agent
+or choose a separate mount. Sources containing `,` or `=` are also rejected
+because Apple's CLI reserves those characters in its mount grammar. A missing
+source is an error. A mount change recreates the container while preserving
+agent-state volumes.
+
+Project-specific mounts normally belong in the ignored project `.coop.toml`.
+The machine-wide file may declare a mount when every project should receive it.
+
 ### `projects`
 
 ```toml
@@ -434,7 +487,7 @@ match               = "~/Projects/sarcasticbird"
 include_credentials = ["github-sarcasticbird"]
 ```
 
-This user-only array binds grants and seeds to a subset of projects. Top-level
+This machine-wide array binds grants and seeds to a subset of projects. Top-level
 `include_credentials` and `[[seed]]` apply to every coop; a `[[projects]]` block
 applies only where `match` matches. Use it to keep a forge token with the
 organization it belongs to rather than handing it to every project you enter.
@@ -462,12 +515,28 @@ Scoped seeds behave exactly like top-level ones, including `dest` defaulting to
 
 ## Recipes
 
-### Add a guest package
+### Mount a sibling project directory
 
-For a repository requirement:
+Put the mount beside the project it expands, not in the machine-wide project
+list:
 
 ```toml
-# <project-root>/coop.toml
+# ~/Projects/sarcasticbird/wrap/.coop.toml
+mount = [
+  { source = "~/Projects/sarcasticbird/homebrew-tap", access = "read-write" },
+]
+```
+
+Use `read-only` or omit `access` when the guest only needs to inspect the
+directory. Run `coop status` to see whether the existing container needs
+recreation, then run `coop up` when ready to adopt the new mount.
+
+### Add a guest package
+
+For a project-specific requirement:
+
+```toml
+# <project-root>/.coop.toml
 [tools]
 packages = ["actionlint"]
 ```
@@ -483,7 +552,7 @@ coop
 ### Choose between tools and Flox
 
 Use `[tools].packages` for additive Linux commands available from Coop's pinned
-Nixpkgs. Use trusted `[[tools.github_release]]` for a personal, public,
+Nixpkgs. Use `[[tools.github_release]]` for a personal, public,
 prebuilt Linux arm64 command absent from that revision. Use a project `.flox`
 when the project needs pinned runtime versions or the same environment inside
 and outside Coop. Flox is optional; Coop detects and activates the nearest
@@ -491,7 +560,7 @@ and outside Coop. Flox is optional; Coop detects and activates the nearest
 
 ### Install a public GitHub release tool
 
-Put this in trusted user configuration, not the repository:
+Put this in machine-wide configuration or an ignored project `.coop.toml`:
 
 ```toml
 [[tools.github_release]]
@@ -591,7 +660,7 @@ provider defaults. Missing sources are skipped. Do not seed `auth.json` or an
 equivalent provider login store; `coop doctor` treats recognized sensitive
 seed paths as failures. Recognized Git paths include `.git-credentials` and
 custom `~/.config/git/credentials-*` stores. The check covers source and
-destination paths in every trusted `[[projects]]` scope, not only the scope
+destination paths in every configured `[[projects]]` scope, not only the scope
 matching the current project.
 
 Files under `~/.codex` persist in that project's Codex volume. Native login,

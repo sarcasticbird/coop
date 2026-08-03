@@ -13,7 +13,7 @@ trust and isolation boundaries are in
 
 Starting from the current directory, Coop selects a project root in this order:
 
-1. the nearest ancestor containing a regular `coop.toml` file;
+1. the nearest ancestor containing a regular `.coop.toml` file;
 2. the parent of a Git worktree when that parent contains a `.bare` directory;
 3. the Git repository root;
 4. the current directory.
@@ -23,8 +23,10 @@ the project identity. Coop refuses the filesystem root, the user's home
 directory, and every ancestor of the home directory because mounting any of
 them would expose an unreasonably broad host tree.
 
-An empty `coop.toml` is a valid boundary marker. This is useful for a monorepo
-subtree or a directory that owns a bare repository and several worktrees.
+An empty `.coop.toml` is a valid boundary marker. This is useful
+for a monorepo subtree or a directory that owns a bare repository and several
+worktrees. `.coop.toml` is the machine-local project configuration and must be
+Git-ignored.
 
 The container and volume names include a readable project slug plus a hash of
 the canonical path. Two projects with the same basename therefore do not share
@@ -33,14 +35,15 @@ containers or state.
 ## Identical paths
 
 The selected root is mounted read-write at the identical absolute path inside
-the guest. Coop also sets the guest `HOME` to the host home path and creates
-that directory in the guest.
+the guest. The project's `.coop.toml` may add other directories at their
+identical canonical paths, read-only by default. Coop also sets the guest
+`HOME` to the host home path and creates that directory in the guest.
 
 This property keeps project paths, shell history, configuration references, and
 agent session metadata meaningful on both sides of the boundary. It does not
-mount the host home. Only the selected project, explicitly configured seeds,
-the optional SSH-agent socket, and temporary selected credentials cross into
-the guest.
+mount the host home. Only the selected project, explicitly configured mounts,
+explicitly configured seeds, the optional SSH-agent socket, and temporary
+selected credentials cross into the guest.
 
 When entry starts from a symlinked or out-of-project working directory, Coop
 canonicalizes it and falls back to the selected project root if necessary.
@@ -79,9 +82,11 @@ also run on supported Apple silicon hardware.
 6. apply configured seeds.
 
 The spec fingerprint covers the effective image, CPU and memory allocation,
-SSH-agent forwarding, canonical project mount, guest home, and sorted
-agent-volume layout. A mismatch recreates the container. Named state volumes
-survive recreation; undeclared root-filesystem changes do not.
+SSH-agent forwarding, canonical project mount, guest home, sorted agent-volume
+layout, and any additional mounts. Mount-free projects retain the legacy
+fingerprint, so enabling this feature does not recreate unrelated containers.
+A mismatch recreates the container. Named state volumes survive recreation;
+undeclared root-filesystem changes do not.
 
 Seeds run against the live mount namespace after agent volumes are attached.
 An `if-absent` destination inside an agent volume therefore survives container
@@ -140,7 +145,7 @@ embeds:
 - the Containerfile and shell wrapper;
 - the core workbench manifest and an exact fallback lock;
 - an immutable Nixpkgs revision for configured packages;
-- trusted user GitHub release declarations and their rebuild-time resolutions.
+- configured GitHub release declarations and their rebuild-time resolutions.
 
 `coop rebuild` materializes those inputs to a temporary build context and asks
 Apple's runtime to build the desired local image. Every configured package is a
@@ -204,7 +209,7 @@ reconstructs `PATH` so command lookup is:
 1. an optional project `.flox`;
 2. every path owned by the locked core activation;
 3. the configured-tools profile;
-4. trusted GitHub release tools;
+4. configured GitHub release tools;
 5. absolute operating-system fallback paths.
 
 Empty and relative inherited `PATH` entries are discarded. This prevents the
@@ -236,7 +241,7 @@ Manual software installs and other root-filesystem changes survive
 recreation or when the container is destroyed. A practical progression is:
 
 ```text
-try manually -> declare in coop.toml -> move to .flox when portability matters
+try manually -> declare in .coop.toml -> move to .flox when portability matters
 ```
 
 ## Recovery without deleting state
@@ -273,7 +278,7 @@ agent-state volumes remain available until the rebuilt image is ready.
 - Sandbox images are built locally and are not published by this project.
 - Guest architecture is `aarch64-linux`.
 - Project Flox environments used in Coop must support `aarch64-linux`.
-- The selected project is one read-write mount; Coop is not a per-file
-  capability system.
+- The selected project and any additional configured directories are whole-directory
+  mounts; Coop is not a per-file capability system.
 - Guest root and unrestricted network egress are operating constraints, not
   additional security boundaries.

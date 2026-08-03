@@ -125,8 +125,8 @@ func root() *cobra.Command {
 		Short: "Sandboxed sessions for coding agents, native to Apple Silicon",
 		Long: `coop runs each project's coding-agent sessions inside its own
 lightweight Linux VM (Apple container). The project is mounted at its
-identical host path, agent configs are seeded in declaratively, and repositories
-can add tools through coop.toml or an optional project flox environment.`,
+identical host path, agent configs are seeded in declaratively, and local project
+settings can add tools through .coop.toml or an optional project flox environment.`,
 		Args:          cobra.ArbitraryArgs,
 		Version:       resolvedVersion(),
 		SilenceErrors: true,
@@ -485,10 +485,10 @@ func runRebuild(ctx context.Context, s *session.Session, stdout, stderr io.Write
 	if err != nil {
 		return nil, err
 	}
-	if err := saveReleaseToolLock(stateDir, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
+	if err := saveReleaseToolLock(stateDir, s.Project, s.Cfg.Tools.GitHubReleases, resolved); err != nil {
 		return nil, fmt.Errorf("save GitHub release tool state: %w", err)
 	}
-	if err := pruneReleaseToolCache(resolved); err != nil {
+	if err := pruneReleaseToolCache(stateDir, resolved); err != nil {
 		_, _ = fmt.Fprintf(stderr, "coop: warning: prune GitHub release tool cache: %v\n", err)
 	}
 	return resolved, nil
