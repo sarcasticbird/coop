@@ -53,7 +53,7 @@ container system start
 Download and verify the exact release:
 
 ```sh
-version=v0.1.2
+version=v0.2.0
 archive="coop_${version}_darwin_arm64.tar.gz"
 gh release download "$version" -R sarcasticbird/coop \
   -p "$archive" -p checksums.txt
