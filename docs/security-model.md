@@ -54,10 +54,12 @@ project root. It does not automatically mount the rest of the home directory.
 Host data crosses into the guest only through:
 
 - the selected project mount;
+- project subtrees replaced in the guest by explicitly configured named volumes;
 - additional identical-path mounts declared by local configuration;
 - configured seeds;
 - configured named credentials selected for one entry;
 - optional SSH-agent forwarding;
+- explicitly published guest TCP services on host loopback;
 - runtime and virtualization interfaces provided by Apple's stack.
 
 Project `.coop.toml` has host-side authority but must remain machine-local.
@@ -76,6 +78,20 @@ not prevent disclosure; read-write also permits immediate host-visible changes.
 Coop rejects additional mounts that overlap enabled agent-state volumes so a
 bind mount cannot hide or replace persistent agent data.
 
+A project `[[volume]]` is guest-owned persistent storage. Guest root can read,
+replace, or retain everything in it across entries and container recreation.
+The volume hides the corresponding host subtree only inside the guest; it does
+not delete, synchronize, or protect that host data from host processes.
+`coop destroy` removes all named volumes owned by the project, including stale
+project volumes no longer declared.
+
+A `[[publish]]` exposes a guest TCP service to every process on the host that
+can connect to the chosen `127.0.0.1` port. Loopback prevents direct LAN
+exposure, but it is not a per-user or per-process authorization boundary. Coop
+does not authenticate clients, terminate TLS, or encrypt the connection. The
+application remains responsible for authentication and transport security
+when its data requires them.
+
 ## Guest authority and persistence
 
 Commands run as root in the guest. Root can inspect other guest processes,
@@ -85,7 +101,7 @@ and access mounted project and state data.
 Containers persist across entries. A malicious root-capable process can remain
 running after an interactive command exits or modify guest paths used by a
 later entry. Container recreation discards the root filesystem, but named
-agent-state volumes persist until `coop destroy`.
+agent-state and project volumes persist until `coop destroy`.
 
 Per-project volumes prevent accidental state sharing between projects with
 different canonical paths. They do not isolate processes inside the same
@@ -228,6 +244,9 @@ agent can be sent over the network by guest processes.
 
 Coop does not currently provide destination filtering, DNS isolation,
 per-process egress controls, or a claim that package installation is offline.
+Configured `[[publish]]` entries additionally allow host processes to initiate
+TCP connections to selected guest services through host loopback, with the
+application-level security responsibilities described above.
 
 ## VM and runtime boundary
 

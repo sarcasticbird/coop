@@ -212,6 +212,16 @@ func (s *Session) SpecFingerprint() string {
 		mounts = append(mounts, mount.Source+"="+string(mount.Access))
 	}
 	sort.Strings(mounts)
+	var projectVolumes []string
+	for _, volume := range s.Cfg.Volumes {
+		projectVolumes = append(projectVolumes, volume.Path)
+	}
+	sort.Strings(projectVolumes)
+	var publishes []string
+	for _, publish := range s.Cfg.Publishes {
+		publishes = append(publishes, fmt.Sprintf("%d:%d/tcp", publish.HostPort, publish.GuestPort))
+	}
+	sort.Strings(publishes)
 	canonical := fmt.Sprintf("v1|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s",
 		s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
 		s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","))
@@ -220,8 +230,55 @@ func (s *Session) SpecFingerprint() string {
 			s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
 			s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","), strings.Join(mounts, ","))
 	}
+	if len(projectVolumes) > 0 || len(publishes) > 0 {
+		canonical = fmt.Sprintf("v3|img=%s|cpus=%d|mem=%s|ssh=%t|proj=%s|home=%s|vols=%s|mounts=%s|project-volumes=%s|publish=%s",
+			s.DesiredImageName(), s.Cfg.Resources.CPUs, s.Cfg.Resources.Memory,
+			s.Cfg.SSH, s.Project, s.GuestHome, strings.Join(vols, ","), strings.Join(mounts, ","),
+			strings.Join(projectVolumes, ","), strings.Join(publishes, ","))
+	}
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+func projectVolumeName(containerName, relativePath string) string {
+	sum := sha256.Sum256([]byte(relativePath))
+	return containerName + project.VolumeSep + "project-volume-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func ensureProjectVolumeTarget(projectRoot, relativePath string) (string, error) {
+	if relativePath == "" || filepath.IsAbs(relativePath) || filepath.Clean(relativePath) != relativePath {
+		return "", fmt.Errorf("path must be a normalized project-relative directory")
+	}
+	target := filepath.Join(projectRoot, relativePath)
+	rel, err := filepath.Rel(projectRoot, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes project root")
+	}
+	current := projectRoot
+	parts := strings.Split(relativePath, string(filepath.Separator))
+	for i, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", err
+			}
+			if i != len(parts)-1 {
+				return "", fmt.Errorf("parent %q does not exist", current)
+			}
+			if err := os.Mkdir(current, 0o755); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path component %q is a symlink", current)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("path component %q is not a directory", current)
+		}
+	}
+	return target, nil
 }
 
 // Up ensures the container exists and is running, then applies seeds.
@@ -318,6 +375,20 @@ func (s *Session) up(ctx context.Context) error {
 				Target: config.ExpandHome(spec.State, s.GuestHome),
 			})
 		}
+		for _, volume := range s.Cfg.Volumes {
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
+			target, err := ensureProjectVolumeTarget(s.Project, volume.Path)
+			if err != nil {
+				return fmt.Errorf("prepare project volume %q: %w", volume.Path, err)
+			}
+			name := projectVolumeName(s.Name, volume.Path)
+			if err := s.RT.EnsureVolume(name); err != nil {
+				return fmt.Errorf("volume %s for %q: %w", name, volume.Path, err)
+			}
+			vols = append(vols, runtime.Volume{Name: name, Target: target})
+		}
 		sort.Slice(vols, func(i, j int) bool { return vols[i].Name < vols[j].Name })
 		mounts := []runtime.Mount{{Source: s.Project, Target: s.Project}}
 		for _, mount := range s.Cfg.Mounts {
@@ -330,6 +401,19 @@ func (s *Session) up(ctx context.Context) error {
 		if err := context.Cause(ctx); err != nil {
 			return err
 		}
+		publishes := make([]runtime.Publish, 0, len(s.Cfg.Publishes))
+		for _, publish := range s.Cfg.Publishes {
+			publishes = append(publishes, runtime.Publish{
+				HostPort:  publish.HostPort,
+				GuestPort: publish.GuestPort,
+			})
+		}
+		sort.Slice(publishes, func(i, j int) bool {
+			if publishes[i].HostPort == publishes[j].HostPort {
+				return publishes[i].GuestPort < publishes[j].GuestPort
+			}
+			return publishes[i].HostPort < publishes[j].HostPort
+		})
 		err := s.RT.Run(runtime.RunSpec{
 			Name:   s.Name,
 			Image:  s.DesiredImageName(),
@@ -339,9 +423,10 @@ func (s *Session) up(ctx context.Context) error {
 			Labels: map[string]string{SpecLabel: want, runtime.ProjectLabel: s.Project},
 			// HOME enforced at run time too, so custom images without a
 			// baked GUEST_HOME still honor the identical-path property.
-			Env:     map[string]string{"HOME": s.GuestHome},
-			Mounts:  mounts,
-			Volumes: vols,
+			Env:       map[string]string{"HOME": s.GuestHome},
+			Mounts:    mounts,
+			Volumes:   vols,
+			Publishes: publishes,
 		})
 		if err != nil {
 			return fmt.Errorf("create %s: %w", s.Name, err)

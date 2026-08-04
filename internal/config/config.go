@@ -61,6 +61,19 @@ type Mount struct {
 // ReadOnly reports the runtime bind-mount mode. The safe default is read-only.
 func (m Mount) ReadOnly() bool { return m.Access != MountReadWrite }
 
+// Volume is a project-relative directory backed by a persistent guest-only
+// named volume. The host directory remains a separate tree.
+type Volume struct {
+	Path string `toml:"path"`
+}
+
+// Publish maps one guest TCP port to host loopback. HostPort defaults to
+// GuestPort during configuration resolution.
+type Publish struct {
+	GuestPort int `toml:"guest_port"`
+	HostPort  int `toml:"host_port"`
+}
+
 // ProjectScope binds credentials and seeds to roots under Match.
 type ProjectScope struct {
 	Match              string   `toml:"match"`
@@ -128,6 +141,8 @@ type Config struct {
 	Credentials        map[string]Credential `toml:"credentials"`
 	Projects           []ProjectScope        `toml:"projects"`
 	Mounts             []Mount               `toml:"mount"`
+	Volumes            []Volume              `toml:"volume"`
+	Publishes          []Publish             `toml:"publish"`
 	// SSH forwards the host SSH agent socket into coops. Default OFF:
 	// it grants guests the ability to sign/authenticate as you, which
 	// combined with network egress is an exfiltration-adjacent
@@ -239,6 +254,9 @@ func Load(projectRoot string) (Config, error) {
 	if err := resolveMounts(&cfg, projectRoot); err != nil {
 		return cfg, err
 	}
+	if err := ValidateProjectRuntime(&cfg, projectRoot); err != nil {
+		return cfg, err
+	}
 	cfg.Tools.GlobalPackages = canonicalPackages(cfg.Tools.GlobalPackages)
 	cfg.Tools.ProjectPackages = canonicalPackages(cfg.Tools.ProjectPackages)
 	cfg.Tools.Packages = canonicalPackages(append(
@@ -297,6 +315,9 @@ func mergeFile(cfg *Config, path string, project bool) error {
 		}
 		return fmt.Errorf("%s: unknown keys: %s", path, strings.Join(keys, ", "))
 	}
+	if !project && (len(layer.Volumes) > 0 || len(layer.Publishes) > 0) {
+		return fmt.Errorf("%s: volume and publish are only supported in project config", path)
+	}
 	toolsDefined := md.IsDefined("tools", "packages")
 	legacyToolsDefined := md.IsDefined("image", "extra_packages")
 	if toolsDefined && legacyToolsDefined {
@@ -352,6 +373,8 @@ func mergeFile(cfg *Config, path string, project bool) error {
 	cfg.Seeds = append(cfg.Seeds, layer.Seeds...)
 	cfg.Projects = append(cfg.Projects, layer.Projects...)
 	cfg.Mounts = append(cfg.Mounts, layer.Mounts...)
+	cfg.Volumes = append(cfg.Volumes, layer.Volumes...)
+	cfg.Publishes = append(cfg.Publishes, layer.Publishes...)
 	return nil
 }
 

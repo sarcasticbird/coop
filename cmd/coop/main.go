@@ -21,6 +21,8 @@ import (
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/doctor"
+	"github.com/sarcasticbird/coop/internal/project"
+	"github.com/sarcasticbird/coop/internal/projectinit"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
@@ -98,6 +100,7 @@ var (
 		}
 		return (core.Upgrader{StateDir: stateDir}).Upgrade(ctx, stdout, stderr)
 	}
+	runProjectInit                  = projectinit.Run
 	saveReleaseToolLock             = releasetool.SaveLock
 	pruneReleaseToolCache           = releasetool.PruneCache
 	warningOutput         io.Writer = os.Stderr
@@ -167,6 +170,24 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	}
 
 	rootCmd.AddCommand(
+		&cobra.Command{Use: "init", Args: cobra.NoArgs, Short: "Configure project-local dependency isolation and ports",
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := rejectCredentials(cmd); err != nil {
+					return err
+				}
+				if !stdinIsTerminal() {
+					return errors.New("coop init requires a terminal; configure .coop.toml manually with [[volume]] and [[publish]] tables")
+				}
+				cwd, err := os.Getwd()
+				if err != nil {
+					return err
+				}
+				root, err := project.Resolve(cwd)
+				if err != nil {
+					return err
+				}
+				return runProjectInit(root, cmd.InOrStdin(), cmd.OutOrStdout())
+			}},
 		&cobra.Command{Use: "up", Args: cobra.NoArgs, Short: "Start the project's coop without entering",
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				if err := rejectCredentials(cmd); err != nil {

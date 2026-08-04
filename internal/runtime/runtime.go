@@ -32,6 +32,8 @@ type RunSpec struct {
 	Labels  map[string]string
 	Mounts  []Mount  // bind mounts (source resolved host-side)
 	Volumes []Volume // named volumes
+	// Publishes map guest TCP ports to host loopback.
+	Publishes []Publish
 }
 
 type Mount struct {
@@ -43,6 +45,11 @@ type Mount struct {
 type Volume struct {
 	Name   string
 	Target string
+}
+
+type Publish struct {
+	HostPort  int
+	GuestPort int
 }
 
 // State is a container's lifecycle state. Runtime errors are errors —
@@ -273,23 +280,49 @@ func ValidateMountField(s string) error {
 }
 
 func (a *Apple) Run(spec RunSpec) error {
-	for _, m := range spec.Mounts {
-		if err := ValidateMountField(m.Source); err != nil {
+	args, err := runArgs(spec)
+	if err != nil {
+		return err
+	}
+	if err := a.run(args...); err != nil {
+		if len(spec.Publishes) == 0 {
 			return err
 		}
+		published := make([]string, 0, len(spec.Publishes))
+		for _, publish := range spec.Publishes {
+			published = append(published, fmt.Sprintf("127.0.0.1:%d:%d/tcp", publish.HostPort, publish.GuestPort))
+		}
+		return fmt.Errorf("published ports [%s]: %w", strings.Join(published, ", "), err)
+	}
+	return nil
+}
+
+func runArgs(spec RunSpec) ([]string, error) {
+	for _, m := range spec.Mounts {
+		if err := ValidateMountField(m.Source); err != nil {
+			return nil, err
+		}
 		if err := ValidateMountField(m.Target); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	for _, v := range spec.Volumes {
 		if err := ValidateMountField(v.Name); err != nil {
-			return err
+			return nil, err
 		}
 		if err := ValidateMountField(v.Target); err != nil {
-			return err
+			return nil, err
 		}
 		if strings.Contains(v.Name, ":") || strings.Contains(v.Target, ":") {
-			return fmt.Errorf("volume field contains ':' (reserved by -v grammar): %q:%q", v.Name, v.Target)
+			return nil, fmt.Errorf("volume field contains ':' (reserved by -v grammar): %q:%q", v.Name, v.Target)
+		}
+	}
+	for _, publish := range spec.Publishes {
+		if publish.HostPort < 1 || publish.HostPort > 65535 {
+			return nil, fmt.Errorf("host port %d is outside 1..65535", publish.HostPort)
+		}
+		if publish.GuestPort < 1 || publish.GuestPort > 65535 {
+			return nil, fmt.Errorf("guest port %d is outside 1..65535", publish.GuestPort)
 		}
 	}
 	args := []string{"run", "-d", "--name", spec.Name,
@@ -303,9 +336,6 @@ func (a *Apple) Run(spec RunSpec) error {
 	for k, v := range spec.Labels {
 		args = append(args, "-l", k+"="+v)
 	}
-	for _, v := range spec.Volumes {
-		args = append(args, "-v", v.Name+":"+v.Target)
-	}
 	for _, m := range spec.Mounts {
 		s := fmt.Sprintf("type=virtiofs,source=%s,target=%s", m.Source, m.Target)
 		if m.ReadOnly {
@@ -313,8 +343,14 @@ func (a *Apple) Run(spec RunSpec) error {
 		}
 		args = append(args, "--mount", s)
 	}
+	for _, v := range spec.Volumes {
+		args = append(args, "-v", v.Name+":"+v.Target)
+	}
+	for _, publish := range spec.Publishes {
+		args = append(args, "--publish", fmt.Sprintf("127.0.0.1:%d:%d/tcp", publish.HostPort, publish.GuestPort))
+	}
 	args = append(args, spec.Image, "sleep", "infinity")
-	return a.run(args...)
+	return args, nil
 }
 
 func (a *Apple) Exec(name string, argv []string, stdin io.Reader) error {

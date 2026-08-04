@@ -48,6 +48,26 @@ selected credentials cross into the guest.
 When entry starts from a symlinked or out-of-project working directory, Coop
 canonicalizes it and falls back to the selected project root if necessary.
 
+## Project volumes and host ports
+
+A project-local `[[volume]]` overlays a persistent Linux named volume at a
+relative path inside the read-write project mount. Coop passes the parent
+VirtioFS mount before the child named volume so only the selected subtree is
+hidden in the guest. The host tree remains unchanged and visible to host
+tools. A new guest volume is empty; install or generate its Linux contents in
+the guest. It survives stop/start and container recreation.
+
+This is the boundary for native package trees such as `node_modules`: matching
+Node and npm versions through Flox do not make macOS native bindings usable on
+Linux. The manifest and lockfile stay shared, while host and guest installs
+populate separate trees.
+
+A project-local `[[publish]]` becomes an Apple Container TCP publication from
+host `127.0.0.1:<host_port>` to the guest port. The service must bind the guest
+network, normally `0.0.0.0:<guest_port>`; a service bound only to guest
+localhost is not reachable through the publication. Publications belong to
+the long-lived container specification, not to one interactive entry.
+
 ## Runtime layers
 
 ```text
@@ -57,7 +77,9 @@ host
       project container
         derived Coop image
         read-write project mount
+        optional nested project volumes
         per-agent named volumes
+        optional host-loopback TCP publications
         optional SSH-agent socket
         temporary credential lease
 ```
@@ -83,10 +105,11 @@ also run on supported Apple silicon hardware.
 
 The spec fingerprint covers the effective image, CPU and memory allocation,
 SSH-agent forwarding, canonical project mount, guest home, sorted agent-volume
-layout, and any additional mounts. Mount-free projects retain the legacy
-fingerprint, so enabling this feature does not recreate unrelated containers.
-A mismatch recreates the container. Named state volumes survive recreation;
-undeclared root-filesystem changes do not.
+layout, additional mounts, project volumes, and port publications. Projects
+without additional mounts, project volumes, or publications retain the legacy
+fingerprint, so the feature does not recreate unrelated containers. A mismatch
+recreates the container. Named volumes survive recreation; undeclared
+root-filesystem changes do not.
 
 Seeds run against the live mount namespace after agent volumes are attached.
 An `if-absent` destination inside an agent volume therefore survives container
@@ -95,7 +118,7 @@ disposable root filesystem are absent after recreation and are seeded again.
 
 The main commands have deliberately different persistence behavior:
 
-| Command | Container | Agent-state volumes | Images |
+| Command | Container | Coop-owned named volumes | Images |
 | --- | --- | --- | --- |
 | `coop up` | Create, start, or reconcile | Preserve | Require desired image |
 | `coop` / `coop <command>` | Reconcile, seed, then enter | Preserve | Require desired image |
@@ -103,8 +126,8 @@ The main commands have deliberately different persistence behavior:
 | `coop destroy` | Stop and remove | Delete all project-owned volumes | Preserve |
 
 `coop destroy` finds volumes by the project's container-name prefix, not only
-the current agent list. It therefore removes volumes left behind by older
-configuration.
+the current agent and project-volume declarations. It therefore removes
+volumes left behind by older configuration.
 
 Coop serializes destructive lifecycle operations per project. Runtime
 inspection failures remain errors; they are never treated as proof that a
@@ -223,7 +246,7 @@ selected project root contains several worktrees.
 
 Project Flox is optional. It must support `aarch64-linux` when used in Coop.
 Flox settings and services remain project-owned; Coop does not synthesize a
-manifest or force project services to start.
+manifest, run dependency installers, or force project services to start.
 
 ## Seeds and state
 
@@ -257,7 +280,7 @@ coop up
 ```
 
 Do not use `coop destroy` for this recovery path; it also removes agent-state
-volumes.
+and project volumes.
 
 If the desired image is missing after `coop upgrade`, a Coop binary upgrade,
 or a tool change, explicitly build it for the current project:

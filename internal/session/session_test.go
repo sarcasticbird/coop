@@ -19,6 +19,7 @@ import (
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/credential"
+	"github.com/sarcasticbird/coop/internal/project"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
@@ -673,6 +674,179 @@ func TestUpAddsConfiguredMountsWithIdenticalPathsAndAccess(t *testing.T) {
 	}
 	if got[2].Source != "/Users/u/Projects/reference" || got[2].Target != got[2].Source || !got[2].ReadOnly {
 		t.Errorf("read-only configured mount = %+v", got[2])
+	}
+}
+
+func TestUpAddsProjectVolumeAndPublishesLoopbackPort(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Project = t.TempDir()
+	parent := filepath.Join(s.Project, "web")
+	target := filepath.Join(parent, "node_modules")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hostSentinel := filepath.Join(target, "host.txt")
+	if err := os.WriteFile(hostSentinel, []byte("host tree"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+	s.Cfg.Publishes = []config.Publish{{HostPort: 5173, GuestPort: 5173}}
+
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	spec := m.Run_[0]
+	wantVolume := runtime.Volume{
+		Name:   projectVolumeName(s.Name, "web/node_modules"),
+		Target: target,
+	}
+	if !slices.Contains(spec.Volumes, wantVolume) {
+		t.Fatalf("project volume = %+v, want %+v", spec.Volumes, wantVolume)
+	}
+	wantPublish := runtime.Publish{HostPort: 5173, GuestPort: 5173}
+	if !slices.Contains(spec.Publishes, wantPublish) {
+		t.Fatalf("publications = %+v, want %+v", spec.Publishes, wantPublish)
+	}
+	got, err := os.ReadFile(hostSentinel)
+	if err != nil || string(got) != "host tree" {
+		t.Fatalf("host project contents changed: %q, %v", got, err)
+	}
+}
+
+func TestProjectVolumeNameIsStableScopedAndPathSpecific(t *testing.T) {
+	first := projectVolumeName("coop-proj", "web/node_modules")
+	if again := projectVolumeName("coop-proj", "web/node_modules"); again != first {
+		t.Fatalf("project volume name changed: %q != %q", first, again)
+	}
+	if !strings.HasPrefix(first, "coop-proj"+project.VolumeSep+"project-volume-") {
+		t.Fatalf("project volume %q is not owned by coop-proj", first)
+	}
+	if other := projectVolumeName("coop-proj", "target"); other == first {
+		t.Fatalf("different paths share project volume name %q", first)
+	}
+}
+
+func TestSpecFingerprintChangesWithProjectRuntime(t *testing.T) {
+	s := testSession(t, runtime.NewMock())
+	before := s.SpecFingerprint()
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+	withVolume := s.SpecFingerprint()
+	if withVolume == before {
+		t.Fatal("adding a project volume did not change the container spec fingerprint")
+	}
+	s.Cfg.Publishes = []config.Publish{{HostPort: 5173, GuestPort: 5173}}
+	if withPublish := s.SpecFingerprint(); withPublish == withVolume {
+		t.Fatal("adding a publication did not change the container spec fingerprint")
+	}
+}
+
+func TestSpecFingerprintProjectRuntimeOrderIndependent(t *testing.T) {
+	a := testSession(t, runtime.NewMock())
+	b := testSession(t, runtime.NewMock())
+	a.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}, {Path: "target"}}
+	b.Cfg.Volumes = []config.Volume{{Path: "target"}, {Path: "web/node_modules"}}
+	a.Cfg.Publishes = []config.Publish{{HostPort: 5173, GuestPort: 5173}, {HostPort: 8080, GuestPort: 80}}
+	b.Cfg.Publishes = []config.Publish{{HostPort: 8080, GuestPort: 80}, {HostPort: 5173, GuestPort: 5173}}
+	if got, want := a.SpecFingerprint(), b.SpecFingerprint(); got != want {
+		t.Fatalf("authored order changed fingerprint: %q != %q", got, want)
+	}
+}
+
+func TestUpCreatesOnlyMissingProjectVolumeTarget(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Project = t.TempDir()
+	parent := filepath.Join(s.Project, "web")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(parent, "host.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(parent, "node_modules")
+	info, err := os.Lstat(target)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("target was not created as a real directory: %v, %v", info, err)
+	}
+	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep" {
+		t.Fatalf("parent contents changed: %q, %v", got, err)
+	}
+}
+
+func TestUpProjectVolumePreparationFailureDoesNotCreateContainer(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Project = t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(s.Project, "web")); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+
+	err := s.Up()
+	if err == nil || !strings.Contains(err.Error(), `prepare project volume "web/node_modules"`) || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("preparation error = %v", err)
+	}
+	if len(m.Run_) != 0 || m.Existing[s.Name] {
+		t.Fatalf("container created after preparation failure: runs=%+v", m.Run_)
+	}
+}
+
+func TestUpProjectVolumeRuntimeFailureIdentifiesAuthoredPath(t *testing.T) {
+	m := runtime.NewMock()
+	m.EnsureVolumeErr = errors.New("volume service unavailable")
+	s := testSession(t, m)
+	s.Cfg.Agents = nil
+	s.Project = t.TempDir()
+	if err := os.Mkdir(filepath.Join(s.Project, "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+
+	err := s.Up()
+	name := projectVolumeName(s.Name, "web/node_modules")
+	if err == nil || !strings.Contains(err.Error(), "volume "+name+` for "web/node_modules"`) || !strings.Contains(err.Error(), "volume service unavailable") {
+		t.Fatalf("volume creation error = %v", err)
+	}
+	if len(m.Run_) != 0 {
+		t.Fatalf("container created after volume failure: %+v", m.Run_)
+	}
+}
+
+func TestUpProjectVolumeNamesSurviveRecreation(t *testing.T) {
+	m := runtime.NewMock()
+	s := testSession(t, m)
+	s.Project = t.TempDir()
+	if err := os.Mkdir(filepath.Join(s.Project, "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.Cfg.Volumes = []config.Volume{{Path: "web/node_modules"}}
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	name := projectVolumeName(s.Name, "web/node_modules")
+	if !m.Volumes[name] {
+		t.Fatalf("project volume %q was not created", name)
+	}
+
+	s.Cfg.Publishes = []config.Publish{{HostPort: 5173, GuestPort: 5173}}
+	if err := s.Up(); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Run_) != 2 || !m.Volumes[name] {
+		t.Fatalf("recreation lost project volume: runs=%d volumes=%+v", len(m.Run_), m.Volumes)
+	}
+	for _, spec := range m.Run_ {
+		if !slices.Contains(spec.Volumes, runtime.Volume{Name: name, Target: filepath.Join(s.Project, "web/node_modules")}) {
+			t.Fatalf("run did not reuse stable project volume: %+v", spec.Volumes)
+		}
 	}
 }
 

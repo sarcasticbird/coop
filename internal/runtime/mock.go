@@ -27,6 +27,7 @@ type Mock struct {
 	Images          map[string]bool
 	ImageErr        error
 	ListErr         error
+	EnsureVolumeErr error
 	ContainerImages map[string]string
 	ContainerLabels map[string]map[string]string
 	LabelErr        error
@@ -129,6 +130,9 @@ func (m *Mock) List() (string, error) {
 func (m *Mock) Containers() ([]ContainerInfo, error) { return m.Infos, nil }
 
 func (m *Mock) EnsureVolume(name string) error {
+	if m.EnsureVolumeErr != nil {
+		return m.EnsureVolumeErr
+	}
 	m.Volumes[name] = true
 	return nil
 }
