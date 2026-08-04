@@ -237,9 +237,9 @@ file. Common locations include:
 - `~/.codex/auth.json` and corresponding provider login stores;
 - `~/.aws/credentials`, `~/.kube/config`, and `~/.docker/config.json`.
 
-Removing a project with `coop destroy` also deletes its agent-state volumes and
-history. Use that only when this broader deletion is intended; otherwise remove
-confirmed legacy files from the guest explicitly.
+Removing a project with `coop destroy` also deletes its agent-state volumes,
+project volumes, and history. Use that only when this broader deletion is
+intended; otherwise remove confirmed legacy files from the guest explicitly.
 
 An already-running entry is unaffected by a host configuration edit. Preserve
 it when necessary, then destroy or explicitly clean that Coop after the command

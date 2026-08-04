@@ -63,8 +63,15 @@ From a project directory:
 
 ```sh
 cd ~/Projects/my-app
+coop init              # optional: review local isolation and port proposals
 coop claude
 ```
+
+`coop init` is an interactive convenience for the ignored project
+`.coop.toml`. It detects likely platform-specific dependency trees, asks about
+localhost port publications, previews the exact TOML, and defaults every
+addition to no. It does not start Apple Container, build an image, or install
+dependencies.
 
 The first time you enter a project, coop offers to build the sandbox image —
 the first build takes a few minutes. Coop builds this image locally rather
@@ -101,6 +108,7 @@ than individual core packages.
 ```text
 coop [command [args...]]  Run a command in the project environment
 coop                      Open a shell
+coop init                 Review project-local dependency isolation and ports
 coop up                   Create or start the project container
 coop down                 Stop it while preserving state volumes
 coop status               Show container and desired/running image state
@@ -153,6 +161,23 @@ Coop loads machine-wide configuration from
 Git-ignored, and may override or expand any setting—including additional host
 directory mounts. Coop refuses a `.coop.toml` tracked by Git and does not load
 a committed project `coop.toml`.
+
+Use a project volume when one path cannot be safely shared between macOS and
+Linux—for example, native npm optional dependencies under `node_modules`:
+
+```toml
+[[volume]]
+path = "web/node_modules"
+
+[[publish]]
+guest_port = 5173
+host_port = 5173
+```
+
+The host keeps its own `web/node_modules`; Coop overlays a persistent,
+initially empty Linux volume at that path in the guest. Install dependencies
+once on each side. Published services are reachable at host
+`127.0.0.1:5173`; the guest service must listen on `0.0.0.0:5173`.
 
 Upgrading from 0.1.x requires renaming any project `coop.toml` to the ignored
 `.coop.toml` form and moving scoped mounts into the project file. See the

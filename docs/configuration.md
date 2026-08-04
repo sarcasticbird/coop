@@ -83,12 +83,20 @@ The selected project is mounted read-write, so guest code can modify its
 host-side Coop invocation will load them. Review local configuration after
 running code you do not trust.
 
+`coop init` provides an interactive, default-no review flow for common
+host/guest boundaries. It scans only the selected project, previews the exact
+append block, and writes only after final confirmation. In a Git worktree it
+adds an anchored `.coop.toml` pattern to Git's local `info/exclude`; it never
+edits a tracked `.gitignore`. The command does not start the runtime, build an
+image, or install dependencies. Non-interactive input is refused.
+
 ## When changes take effect
 
 | Change | Required action |
 | --- | --- |
 | `tools.packages`, `tools.github_release`, `image.name`, or Coop's embedded image inputs | Run `coop rebuild`; the next `coop up` or entry recreates the container |
 | `resources`, `agents`, `ssh`, or `mount` | The next `coop up` or interactive entry recreates the container |
+| `[[volume]]` or `[[publish]]` | The next `coop up` or interactive entry recreates the container; project volumes survive recreation |
 | `seed` | Applied on the next `coop up` or interactive entry |
 | `credentials` or `include_credentials` | Applied on the next interactive entry |
 | `[[projects]]` | Applied on the next `coop up` or interactive entry |
@@ -457,6 +465,67 @@ Defaults are followed by explicit selections, then the combined list is
 deduplicated. The flag may be repeated and also applies to `coop tui`. Commands
 that do not enter the guest, such as `coop up`, reject it.
 
+### `volume`
+
+```toml
+[[volume]]
+path = "web/node_modules"
+```
+
+| Property | Value |
+| --- | --- |
+| `path` | Normalized directory path relative to the project root |
+| Default | No project volumes |
+| Layer | Ignored project `.coop.toml` only |
+| Limit | 64 declarations before deduplication |
+| Effect | Container recreation; named volume persists |
+
+Each declaration overlays a Coop-owned Linux named volume at that path inside
+the already mounted project. The host directory remains a separate tree. This
+is intended for platform-specific outputs such as npm `node_modules`, Rust
+`target`, and Python virtual environments that cannot safely be shared between
+macOS and Linux.
+
+The path must be non-empty, relative, already normalized, confined to the
+project, and free of control characters and the runtime grammar characters
+`:`, `,`, and `=`. Existing components may not be symlinks. The final target
+may already be a directory or may be absent when its parent exists; Coop
+creates only that final empty host directory before container creation. It
+never deletes or seeds host contents. Configured project-volume paths may not
+overlap one another. Identical declarations are deduplicated.
+
+A new guest volume is empty even when the host target already contains files,
+so install the guest dependencies once after enabling it. The volume survives
+`coop down`, `coop up`, and spec-driven container recreation. Removing the
+declaration detaches the volume but deliberately leaves it available for
+re-adoption. `coop destroy` removes every named volume owned by that Coop,
+including stale project volumes no longer declared.
+
+### `publish`
+
+```toml
+[[publish]]
+guest_port = 5173
+host_port = 5173
+```
+
+| Property | Value |
+| --- | --- |
+| `guest_port` | Required integer from 1 through 65535 |
+| `host_port` | Integer from 1 through 65535; defaults to `guest_port` |
+| Protocol/address | TCP on host `127.0.0.1` only |
+| Layer | Ignored project `.coop.toml` only |
+| Limit | 32 declarations before deduplication |
+| Effect | Container recreation |
+
+The guest service must listen on `0.0.0.0:<guest_port>` (or its guest network
+interface), not only guest `127.0.0.1`. Host clients connect to
+`127.0.0.1:<host_port>`. Identical mappings are deduplicated. A host port may
+map to only one guest port; conflicts are configuration errors. If another host
+process already owns the port, Apple Container rejects creation and Coop
+reports the attempted mapping. Coop does not kill the process or choose a
+different port.
+
 ### `mount`
 
 ```toml
@@ -557,6 +626,18 @@ prebuilt Linux arm64 command absent from that revision. Use a project `.flox`
 when the project needs pinned runtime versions or the same environment inside
 and outside Coop. Flox is optional; Coop detects and activates the nearest
 `.flox` between the current directory and project root.
+
+Matching tool versions do not make generated native artifacts portable. For a
+web app used both on macOS and in Coop, isolate the platform-specific tree:
+
+```toml
+[[volume]]
+path = "web/node_modules"
+```
+
+Then run `npm install` once on the host and once inside Coop. The two installs
+share `package.json` and the lockfile through the project mount but populate
+separate native dependency trees.
 
 ### Install a public GitHub release tool
 

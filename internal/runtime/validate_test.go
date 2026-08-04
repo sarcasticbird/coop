@@ -109,6 +109,88 @@ func TestRunRejectsVolumeGrammarColon(t *testing.T) {
 	}
 }
 
+func TestRunArgsOrdersProjectMountVolumeAndPublication(t *testing.T) {
+	args, err := runArgs(RunSpec{
+		Name:   "coop-project",
+		Image:  "coop:latest",
+		CPUs:   4,
+		Memory: "8G",
+		Mounts: []Mount{{
+			Source: "/project",
+			Target: "/project",
+		}},
+		Volumes: []Volume{{
+			Name:   "coop-project--project-volume-0123456789abcdef",
+			Target: "/project/web/node_modules",
+		}},
+		Publishes: []Publish{{
+			HostPort:  5173,
+			GuestPort: 5173,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"run", "-d", "--name", "coop-project",
+		"--cpus", "4", "--memory", "8G",
+		"--mount", "type=virtiofs,source=/project,target=/project",
+		"-v", "coop-project--project-volume-0123456789abcdef:/project/web/node_modules",
+		"--publish", "127.0.0.1:5173:5173/tcp",
+		"coop:latest", "sleep", "infinity",
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("run args =\n%q\nwant:\n%q", args, want)
+	}
+}
+
+func TestRunArgsRejectsInvalidPublishedPorts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		publish Publish
+		want    string
+	}{
+		{name: "zero host", publish: Publish{HostPort: 0, GuestPort: 5173}, want: "host port"},
+		{name: "large host", publish: Publish{HostPort: 65536, GuestPort: 5173}, want: "host port"},
+		{name: "zero guest", publish: Publish{HostPort: 5173, GuestPort: 0}, want: "guest port"},
+		{name: "large guest", publish: Publish{HostPort: 5173, GuestPort: 65536}, want: "guest port"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := runArgs(RunSpec{
+				Name:      "coop-project",
+				Image:     "coop:latest",
+				CPUs:      1,
+				Memory:    "1G",
+				Publishes: []Publish{tc.publish},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunPublishFailureReportsCanonicalMapping(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "container")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho address already in use >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &Apple{Bin: bin}
+	err := a.Run(RunSpec{
+		Name:      "coop-project",
+		Image:     "coop:latest",
+		CPUs:      1,
+		Memory:    "1G",
+		Publishes: []Publish{{HostPort: 5173, GuestPort: 4173}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "published ports [127.0.0.1:5173:4173/tcp]") {
+		t.Fatalf("error does not identify canonical publication: %v", err)
+	}
+	if !strings.Contains(err.Error(), "address already in use") {
+		t.Fatalf("runtime detail missing from error: %v", err)
+	}
+}
+
 func TestVolumeNamesFromListFailsClosedOnMissingID(t *testing.T) {
 	for _, input := range []string{
 		`[{"id":""}]`,

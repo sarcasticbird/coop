@@ -703,6 +703,100 @@ func withTerminalStdin(t *testing.T, isTTY bool) {
 	t.Cleanup(func() { stdinIsTerminal = old })
 }
 
+func TestInitDoesNotConstructRuntime(t *testing.T) {
+	projectRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Chdir(projectRoot)
+	withTerminalStdin(t, true)
+	oldRuntime := newRuntime
+	runtimeCalled := false
+	newRuntime = func() runtime.Runtime {
+		runtimeCalled = true
+		return runtime.NewMock()
+	}
+	t.Cleanup(func() { newRuntime = oldRuntime })
+
+	cmd := root()
+	cmd.SetIn(strings.NewReader("\n"))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"init"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeCalled {
+		t.Fatal("init constructed the container runtime")
+	}
+}
+
+func TestInitRejectsNonTTYWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	t.Chdir(projectRoot)
+	withTerminalStdin(t, false)
+	cmd := root()
+	cmd.SetIn(strings.NewReader("y\n"))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"init"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "terminal") || !strings.Contains(err.Error(), "[[volume]]") {
+		t.Fatalf("non-TTY error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(projectRoot, ".coop.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("non-TTY init wrote config: %v", err)
+	}
+}
+
+func TestInitUsesResolvedProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectRoot, ".coop.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(projectRoot, "apps", "web")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+	withTerminalStdin(t, true)
+	oldRun := runProjectInit
+	var gotRoot string
+	runProjectInit = func(root string, _ io.Reader, _ io.Writer) error {
+		gotRoot = root
+		return nil
+	}
+	t.Cleanup(func() { runProjectInit = oldRun })
+
+	cmd := root()
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"init"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRoot != wantRoot {
+		t.Fatalf("init root = %q, want resolved marker %q", gotRoot, wantRoot)
+	}
+}
+
+func TestInitRejectsCredentialsFlag(t *testing.T) {
+	t.Chdir(t.TempDir())
+	withTerminalStdin(t, true)
+	cmd := root()
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--credentials", "token", "init"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "only valid when entering") {
+		t.Fatalf("credential flag error = %v", err)
+	}
+}
+
 func TestEntryOffersFirstBuildAndContinues(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)

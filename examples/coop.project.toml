@@ -10,6 +10,18 @@
 #   { source = "~/Projects/example/homebrew-tap", access = "read-write" },
 # ]
 
+# Keep platform-specific dependencies in a persistent Linux-only volume rather
+# than sharing the host's macOS tree. A new volume starts empty, so install the
+# guest dependencies after enabling it.
+# [[volume]]
+# path = "web/node_modules"
+
+# Publish a guest service only on host loopback. The service must listen on
+# 0.0.0.0:5173 inside the guest, not only on guest localhost.
+# [[publish]]
+# guest_port = 5173
+# host_port = 5173
+
 [resources]
 cpus = 6
 memory = "12G"
