@@ -42,7 +42,7 @@ coop doctor
 Or install the current release from source with Go 1.26.5 or later:
 
 ```sh
-go install github.com/sarcasticbird/coop/cmd/coop@v0.2.0
+go install github.com/sarcasticbird/coop/cmd/coop@v0.3.0
 coop --version
 coop doctor
 ```
@@ -53,7 +53,7 @@ runtime. Install it separately with `brew install container`, then start its
 service with `container system start`.
 
 Prebuilt archives are attached to the
-[`v0.2.0` release](https://github.com/sarcasticbird/coop/releases/tag/v0.2.0).
+[`v0.3.0` release](https://github.com/sarcasticbird/coop/releases/tag/v0.3.0).
 Verify an archive against `checksums.txt` before installing it. Release
 binaries target Apple silicon and are not Developer ID signed or notarized.
 
