@@ -1,219 +1,102 @@
 # Runtime Model
 
-Coop gives each selected project a long-lived Linux container managed by
-Apple's `container` runtime. The project is mounted read-write at the same
-absolute path it has on the host, while coding-agent state lives in named
-volumes dedicated to that project.
+Coop gives each selected project a persistent Linux container managed by
+Apple's `container` runtime. The project is mounted read-write at its identical
+host path; agent state and configured Linux-only directories live in
+project-specific named volumes.
 
-The configuration reference is in [configuration.md](configuration.md). The
-trust and isolation boundaries are in
-[security-model.md](security-model.md).
+Use this page for operational details. See [Configuration](configuration.md)
+for settings and [Security](security-model.md) for trust boundaries.
 
 ## Project selection
 
 Starting from the current directory, Coop selects a project root in this order:
 
-1. the nearest ancestor containing a regular `.coop.toml` file;
-2. the parent of a Git worktree when that parent contains a `.bare` directory;
+1. the nearest ancestor containing `.coop.toml`;
+2. the parent of a Git worktree when that parent contains `.bare`;
 3. the Git repository root;
 4. the current directory.
 
-The path is made absolute and canonicalized through symlinks before it becomes
-the project identity. Coop refuses the filesystem root, the user's home
-directory, and every ancestor of the home directory because mounting any of
-them would expose an unreasonably broad host tree.
+An empty `.coop.toml` is a valid boundary marker. Coop canonicalizes the path
+through symlinks and uses it to name the container and volumes. A path hash
+keeps projects with the same directory name separate.
 
-An empty `.coop.toml` is a valid boundary marker. This is useful
-for a monorepo subtree or a directory that owns a bare repository and several
-worktrees. `.coop.toml` is the machine-local project configuration and must be
-Git-ignored.
+Coop refuses `/`, the user's home, and ancestors of the home as project roots.
 
-The container and volume names include a readable project slug plus a hash of
-the canonical path. Two projects with the same basename therefore do not share
-containers or state.
+## Paths and mounts
 
-## Identical paths
+The project has the same absolute path in the guest as on the host. Coop also
+sets guest `HOME` to the host home's absolute path, but it does not mount the
+host home.
 
-The selected root is mounted read-write at the identical absolute path inside
-the guest. The project's `.coop.toml` may add other directories at their
-identical canonical paths, read-only by default. Coop also sets the guest
-`HOME` to the host home path and creates that directory in the guest.
+The guest can see only:
 
-This property keeps project paths, shell history, configuration references, and
-agent session metadata meaningful on both sides of the boundary. It does not
-mount the host home. Only the selected project, explicitly configured mounts,
-explicitly configured seeds, the optional SSH-agent socket, and temporary
-selected credentials cross into the guest.
+- the selected project;
+- additional mounts declared in local configuration;
+- configured seeds and selected credentials;
+- configured agent and project volumes;
+- the SSH-agent socket when enabled;
+- interfaces supplied by Apple's runtime.
 
-When entry starts from a symlinked or out-of-project working directory, Coop
-canonicalizes it and falls back to the selected project root if necessary.
-
-## Project volumes and host ports
-
-A project-local `[[volume]]` overlays a persistent Linux named volume at a
-relative path inside the read-write project mount. Coop passes the parent
-VirtioFS mount before the child named volume so only the selected subtree is
-hidden in the guest. The host tree remains unchanged and visible to host
-tools. A new guest volume is empty; install or generate its Linux contents in
-the guest. It survives stop/start and container recreation.
-
-This is the boundary for native package trees such as `node_modules`: matching
-Node and npm versions through Flox do not make macOS native bindings usable on
-Linux. The manifest and lockfile stay shared, while host and guest installs
-populate separate trees.
-
-A project-local `[[publish]]` becomes an Apple Container TCP publication from
-host `127.0.0.1:<host_port>` to the guest port. The service must bind the guest
-network, normally `0.0.0.0:<guest_port>`; a service bound only to guest
-localhost is not reachable through the publication. Publications belong to
-the long-lived container specification, not to one interactive entry.
-
-## Runtime layers
-
-```text
-host
-  Coop CLI
-    Apple container service
-      project container
-        derived Coop image
-        read-write project mount
-        optional nested project volumes
-        per-agent named volumes
-        optional host-loopback TCP publications
-        optional SSH-agent socket
-        temporary credential lease
-```
-
-The Apple container service owns VM and container execution. Coop owns project
-selection, the desired container specification, image derivation, seeding,
-credential staging, and interactive entry.
-
-Hosted CI cannot run this nested Apple runtime. Runtime behavior is tested
-against a strict mock; release validation that depends on the real runtime must
-also run on supported Apple silicon hardware.
+An additional mount also uses its canonical host path in the guest and defaults
+to read-only.
 
 ## Container lifecycle
 
-`coop up` reconciles the desired project container:
+`coop up` compares the desired project specification with the existing
+container, then creates, starts, or recreates it as needed. The specification
+includes the image, resources, project path, agent state, mounts, project
+volumes, port publications, and SSH setting.
 
-1. acquire a per-project host lock;
-2. inspect the current container state;
-3. compare its stored spec fingerprint with current configuration;
-4. verify a replacement image exists before removing a stale container;
-5. create or start the container;
-6. apply configured seeds.
+| Command | Container | Named volumes |
+| --- | --- | --- |
+| `coop up` | Create, start, or reconcile | Preserve |
+| `coop` / `coop <command>` | Reconcile, seed, then enter | Preserve |
+| `coop down` | Stop | Preserve |
+| `coop destroy` | Stop and remove | Delete all volumes owned by the project |
 
-The spec fingerprint covers the effective image, CPU and memory allocation,
-SSH-agent forwarding, canonical project mount, guest home, sorted agent-volume
-layout, additional mounts, project volumes, and port publications. Projects
-without additional mounts, project volumes, or publications retain the legacy
-fingerprint, so the feature does not recreate unrelated containers. A mismatch
-recreates the container. Named volumes survive recreation; undeclared
-root-filesystem changes do not.
+Container recreation discards changes made only to its root filesystem. Agent
+and project volumes survive. `coop destroy` also removes volumes left behind by
+older local configuration.
 
-Seeds run against the live mount namespace after agent volumes are attached.
-An `if-absent` destination inside an agent volume therefore survives container
-recreation and is not recopied after native guest updates. Destinations in the
-disposable root filesystem are absent after recreation and are seeded again.
+Coop serializes lifecycle changes per project and treats runtime inspection
+failures as errors, not as proof that state is absent.
 
-The main commands have deliberately different persistence behavior:
+## Project volumes and published ports
 
-| Command | Container | Coop-owned named volumes | Images |
-| --- | --- | --- | --- |
-| `coop up` | Create, start, or reconcile | Preserve | Require desired image |
-| `coop` / `coop <command>` | Reconcile, seed, then enter | Preserve | Require desired image |
-| `coop down` | Stop | Preserve | Preserve |
-| `coop destroy` | Stop and remove | Delete all project-owned volumes | Preserve |
+A project-local `[[volume]]` overlays a persistent Linux volume within the
+read-write project mount. The corresponding host directory remains a separate
+tree. This keeps platform-specific output such as `node_modules`, `target`, or
+a virtual environment from mixing macOS and Linux artifacts.
 
-`coop destroy` finds volumes by the project's container-name prefix, not only
-the current agent and project-volume declarations. It therefore removes
-volumes left behind by older configuration.
+The guest volume starts empty. Install dependencies once on each platform.
+Shared manifests and lockfiles remain in the project mount.
 
-Coop serializes destructive lifecycle operations per project. Runtime
-inspection failures remain errors; they are never treated as proof that a
-container or volume is absent.
+A project-local `[[publish]]` maps host `127.0.0.1:<host_port>` to a guest TCP
+port. The guest service must listen on its guest network interface, normally
+`0.0.0.0:<guest_port>`, rather than only guest localhost.
 
-## Interactive entry
+## Images and rebuilds
 
-An interactive entry performs more work than `coop up`:
+Coop builds its guest image locally. The binary supplies the base-image
+reference, Containerfile, core tool lock, and pinned package source; local
+configuration adds Nixpkgs packages and optional verified public GitHub release
+tools.
 
-1. resolve and acquire default plus explicitly requested credentials on the
-   host;
-2. reconcile the container and apply seeds;
-3. remove abandoned credential leases from earlier interrupted entries;
-4. stage the new lease in guest memory-backed storage;
-5. enter at the requested working directory;
-6. clean up the lease and revoke upstream material when supported.
+`coop rebuild` creates the desired image for the current project. A different
+core lock, embedded image input, configured package set, release-tool result,
+or `image.name` produces a different desired image. `coop status` shows the
+running and desired state without replacing a working container first.
 
-Credential acquisition finishes before Coop changes VM state. This avoids
-tearing down a working container when a host credential helper fails.
+Public GitHub release tools resolve only during `coop rebuild`. Ordinary entry
+and status do not update them.
 
-Acquisition returns typed material. Bundle construction may project one result
-into several constrained interfaces before staging; for example, one host
-`git credential fill` result can create a temporary Git store and a `GH_TOKEN`
-environment value. Every file remains inside the same randomized tmpfs lease,
-and the entry wrapper removes the whole lease on exit. See
-[Credentials](credentials.md) for source trust, Keychain setup, and migration.
+### Core upgrades
 
-Running `coop` without a guest command opens `zsh -l`. Arguments after a guest
-command are passed through unchanged. Coop options, including
-`--credentials`, must appear before that command.
+`coop upgrade` updates the user-local locked core toolset. It does not build
+project images or stop, recreate, or destroy existing containers.
 
-## Images
-
-The public beta does not distribute a prebuilt sandbox image. The Coop binary
-embeds:
-
-- a digest-pinned Flox base image reference;
-- the Containerfile and shell wrapper;
-- the core workbench manifest and an exact fallback lock;
-- an immutable Nixpkgs revision for configured packages;
-- configured GitHub release declarations and their rebuild-time resolutions.
-
-`coop rebuild` materializes those inputs to a temporary build context and asks
-Apple's runtime to build the desired local image. Every configured package is a
-validated attribute resolved from the pinned Nixpkgs source. A failed package
-install fails the image build. Public GitHub release tools are resolved only by
-`coop rebuild`, verified against the release asset's API digest, cached by
-digest, and copied into the build context. Ordinary entry and status do not
-contact GitHub.
-
-The derived `local-...` image tag hashes:
-
-- the configured `image.name`;
-- the effective, sorted package set;
-- the canonical GitHub release declarations and resolved tags/digests;
-- the embedded image files and active core lock;
-- the pinned package source.
-
-Changing any input produces a different desired tag. `coop status` reports
-both the running and desired image, whether the desired build is missing, and
-whether recreation is pending. Coop never removes a working container before
-confirming that its replacement image exists.
-
-### Core upgrades and project rebuilds
-
-`coop upgrade` and `coop rebuild` deliberately own different transitions:
-
-- `coop upgrade` advances the user-local, machine-wide desired core lock;
-- `coop rebuild` builds the current project's image from that active lock.
-
-The upgrade resolver runs Flox inside a short-lived, digest-pinned Apple
-container. Flox is not required on the host. Version one upgrades every
-package in Coop's core manifest; it does not accept a package name.
-
-The active lock is derived state under
-`${XDG_STATE_HOME:-$HOME/.local/state}/coop/core/`, keyed by the embedded core
-manifest fingerprint. A Coop release with a different manifest therefore
-cannot consume an incompatible older upgraded lock. Failed resolution,
-validation, or persistence leaves the previous active lock untouched.
-
-`coop upgrade` does not build an image or stop, start, remove, or recreate any
-project container. It also does not change configured user/project packages,
-GitHub release tools, or project Flox environments. When the lock changes, the
-desired image tag changes naturally. `coop status` then reports the project as
-requiring a rebuild, while the existing container remains intact. The user
-adopts the new core per project:
+Adopt a changed core one project at a time:
 
 ```sh
 coop upgrade
@@ -222,86 +105,71 @@ coop status
 coop rebuild
 ```
 
-## Tool lookup and Flox
+The existing container remains available until the replacement image has been
+built.
 
-Every guest command enters through Coop's locked core Flox environment.
-Configured user/project packages live in a separate lower-priority Nix profile.
-Trusted GitHub release binaries live in a separate image directory. Coop
-reconstructs `PATH` so command lookup is:
+## Command entry and Flox
 
-1. an optional project `.flox`;
-2. every path owned by the locked core activation;
-3. the configured-tools profile;
+Running `coop` with no guest command opens `zsh -l`. Arguments after a guest
+command pass through unchanged, and Coop options such as `--credentials` must
+appear before that command.
+
+Command lookup is:
+
+1. the nearest project `.flox` between the current directory and project root;
+2. Coop's locked core tools;
+3. configured Nixpkgs packages;
 4. configured GitHub release tools;
-5. absolute operating-system fallback paths.
+5. operating-system fallback paths.
 
-Empty and relative inherited `PATH` entries are discarded. This prevents the
-mounted repository or current directory from shadowing core credential,
-seeding, and transport tools.
+Project Flox is optional and must support `aarch64-linux`. Coop activates it but
+does not create its manifest, install project dependencies, or start its
+services.
 
-Before entry, Coop walks from the current guest directory toward the selected
-project root. If it finds `.flox`, it activates the nearest one around the
-guest command. This works with a worktree-local environment even when the
-selected project root contains several worktrees.
+## Seeds, agent state, and credentials
 
-Project Flox is optional. It must support `aarch64-linux` when used in Coop.
-Flox settings and services remain project-owned; Coop does not synthesize a
-manifest, run dependency installers, or force project services to start.
+Seeds apply after the container starts on each `coop up` and interactive entry.
+Their `always`, `if-absent`, and `overlay` policies are independent of image
+builds. See [Seeds](configuration.md#seeds).
 
-## Seeds and state
+Each configured agent state directory is a named volume. State such as native
+agent logins and transcripts therefore persists per project across stop/start
+and recreation.
 
-Seeds are applied after the container is running, on every `coop up` and
-interactive entry. This makes `always`, `if-absent`, and `overlay` policies
-independent of image builds. See the [seed reference](configuration.md#seed)
-for exact behavior and safety constraints.
-
-Agent state is different: each configured state directory is a named volume
-mounted when the container is created. Changing the agent map changes the
-container spec and causes recreation.
-
-Manual software installs and other root-filesystem changes survive
-`coop down` followed by `coop up`. They disappear when configuration causes
-recreation or when the container is destroyed. A practical progression is:
-
-```text
-try manually -> declare in .coop.toml -> move to .flox when portability matters
-```
+Selected credentials are acquired for an interactive entry, exposed through a
+temporary guest lease, and cleaned up after that command exits. This is not a
+confidentiality boundary against guest root. See [Credentials](credentials.md)
+and [Session credentials](security-model.md#session-credentials).
 
 ## Recovery without deleting state
 
-If the container root filesystem is damaged, remove only the container with
-Apple's CLI and let Coop recreate it:
+If only the container root filesystem is damaged, note its name from
+`coop status`, remove that container with Apple's CLI, and let Coop recreate
+it:
 
 ```sh
-coop status                 # note the container name
+coop status
 container stop <name>
 container rm <name>
 coop up
 ```
 
-Do not use `coop destroy` for this recovery path; it also removes agent-state
+Do not use `coop destroy` for this recovery path because it also deletes agent
 and project volumes.
 
-If the desired image is missing after `coop upgrade`, a Coop binary upgrade,
-or a tool change, explicitly build it for the current project:
+When the desired image is missing after an upgrade or tool change:
 
 ```sh
 coop rebuild
 coop up
 ```
 
-This stale state does not require `coop destroy`; the existing container and
-agent-state volumes remain available until the rebuilt image is ready.
+## Platform limits
 
-## Current limits
-
-- Supported hosts are Apple silicon Macs running macOS 26 or later.
-- Release binaries target Darwin arm64 and are not Developer ID signed or
-  notarized.
-- Sandbox images are built locally and are not published by this project.
-- Guest architecture is `aarch64-linux`.
-- Project Flox environments used in Coop must support `aarch64-linux`.
-- The selected project and any additional configured directories are whole-directory
-  mounts; Coop is not a per-file capability system.
-- Guest root and unrestricted network egress are operating constraints, not
-  additional security boundaries.
+- Hosts must be Apple silicon Macs running macOS 26 or later.
+- The guest architecture is `aarch64-linux`.
+- Guest images are built locally.
+- Hosted CI uses a strict runtime mock; real Apple runtime validation happens
+  on supported hardware.
+- The project and additional paths are whole-directory mounts, not per-file
+  capabilities.

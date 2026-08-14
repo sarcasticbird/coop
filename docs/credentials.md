@@ -1,268 +1,234 @@
 # Credentials
 
-Coop separates configuration, initialization, persistent application state,
-and session secrets. The short version is:
+Coop is a read-only credential broker:
 
-> Configuration describes, seeds initialize non-secrets, agent volumes persist
-> provider-owned state, and credential grants lease secrets.
+> GitHub creates and revokes tokens. Git stores them using the host's configured
+> credential helper. Coop reads them for an authorized project entry and
+> removes the temporary guest copy afterward.
 
-Use seeds for portable configuration, rules, skills, and executables. Let an
-agent keep its own interactive login in its project-specific state volume. Use
-a credential grant when a tool accepts a documented environment, temporary
-file, Git helper, or AWS shared-credentials interface.
+Coop does not create, rotate, update, or revoke source credentials. Rotation is
+a provider operation plus an update to the provider's normal host storage.
 
-## Trust and authorization
+## Set up GitHub access
 
-Machine-wide configuration and the ignored project `.coop.toml` may define a
-credential or select a default credential. Coop does not load a committed
-project `coop.toml`.
+This path gives both Git and `gh` a GitHub token inside selected Coops without
+putting the token in a project file, shell history, or agent state.
 
-`[[projects]]` is the authorization boundary. Its canonical path prefix decides
-which projects receive a grant. The source URL is also fixed in local
-configuration. Coop never derives it from `.git/config` or another repository
-file, so changing a remote cannot retarget an authorized grant.
+### 1. Create a token on GitHub
 
-An authorized guest is still trusted with the leased credential. Guest root
-can read process environments and lease files and can retain a copy after Coop
-cleans up. macOS Keychain protects the host copy at rest; it does not make the
-guest unable to copy an intentionally granted secret.
+Create a narrowly scoped personal access token in GitHub account settings. Give
+it only the repository and organization permissions your work requires.
 
-## Lifecycle
+Keep the token available for the next step. Do not paste it into Coop config.
 
-For each interactive entry Coop:
+### 2. Confirm host Git uses Keychain
 
-1. resolves default, project-scoped, and explicit credential selections;
-2. validates all source and exposure claims and rejects collisions;
-3. acquires every credential on the host before changing VM state;
-4. reconciles the container and applies non-secret seeds;
-5. creates a randomized mode-0700 lease under
-   `/dev/shm/coop-credentials`;
-6. stages mode-0600 files and process environment values atomically;
-7. launches exactly one guest command through the lease;
-8. removes the lease and revokes renewable material when supported.
-
-Acquisition failure leaves a working container untouched. Cleanup removes the
-guest lease, but it cannot revoke a copy retained by guest code or a static
-source token.
-
-## Sources, material, and exposures
-
-A source acquires typed material on the host. An exposure projects that
-material into a constrained guest interface.
-
-| Source | Material | Purpose |
-| --- | --- | --- |
-| `file` | opaque | Read one regular host file outside the project |
-| `command` | opaque | Run trusted host argv and capture bounded stdout |
-| `git-credential` | username/password | Ask host `git credential fill` for one fixed HTTPS URL |
-| `aws-profile` | AWS | Export temporary credentials through the host AWS CLI |
-
-| Exposure | Compatible material | Guest result |
-| --- | --- | --- |
-| `environment` without `field` | opaque | Complete payload in `name` |
-| `environment` with `field = "username"` or `"password"` | username/password | Selected field in `name` |
-| `file` | opaque | Mode-0600 lease file; its path in `path_env` |
-| `git-credential-store` | username/password, or legacy opaque file material | Temporary store plus process-local Git helper override |
-| `aws` | AWS | Temporary shared-credentials file and sanitized AWS environment |
-
-New configurations can define several projections with `expose`. Existing
-singular `inject` definitions remain supported as a compatibility form. A
-grant cannot define both.
-
-## GitHub with macOS Keychain
-
-The recommended GitHub path lets host Git own credential lookup and use
-`git-credential-osxkeychain` as its storage backend. Coop's public abstraction
-is still `git-credential`: other Git helpers remain possible, and Git helper
-configuration is trusted executable host configuration.
-
-First inspect the active helper chain, then configure only what is missing.
-`useHttpPath` is necessary when maintaining separate URL-path entries such as
-one grant per organization:
+Inspect the active Git credential helpers:
 
 ```sh
 git config --show-origin --get-all credential.helper
-git config --show-origin --get-all credential.https://github.com.useHttpPath
+```
 
-# Only when no intended Keychain helper is already active:
+If the output already contains the helper you intend to use, keep it. A
+standard macOS Keychain setup uses `osxkeychain`; configure it only when no
+intentional helper is already active:
+
+```sh
 git config --global credential.helper osxkeychain
+```
+
+Enable path-aware GitHub credentials so separate organizations or accounts can
+have separate records:
+
+```sh
 git config --global credential.https://github.com.useHttpPath true
 ```
 
-Do not replace or duplicate an intentional helper chain without reviewing its
-origins. A system-level `osxkeychain` helper is already sufficient; the
-path-aware setting may still need to be added at user scope.
+Credential-helper configuration is trusted host configuration. If you already
+use 1Password, Git Credential Manager, or another deliberate helper chain, keep
+that setup and use its normal storage behavior.
 
-Store an organization-scoped GitHub username and token without putting the
-token in shell history or a plaintext file. This snippet uses macOS's default
-Zsh:
+### 3. Store the token through Git
+
+Run this in macOS's default Zsh. Enter a GitHub organization or account for the
+scope, your GitHub username, and the token when prompted:
 
 ```zsh
-read -r "COOP_GH_USER?GitHub username: "
-read -r -s "COOP_GH_TOKEN?GitHub token: "
+read -r "COOP_GITHUB_SCOPE?GitHub organization or account: "
+read -r "COOP_GITHUB_USER?GitHub username: "
+read -r -s "COOP_GITHUB_TOKEN?GitHub token: "
 printf '\n'
-printf 'protocol=https\nhost=github.com\npath=sarcasticbird\nusername=%s\npassword=%s\n\n' \
-  "$COOP_GH_USER" "$COOP_GH_TOKEN" | git credential approve
-unset COOP_GH_TOKEN COOP_GH_USER
+printf 'protocol=https\nhost=github.com\npath=%s\nusername=%s\npassword=%s\n\n' \
+  "$COOP_GITHUB_SCOPE" "$COOP_GITHUB_USER" "$COOP_GITHUB_TOKEN" |
+  git credential approve
+unset COOP_GITHUB_TOKEN COOP_GITHUB_USER COOP_GITHUB_SCOPE
 ```
 
-Replace `sarcasticbird` with the fixed URL path used by the grant. The token's
-provider-side repository permissions remain the real authority; choose the
-narrowest practical token.
+The prompt keeps the token out of shell history. `git credential approve`
+passes it to the configured host helper; with `osxkeychain`, the source copy is
+stored in macOS Keychain.
 
-Verify operationally that the configured Git helper chain can resolve a
-password without printing it or falling back to an interactive prompt:
+Use the same scope in the credential URL and in the project path you authorize.
+For example, a scope of `example` becomes `https://github.com/example`.
 
-```sh
-printf 'protocol=https\nhost=github.com\npath=sarcasticbird\n\n' |
-  GIT_TERMINAL_PROMPT=0 git credential fill |
-  awk -F= '$1 == "password" && length($2) { password=1 } END { exit !password }' &&
-  printf '%s\n' 'Git credential found'
-```
+### 4. Authorize selected projects
 
-`git credential fill` includes request fields such as `path` in its output even
-when the selected helper returned only a username and password. Its output
-therefore proves that the fixed request resolves, not which backend record was
-selected. Coop deliberately trusts the user's helper chain and cannot use
-Git's merged response as backend provenance.
-
-When separate macOS Keychain records enforce organization boundaries, verify
-the backend directly and include an unmatched negative control. This still
-does not print a password:
-
-```sh
-credential_scope=sarcasticbird
-printf 'protocol=https\nhost=github.com\npath=%s\n\n' "$credential_scope" |
-  git credential-osxkeychain get |
-  awk -F= '$1 == "password" && length($2) { password=1 } END { exit !password }' &&
-  printf '%s\n' 'Exact Keychain record found'
-
-credential_probe=coop-path-scope-negative-control.invalid
-if printf 'protocol=https\nhost=github.com\npath=%s\n\n' "$credential_probe" |
-  git credential-osxkeychain get |
-  awk -F= '$1 == "password" && length($2) { password=1 } END { exit !password }'
-then
-  printf '%s\n' 'Unexpected broad Keychain credential' >&2
-  exit 1
-fi
-```
-
-Repeat the positive check for every intended path. The negative control must
-return no password; otherwise a host-wide fallback can satisfy a path request.
-For another helper backend, use its equivalent exact-record inspection or
-accept explicitly that the helper, rather than Coop, owns that scoping rule.
-
-Then declare one acquisition with two projections:
+Add a named grant to `~/.config/coop/coop.toml`:
 
 ```toml
-[credentials.github-sarcasticbird]
-source = { type = "git-credential", url = "https://github.com/sarcasticbird" }
+[credentials.github-example]
+source = { type = "git-credential", url = "https://github.com/example" }
 expose = [
   { type = "git-credential-store" },
   { type = "environment", name = "GH_TOKEN", field = "password" },
 ]
 
 [[projects]]
-match = "~/Projects/sarcasticbird"
-include_credentials = ["github-sarcasticbird"]
+match = "~/Projects/example"
+include_credentials = ["github-example"]
 ```
 
-Inside a matching Coop, Git sees only the temporary helper override and `gh`
-uses `GH_TOKEN`; `gh auth login` is unnecessary and must not persist the token
-to its guest configuration. Verify without displaying the token:
+Replace `example` in all three places. The scope URL controls the host Git
+lookup; `match` controls which local projects receive the result. A repository
+remote cannot change either boundary.
+
+The first exposure gives guest Git a temporary credential store. The second
+gives `gh` its documented `GH_TOKEN` interface. You do not need to run
+`gh auth login` inside Coop for this grant.
+
+### 5. Verify from a matching project
+
+From a project beneath the configured `match` path:
 
 ```sh
-gh auth status
-GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/sarcasticbird/coop.git HEAD
+coop doctor
+coop gh auth status
+coop git -c credential.interactive=false ls-remote origin HEAD
 ```
 
-## Agent authentication
+These commands check configuration, `gh`, and the project's HTTPS Git remote
+without displaying the token. If `origin` is not an HTTPS GitHub remote, use
+the name of one that is.
 
-Codex, Claude, OpenCode, and similar clients own their interactive OAuth,
-device authorization, refresh tokens, account switching, and storage
-migrations. Coop keeps that provider-owned state in the agent's isolated
-per-project volume. It does not copy a host `auth.json` or equivalent login
-store by default.
+## Rotate a GitHub token
 
-Coop should broker an agent credential only when the agent documents a
-non-persistent environment or temporary-file interface. Portable rules and
-configuration may still be seeded when they contain no secrets.
+Coop has no stored source credential to rotate. Replace the value through Git,
+verify a new Coop entry, then revoke the old value at GitHub:
 
-## Migrating from credential files and secret seeds
+1. Create a replacement token while the old token still works.
+2. Run the same Zsh prompt from step 3 with the same scope and username. The
+   configured Git helper updates its host record.
+3. From a matching project, rerun:
 
-The broker replaces four persistent-copy behaviors with explicit ownership and
-shorter lifetimes:
+   ```sh
+   coop doctor
+   coop gh auth status
+   coop git -c credential.interactive=false ls-remote origin HEAD
+   ```
 
-| Previous behavior | Broker behavior | Security effect |
+4. Revoke the old token in GitHub account settings.
+
+Updating the host record changes what future Coop entries acquire. It does not
+invalidate the old token; provider-side revocation completes the rotation. An
+already-running credentialed command may still hold its temporary copy, so use
+a new entry for verification.
+
+## Select a grant for one entry
+
+`[[projects]]` is the preferred default boundary. For a one-off entry, add a
+grant explicitly:
+
+```sh
+coop --credentials github-example codex
+```
+
+Top-level `include_credentials` grants credentials to every project and should
+be reserved for credentials that genuinely need that scope. At most 16 unique
+grants may be selected for one entry.
+
+## Other credential sources
+
+Every grant has one host `source` and one or more guest `expose` entries.
+
+| Source | Host behavior | Allowed exposure |
 | --- | --- | --- |
-| PAT stored in a host plaintext file | PAT resolved by the host Git helper, preferably Keychain | Protects the current host copy at rest |
-| Matching project seeds a credential file | Trusted `[[projects]]` selects a named grant | Repository configuration cannot grant or retarget it |
-| Guest retains a Git store across entries | One command receives a temporary store under tmpfs | Later uncredentialed entries do not inherit it |
-| Host agent login state is seeded | Agent performs its own login in its project volume | OAuth and refresh-token lifecycle stays provider-owned |
+| `git-credential` | Runs `git credential fill` for a fixed HTTPS URL | `git-credential-store`; `environment` with `username` or `password` field |
+| `file` | Reads one regular host file outside the project | `file`; `environment`; `git-credential-store` for an existing Git store |
+| `command` | Executes trusted argv on the host and captures stdout | `file`; `environment` |
+| `aws-profile` | Asks the host AWS CLI to export profile credentials | `aws` |
 
-1. Add and verify the host-native credential backend. For GitHub on macOS, use
-   the Keychain recipe above.
-2. Add a `git-credential` grant and bind it to the narrowest `[[projects]]`
-   path.
-3. Remove seeds for `.git-credentials`, custom `.config/git/credentials-*`
-   stores, `.netrc`, `.config/gh/hosts.yml`, AWS credentials, kube config,
-   Docker config, or agent login files.
-4. Replace any `source = { type = "file", ... }` used with
-   `git-credential-store`.
-5. Run `coop doctor`. Sensitive seeds are failures; legacy plaintext Git store
-   sources are migration warnings.
-6. Enter a matching project and verify Git and the intended client.
-7. Re-run the backend-specific exact-record and negative-control checks. After
-   they succeed for every migrated grant, delete the old host plaintext
-   credential source files. Name each reviewed file explicitly; do not
-   recursively delete a broad config or backup directory.
-8. Clean old guest copies after confirming the broker works.
+Examples:
 
-Deleting an untracked plaintext source is permanent: Git cannot recover it.
-Keep the host-native backend verified and retain only configuration backups
-that do not embed secret values. Run `coop doctor` again after deletion.
+```toml
+[credentials.kubernetes]
+source = { type = "file", path = "~/.kube/config" }
+expose = [{ type = "file", path_env = "KUBECONFIG" }]
 
-Moving an existing token into Keychain does not revoke copies that previously
-existed in plaintext files or guests. Rotate it at the provider to invalidate
-that prior exposure. Rotation may be deferred operationally, but it remains an
-explicit outstanding remediation rather than a property of the migration.
+[credentials.internal-api]
+source = { type = "command", argv = ["/usr/local/bin/read-api-token"] }
+expose = [{ type = "environment", name = "INTERNAL_API_TOKEN" }]
 
-Coop does not automatically delete old secrets. Check both the disposable
-container filesystem and persistent agent volumes for prior copies. Also check
-the former host seed locations; deleting a seed rule does not delete its source
-file. Common locations include:
+[credentials.aws-dev]
+source = { type = "aws-profile", profile = "dev" }
+expose = [{ type = "aws" }]
+require_expiration = true
+```
 
-- `~/.git-credentials` and custom `~/.config/git/credentials-*` files;
-- `~/.config/gh/hosts.yml`;
-- `~/.codex/auth.json` and corresponding provider login stores;
-- `~/.aws/credentials`, `~/.kube/config`, and `~/.docker/config.json`.
+Host commands run directly, without a shell, from a trusted host directory and
+with a restricted environment. Source configuration is powerful: only point it
+at files and executables you trust. See the exact schema in
+[Configuration](configuration.md#credentials).
 
-Removing a project with `coop destroy` also deletes its agent-state volumes,
-project volumes, and history. Use that only when this broader deletion is
-intended; otherwise remove confirmed legacy files from the guest explicitly.
+## Agent-owned login state
 
-An already-running entry is unaffected by a host configuration edit. Preserve
-it when necessary, then destroy or explicitly clean that Coop after the command
-finishes. New disposable Coops are the clearest proof that no removed seed or
-previous agent state influenced the broker test.
+Codex, Claude Code, OpenCode, and similar clients own their OAuth and device
+login flows. Coop keeps that native login state in each agent's isolated
+project volume. Let the agent log in normally when it does not document an
+entry-scoped environment or file interface.
+
+Seed portable rules and non-secret preferences if useful. Do not seed
+`auth.json`, `hosts.yml`, or equivalent login stores from the host.
+
+## Moving away from plaintext credentials
+
+Move each secret into its normal host backend, verify the new grant, then
+remove only the specific plaintext copies you confirmed. Git cannot recover an
+untracked secret file after deletion, so verify first and avoid recursive
+cleanup of broad configuration directories.
+
+Moving a token protects the new host copy at rest but does not invalidate old
+copies. Rotate the credential at its provider after the move. `coop doctor`
+reports recognized sensitive seeds and legacy plaintext Git-store sources that
+still need review.
+
+## What cleanup can and cannot do
+
+For a credentialed interactive entry, Coop acquires material before changing
+runtime state, stages a randomized lease under guest tmpfs, and removes that
+lease when the command exits. It does not put secrets in project config,
+container arguments, labels, mounts, seeds, or named volumes.
+
+Every guest-root process can read or retain exposed material while the lease is
+active. Cleanup cannot erase a copy made by guest code and cannot revoke a
+static provider token. See [Session credentials](security-model.md#session-credentials)
+for the complete boundary.
 
 ## Troubleshooting
 
-- **`git credential fill` fails:** run the non-printing host verification above.
-  Check the URL path, `credential.useHttpPath`, helper ordering, and Keychain
-  access prompts.
-- **Keychain asks for access:** the prompt is host policy. Inspect the requesting
-  Git binary and grant only the access you intend.
-- **The grant is not selected:** check the canonical project root with
-  `coop status`, the `[[projects]].match` component boundary, and the exact
-  `include_credentials` name.
-- **Exposure collision:** two selected grants claim the same environment name or
-  specialized Git/AWS interface. Combine projections from one source or select
-  only one owner.
-- **Git works but `gh` does not:** ensure the same grant includes the
-  `environment` projection with `name = "GH_TOKEN"` and `field = "password"`.
-- **`gh` works but Git does not:** ensure `git-credential-store` is present and
-  no guest wrapper removes the process-local `GIT_CONFIG_*` variables.
+- **Coop cannot acquire the GitHub credential:** confirm the scope in the
+  credential URL exactly matches the scope stored through Git. Check
+  `credential.https://github.com.useHttpPath` and the active helper origins.
+- **Keychain asks for access:** macOS is authorizing the host Git process. Check
+  which Git binary requested access before approving it.
+- **The grant is not selected:** run `coop status`, then compare the project
+  root, `[[projects]].match`, and `include_credentials` name.
+- **Git works but `gh` does not:** add the `GH_TOKEN` password exposure shown in
+  the GitHub example.
+- **`gh` works but Git does not:** add `git-credential-store` and confirm the
+  remote is HTTPS.
+- **Two grants collide:** selected grants cannot claim the same environment
+  name or specialized Git/AWS interface. Select one owner or expose both
+  interfaces from one source.
 
-See [configuration.md](configuration.md#credentials) for the exact schema and
-[security-model.md](security-model.md#session-credentials) for remaining risk.
+For configuration errors, see [Configuration](configuration.md#credentials).
+For the remaining risk, see the [Security model](security-model.md#session-credentials).

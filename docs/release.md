@@ -22,8 +22,7 @@ Hosted CI runs the mocked runtime only — it cannot exercise Apple's
 `container` runtime. Steps 1–5 are the real-hardware validation that CI
 cannot provide.
 
-1. Choose the release version, update the README install example to that exact
-   version, and commit the change. Confirm `main` is green in CI and
+1. Choose the release version. Confirm `main` is green in CI and
    `roborev list --open` is clean.
 2. On an Apple silicon host running macOS 26+, build from the release
    commit and validate against the real runtime:
@@ -101,12 +100,9 @@ cannot provide.
    recreation before entry, the rootfs marker disappears, and the named-volume
    marker survives.
 
-6. Create an annotated tag on the release commit. The tag message
-   becomes the release notes, so write it for users: what changed,
-   migration notes, known limitations, and any removed bundled tools or other
-   breaking changes. For example, the Flox-backed tooling release called out
-   that Node.js was no longer bundled and had to be declared through project
-   Flox or `[tools].packages`.
+6. Create an annotated tag on the release commit. The tag message becomes the
+   release notes, so write it for users: what changed, required user action,
+   known limitations, and breaking changes.
 
    ```sh
    version=vX.Y.Z-beta.N # replace with the version being released

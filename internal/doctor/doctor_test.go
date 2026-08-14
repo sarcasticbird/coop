@@ -181,7 +181,7 @@ func TestPlaintextGitCredentialSourceReportsMigration(t *testing.T) {
 	cfg.Credentials = map[string]config.Credential{
 		"legacy": {
 			Source: config.CredentialSource{Type: "file", Path: "~/.config/git/credentials-acme"},
-			Inject: config.CredentialInjection{Type: "git-credential-store"},
+			Expose: []config.CredentialInjection{{Type: "git-credential-store"}},
 		},
 		"keychain": {
 			Source: config.CredentialSource{Type: "git-credential", URL: "https://github.com/acme"},

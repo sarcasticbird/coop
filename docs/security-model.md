@@ -1,277 +1,167 @@
 # Security Model
 
-Coop reduces the host resources directly exposed to coding agents by running
-them in a project-scoped Linux environment. It does not make untrusted code
-safe, and it does not treat guest root as an adversary it can contain within a
-long-lived project container.
+Coop narrows which host resources coding agents can reach. It does not make
+untrusted code safe.
 
-For vulnerability reporting, see the repository
+Commands run as root inside a persistent project container with unrestricted
+outbound network access. Assume guest code can modify the mounted project and
+retain anything intentionally exposed to it.
+
+Report suspected vulnerabilities through the repository
 [security policy](../SECURITY.md).
 
-## Trust boundaries
+## Configuration authority
 
-Coop loads two machine-local configuration layers with equal authority:
+Coop loads two machine-local files with full authority:
 
-- machine-wide settings from `~/.config/coop/coop.toml` (or the XDG equivalent);
-- project settings from an ignored `<project-root>/.coop.toml`.
+- `~/.config/coop/coop.toml`, or its XDG equivalent;
+- the selected project's ignored `.coop.toml`.
 
-Coop does not load a committed project `coop.toml`. Keep `.coop.toml`
-Git-ignored because it may contain private paths and host capabilities.
+The project file may grant mounts, credentials, seeds, SSH forwarding, and
+other host capabilities. Coop refuses it when Git tracks it, so committed
+repository content cannot grant itself those capabilities.
 
-The project itself is mounted read-write, so guest code can modify
-`.coop.toml`. A running container does not gain capabilities immediately, but
-the next host-side Coop invocation loads the changed file. This KISS model
-treats local project configuration as user-owned rather than repository-owned;
-review it after running code you do not trust.
-
-Repository tool declarations are constrained package identifiers, not arbitrary
-URLs, flakes, paths, or install hooks. The locked core workbench remains ahead
-of configured tools on `PATH`, so a project package cannot shadow the core
-`git`, `gh`, `ssh`, `curl`, or credential-transport binaries used by normal
-entries.
-
-For GitHub release tools, Coop accepts only
-public repositories, GitHub-hosted HTTPS downloads, `.tar.gz` archives, and a
-single configured regular file. It rejects traversal paths, links, devices,
-oversized inputs, missing or ambiguous assets, and assets without a
-GitHub-provided SHA-256 digest. The digest protects cache and download
-integrity against the release metadata; it is not an independent signature or
-an endorsement of the publisher. An exact tag improves repeatability, while
-`latest` deliberately trusts the publisher's next release when the user runs
-`coop rebuild`.
-
-This improves auditability; it is not an allowlist. Guest root can install or
-download other software after entry.
+The selected project is writable from the guest, which means guest code can
+change an ignored `.coop.toml`. The running container does not gain the new
+capability immediately, but the next host-side Coop invocation will load it.
+Review local configuration after running code you do not trust.
 
 ## Host exposure
 
-The selected project is mounted read-write at its identical host path. Any
-guest process with sufficient permissions can read, modify, create, or delete
-project files, and those changes are immediately host-visible.
+Host data can enter the guest through:
 
-Coop refuses to mount `/`, the host home, or an ancestor of the home as a
-project root. It does not automatically mount the rest of the home directory.
-Host data crosses into the guest only through:
-
-- the selected project mount;
-- project subtrees replaced in the guest by explicitly configured named volumes;
-- additional identical-path mounts declared by local configuration;
-- configured seeds;
-- configured named credentials selected for one entry;
+- the selected read-write project mount;
+- explicitly configured additional mounts;
+- trusted seeds;
+- selected session credentials;
 - optional SSH-agent forwarding;
-- explicitly published guest TCP services on host loopback;
-- runtime and virtualization interfaces provided by Apple's stack.
+- Apple's runtime and virtualization interfaces.
 
-Project `.coop.toml` has host-side authority but must remain machine-local.
-Coop refuses to load it when Git tracks it, so repository content cannot grant
-itself mounts, credentials, SSH forwarding, or other configuration authority.
-If a checkout is present but Git cannot determine tracking state, Coop fails
-closed instead of loading the file. Tracking detection compares filesystem
-identities, including case aliases on the default macOS filesystem.
-This does not make the file guest-proof: the writable project mount lets guest
-code change an ignored `.coop.toml` for a later host-side invocation.
+Coop refuses `/`, the host home, ancestors of the home, and broad or
+overlapping additional mounts. It does not otherwise mount the home
+automatically.
 
-Do not place unrelated secrets in a project directory that will be mounted.
-Treat every additional mount as part of the same guest-root trust domain as the
-selected project. Read-only prevents guest writes through that mount but does
-not prevent disclosure; read-write also permits immediate host-visible changes.
-Coop rejects additional mounts that overlap enabled agent-state volumes so a
-bind mount cannot hide or replace persistent agent data.
+Every guest process can read and modify the selected project. A read-only
+additional mount prevents writes through that mount but still discloses its
+contents. A read-write mount makes guest changes immediately host-visible.
+Keep unrelated secrets outside mounted directories.
 
-A project `[[volume]]` is guest-owned persistent storage. Guest root can read,
-replace, or retain everything in it across entries and container recreation.
-The volume hides the corresponding host subtree only inside the guest; it does
-not delete, synchronize, or protect that host data from host processes.
-`coop destroy` removes all named volumes owned by the project, including stale
-project volumes no longer declared.
-
-A `[[publish]]` exposes a guest TCP service to every process on the host that
-can connect to the chosen `127.0.0.1` port. Loopback prevents direct LAN
-exposure, but it is not a per-user or per-process authorization boundary. Coop
-does not authenticate clients, terminate TLS, or encrypt the connection. The
-application remains responsible for authentication and transport security
-when its data requires them.
+A project `[[volume]]` hides its corresponding host subtree only inside the
+guest and stores persistent guest-owned data. It does not delete or protect the
+host tree. A `[[publish]]` exposes a guest TCP service to processes that can
+connect to the selected host loopback port; Coop does not add authentication or
+TLS.
 
 ## Guest authority and persistence
 
-Commands run as root in the guest. Root can inspect other guest processes,
-change the container filesystem, alter shell startup files, install software,
-and access mounted project and state data.
+Guest root can inspect processes, read environments and temporary files,
+modify shell startup files, install software, and access all mounted project
+and state data. A process can remain running after the interactive command that
+started it exits.
 
-Containers persist across entries. A malicious root-capable process can remain
-running after an interactive command exits or modify guest paths used by a
-later entry. Container recreation discards the root filesystem, but named
-agent-state and project volumes persist until `coop destroy`.
+The container root filesystem persists across ordinary entries and is
+discarded on recreation. Named agent and project volumes persist across
+recreation until `coop destroy`.
 
-Per-project volumes prevent accidental state sharing between projects with
-different canonical paths. They do not isolate processes inside the same
-project container from one another. Agent transcripts, refreshed application
-tokens, and history stored in a configured state directory are available to
-guest root.
+Per-project volumes prevent accidental sharing between different canonical
+project paths. They do not isolate root-capable processes within one project.
+Agent transcripts, native login state, and other volume contents are available
+to guest root.
 
 ## Seeds
 
-Seeds copy host material into a running guest and may be declared machine-wide
-or in the ignored project `.coop.toml`.
+Seeds copy trusted host material into guest state. A top-level seed reaches
+every project; a seed under a matching `[[projects]]` scope reaches that path.
+Prefer narrow, explicit sources and scopes.
 
-A top-level seed applies to every coop. A seed inside a `[[projects]]` block
-applies only where its `match` matches, and the same holds for the grants that
-block selects. Prefer the scoped form for anything sensitive: an unconditional
-seed places host material in every project's persistent container filesystem
-for the lifetime of that container, which is a materially wider exposure than a
-credential leased for one entry.
+Use seeds for non-secret instructions, preferences, plugins, and executables.
+Do not seed credentials, agent login stores, or broad configuration
+directories. `coop doctor` rejects recognized sensitive seed paths.
 
-File seeding follows host source symlinks, which supports Stow-managed files.
-On the guest side it rejects a symlink destination, a non-regular destination,
-and symlinked parent directories before using an atomic temporary-file
-replacement. The validation and write are separate operations, so a
-concurrently running guest may still race them.
-
-Directory `if-absent` snapshots into a sibling staging directory and publishes
-only after complete extraction. It leaves any existing destination untouched.
-This makes it suitable for explicit one-time initialization, but the resulting
-tree is ordinary guest state with the same guest-root exposure as any agent
-volume.
-
-Native agent login state belongs to the provider inside its project-specific
-agent volume. Seeding a host login file would create a disconnected persistent
-copy whose refresh and logout behavior diverges from the host. Maintained
-examples do not do this, and `coop doctor` fails on recognized sensitive seed
-paths.
-
-Coop does not know which agent paths are portable. Broad directory seeds can
-expose host history, settings, plugins, logs, and caches to every project
-receiving that rule. Prefer narrow, explicit paths.
-
-Directory `overlay` extraction can follow symlinks already present inside the
-guest destination tree. Use it only for non-sensitive content such as skills,
-plugins, or documentation. Never use it for credentials.
-
-An executable seed gives the guest that executable with the same authority as
-other guest software. Seed only material every process in that project
-container may run or read.
+`if-absent` is useful for one-time initialization. `overlay` may follow links
+already present in a guest destination, so use it only for non-sensitive
+content. There is no guest-to-host synchronization or automatic cleanup of
+seeded copies.
 
 ## Session credentials
 
-Named credentials may be defined machine-wide or in the ignored project
-`.coop.toml`. Defaults from `include_credentials` and explicit `--credentials`
-selections are validated and deduplicated before acquisition.
+Credential definitions and project scopes are local user authorization. A
+grant fixes its host source, and a matching `[[projects]]` block fixes where it
+is selected. Repository remotes cannot retarget either value.
 
-Host acquisition is hardened as follows:
+Coop reads sources on the host before changing runtime state. File and command
+sources are constrained, and `git-credential` delegates lookup to the host
+Git helper chain for one fixed HTTPS URL. That helper configuration is trusted
+host executable input. Keychain protects a host copy at rest; it does not
+protect a secret after the user authorizes its guest exposure.
 
-- file sources must be regular files outside the project through both lexical
-  and resolved paths;
-- host path traversal uses no-follow opens;
-- command sources run argv directly, not through a shell;
-- relative executable paths containing `/` are rejected;
-- bare executable names resolve through a sanitized `PATH` that excludes the
-  project;
-- commands run from the trusted host home with a restricted environment;
-- `git-credential` sources invoke host `git credential fill` without a shell
-  for one fixed HTTPS URL and strictly validate the bounded response;
-- payload and bundle sizes are bounded.
+For an interactive entry, Coop stages selected material in a randomized,
+memory-backed guest lease and exposes only the configured environment, file,
+Git, or AWS interface. It removes the lease after the command exits and clears
+abandoned leases before a later entry. Secrets are not intentionally placed in
+project config, container arguments, labels, mounts, seeds, or named volumes.
 
-The configured source URL and matching `[[projects]]` path are local user
-authorization. Repository remotes never retarget a grant. Git's configuration
-and helper chain are nevertheless trusted executable host inputs: Git helpers
-may name external programs. macOS Keychain is the recommended static-secret
-backend through `git-credential-osxkeychain`, not a claim that every configured
-helper uses Keychain or enforces URL paths. Git echoes request target fields in
-`credential fill` output; those fields are not backend provenance. Where paths
-separate credentials, verify the backend record directly with an unmatched
-negative control.
+These controls reduce routine persistence, not guest-root authority. Any
+guest-root process can read or copy a selected credential, intercept a later
+entry, or preserve captured material elsewhere. Cleanup cannot erase retained
+copies or revoke a static token. Provider-side revocation is required to
+invalidate old material.
 
-Selected secrets are streamed over stdin into a unique mode-0700 directory
-below `/dev/shm/coop-credentials`. They are exposed to one interactive command
-through an environment value, temporary file, Git credential-store
-configuration, or AWS shared-credentials file. Coop removes the lease after the
-command and scrubs abandoned leases before a later entry.
+Use narrowly scoped, short-lived credentials. After running untrusted guest
+code, recreate the container before introducing a sensitive grant. See the
+[credential guide](credentials.md) for GitHub setup, rotation, and operational
+verification.
 
-Secret values are not intentionally stored in container arguments, labels,
-mount definitions, project files, seeds, or named volumes. Coop diagnostics
-format acquired and staged secret objects as redacted. `coop doctor` runs its
-configuration security audit even when the container CLI or apiserver is
-unavailable. It fails recognized secret seeds, including broad `~/.codex`,
-`~/.config/gh`, and `~/.config/git` directories and custom Git stores at
-`~/.config/git/credentials-*`, across every trusted project scope even when
-that scope does not match the current directory.
+Native OAuth and device-login state for Codex, Claude Code, OpenCode, and other
+agents remains provider-owned state in that agent's project volume. Coop should
+broker it only when the provider documents a non-persistent environment or
+temporary-file interface.
 
-Keychain protects the host credential at rest. It does not protect a credential
-after the user authorizes Coop to expose it to a guest. A GitHub grant can feed
-both Git's temporary credential-store interface and `gh`'s `GH_TOKEN` from one
-acquisition without persisting either guest login store.
+## Tool supply chain
 
-These controls limit routine exposure; they are not a boundary against guest
-root. A root process in the persistent container can read another process's
-environment or temporary files, intercept guest execution, or pre-position
-state to capture credentials selected during a later entry. Recreate the
-container before introducing sensitive credentials after running untrusted
-guest code, and prefer narrowly scoped, short-lived, revocable grants.
+Configured Nix packages are constrained identifiers resolved from Coop's
+pinned source. Public GitHub release tools require GitHub-hosted assets and a
+release-provided SHA-256 digest. The digest checks that the download matches
+the release metadata; it is not a publisher endorsement or independent
+signature.
 
-Coop does not refresh a credential during a long-running entry. Cleanup removes
-guest exposure; it cannot revoke source material unless the source itself
-provides a revocation mechanism.
-
-Migrating a static token from a plaintext file to Keychain improves future
-host storage but does not invalidate old host or guest copies. Provider-side
-rotation is the only way to revoke that earlier exposure.
-
-Interactive OAuth, device authorization, refresh tokens, and account switching
-for Codex, Claude, and similar agents remain provider-owned state. Coop brokers
-an agent secret only when the provider documents a non-persistent environment
-or temporary-file interface. See [Credentials](credentials.md) for the complete
-boundary and migration guide.
+Guest root can install or download other software after entry. Coop is not a
+software allowlist.
 
 ## SSH-agent forwarding
 
-SSH-agent forwarding is off by default and can be enabled by either local
-configuration layer:
+SSH-agent forwarding is off by default. When enabled, private-key files remain
+on the host, but guest processes can request authentication and signatures from
+loaded keys. Combined with outbound network access, this may be enough to act
+as the user on remote systems.
 
-```toml
-ssh = true
-```
+Load only appropriate identities and prefer a narrower session credential when
+the tool supports one.
 
-Private-key files remain on the host, but guest processes can ask the agent to
-authenticate or sign with loaded keys. With outbound network access, this may
-be enough to access remote systems as the user. Load only appropriate keys and
-prefer separate, constrained identities when possible.
+## Network and runtime boundary
 
-## Network
+The guest has unrestricted outbound network access. Project contents, seeds,
+agent state, credentials, and SSH-agent results can be sent over that network.
+Coop does not provide destination filtering, DNS isolation, or per-process
+egress controls.
 
-The guest has unrestricted outbound network access. Project contents, seeded
-data, agent state, selected credentials, and results obtained through the SSH
-agent can be sent over the network by guest processes.
-
-Coop does not currently provide destination filtering, DNS isolation,
-per-process egress controls, or a claim that package installation is offline.
-Configured `[[publish]]` entries additionally allow host processes to initiate
-TCP connections to selected guest services through host loopback, with the
-application-level security responsibilities described above.
-
-## VM and runtime boundary
-
-Coop relies on Apple's `container` runtime, Virtualization framework,
-hypervisor, kernel, and host-facing devices for the host isolation boundary. A
-vulnerability or escape in that stack can defeat the boundary.
-
-Coop's own input validation and lifecycle checks do not replace security
-updates for macOS or Apple's runtime.
+Host isolation relies on Apple's `container` runtime, Virtualization framework,
+hypervisor, kernel, and host-facing devices. A vulnerability in that stack can
+defeat the boundary. Keep macOS and Apple's runtime updated.
 
 ## Non-promises
 
 Coop does not promise:
 
-- that untrusted code cannot damage the mounted project;
-- isolation between root-capable processes in the same project container;
-- confidentiality of a credential from guest root during or after a persistent
-  compromised session;
+- protection of the mounted project from guest code;
+- isolation between root-capable processes in one project;
+- confidentiality of a credential from guest root;
 - restricted network egress;
+- automatic revocation or rotation of source credentials;
 - a software allowlist;
-- protection against runtime, hypervisor, kernel, or VM escape vulnerabilities;
-- automatic revocation of source credentials;
+- protection from runtime, VM, hypervisor, or kernel escapes;
 - safe sharing of agent-state volumes with code that should not read them.
 
-Use Coop to narrow accidental host exposure and make project requirements
-declarative. Continue to apply ordinary controls: review repositories before
-running them, scope credentials, maintain backups, update the host runtime, and
-assume the mounted project is writable by the guest.
+Use Coop to make host exposure narrower and project requirements explicit.
+Continue to review repositories, scope credentials, maintain backups, and
+assume the mounted project is writable.

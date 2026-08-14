@@ -156,7 +156,7 @@ func TestRunAcquiresCredentialsBeforeUp(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	s.CredentialManager.Run = func(context.Context, string, []string) ([]byte, error) {
@@ -180,7 +180,7 @@ func TestRunAcquiresDefaultCredentialBeforeUp(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	s.Cfg.IncludeCredentials = []string{"token"}
@@ -210,7 +210,7 @@ func TestRunCleansLeaseWhenStageReportsFailure(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	stageErr := errors.New("stage transport failed")
@@ -235,7 +235,7 @@ func TestRunAcquisitionFailureDoesNotMutateRuntime(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	s.CredentialManager.Run = func(context.Context, string, []string) ([]byte, error) {
@@ -257,7 +257,7 @@ func TestRunSignalDuringAcquisitionUnwindsNormally(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "command", Argv: []string{"token-helper"}},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	s.CredentialManager.Run = func(ctx context.Context, _ string, _ []string) ([]byte, error) {
@@ -289,7 +289,7 @@ func TestRunSignalDuringInteractiveEntryCleansLease(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	m.InteractiveFunc = func(ctx context.Context, _, _ string, _ []string) error {
@@ -349,7 +349,7 @@ func TestRunSignalDuringLeaseCleanupIsReturned(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	var lifecycle context.Context
@@ -386,7 +386,7 @@ func TestRunSignalDuringRevocationIsReturned(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	var lifecycle context.Context
@@ -420,7 +420,7 @@ func TestRunSignalDuringStagingCancelsTransportAndCleansLease(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 	m.ExecContextFunc = func(ctx context.Context, index int, _ runtime.ExecCall) error {
@@ -507,7 +507,7 @@ func TestRunStagesAfterSeedsAndKeepsFloxInsideCredentialWrapper(t *testing.T) {
 	s.Cfg.Credentials = map[string]config.Credential{
 		"token": {
 			Source: config.CredentialSource{Type: "file", Path: secret},
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		},
 	}
 
@@ -562,7 +562,7 @@ func TestRunAlwaysCleansUpAndPreservesGuestExit(t *testing.T) {
 			s.Cfg.Credentials = map[string]config.Credential{
 				"token": {
 					Source: config.CredentialSource{Type: "file", Path: secret},
-					Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+					Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 				},
 			}
 			cleanupErr := errors.New("cleanup failed")
@@ -1176,7 +1176,7 @@ func TestEnsureImageCustomConfigRequiresLocalBuild(t *testing.T) {
 	}
 }
 
-func TestExtraPackagesNeverReuseStaleStockImage(t *testing.T) {
+func TestConfiguredPackagesNeverReuseStaleStockImage(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m) // the base local image is present
 	s.Cfg.Tools.Packages = []string{"gemini-cli"}

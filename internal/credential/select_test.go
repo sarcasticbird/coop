@@ -122,24 +122,24 @@ func TestResolveRejectsConflictsAcrossAllCredentialExposures(t *testing.T) {
 	}
 }
 
-func fileGrant(injectType, pathEnv string) config.Credential {
+func fileGrant(exposureType, pathEnv string) config.Credential {
 	return config.Credential{
 		Source: config.CredentialSource{Type: "file", Path: "~/.secret"},
-		Inject: config.CredentialInjection{Type: injectType, PathEnv: pathEnv},
+		Expose: []config.CredentialInjection{{Type: exposureType, PathEnv: pathEnv}},
 	}
 }
 
 func commandEnvGrant(name string) config.Credential {
 	return config.Credential{
 		Source: config.CredentialSource{Type: "command", Argv: []string{"secret-tool"}},
-		Inject: config.CredentialInjection{Type: "environment", Name: name},
+		Expose: []config.CredentialInjection{{Type: "environment", Name: name}},
 	}
 }
 
 func awsGrant(profile string) config.Credential {
 	return config.Credential{
 		Source: config.CredentialSource{Type: "aws-profile", Profile: profile},
-		Inject: config.CredentialInjection{Type: "aws"},
+		Expose: []config.CredentialInjection{{Type: "aws"}},
 	}
 }
 
