@@ -359,55 +359,28 @@ func TestGitHubReleaseToolsBounded(t *testing.T) {
 	}
 }
 
-func TestLegacyExtraPackagesAlias(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
-[image]
-extra_packages = ["shellcheck", "bat"]
-`)
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"bat", "shellcheck"}; !slices.Equal(cfg.Tools.Packages, want) {
-		t.Fatalf("legacy alias tools = %v, want %v", cfg.Tools.Packages, want)
-	}
-	if len(cfg.Image.ExtraPackages) != 0 {
-		t.Fatalf("legacy input leaked into the merged image model: %v", cfg.Image.ExtraPackages)
-	}
-	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "deprecated") || !strings.Contains(cfg.Warnings[0], "tools.packages") {
-		t.Fatalf("legacy warning = %v", cfg.Warnings)
-	}
-}
-
-func TestLegacyExtraPackagesConflictsWithTools(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), `
-[image]
-extra_packages = ["bat"]
-[tools]
-packages = ["shellcheck"]
-`)
-	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "both") {
-		t.Fatalf("legacy and current fields accepted together: %v", err)
-	}
-}
-
-func TestProjectLegacyExtraPackagesAlias(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	project := t.TempDir()
-	mustWrite(t, filepath.Join(project, ".coop.toml"), `
+func TestRemovedCompatibilityKeysAreRejected(t *testing.T) {
+	cases := map[string]string{
+		"image.extra_packages": `
 [image]
 extra_packages = ["shellcheck"]
-`)
-	cfg, err := Load(project)
-	if err != nil {
-		t.Fatal(err)
+`,
+		"credential.inject": `
+[credentials.token]
+source = { type = "command", argv = ["token-helper"] }
+inject = { type = "environment", name = "TOKEN" }
+`,
 	}
-	if !slices.Equal(cfg.Tools.ProjectPackages, []string{"shellcheck"}) {
-		t.Fatalf("project legacy packages = %v", cfg.Tools.ProjectPackages)
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), content)
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "unknown keys") {
+				t.Fatalf("removed compatibility key accepted: %v", err)
+			}
+		})
 	}
 }
 
@@ -457,14 +430,14 @@ func TestCredentialConfigMergesFromProject(t *testing.T) {
 include_credentials = ["git"]
 [credentials.git]
 source = { type = "file", path = "~/.git-credentials" }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `)
 	project := t.TempDir()
 	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 include_credentials = ["aws-prod"]
 [credentials.aws-prod]
 source = { type = "command", argv = ["steal-host-secret"] }
-inject = { type = "environment", name = "AWS_SECRET_ACCESS_KEY" }
+expose = [{ type = "environment", name = "AWS_SECRET_ACCESS_KEY" }]
 `)
 
 	cfg, err := Load(project)
@@ -488,7 +461,7 @@ func TestProjectCredentialConfigIsValidated(t *testing.T) {
 	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [credentials.bad]
 source = { type = "command", argv = ["./project-helper"] }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 `)
 
 	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "executable path") {
@@ -503,7 +476,7 @@ func TestCredentialConfigDeduplicatesIncludes(t *testing.T) {
 include_credentials = ["git", "git"]
 [credentials.git]
 source = { type = "file", path = "~/.git-credentials" }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `)
 
 	cfg, err := Load("")
@@ -520,14 +493,14 @@ func TestCredentialGrantLimitAppliesAfterLayerMerge(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	var global strings.Builder
 	for i := 0; i < MaxCredentialGrants; i++ {
-		fmt.Fprintf(&global, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"true\"] }\ninject = { type = \"environment\", name = \"TOKEN_%d\" }\n", i, i)
+		fmt.Fprintf(&global, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"true\"] }\nexpose = [{ type = \"environment\", name = \"TOKEN_%d\" }]\n", i, i)
 	}
 	mustWrite(t, filepath.Join(xdg, "coop", "coop.toml"), global.String())
 	project := t.TempDir()
 	mustWrite(t, filepath.Join(project, ".coop.toml"), `
 [credentials.extra]
 source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "EXTRA_TOKEN" }
+expose = [{ type = "environment", name = "EXTRA_TOKEN" }]
 `)
 
 	_, err := Load(project)
@@ -573,78 +546,78 @@ func TestCredentialConfigValidation(t *testing.T) {
 
 	tooMany := strings.Builder{}
 	for i := 0; i <= MaxCredentialGrants; i++ {
-		fmt.Fprintf(&tooMany, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"token\"] }\ninject = { type = \"environment\", name = \"TOKEN_%d\" }\n", i, i)
+		fmt.Fprintf(&tooMany, "[credentials.grant-%d]\nsource = { type = \"command\", argv = [\"token\"] }\nexpose = [{ type = \"environment\", name = \"TOKEN_%d\" }]\n", i, i)
 	}
 
 	cases := map[string]string{
 		"bad grant name": `[credentials."Bad--Name"]
 source = { type = "command", argv = ["token"] }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 `,
 		"too many grants": tooMany.String(),
 		"missing source path": `[credentials.git]
 source = { type = "file" }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `,
 		"relative file source": `[credentials.git]
 source = { type = "file", path = "project-secret" }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `,
 		"relative command executable path": `[credentials.token]
 source = { type = "command", argv = ["./credential-helper"] }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 `,
 		"file source with argv": `[credentials.git]
 source = { type = "file", path = "~/.git-credentials", argv = ["unused"] }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `,
 		"missing command argv": `[credentials.token]
 source = { type = "command" }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 `,
 		"command source with path": `[credentials.token]
 source = { type = "command", argv = ["token"], path = "unused" }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 `,
 		"missing aws profile": `[credentials.aws-dev]
 source = { type = "aws-profile" }
-inject = { type = "aws" }
+expose = [{ type = "aws" }]
 `,
-		"aws profile with generic injection": `[credentials.aws-dev]
+		"aws profile with generic exposure": `[credentials.aws-dev]
 source = { type = "aws-profile", profile = "dev" }
-inject = { type = "environment", name = "AWS_TOKEN" }
+expose = [{ type = "environment", name = "AWS_TOKEN" }]
 `,
-		"missing injection type": `[credentials.token]
+		"missing exposure type": `[credentials.token]
 source = { type = "command", argv = ["token"] }
-inject = { name = "TOKEN" }
+expose = [{ name = "TOKEN" }]
 `,
 		"missing environment name": `[credentials.token]
 source = { type = "command", argv = ["token"] }
-inject = { type = "environment" }
+expose = [{ type = "environment" }]
 `,
 		"invalid environment name": `[credentials.token]
 source = { type = "command", argv = ["token"] }
-inject = { type = "environment", name = "BAD-NAME" }
+expose = [{ type = "environment", name = "BAD-NAME" }]
 `,
 		"environment with path env": `[credentials.token]
 source = { type = "command", argv = ["token"] }
-inject = { type = "environment", name = "TOKEN", path_env = "TOKEN_FILE" }
+expose = [{ type = "environment", name = "TOKEN", path_env = "TOKEN_FILE" }]
 `,
 		"missing file path env": `[credentials.kubernetes]
 source = { type = "file", path = "~/.kube/config" }
-inject = { type = "file" }
+expose = [{ type = "file" }]
 `,
-		"aws injection with command": `[credentials.aws-dev]
+		"aws exposure with command": `[credentials.aws-dev]
 source = { type = "command", argv = ["aws-token"] }
-inject = { type = "aws" }
+expose = [{ type = "aws" }]
 `,
-		"git injection with command": `[credentials.git]
+		"git exposure with command": `[credentials.git]
 source = { type = "command", argv = ["git-token"] }
-inject = { type = "git-credential-store" }
+expose = [{ type = "git-credential-store" }]
 `,
 		"expiration with file": `[credentials.token]
 source = { type = "file", path = "~/.token" }
-inject = { type = "environment", name = "TOKEN" }
+expose = [{ type = "environment", name = "TOKEN" }]
 require_expiration = true
 `,
 		"unknown default": `include_credentials = ["missing"]
@@ -682,18 +655,6 @@ expose = [
 
 func TestCredentialExposeValidation(t *testing.T) {
 	cases := map[string]string{
-		"both inject and expose": `
-[credentials.github]
-source = { type = "git-credential", url = "https://github.com/acme" }
-inject = { type = "git-credential-store" }
-expose = [{ type = "environment", name = "GH_TOKEN", field = "password" }]
-`,
-		"empty inject and expose": `
-[credentials.github]
-source = { type = "git-credential", url = "https://github.com/acme" }
-inject = {}
-expose = [{ type = "git-credential-store" }]
-`,
 		"empty expose": `
 [credentials.github]
 source = { type = "git-credential", url = "https://github.com/acme" }
@@ -782,12 +743,7 @@ expose = [{ type = "aws" }]
 	}
 }
 
-func TestExposuresPreservesLegacyInjectAndReturnsCopy(t *testing.T) {
-	legacy := Credential{Inject: CredentialInjection{Type: "environment", Name: "TOKEN"}}
-	if got := Exposures(legacy); len(got) != 1 || got[0] != legacy.Inject {
-		t.Fatalf("legacy exposure = %+v", got)
-	}
-
+func TestExposuresReturnsCopy(t *testing.T) {
 	spec := Credential{Expose: []CredentialInjection{
 		{Type: "git-credential-store"},
 		{Type: "environment", Name: "GH_TOKEN", Field: "password"},
@@ -912,22 +868,21 @@ func TestExamplesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load public examples: %v", err)
 	}
-	if cfg.Image.Name == "" || len(cfg.Seeds) == 0 || len(cfg.Tools.Packages) == 0 ||
-		len(cfg.Tools.GitHubReleases) == 0 || len(cfg.Credentials) == 0 {
-		t.Fatalf("public examples did not exercise image, seed, package, release tool, and credential configuration: %+v", cfg)
+	credential, ok := cfg.Credentials["github-example"]
+	if !ok {
+		t.Fatalf("public example did not load github-example credential: %+v", cfg.Credentials)
+	}
+	if credential.Source.Type != "git-credential" || len(credential.Expose) != 2 {
+		t.Fatalf("github-example credential = %+v, want git-credential source with two exposures", credential)
+	}
+	if len(cfg.Seeds) != 1 || cfg.Seeds[0].Policy != PolicyIfAbsent {
+		t.Fatalf("public example seeds = %+v, want one if-absent seed", cfg.Seeds)
+	}
+	if len(cfg.Tools.Packages) == 0 {
+		t.Fatalf("public example packages = %+v, want configured packages", cfg.Tools.Packages)
 	}
 	if cfg.Resources.CPUs != 6 {
 		t.Fatalf("project resource override = %d, want 6", cfg.Resources.CPUs)
-	}
-	var hasIfAbsent bool
-	for _, seed := range cfg.Seeds {
-		if seed.Policy == PolicyIfAbsent {
-			hasIfAbsent = true
-			break
-		}
-	}
-	if !hasIfAbsent {
-		t.Fatal("trusted example does not exercise one-time bootstrap seeds")
 	}
 }
 
@@ -1096,11 +1051,11 @@ include_credentials = ["claude"]
 
 [credentials.claude]
 source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "CLAUDE" }
+expose = [{ type = "environment", name = "CLAUDE" }]
 
 [credentials.git-sb]
 source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "GH_TOKEN" }
+expose = [{ type = "environment", name = "GH_TOKEN" }]
 
 [[projects]]
 match = "`+filepath.Join(home, "Projects", "sarcasticbird")+`"
@@ -1248,11 +1203,11 @@ func TestLoadOverlappingScopesUnion(t *testing.T) {
 	writeConfigFile(t, filepath.Join(home, ".config", "coop", "coop.toml"), `
 [credentials.broad]
 source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "BROAD" }
+expose = [{ type = "environment", name = "BROAD" }]
 
 [credentials.narrow]
 source = { type = "command", argv = ["true"] }
-inject = { type = "environment", name = "NARROW" }
+expose = [{ type = "environment", name = "NARROW" }]
 
 [[projects]]
 match = "`+filepath.Join(home, "Projects")+`"

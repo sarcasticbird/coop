@@ -46,28 +46,28 @@ func TestBuildBundleInjectionAdapters(t *testing.T) {
 		{
 			Selected: Selected{Name: "github", Spec: config.Credential{
 				Source: config.CredentialSource{Type: "command"},
-				Inject: config.CredentialInjection{Type: "environment", Name: "GH_TOKEN"},
+				Expose: []config.CredentialInjection{{Type: "environment", Name: "GH_TOKEN"}},
 			}},
 			payload: []byte("github-token"),
 		},
 		{
 			Selected: Selected{Name: "kubernetes", Spec: config.Credential{
 				Source: config.CredentialSource{Type: "file"},
-				Inject: config.CredentialInjection{Type: "file", PathEnv: "KUBECONFIG"},
+				Expose: []config.CredentialInjection{{Type: "file", PathEnv: "KUBECONFIG"}},
 			}},
 			payload: []byte("kube-config"),
 		},
 		{
 			Selected: Selected{Name: "git", Spec: config.Credential{
 				Source: config.CredentialSource{Type: "file"},
-				Inject: config.CredentialInjection{Type: "git-credential-store"},
+				Expose: []config.CredentialInjection{{Type: "git-credential-store"}},
 			}},
 			payload: []byte("https://user:pass@example.test"),
 		},
 		{
 			Selected: Selected{Name: "aws-dev", Spec: config.Credential{
 				Source: config.CredentialSource{Type: "aws-profile", Profile: "dev"},
-				Inject: config.CredentialInjection{Type: "aws"},
+				Expose: []config.CredentialInjection{{Type: "aws"}},
 			}},
 			aws: &AWSCredentials{accessKeyID: "key", secretAccessKey: "secret", sessionToken: "session"},
 		},
@@ -231,7 +231,7 @@ func TestBuildBundleGitStoreOverridesGuestUseHttpPath(t *testing.T) {
 func TestBuildBundleRejectsEnvironmentNewlines(t *testing.T) {
 	_, err := BuildBundle([]Acquired{{
 		Selected: Selected{Name: "token", Spec: config.Credential{
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		}},
 		payload: []byte("line-one\nline-two"),
 	}}, GuestLease{Dir: "/dev/shm/coop-credentials/lease"})
@@ -243,7 +243,7 @@ func TestBuildBundleRejectsEnvironmentNewlines(t *testing.T) {
 func TestBuildBundleTrimsOneTerminalEnvironmentNewline(t *testing.T) {
 	bundle, err := BuildBundle([]Acquired{{
 		Selected: Selected{Name: "token", Spec: config.Credential{
-			Inject: config.CredentialInjection{Type: "environment", Name: "TOKEN"},
+			Expose: []config.CredentialInjection{{Type: "environment", Name: "TOKEN"}},
 		}},
 		payload: []byte("command-token\n"),
 	}}, GuestLease{Dir: "/dev/shm/coop-credentials/lease"})
@@ -260,7 +260,7 @@ func TestBuildBundleEnforcesCompleteLimit(t *testing.T) {
 	for i := range acquired {
 		acquired[i] = Acquired{
 			Selected: Selected{Name: "grant", Spec: config.Credential{
-				Inject: config.CredentialInjection{Type: "file", PathEnv: "CREDENTIAL_FILE"},
+				Expose: []config.CredentialInjection{{Type: "file", PathEnv: "CREDENTIAL_FILE"}},
 			}},
 			payload: bytes.Repeat([]byte("x"), MaxPayloadBytes),
 		}
@@ -277,7 +277,7 @@ func TestBuildBundleEnforcesEnvironmentExecLimits(t *testing.T) {
 		return Acquired{
 			Selected: Selected{Name: strings.ToLower(name), Spec: config.Credential{
 				Source: config.CredentialSource{Type: "command"},
-				Inject: config.CredentialInjection{Type: "environment", Name: name},
+				Expose: []config.CredentialInjection{{Type: "environment", Name: name}},
 			}},
 			payload: payload,
 		}

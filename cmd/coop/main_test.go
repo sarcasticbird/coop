@@ -492,17 +492,44 @@ func TestStatusReportsDesiredRunningAndPendingState(t *testing.T) {
 	}
 }
 
-func TestLegacyToolAliasWarnsOnce(t *testing.T) {
+func configureMalformedReleaseToolWarning(t *testing.T) {
+	t.Helper()
+	xdgConfig := t.TempDir()
+	xdgState := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+	t.Setenv("XDG_STATE_HOME", xdgState)
+
+	spec := []config.GitHubReleaseTool{{
+		Name: "kata", Repo: "kenn-io/kata", Tag: "latest",
+		Asset: "kata_{version}_linux_arm64.tar.gz", Binary: "kata",
+	}}
+	content := `[tools]
+[[tools.github_release]]
+name = "kata"
+repo = "kenn-io/kata"
+tag = "latest"
+asset = "kata_{version}_linux_arm64.tar.gz"
+binary = "kata"
+`
+	if err := os.MkdirAll(filepath.Join(xdgConfig, "coop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdgConfig, "coop", "coop.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(xdgState, "coop", "release-tools", config.ReleaseSpecFingerprint(spec)+".lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStatusEmitsConfigWarnings(t *testing.T) {
 	m := runtime.NewMock()
 	withRuntime(t, m)
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	configureMalformedReleaseToolWarning(t)
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -519,8 +546,8 @@ func TestLegacyToolAliasWarnsOnce(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(warnings.String(), "image.extra_packages is deprecated"); got != 1 {
-		t.Fatalf("deprecation warning count = %d:\n%s", got, warnings.String())
+	if got := strings.Count(warnings.String(), "invalid GitHub release tool state ignored"); got != 1 {
+		t.Fatalf("configuration warning count = %d:\n%s", got, warnings.String())
 	}
 }
 
@@ -568,14 +595,7 @@ func TestRebuildPropagatesOutputWriteFailure(t *testing.T) {
 
 func TestConfigWarningWriteFailureDoesNotBlockCommand(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	configureMalformedReleaseToolWarning(t)
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -1385,14 +1405,7 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 
 func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
 	withRuntime(t, runtime.NewMock())
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	if err := os.MkdirAll(filepath.Join(xdg, "coop"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(xdg, "coop", "coop.toml"), []byte("[image]\nextra_packages = [\"hello\"]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	configureMalformedReleaseToolWarning(t)
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, ".coop.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -1416,8 +1429,8 @@ func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(warnings.String(), "image.extra_packages is deprecated"); got != 1 {
-		t.Fatalf("TUI deprecation warning count = %d:\n%s", got, warnings.String())
+	if got := strings.Count(warnings.String(), "invalid GitHub release tool state ignored"); got != 1 {
+		t.Fatalf("TUI configuration warning count = %d:\n%s", got, warnings.String())
 	}
 }
 

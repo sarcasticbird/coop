@@ -82,12 +82,11 @@ type ProjectScope struct {
 }
 
 // Credential is a trusted, named host credential grant. Source controls how
-// Coop acquires secret material; Inject controls how an interactive guest
+// Coop acquires secret material; Expose controls how an interactive guest
 // process receives it. Machine-wide and machine-local project files may both
 // define grants.
 type Credential struct {
 	Source            CredentialSource      `toml:"source"`
-	Inject            CredentialInjection   `toml:"inject"`
 	Expose            []CredentialInjection `toml:"expose"`
 	RequireExpiration bool                  `toml:"require_expiration"`
 }
@@ -110,16 +109,9 @@ type CredentialInjection struct {
 	Field   string `toml:"field"`
 }
 
-// Exposures returns the configured guest projections. Inject is retained as
-// the singular compatibility form for existing configuration.
+// Exposures returns a copy of the configured guest projections.
 func Exposures(credential Credential) []CredentialInjection {
-	if credential.Expose != nil {
-		return append([]CredentialInjection(nil), credential.Expose...)
-	}
-	if credential.Inject.Type == "" {
-		return nil
-	}
-	return []CredentialInjection{credential.Inject}
+	return append([]CredentialInjection(nil), credential.Expose...)
 }
 
 // Agent declares one coding agent the coop hosts. State is the guest
@@ -148,8 +140,8 @@ type Config struct {
 	// combined with network egress is an exfiltration-adjacent
 	// capability. Enable deliberately in machine or local project config.
 	SSH bool `toml:"ssh"`
-	// Warnings contains non-fatal migration guidance discovered while loading.
-	// It is runtime metadata, never TOML input.
+	// Warnings contains non-fatal diagnostics discovered while loading or
+	// resolving configuration. It is runtime metadata, never TOML input.
 	Warnings []string `toml:"-"`
 }
 
@@ -160,9 +152,6 @@ const (
 
 type Image struct {
 	Name string `toml:"name"`
-	// ExtraPackages is decoded only for the one-beta compatibility alias.
-	// New configuration uses [tools].packages.
-	ExtraPackages []string `toml:"extra_packages"`
 }
 
 // Tools declares additive packages for the guest user-command plane.
@@ -318,16 +307,6 @@ func mergeFile(cfg *Config, path string, project bool) error {
 	if !project && (len(layer.Volumes) > 0 || len(layer.Publishes) > 0) {
 		return fmt.Errorf("%s: volume and publish are only supported in project config", path)
 	}
-	toolsDefined := md.IsDefined("tools", "packages")
-	legacyToolsDefined := md.IsDefined("image", "extra_packages")
-	if toolsDefined && legacyToolsDefined {
-		return fmt.Errorf("%s: cannot define both tools.packages and deprecated image.extra_packages", path)
-	}
-	for name := range layer.Credentials {
-		if md.IsDefined("credentials", name, "inject") && md.IsDefined("credentials", name, "expose") {
-			return fmt.Errorf("%s: credential %q cannot define both inject and expose", path, name)
-		}
-	}
 	if err := validateLayer(&layer,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -338,15 +317,10 @@ func mergeFile(cfg *Config, path string, project bool) error {
 	if layer.Image.Name != "" {
 		cfg.Image.Name = layer.Image.Name
 	}
-	packages := layer.Tools.Packages
-	if legacyToolsDefined {
-		packages = layer.Image.ExtraPackages
-		cfg.Warnings = append(cfg.Warnings, "image.extra_packages is deprecated; use tools.packages")
-	}
 	if project {
-		cfg.Tools.ProjectPackages = append(cfg.Tools.ProjectPackages, packages...)
+		cfg.Tools.ProjectPackages = append(cfg.Tools.ProjectPackages, layer.Tools.Packages...)
 	} else {
-		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, packages...)
+		cfg.Tools.GlobalPackages = append(cfg.Tools.GlobalPackages, layer.Tools.Packages...)
 	}
 	cfg.Tools.GitHubReleases = append(cfg.Tools.GitHubReleases, layer.Tools.GitHubReleases...)
 	if layer.Resources.CPUs != 0 {
@@ -400,9 +374,6 @@ func validateLayer(layer *Config, hasCPUs, hasMemory bool) error {
 	}
 	if err := validateToolPackages(layer.Tools.Packages); err != nil {
 		return err
-	}
-	if err := validateToolPackages(layer.Image.ExtraPackages); err != nil {
-		return fmt.Errorf("image.extra_packages: %w", err)
 	}
 	if err := validateGitHubReleaseTools(layer.Tools.GitHubReleases); err != nil {
 		return err
@@ -753,20 +724,13 @@ func validateCredential(name string, credential Credential) error {
 		return fmt.Errorf("credential %q: unknown source type %q", name, source.Type)
 	}
 
-	hasInject := credential.Inject.Type != "" || credential.Inject.Name != "" || credential.Inject.PathEnv != "" || credential.Inject.Field != ""
-	if hasInject && credential.Expose != nil {
-		return fmt.Errorf("credential %q: cannot define both inject and expose", name)
-	}
 	exposures := Exposures(credential)
 	if len(exposures) == 0 {
-		return fmt.Errorf("credential %q: requires inject or at least one expose entry", name)
+		return fmt.Errorf("credential %q: requires at least one expose entry", name)
 	}
 	for i, expose := range exposures {
 		if err := validateCredentialExposure(name, material, source.Type, expose); err != nil {
-			if credential.Expose != nil {
-				return fmt.Errorf("credential %q expose[%d]: %w", name, i, err)
-			}
-			return err
+			return fmt.Errorf("credential %q expose[%d]: %w", name, i, err)
 		}
 	}
 
@@ -780,15 +744,15 @@ func validateCredentialExposure(name, material, sourceType string, expose Creden
 	switch expose.Type {
 	case "environment":
 		if !environmentName.MatchString(expose.Name) {
-			return fmt.Errorf("credential %q: environment injection requires a valid name", name)
+			return fmt.Errorf("credential %q: environment exposure requires a valid name", name)
 		}
 		if expose.PathEnv != "" {
-			return fmt.Errorf("credential %q: environment injection contains path_env", name)
+			return fmt.Errorf("credential %q: environment exposure contains path_env", name)
 		}
 		switch expose.Field {
 		case "":
 			if material != "opaque" {
-				return fmt.Errorf("credential %q: environment injection without field requires opaque material", name)
+				return fmt.Errorf("credential %q: environment exposure without field requires opaque material", name)
 			}
 		case "username", "password":
 			if material != "username-password" {
@@ -799,30 +763,30 @@ func validateCredentialExposure(name, material, sourceType string, expose Creden
 		}
 	case "file":
 		if !environmentName.MatchString(expose.PathEnv) {
-			return fmt.Errorf("credential %q: file injection requires a valid path_env", name)
+			return fmt.Errorf("credential %q: file exposure requires a valid path_env", name)
 		}
 		if expose.Name != "" || expose.Field != "" {
-			return fmt.Errorf("credential %q: file injection contains name", name)
+			return fmt.Errorf("credential %q: file exposure contains name", name)
 		}
 		if material != "opaque" {
-			return fmt.Errorf("credential %q: file injection requires opaque material", name)
+			return fmt.Errorf("credential %q: file exposure requires opaque material", name)
 		}
 	case "git-credential-store":
 		if expose.Name != "" || expose.PathEnv != "" || expose.Field != "" {
-			return fmt.Errorf("credential %q: git-credential-store injection contains unused fields", name)
+			return fmt.Errorf("credential %q: git-credential-store exposure contains unused fields", name)
 		}
 		if sourceType != "file" && sourceType != "git-credential" {
-			return fmt.Errorf("credential %q: git-credential-store injection requires a file or git-credential source", name)
+			return fmt.Errorf("credential %q: git-credential-store exposure requires a file or git-credential source", name)
 		}
 	case "aws":
 		if expose.Name != "" || expose.PathEnv != "" || expose.Field != "" {
-			return fmt.Errorf("credential %q: aws injection contains unused fields", name)
+			return fmt.Errorf("credential %q: aws exposure contains unused fields", name)
 		}
 		if sourceType != "aws-profile" {
-			return fmt.Errorf("credential %q: aws injection requires an aws-profile source", name)
+			return fmt.Errorf("credential %q: aws exposure requires an aws-profile source", name)
 		}
 	default:
-		return fmt.Errorf("credential %q: unknown injection type %q", name, expose.Type)
+		return fmt.Errorf("credential %q: unknown exposure type %q", name, expose.Type)
 	}
 	return nil
 }

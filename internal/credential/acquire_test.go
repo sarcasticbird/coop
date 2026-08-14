@@ -424,7 +424,7 @@ func TestAWSProfileRejectsProjectControlledCLI(t *testing.T) {
 		Name: "aws-dev",
 		Spec: config.Credential{
 			Source: config.CredentialSource{Type: "aws-profile", Profile: "dev"},
-			Inject: config.CredentialInjection{Type: "aws"},
+			Expose: []config.CredentialInjection{{Type: "aws"}},
 		},
 	}})
 	if err == nil || !errors.Is(err, exec.ErrNotFound) {
