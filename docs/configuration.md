@@ -33,7 +33,8 @@ The main exceptions are:
 | `tools`, `image` | Run `coop rebuild`, then enter or run `coop up` |
 | `resources`, `agents`, `ssh`, `mount`, `volume`, `publish` | Enter or run `coop up`; Coop recreates the container when needed |
 | `seed` | Enter or run `coop up` |
-| `credentials`, `include_credentials`, `projects` | Start the next interactive entry |
+| `credentials`, `include_credentials` | Start the next interactive entry |
+| `projects` | Enter or run `coop up`; scoped credentials apply on the next interactive entry |
 | Project `.flox` | Start the next entry from a directory it governs |
 
 `coop status` shows whether an image rebuild or container recreation is
