@@ -1,35 +1,19 @@
-# Machine-local project configuration
-#
-# Copy this file to <project-root>/.coop.toml and keep it Git-ignored. Coop
-# rejects tracked project config. The file loads after machine-wide config and
-# may override or expand any setting.
-
-# Additional host directories retain identical paths in the guest and default
-# to read-only. Uncomment and edit for this machine.
-# mount = [
-#   { source = "~/Projects/example/homebrew-tap", access = "read-write" },
-# ]
-
-# Keep platform-specific dependencies in a persistent Linux-only volume rather
-# than sharing the host's macOS tree. A new volume starts empty, so install the
-# guest dependencies after enabling it.
-# [[volume]]
-# path = "web/node_modules"
-
-# Publish a guest service only on host loopback. The service must listen on
-# 0.0.0.0:5173 inside the guest, not only on guest localhost.
-# [[publish]]
-# guest_port = 5173
-# host_port = 5173
+# Machine-local settings for this checkout.
+# Copy to <project-root>/.coop.toml and keep it Git-ignored.
 
 [resources]
 cpus = 6
 memory = "12G"
 
-# Packages come from the Nixpkgs revision pinned by the installed Coop release.
 [tools]
 packages = ["go-task", "nodejs_22"]
 
-# Each state directory receives a named volume isolated to this project.
-[agents.example]
-state = "~/.local/share/example-agent"
+# Keep Linux-generated dependencies out of a macOS checkout.
+# [[volume]]
+# path = "web/node_modules"
+
+# Publish a guest service on host loopback. The guest service must listen on
+# 0.0.0.0, not only localhost.
+# [[publish]]
+# guest_port = 5173
+# host_port = 5173

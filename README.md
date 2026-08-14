@@ -1,171 +1,109 @@
-# coop
+# Coop
 
-Run coding agents in a project-scoped Linux environment on Apple silicon.
+Coop gives each software project a persistent Linux workspace for coding
+agents on Apple silicon. Your project stays at the same path and remains
+writable; agent login state and Linux-only generated files can live in
+project-specific volumes.
 
-Coop uses Apple's [`container`](https://github.com/apple/container) runtime. It
-mounts one project read-write at the same path it has on the host, keeps agent
-state in project-specific volumes, and loads machine-local project settings
-from an ignored `.coop.toml`. Docker is not required.
-
-Coop is pre-1.0. Command and configuration behavior may change between
-releases.
-
-## Requirements
-
-- macOS 26 or later on Apple silicon
-- Apple's `container` CLI and a running container service
-
-The preferred Homebrew formula installs Apple's `container` CLI as a
-dependency. When installing coop from source with Go, install the runtime
-separately as described below.
-
-Flox is built into the guest image; it is not a host prerequisite. A project
-`.flox` is optional and useful when the repository wants the same pinned
-toolchain inside and outside Coop.
+Coop uses Apple's [`container`](https://github.com/apple/container) runtime.
+Docker is not required.
 
 ## Install
+
+You need macOS 26 or later on Apple silicon.
 
 ```sh
 brew install sarcasticbird/tap/coop
 container system start
-```
-
-The formula builds coop from the tagged source on your machine and installs
-Apple's `container` runtime as a dependency; start its service once per boot
-as shown. Then:
-
-```sh
-coop --version
 coop doctor
 ```
 
-Or install the current release from source with Go 1.26.5 or later:
+The Homebrew formula installs Apple's `container` CLI. Start its service once
+after each reboot.
+
+To build Coop from source instead, use the Go version declared in `go.mod`:
 
 ```sh
-go install github.com/sarcasticbird/coop/cmd/coop@v0.3.0
-coop --version
+go install github.com/sarcasticbird/coop/cmd/coop@latest
+brew install container
+container system start
 coop doctor
 ```
 
-`go install` writes to `$(go env GOPATH)/bin`; make sure that directory is on
-your `PATH`. Unlike the Homebrew formula, this path does not install Apple's
-runtime. Install it separately with `brew install container`, then start its
-service with `container system start`.
+Make sure `$(go env GOPATH)/bin` is on your `PATH`.
 
-Prebuilt archives are attached to the
-[`v0.3.0` release](https://github.com/sarcasticbird/coop/releases/tag/v0.3.0).
-Verify an archive against `checksums.txt` before installing it. Release
-binaries target Apple silicon and are not Developer ID signed or notarized.
+## Start an agent session
 
-## Quick start
-
-From a project directory:
+From a project checkout:
 
 ```sh
 cd ~/Projects/my-app
-coop init              # optional: review local isolation and port proposals
-coop claude
+coop init
+coop codex
 ```
 
-`coop init` is an interactive convenience for the ignored project
-`.coop.toml`. It detects likely platform-specific dependency trees, asks about
-localhost port publications, previews the exact TOML, and defaults every
-addition to no. It does not start Apple Container, build an image, or install
-dependencies.
+`coop init` reviews useful machine-local settings such as Linux-only dependency
+volumes and published development ports. It previews every change and defaults
+to doing nothing. You can skip it and enter an agent directly with `coop codex`,
+`coop claude`, or `coop opencode`.
 
-The first time you enter a project, coop offers to build the sandbox image —
-the first build takes a few minutes. Coop builds this image locally rather
-than publishing one. Run `coop rebuild` after changing configured tools or
-after upgrading to a release with different embedded image inputs. Rebuild is
-the only command that resolves configured GitHub release tools.
+On first entry, Coop offers to build the local guest image. The guest includes
+Git, the GitHub CLI, common shell tools, Flox, and the supported coding agents.
+Your repository owns application runtimes such as Go, Node.js, and Python;
+declare them in the project's Flox environment or in Coop's local config.
 
-Running `coop` without a guest command opens a Zsh login shell. The locked core
-includes Git, GitHub CLI, SSH, common shell tools, and the opencode, Claude
-Code, and Codex agents. Application runtimes such as Go, Node.js, and Python
-are project-owned.
-
-To update Coop's complete locked core independently of a Coop release:
+Arguments after the agent command pass through unchanged:
 
 ```sh
-coop upgrade
-# Existing coops keep running unchanged.
-
-cd ~/Projects/my-app
-coop status
-coop rebuild
+coop codex --help
+coop claude --help
+coop opencode run "fix the tests"
 ```
 
-`coop upgrade` is machine-wide for the current user. It resolves packages in a
-short-lived Apple container, so host Flox is not required. It changes the
-desired core lock but does not build images, stop containers, recreate coops,
-or modify project Flox environments and configured project tools. Existing
-coops become stale only when the lock changes; run `coop rebuild` in each
-project when ready to adopt it. Version one upgrades the complete core rather
-than individual core packages.
-
-## Commands
+## Everyday commands
 
 ```text
-coop [command [args...]]  Run a command in the project environment
-coop                      Open a shell
-coop init                 Review project-local dependency isolation and ports
-coop up                   Create or start the project container
-coop down                 Stop it while preserving state volumes
-coop status               Show container and desired/running image state
-coop ls                   List all coops
-coop tui                  Open the fleet dashboard
-coop doctor               Check the host and local configuration
-coop rebuild              Build the sandbox image locally
-coop upgrade              Upgrade the machine-wide locked core
-coop destroy              Delete the container and all project state volumes
-coop --version            Print the installed Coop version
+coop [command [args...]]  Run a command in the project workspace
+coop                      Open a Zsh login shell
+coop init                 Review machine-local project settings
+coop up                   Create or start the project workspace
+coop down                 Stop it and preserve project state
+coop status               Show workspace and image status
+coop ls                   List all workspaces
+coop tui                  Open the workspace dashboard
+coop doctor               Check host requirements and configuration
+coop rebuild              Rebuild after changing configured tools
+coop upgrade              Update Coop's locked core toolset
+coop destroy              Delete this workspace and its state volumes
 ```
 
-Arguments after the guest command pass through unchanged:
+Coop flags go before the guest command. For example:
 
 ```sh
-coop claude --help
-coop codex --model o3
-coop opencode run "fix the tests"
-coop --credentials aws-dev,github codex
+coop --credentials github-work codex
 ```
 
-Coop flags must appear before the guest command. `coop down` preserves state;
-`coop destroy` asks for confirmation and removes every volume belonging to the
-project.
+`coop down` preserves state. `coop destroy` asks for confirmation and deletes
+the project's Coop-owned volumes.
 
-## How it works
+## Machine-local configuration
 
-Coop selects a project boundary, mounts it read-write at the identical path in
-the Linux guest, and reconciles a long-lived project container. Agent state
-lives in named volumes isolated by project. Trusted user seeds copy selected
-host files or executables into the guest. Selected credentials are staged for
-one interactive entry and cleaned up afterward, but every guest-root process
-can access or retain them while staged.
+Coop loads:
 
-The sandbox image has four tool layers:
+1. `~/.config/coop/coop.toml` for settings shared across projects; then
+2. `<project-root>/.coop.toml` for this checkout.
 
-1. Coop's locked core workbench;
-2. additive packages declared in machine or project configuration;
-3. checksum-verified public GitHub release tools declared locally;
-4. an optional project `.flox`, activated at entry with highest precedence.
+The project file has full local authority and must stay Git-ignored. Coop
+refuses to load it when Git tracks it.
 
-See the [runtime model](docs/runtime.md) for project selection, image identity,
-container lifecycle, persistence, tool ordering, recovery, and current limits.
-
-## Configuration
-
-Coop loads machine-wide configuration from
-`$XDG_CONFIG_HOME/coop/coop.toml` or `~/.config/coop/coop.toml`, then loads
-`<project-root>/.coop.toml` last. The project file is machine-local, must remain
-Git-ignored, and may override or expand any setting—including additional host
-directory mounts. Coop refuses a `.coop.toml` tracked by Git and does not load
-a committed project `coop.toml`.
-
-Use a project volume when one path cannot be safely shared between macOS and
-Linux—for example, native npm optional dependencies under `node_modules`:
+A common project file keeps macOS and Linux dependencies separate and exposes a
+development server to the host:
 
 ```toml
+# .coop.toml
+[tools]
+packages = ["go-task", "nodejs_22"]
+
 [[volume]]
 path = "web/node_modules"
 
@@ -174,39 +112,46 @@ guest_port = 5173
 host_port = 5173
 ```
 
-The host keeps its own `web/node_modules`; Coop overlays a persistent,
-initially empty Linux volume at that path in the guest. Install dependencies
-once on each side. Published services are reachable at host
-`127.0.0.1:5173`; the guest service must listen on `0.0.0.0:5173`.
+The Linux volume starts empty, so install dependencies once inside Coop. The
+host retains its own `web/node_modules`. A published guest service must listen
+on `0.0.0.0`; it is reachable from the host on `127.0.0.1`.
 
-Upgrading from 0.1.x requires renaming any project `coop.toml` to the ignored
-`.coop.toml` form and moving scoped mounts into the project file. See the
-[migration guide](docs/configuration.md#migrating-from-01x).
+See the parser-tested [machine-wide](examples/coop.user.toml) and
+[project-local](examples/coop.project.toml) examples, then use the
+[configuration reference](docs/configuration.md) for all supported settings.
 
-The full [`coop.toml` reference](docs/configuration.md) documents every key,
-default, merge rule, trust boundary, validation rule, and lifecycle effect.
-The [credential guide](docs/credentials.md) covers macOS Keychain-backed Git
-and `gh`, project authorization, agent-owned login state, migration, and cleanup.
-Start from:
+## GitHub credentials
 
-- [machine-wide example](examples/coop.user.toml)
-- [machine-local project example](examples/coop.project.toml)
+Coop does not manage or store your source credentials. GitHub creates and
+revokes tokens, Git stores them through your host credential helper, and Coop
+reads an authorized credential only for an interactive project entry.
 
-## Security
+The [credential guide](docs/credentials.md) provides one copy-paste path for
+initial GitHub setup, rotation, project authorization, and verification from
+both Git and `gh` inside Coop.
 
-Coop narrows direct host exposure; it does not make untrusted code safe.
-Commands run as guest root, the selected project is writable, containers
-persist across entries, and outbound network access is unrestricted.
+## Security boundary
+
+Coop reduces direct host exposure; it does not make untrusted code safe. Guest
+commands run as root, the selected project is writable, containers persist,
+and outbound network access is unrestricted. Guest processes can copy or retain
+credentials while those credentials are exposed to a session.
 
 Read the [security model](docs/security-model.md) before granting credentials,
-forwarding the SSH agent, or seeding sensitive host data. Report suspected
-vulnerabilities through the repository [security policy](SECURITY.md).
+forwarding SSH, mounting more host directories, or seeding sensitive data.
 
-## Development and releases
+## More documentation
 
-Contributor and release checks are documented in
-[docs/release.md](docs/release.md). The embedded image's third-party
-distribution notices are in
+- [Configuration](docs/configuration.md): current schema, examples, and when
+  changes take effect
+- [Credentials](docs/credentials.md): GitHub setup and rotation plus other
+  credential sources
+- [Runtime model](docs/runtime.md): project selection, persistence, images,
+  Flox, and recovery
+- [Security model](docs/security-model.md): trust boundaries and non-promises
+- [Release process](docs/release.md): contributor-only release procedure
+
+Third-party distribution notices for the embedded image are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

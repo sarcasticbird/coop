@@ -1,124 +1,25 @@
-# Machine-wide configuration
-#
-# Copy the settings you need to:
-#   $XDG_CONFIG_HOME/coop/coop.toml
-# or, when XDG_CONFIG_HOME is unset:
-#   ~/.config/coop/coop.toml
-#
-# Put settings specific to one checkout in that project's ignored .coop.toml.
+# Machine-wide settings for software development with agents.
+# Copy only what you need to ~/.config/coop/coop.toml.
 
-# SSH-agent forwarding is deliberately off by default.
-ssh = false
-
-# Top-level include_credentials applies to every project. Prefer the scoped
-# [[projects]] grants below for account credentials.
-include_credentials = []
-
-[image]
-name = "coop:latest"
-
-# Packages come from the Nixpkgs revision pinned by this Coop release.
 [tools]
-packages = ["gh", "shellcheck"]
+packages = ["shellcheck"]
 
-# Public GitHub release tools may also be project-local. "latest" is resolved
-# only by `coop rebuild`; use an exact tag when repeatability matters.
-[[tools.github_release]]
-name = "kata"
-repo = "kenn-io/kata"
-tag = "latest"
-asset = "kata_{version}_linux_arm64.tar.gz"
-binary = "kata"
-
-[[tools.github_release]]
-name = "roborev"
-repo = "kenn-io/roborev"
-tag = "latest"
-asset = "roborev_{version}_linux_arm64.tar.gz"
-binary = "roborev"
-
-[resources]
-cpus = 4
-memory = "8G"
-
-# Add persistent state for another agent. To remove a built-in agent, declare
-# its table with an empty state, for example:
-# [agents.codex]
-# state = ""
-[agents.gemini]
-state = "~/.gemini"
-
-# Copy a host configuration file on every entry. When dest is omitted, it
-# defaults to src with the guest home substituted for ~/.
+# Give new Coops your shared agent instructions without overwriting changes
+# already made inside an existing Coop.
 [[seed]]
-src = "~/.config/example/config.toml"
-policy = "always"
-
-# Merge a host directory into the guest without deleting guest-only files.
-[[seed]]
-src = "~/.config/example/plugins"
-policy = "overlay"
-
-# Snapshot an explicit host directory only when a new Coop does not already
-# have it. Missing sources are skipped, so one user file can cover many hosts.
-[[seed]]
-src = "~/.config/example/bootstrap"
+src = "~/.agents/AGENTS.md"
 policy = "if-absent"
 
-# Portable agent configuration and rules may use the one-way seed primitive.
-# Native login state belongs to the agent inside its per-project state volume;
-# do not seed auth.json or an equivalent login store.
-# [[seed]]
-# src = "~/.codex/config.toml"
-# policy = "if-absent"
-#
-# [[seed]]
-# src = "~/.codex/rules"
-# policy = "if-absent"
-#
-# [[seed]]
-# src = "~/.agents/AGENTS.md"
-# policy = "if-absent"
-
-# Install a self-contained script or Linux executable on the guest PATH.
-[[seed]]
-src = "~/bin/example-tool"
-dest = "/usr/local/bin/example-tool"
-policy = "always"
-
-# GitHub CLI extensions are executable files under this directory layout.
-[[seed]]
-src = "~/bin/gh-example"
-dest = "~/.local/share/gh/extensions/gh-example/gh-example"
-policy = "always"
-
-[credentials.github-sarcasticbird]
-source = { type = "git-credential", url = "https://github.com/sarcasticbird" }
+# Read a GitHub credential through the host's configured Git credential helper.
+# See docs/credentials.md for setup and rotation.
+[credentials.github-example]
+source = { type = "git-credential", url = "https://github.com/example" }
 expose = [
   { type = "git-credential-store" },
   { type = "environment", name = "GH_TOKEN", field = "password" },
 ]
 
-[credentials.kubernetes]
-source = { type = "file", path = "~/.kube/config" }
-inject = { type = "file", path_env = "KUBECONFIG" }
-
-[credentials.aws-dev]
-source = { type = "aws-profile", profile = "dev" }
-inject = { type = "aws" }
-require_expiration = true
-
-# Credentials and seeds that apply only to projects under a path. Matching is a
-# path prefix compared at component boundaries, so ~/Projects/foo does not match
-# ~/Projects/foobar, while a bare-repo worktree at <org>/<repo>/main still
-# matches a block naming <org>. Overlapping blocks union.
-#
-# Use this to keep a forge token with the organization it belongs to instead of
-# handing it to every project you enter.
+# Only projects under this path receive the credential.
 [[projects]]
-match               = "~/Projects/sarcasticbird"
-include_credentials = ["github-sarcasticbird"]
-
-[[projects]]
-match               = "~/Projects/work"
-include_credentials = ["kubernetes", "aws-dev"]
+match = "~/Projects/example"
+include_credentials = ["github-example"]
