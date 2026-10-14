@@ -15,54 +15,107 @@ import (
 )
 
 // These audit tests assert the observed defects at 04e6dff, not desired behavior.
-func TestAuditMissingSubmissionStaysActiveAfterDeadlineAndRestart(t *testing.T) {
-	aborts, missing := 0, 0
-	_, client := apiFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/global/health":
-			writeJSON(w, ServerHealth{Healthy: true, Version: "1.18.18"})
-		case strings.Contains(r.URL.Path, "/message/"):
-			missing++
-			w.WriteHeader(http.StatusNotFound)
-		case strings.HasSuffix(r.URL.Path, "/abort"):
-			aborts++
-			writeJSON(w, true)
-		case r.URL.Path == "/session/status":
-			writeJSON(w, map[string]any{})
-		default:
-			t.Errorf("unexpected request %s", r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
+func TestAuditPermanentObservationFailureStaysActiveAfterDeadlineAndRestart(t *testing.T) {
+	for _, state := range []string{"submitting", "unknown", "accepted", "running"} {
+		t.Run(state, func(t *testing.T) {
+			aborts, missing := 0, 0
+			_, client := apiFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/global/health":
+					writeJSON(w, ServerHealth{Healthy: true, Version: "1.18.18"})
+				case strings.Contains(r.URL.Path, "/message/"):
+					missing++
+					w.WriteHeader(http.StatusNotFound)
+				case strings.HasSuffix(r.URL.Path, "/abort"):
+					aborts++
+					writeJSON(w, true)
+				case r.URL.Path == "/session/status":
+					writeJSON(w, map[string]any{})
+				default:
+					t.Errorf("unexpected request %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			})
+			e, g, _, clock, store := engineFixture(t)
+			if err := e.initialize(); err != nil {
+				t.Fatal(err)
+			}
+			j := Select(e.Config, g.snapshot, e.state, clock.Now())[0]
+			if _, err := g.Claim(context.Background(), j, e.state.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			e.state.SnapshotCache = g.snapshot
+			j.Phase, j.SubmissionState = "active", state
+			j.SessionID, j.MessageID = "ses_audit", "msg_neverposted"
+			j.Checkout = filepath.Join(e.Config.WorkRoot, "audit")
+			j.SubmittedAt = clock.Now()
+			j.Deadline = clock.Now().Add(time.Minute)
+			if err := e.saveJob(j); err != nil {
+				t.Fatal(err)
+			}
+			clock.now = j.Deadline.Add(time.Minute)
+			for range 2 {
+				restarted := &Engine{Config: e.Config, GitHub: g, Store: store, Checkouts: e.Checkouts, OpenCode: client, Clock: clock}
+				for range 3 {
+					tick(t, restarted, clock)
+				}
+			}
+			got := store.state.Jobs[j.ID]
+			if got.Phase != "active" || got.Attempts != 0 || aborts != 6 || missing != 6 {
+				t.Fatalf("phase=%s attempts=%d aborts=%d missing=%d", got.Phase, got.Attempts, aborts, missing)
+			}
+			t.Logf("expired %s intent remains active across two restarts: attempts=%d, aborts=%d, message 404s=%d", state, got.Attempts, aborts, missing)
+		})
+	}
+}
+
+type auditFailedCheckpointStore struct {
+	*memoryStore
+	rejected bool
+}
+
+func (s *auditFailedCheckpointStore) Save(state State) error {
+	for _, j := range state.Jobs {
+		if !s.rejected && j.Phase == "active" && j.SubmissionState == "submitting" {
+			s.rejected = true
+			return errors.New("audit checkpoint write failed")
 		}
-	})
-	e, g, _, clock, store := engineFixture(t)
+	}
+	return s.memoryStore.Save(state)
+}
+
+type auditMissingObservation struct{ *fakeOpenCode }
+
+func (c auditMissingObservation) Observe(context.Context, Job) (Turn, error) {
+	return Turn{}, errors.New("audit absent message")
+}
+
+func TestAuditFailedCheckpointMutatesLiveJobBeforePersistence(t *testing.T) {
+	e, g, code, clock, store := engineFixture(t)
 	if err := e.initialize(); err != nil {
 		t.Fatal(err)
 	}
-	j := Select(e.Config, g.snapshot, e.state, clock.Now())[0]
-	if _, err := g.Claim(context.Background(), j, e.state.InstanceID); err != nil {
-		t.Fatal(err)
-	}
 	e.state.SnapshotCache = g.snapshot
-	j.Phase, j.SubmissionState = "active", "submitting"
-	j.SessionID, j.MessageID = "ses_audit", "msg_neverposted"
-	j.Checkout = filepath.Join(e.Config.WorkRoot, "audit")
-	j.SubmittedAt = clock.Now()
-	j.Deadline = clock.Now().Add(time.Minute)
-	if err := e.saveJob(j); err != nil {
-		t.Fatal(err)
+	j := Select(e.Config, g.snapshot, e.state, clock.Now())[0]
+	failing := &auditFailedCheckpointStore{memoryStore: store}
+	e.Store = failing
+	if err := e.dispatch(context.Background(), j); err == nil || !failing.rejected {
+		t.Fatal("submission checkpoint failure not injected")
 	}
-	clock.now = j.Deadline.Add(time.Minute)
-	for range 2 {
-		restarted := &Engine{Config: e.Config, GitHub: g, Store: store, Checkouts: e.Checkouts, OpenCode: client, Clock: clock}
-		for range 3 {
-			tick(t, restarted, clock)
-		}
+	active, ok := e.active()
+	if !ok || active.SubmissionState != "submitting" || code.calls != 0 || store.state.Jobs[j.ID].Phase != "preparing" {
+		t.Fatalf("live=%+v persisted=%+v posts=%d", active, store.state.Jobs[j.ID], code.calls)
 	}
-	got := store.state.Jobs[j.ID]
-	if got.Phase != "active" || got.Attempts != 0 || aborts != 6 || missing != 6 {
-		t.Fatalf("phase=%s attempts=%d aborts=%d missing=%d", got.Phase, got.Attempts, aborts, missing)
+	e.OpenCode = auditMissingObservation{code}
+	clock.now = active.Deadline.Add(time.Minute)
+	for range 3 {
+		tick(t, e, clock)
 	}
-	t.Logf("expired unposted intent remains active across two restarts: attempts=%d, aborts=%d, message 404s=%d", got.Attempts, aborts, missing)
+	active, ok = e.active()
+	if !ok || active.Attempts != 0 || code.calls != 0 || code.aborts != 3 {
+		t.Fatalf("failed checkpoint did not hold slot: %+v posts=%d aborts=%d", active, code.calls, code.aborts)
+	}
+	t.Log("checkpoint failed before POST, but live active job held the slot through three expired ticks without retry")
 }
 
 func TestAuditPauseAbortsLaterManualTurn(t *testing.T) {

@@ -104,6 +104,126 @@ func TestAuditValidApprovalTemporarilyUnapproved(t *testing.T) {
 	t.Log("same valid owner approval is unapproved with a stale listed body, approved on the next consistent read")
 }
 
+// Assessment probes below assert observed authorization gaps at 0f897bb.
+func TestAuditOrdinaryApprovalApprovesStaleBroadScope(t *testing.T) {
+	c, s, now := policyFixture(t)
+	old := graphDiscussion{ID: "discussion", URL: s.Goals[0].URL, CreatedAt: now.Add(-2 * time.Hour), LastEditedAt: now.Add(-time.Hour)}
+	old.Body = "Implement both repositories\n" + encodeMetadata("goal", struct {
+		Repositories []string `json:"repositories"`
+	}{[]string{"code/repo", "code/extra"}})
+	current := old
+	current.Body = "Implement only code/repo\n" + encodeMetadata("goal", struct {
+		Repositories []string `json:"repositories"`
+	}{[]string{"code/repo"}})
+	current.LastEditedAt = now.Add(-30 * time.Second)
+	g := NewGitHubClient(&fakeCommands{})
+	g.config = c
+	narrow, _ := g.goalFromDiscussion(current, nil)
+	bound, err := GoalApprovalComment(c, narrow, narrow.Repositories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Tasks[0].URL, s.Tasks[0].Repo = "https://github.com/code/extra/issues/4", "code/extra"
+	for _, tc := range []struct {
+		name, command, staleState string
+	}{
+		{"command", "/coop approve", "approved"},
+		{"ordinary statement", "approved", "approved"},
+		{"hash-bound host control", bound, "unapproved"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			comments := []Comment{{ID: "approval", Body: tc.command, Author: c.Owner, CreatedAt: now.Add(-time.Second)}}
+			// Model the old listing body paired with comments read after narrowing.
+			stale, _ := g.goalFromDiscussion(old, comments)
+			if a := EvaluateGoal(c, stale, now); a.State != tc.staleState || a.BodySHA != BodyHash(old.Body) {
+				t.Fatalf("unexpected mixed-read approval: %+v", a)
+			}
+			s.Goals = []Goal{stale}
+			jobs := Select(c, s, State{}, now)
+			if tc.staleState == "approved" {
+				if len(jobs) != 1 || jobs[0].Kind != "implement" || jobs[0].TaskURL != s.Tasks[0].URL {
+					t.Fatalf("stale out-of-narrow-scope admission not reproduced: %+v", jobs)
+				}
+			} else if len(jobs) != 0 {
+				t.Fatalf("hash-bound approval admitted stale scope: %+v", jobs)
+			}
+			fresh, _ := g.goalFromDiscussion(current, comments)
+			if a := EvaluateGoal(c, fresh, now); a.State != "approved" {
+				t.Fatalf("consistent narrowed scope should be approved: %+v", a)
+			}
+			s.Goals = []Goal{fresh}
+			if jobs := Select(c, s, State{}, now); len(jobs) != 0 {
+				t.Fatalf("consistent narrowed scope admitted code/extra: %+v", jobs)
+			}
+		})
+	}
+	t.Log("plain owner decisions approve stale broad scope and admit code/extra; hash-bound host approval fails closed, and a consistent fresh read excludes code/extra")
+}
+
+func TestAuditPRMetadataRetargetReusesEarlierReview(t *testing.T) {
+	c, s, now := policyFixture(t)
+	s.Tasks[0].Ready = false
+	s.Tasks[0].MetadataUpdatedAt = now.Add(-3 * time.Minute)
+	goal := s.Goals[0]
+	goal.URL = "https://github.com/orgs/planning/discussions/2"
+	goal.Body, goal.BodySHA = "Different approved goal", BodyHash("Different approved goal")
+	task := s.Tasks[0]
+	task.URL, task.Title, task.Body = "https://github.com/code/repo/issues/6", "Different task", "Different scope"
+	task.BodySHA = TaskScopeHash(task.Title, task.Body)
+	if err := ApplyTaskMetadata(c, &task, []Comment{{ID: "target-metadata", Author: c.Reviewer, CreatedAt: now.Add(-2 * time.Minute), Body: encodeMetadata("task", taskMetadata{Goal: goal.URL, ScopeSHA: task.BodySHA})}}); err != nil {
+		t.Fatal(err)
+	}
+	s.Goals, s.Tasks = append(s.Goals, goal), append(s.Tasks, task)
+	const ref = "https://github.com/code/repo/pull/5"
+	head := strings.Repeat("a", 40)
+	linked := s.Tasks[0]
+	updated := now.Add(-2 * time.Minute)
+	reviewed := now.Add(-30 * time.Second)
+	f := &fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+		switch endpoint {
+		case "graphql":
+			return jsonResponse(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
+				"url": ref, "body": encodeMetadata("pr", prMetadata{Task: linked.URL, Goal: linked.GoalURL}), "state": "OPEN", "headRefOid": head, "updatedAt": updated, "mergeStateStatus": "CLEAN",
+				"author":  map[string]any{"databaseId": c.Implementer.ID, "login": c.Implementer.Login, "__typename": c.Implementer.Kind},
+				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}},
+			}}}}), nil
+		case "repos/code/repo/pulls/5/reviews?per_page=100&page=1":
+			return jsonResponse([]any{map[string]any{"id": 1, "commit_id": head, "state": "APPROVED", "submitted_at": reviewed, "user": map[string]any{"id": c.Reviewer.ID, "login": c.Reviewer.Login, "type": c.Reviewer.Kind}}}), nil
+		default:
+			t.Fatalf("unexpected mocked request: %s %s", method, endpoint)
+			return CommandResult{}, nil
+		}
+	}}
+	g := NewGitHubClient(f)
+	g.config = c
+	for _, retarget := range []bool{false, true} {
+		if retarget {
+			linked, updated = task, now
+		}
+		pr, err := g.readPR(context.Background(), ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindReviewScope(&pr, linked)
+		s.PRs = []PR{pr}
+		jobs := Select(c, s, State{}, now)
+		if len(jobs) != 1 || jobs[0].Kind != "deliver" || jobs[0].TaskURL != linked.URL || jobs[0].GoalURL != linked.GoalURL || jobs[0].HeadSHA != head {
+			t.Fatalf("retarget=%v: earlier exact-head review did not admit delivery: %+v", retarget, jobs)
+		}
+		if retarget {
+			if pr.Revision != now.Format(time.RFC3339Nano) || !pr.ScopeUpdatedAt.Before(reviewed) {
+				t.Fatalf("expected fresh PR revision but pre-review task scope: %+v", pr)
+			}
+			pr.ScopeUpdatedAt = updated
+			s.PRs = []PR{pr}
+			if jobs := Select(c, s, State{}, now); len(jobs) != 0 {
+				t.Fatalf("control: post-review PR scope timestamp should block delivery: %+v", jobs)
+			}
+		}
+	}
+	t.Log("editing only PR task/goal metadata after approval reuses the old exact-head review to deliver another trusted task/goal; PR updatedAt is read but ignored by review scope binding")
+}
+
 func TestAuditWakePromptUsesStaleApproval(t *testing.T) {
 	c, s, now := policyFixture(t)
 	source := ConversationSource{DiscussionID: "discussion", NodeID: "discussion", RootID: "discussion", DiscussionURL: s.Goals[0].URL, Body: "Changed scope awaiting renewed approval", Author: c.Owner}
