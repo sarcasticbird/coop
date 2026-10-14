@@ -1,0 +1,3 @@
+#!/bin/bash
+set -euo pipefail
+exec /usr/local/libexec/coop-opencode-launch attach "$@"

@@ -297,6 +297,22 @@ func (a *Apple) Run(spec RunSpec) error {
 	return nil
 }
 
+// CreateStopped registers a guest without executing its entrypoint.
+func (a *Apple) CreateStopped(spec RunSpec) error {
+	args, err := runArgs(spec)
+	if err != nil {
+		return err
+	}
+	args[0] = "create"
+	for i, arg := range args {
+		if arg == "-d" {
+			args = append(args[:i], args[i+1:]...)
+			break
+		}
+	}
+	return a.run(args...)
+}
+
 func runArgs(spec RunSpec) ([]string, error) {
 	for _, m := range spec.Mounts {
 		if err := ValidateMountField(m.Source); err != nil {
@@ -387,16 +403,19 @@ func (a *Apple) ExecContext(parent context.Context, name string, argv []string, 
 	return nil
 }
 
-func (a *Apple) ExecInteractive(ctx context.Context, name, workdir string, argv []string) (retErr error) {
+func (a *Apple) ExecInteractive(ctx context.Context, name, workdir string, argv []string) error {
+	args := append([]string{"exec", "-it", "-w", workdir, name}, argv...)
+	return runInteractive(ctx, a.Bin, args)
+}
+
+func runInteractive(ctx context.Context, binary string, args []string) (retErr error) {
 	if cause := context.Cause(ctx); cause != nil {
 		return cause
 	}
-	bin, err := exec.LookPath(a.Bin)
+	bin, err := exec.LookPath(binary)
 	if err != nil {
 		return fmt.Errorf("find container runtime: %w", err)
 	}
-	args := []string{"exec", "-it", "-w", workdir, name}
-	args = append(args, argv...)
 	cmd := exec.Command(bin, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

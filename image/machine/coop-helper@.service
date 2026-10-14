@@ -1,0 +1,13 @@
+[Unit]
+Description=Coop helper service %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+Environment=PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/workspace
+ExecStart=/usr/local/libexec/coop-service-run %i
+Restart=on-failure
+RestartSec=5

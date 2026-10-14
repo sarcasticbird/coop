@@ -8,6 +8,8 @@ import (
 
 // ContainerInfo is the parsed state of one container.
 type ContainerInfo struct {
+	Mode    string
+	Profile string
 	Name    string
 	State   string
 	IP      string

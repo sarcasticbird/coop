@@ -26,6 +26,7 @@ import (
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/seed"
+	"github.com/sarcasticbird/coop/internal/workspace"
 )
 
 type Session struct {
@@ -198,9 +199,8 @@ const SpecLabel = "coop.spec"
 // SpecFingerprint canonically hashes everything a running container
 // must agree with config about: image, resources, SSH capability,
 // project mount, HOME, and volume layout. Containers are reconciled
-// against this label — never by parsing runtime state — so ANY config
-// change (including revoking ssh) forces recreation. Legacy containers
-// without the label always mismatch and get recreated once.
+// against this label. A mismatch, including an unlabeled legacy container,
+// requires explicit maintenance and never replaces the root filesystem.
 func (s *Session) SpecFingerprint() string {
 	var vols []string
 	for agent, spec := range s.Cfg.Agents {
@@ -283,8 +283,8 @@ func ensureProjectVolumeTarget(projectRoot, relativePath string) (string, error)
 
 // Up ensures the container exists and is running, then applies seeds.
 // An existing container whose spec label disagrees with current config
-// (image, resources, ssh, volumes...) is recreated — state volumes
-// survive recreation by design. Serialized per project by a host lock.
+// (image, resources, ssh, volumes...) requires explicit maintenance.
+// Serialized per project by a host lock.
 func (s *Session) Up() error {
 	return s.UpContext(context.Background())
 }
@@ -319,27 +319,8 @@ func (s *Session) up(ctx context.Context) error {
 		if err := context.Cause(ctx); err != nil {
 			return err
 		}
-		if have != want {
-			// Validate the replacement image exists BEFORE tearing down
-			// a working container.
-			if err := s.EnsureImage(); err != nil {
-				return fmt.Errorf("%s config changed but replacement not ready: %w", s.Name, err)
-			}
-			if err := context.Cause(ctx); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(s.output(), "%s config changed (spec %s -> %s) — recreating; state volumes preserved, undeclared root-filesystem changes will be discarded...\n",
-				s.Name, valueOrLegacy(have), want); err != nil {
-				return fmt.Errorf("write recreation notice for %s: %w", s.Name, err)
-			}
-			_ = s.RT.Stop(s.Name)
-			if err := context.Cause(ctx); err != nil {
-				return err
-			}
-			if err := s.RT.Remove(s.Name); err != nil {
-				return fmt.Errorf("recreate %s: %w", s.Name, err)
-			}
-			state = runtime.StateAbsent
+		if err := workspace.CheckSpecification(state, have, want); err != nil {
+			return fmt.Errorf("%s: %w", s.Name, err)
 		}
 	}
 	switch state {
@@ -358,76 +339,11 @@ func (s *Session) up(ctx context.Context) error {
 		if err := context.Cause(ctx); err != nil {
 			return err
 		}
-		// Per-project agent state volumes: sessions/history stay isolated
-		// per coop (no cross-project transcript leakage), credentials
-		// refreshed in-guest persist across restarts.
-		var vols []runtime.Volume
-		for agent, spec := range s.Cfg.Agents {
-			if err := context.Cause(ctx); err != nil {
-				return err
-			}
-			v := s.Name + project.VolumeSep + agent
-			if err := s.RT.EnsureVolume(v); err != nil {
-				return fmt.Errorf("volume %s: %w", v, err)
-			}
-			vols = append(vols, runtime.Volume{
-				Name:   v,
-				Target: config.ExpandHome(spec.State, s.GuestHome),
-			})
-		}
-		for _, volume := range s.Cfg.Volumes {
-			if err := context.Cause(ctx); err != nil {
-				return err
-			}
-			target, err := ensureProjectVolumeTarget(s.Project, volume.Path)
-			if err != nil {
-				return fmt.Errorf("prepare project volume %q: %w", volume.Path, err)
-			}
-			name := projectVolumeName(s.Name, volume.Path)
-			if err := s.RT.EnsureVolume(name); err != nil {
-				return fmt.Errorf("volume %s for %q: %w", name, volume.Path, err)
-			}
-			vols = append(vols, runtime.Volume{Name: name, Target: target})
-		}
-		sort.Slice(vols, func(i, j int) bool { return vols[i].Name < vols[j].Name })
-		mounts := []runtime.Mount{{Source: s.Project, Target: s.Project}}
-		for _, mount := range s.Cfg.Mounts {
-			mounts = append(mounts, runtime.Mount{
-				Source:   mount.Source,
-				Target:   mount.Source,
-				ReadOnly: mount.ReadOnly(),
-			})
-		}
-		if err := context.Cause(ctx); err != nil {
+		spec, err := s.RunSpec(ctx)
+		if err != nil {
 			return err
 		}
-		publishes := make([]runtime.Publish, 0, len(s.Cfg.Publishes))
-		for _, publish := range s.Cfg.Publishes {
-			publishes = append(publishes, runtime.Publish{
-				HostPort:  publish.HostPort,
-				GuestPort: publish.GuestPort,
-			})
-		}
-		sort.Slice(publishes, func(i, j int) bool {
-			if publishes[i].HostPort == publishes[j].HostPort {
-				return publishes[i].GuestPort < publishes[j].GuestPort
-			}
-			return publishes[i].HostPort < publishes[j].HostPort
-		})
-		err := s.RT.Run(runtime.RunSpec{
-			Name:   s.Name,
-			Image:  s.DesiredImageName(),
-			CPUs:   s.Cfg.Resources.CPUs,
-			Memory: s.Cfg.Resources.Memory,
-			SSH:    s.Cfg.SSH, // default off — deliberate trusted-local capability
-			Labels: map[string]string{SpecLabel: want, runtime.ProjectLabel: s.Project},
-			// HOME enforced at run time too, so custom images without a
-			// baked GUEST_HOME still honor the identical-path property.
-			Env:       map[string]string{"HOME": s.GuestHome},
-			Mounts:    mounts,
-			Volumes:   vols,
-			Publishes: publishes,
-		})
+		err = s.RT.Run(spec)
 		if err != nil {
 			return fmt.Errorf("create %s: %w", s.Name, err)
 		}
@@ -447,13 +363,6 @@ func (s *Session) up(ctx context.Context) error {
 		return fmt.Errorf("seeding %s: %w", s.Name, err)
 	}
 	return context.Cause(ctx)
-}
-
-func (s *Session) output() io.Writer {
-	if s.Output != nil {
-		return s.Output
-	}
-	return os.Stdout
 }
 
 // canonicalizeCwd aligns a working directory with the canonical
@@ -543,7 +452,19 @@ func (s *Session) Destroy() error {
 			return fmt.Errorf("remove %s: %w", s.Name, err)
 		}
 	}
-	return DestroyVolumes(s.RT, s.Name)
+	if err := DestroyVolumes(s.RT, s.Name); err != nil {
+		return err
+	}
+	store, err := workspace.DefaultStore()
+	if err != nil {
+		return err
+	}
+	if _, err := store.Load(workspace.Interactive, s.Name); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return store.Remove(workspace.Interactive, s.Name)
 }
 
 // DestroyVolumes removes every volume prefixed by a coop's name.
@@ -563,13 +484,6 @@ func DestroyVolumes(rt runtime.Runtime, name string) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func valueOrLegacy(s string) string {
-	if s == "" {
-		return "unlabeled/legacy"
-	}
-	return s
 }
 
 func isDir(p string) bool {

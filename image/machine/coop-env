@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+export HOME=/root
+export PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+root=${COOP_RUNTIME_DIR:-/run/coop}
+if [[ -L "$root/current-credentials" ]]; then
+  lease=$(readlink "$root/current-credentials")
+  case "$lease" in /dev/shm/coop-credentials/*) ;; *) echo 'invalid credential generation' >&2; exit 1;; esac
+  while IFS= read -r name; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || exit 1
+    unset "$name"
+  done < "$lease/env.unset"
+  while IFS= read -r name; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || exit 1
+    value=$(cat "$lease/env/$name")
+    export "$name=$value"
+  done < "$lease/env.list"
+fi
+exec flox activate --dir /opt/coop-core -- /usr/local/bin/coop-user-env -- "$@"

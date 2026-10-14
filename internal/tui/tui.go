@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/sarcasticbird/coop/internal/agent"
 	"github.com/sarcasticbird/coop/internal/lock"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
@@ -28,6 +30,7 @@ var (
 
 // Result reports what the user asked for on exit.
 type Result struct {
+	EnterAgent   string
 	EnterName    string // container to shell into ("" = plain quit)
 	EnterWorkdir string
 }
@@ -41,6 +44,7 @@ type model struct {
 	// between 'd' and 'y', and the wrong coop must not die for it.
 	confirmName    string
 	confirmProject string
+	confirmProfile string
 	status         string
 	err            error
 	result         *Result
@@ -184,13 +188,18 @@ func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirmName != "" {
 		name := m.confirmName
 		projectPath := m.confirmProject
+		profile := m.confirmProfile
 		m.confirmName = ""
 		m.confirmProject = ""
+		m.confirmProfile = ""
 		if msg.String() == "y" {
 			rt := m.rt
 			m.status = "destroying " + name + "..."
 			m.busy = true
 			m.gen++ // invalidate in-flight refreshes
+			if profile != "" {
+				return m, namedAction(rt, name, profile, "destroy")
+			}
 			return m, sessionAction(rt, name, projectPath, func(s *session.Session) error {
 				return s.Destroy()
 			})
@@ -222,6 +231,11 @@ func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if sel != nil && sel.State != "running" {
 			name := sel.Name
+			if sel.Mode == "agent" {
+				m.busy = true
+				m.gen++
+				return m, namedAction(m.rt, name, sel.Profile, "up")
+			}
 			projectPath := sel.ProjectMount()
 			if projectPath == "" {
 				m.err = fmt.Errorf("cannot start %s: project mount unavailable", name)
@@ -243,10 +257,18 @@ func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "stopping " + name + "..."
 			m.busy = true
 			m.gen++ // invalidate in-flight refreshes
+			if sel.Mode == "agent" {
+				return m, namedAction(rt, name, sel.Profile, "down")
+			}
 			return m, action(rt, name, func() error { return rt.Stop(name) })
 		}
 	case "d":
 		if sel != nil && !m.busy {
+			if sel.Mode == "agent" {
+				m.confirmName = sel.Name
+				m.confirmProfile = sel.Profile
+				return m, nil
+			}
 			projectPath := sel.ProjectMount()
 			if projectPath == "" {
 				m.err = fmt.Errorf("cannot destroy %s: project mount unavailable", sel.Name)
@@ -259,12 +281,40 @@ func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// gated while busy or while the listing is non-authoritative:
 		// the row's "running" may not reflect reality
 		if sel != nil && sel.State == "running" && !m.busy && !m.stale {
+			if sel.Mode == "agent" {
+				m.result.EnterName = sel.Name
+				m.result.EnterAgent = sel.Profile
+				return m, tea.Quit
+			}
 			m.result.EnterName = sel.Name
 			m.result.EnterWorkdir = projectMount(sel)
 			return m, tea.Quit
 		}
 	}
 	return m, nil
+}
+
+func namedAction(rt runtime.Runtime, name, profile, operation string) tea.Cmd {
+	return func() tea.Msg {
+		return completeAction(rt, func() error {
+			s, err := agent.New(profile)
+			if err != nil {
+				return err
+			}
+			if s.Spec.RuntimeName != name {
+				return fmt.Errorf("selected machine identity changed")
+			}
+			switch operation {
+			case "up":
+				return s.Up(context.Background(), nil)
+			case "down":
+				return s.Down(context.Background())
+			case "destroy":
+				return s.Destroy(context.Background())
+			}
+			return fmt.Errorf("invalid machine operation")
+		})
+	}
 }
 
 // action runs a lifecycle operation under the same per-project lock
@@ -318,6 +368,9 @@ func completeAction(rt runtime.Runtime, op func() error) actionDoneMsg {
 }
 
 func projectMount(info *runtime.ContainerInfo) string {
+	if info.Mode == "agent" {
+		return "agent:" + info.Profile
+	}
 	if p := info.ProjectMount(); p != "" {
 		return p
 	}
@@ -331,7 +384,7 @@ func (m model) View() string {
 	wide := m.width == 0 || m.width >= 100
 	header := fmt.Sprintf("  %-30s %-8s %-15s %4s %5s %7s", "NAME", "STATE", "IP", "CPU", "MEM", "UPTIME")
 	if wide {
-		header += "  PROJECT"
+		header += "  WORKSPACE"
 	}
 	b.WriteString(headerStyle.Render(header) + "\n")
 

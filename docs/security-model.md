@@ -60,8 +60,8 @@ and state data. A process can remain running after the interactive command that
 started it exits.
 
 The container root filesystem persists across ordinary entries and is
-discarded on recreation. Named agent and project volumes persist across
-recreation until `coop destroy`.
+preserved during supported explicit maintenance. Named agent and project
+volumes persist until `coop destroy`.
 
 Per-project volumes prevent accidental sharing between different canonical
 project paths. They do not isolate root-capable processes within one project.
@@ -165,3 +165,14 @@ Coop does not promise:
 Use Coop to make host exposure narrower and project requirements explicit.
 Continue to review repositories, scope credentials, maintain backups, and
 assume the mounted project is writable.
+
+## Named machines
+
+Named profiles are authorized only by the host global configuration. They do
+not mount host home or source folders or forward the host SSH agent. Apple
+mounts its small machine init wrapper and initialization marker as runtime
+interfaces. Guest root controls all guest code, services, and native auth state.
+Selected credentials remain in tmpfs until shutdown; older generations remain
+available to active processes after refresh. Root can copy them to disk. Cold
+backups exclude tmpfs but include native auth and any secrets retained on disk.
+See [Persistent agents](agents.md) for operational details and limitations.

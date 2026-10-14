@@ -1,0 +1,15 @@
+# Copy into ~/.config/coop/coop.toml. Store the actual token in the private
+# host file below, outside every checkout; restrict that file to mode 0600.
+[credentials.robin-github]
+source = { type = "file", path = "~/.config/coop/secrets/robin-github" }
+expose = [{ type = "environment", name = "GH_TOKEN" }]
+
+[profiles.robin]
+command = ["opencode"]
+orgs = ["example"]
+include_credentials = ["robin-github"]
+restart = "no"
+
+[profiles.robin.resources]
+cpus = 4
+memory = "8G"

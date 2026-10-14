@@ -21,6 +21,7 @@ import (
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/doctor"
+	"github.com/sarcasticbird/coop/internal/fleet"
 	"github.com/sarcasticbird/coop/internal/project"
 	"github.com/sarcasticbird/coop/internal/projectinit"
 	"github.com/sarcasticbird/coop/internal/releasetool"
@@ -65,7 +66,7 @@ func resolvedVersion() string {
 }
 
 var (
-	newRuntime = func() runtime.Runtime { return runtime.NewApple() }
+	newRuntime = func() runtime.Runtime { return fleet.New(runtime.NewApple()) }
 	lookPath   = exec.LookPath
 	runSession = func(s *session.Session, cwd string, argv, credentials []string) error {
 		return s.Run(cwd, argv, credentials)
@@ -232,7 +233,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 					runningImage = "(none)"
 				}
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
-					"project:            %s\ncontainer:          %s\nstate:              %s\nrelease tools:      %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nrecreation pending: %s\n",
+					"project:            %s\ncontainer:          %s\nstate:              %s\nrelease tools:      %s\nrunning image:      %s\ndesired image:      %s\nrebuild required:   %s\nmaintenance pending: %s\n",
 					s.Project, s.Name, status.State,
 					formatReleaseTools(s.Cfg.Tools.GitHubReleases, s.Cfg.Tools.ResolvedReleases),
 					runningImage, status.DesiredImage,
@@ -305,6 +306,9 @@ settings can add tools through .coop.toml or an optional project flox environmen
 				res, err := runTUI(rt)
 				if err != nil {
 					return err
+				}
+				if res.EnterAgent != "" {
+					return runNamedAgent(cmd.Context(), res.EnterAgent, nil, credentials)
 				}
 				if res.EnterWorkdir != "" {
 					// Use the normal session path so seeds, spec
@@ -385,6 +389,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 				return s.Destroy()
 			}},
 	)
+	installAgentCommands(rootCmd, &requestedCredentials)
 	return rootCmd
 }
 
@@ -421,9 +426,8 @@ func maybeOfferFirstBuild(cmd *cobra.Command, s *session.Session) error {
 	}
 	// Offer only the true first-time experience: no container exists at
 	// all. An existing container keeps working without its image tag,
-	// and a stale one (pending recreation after tool or core changes)
-	// keeps the explicit `coop rebuild` migration workflow — recreation
-	// discards root-filesystem changes and deserves a deliberate step.
+	// and an existing one with changed tools or core requires explicit
+	// maintenance. Ordinary entry always preserves its root filesystem.
 	if status.State != runtime.StateAbsent {
 		return nil
 	}

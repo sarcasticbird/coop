@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+export HOME=/root
+export PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+root=${COOP_RUNTIME_DIR:-/run/coop}
+state=${COOP_STATE_DIR:-/var/lib/coop}
+workspace=${COOP_WORKSPACE_DIR:-/workspace}
+socket=$root/tmux.sock
+mkdir -p "$root" "$state" "$workspace"
+chmod 0700 "$root" "$state"
+action=${1:-}; shift || true
+case "$action" in
+  prepare)
+    git config --global credential.https://github.com.helper '!gh auth git-credential'
+    ;;
+  command)
+    tmp=$(mktemp "$state/command.XXXXXXXX")
+    trap 'rm -f -- "$tmp"' EXIT
+    cat > "$tmp"
+    jq -e '.command | type == "array" and length > 0 and all(.[]; type == "string" and (contains("\u0000") | not)) and .[0] != ""' "$tmp" >/dev/null
+    mv -f -- "$tmp" "$state/profile.json"
+    trap - EXIT
+    ;;
+  ensure)
+    exec 9>"$root/agent.lock"
+    flock -x 9
+    while IFS= read -r service; do
+      [[ "$service" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || exit 1
+      systemctl start "coop-helper@$service.service"
+    done < <(jq -r '(.services // {}) | keys[]' "$state/profile.json")
+    if tmux -S "$socket" has-session -t agent 2>/dev/null; then exit 0; fi
+    systemctl start coop-agent.service
+    for ((n=0;n<100;n++)); do
+      if tmux -S "$socket" show-options -g >/dev/null 2>&1; then break; fi
+      sleep 0.1
+    done
+    tmux -S "$socket" set-option -g remain-on-exit on
+    rm -f -- "$root/agent-exit-status"
+    tmux -S "$socket" new-session -d -s agent -c "$workspace" /usr/local/libexec/coop-agent-run
+    ;;
+  attach) exec tmux -S "$socket" attach-session -t agent ;;
+  status)
+    if tmux -S "$socket" has-session -t agent 2>/dev/null; then
+      dead=$(tmux -S "$socket" display-message -p -t agent '#{pane_dead}')
+      if [[ "$dead" == 0 ]]; then printf '{"state":"running"}\n';
+      else
+        status=$(tmux -S "$socket" display-message -p -t agent '#{pane_dead_status}')
+        jq -n --argjson code "${status:-0}" '{state:"exited",exit_code:$code}'
+      fi
+    else printf '{"state":"stopped"}\n'; fi
+    ;;
+  stop)
+    systemctl stop coop-agent.service
+    while IFS= read -r service; do systemctl stop "coop-helper@$service.service"; done < <(jq -r '(.services // {}) | keys[]' "$state/profile.json")
+    ;;
+  *) echo 'unknown Coop guest operation' >&2; exit 64 ;;
+esac

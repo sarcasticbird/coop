@@ -1,9 +1,9 @@
 # Coop
 
-Coop gives each software project a persistent Linux workspace for coding
-agents on Apple silicon. Your project stays at the same path and remains
-writable; agent login state and Linux-only generated files can live in
-project-specific volumes.
+Coop runs persistent Linux workspaces on Apple silicon. Interactive Coops
+mount your selected project at the same writable path. Named agent Coops own
+their entire guest filesystem and clone repositories using a separate agent
+identity configured on your Mac.
 
 Coop uses Apple's [`container`](https://github.com/apple/container) runtime.
 Docker is not required.
@@ -60,6 +60,22 @@ coop claude --help
 coop opencode run "fix the tests"
 ```
 
+## Named agents
+
+Configure a host-owned profile and separate credentials, then launch it from
+any folder:
+
+```sh
+coop --agent robin rebuild
+coop --agent robin
+coop --agent robin shell
+coop --agent robin down
+```
+
+The managed agent continues after terminal detachment. Its home, repositories,
+and installed services survive stop/start. See [Persistent agents](docs/agents.md)
+for profiles, server commands, helper services, credentials, and recovery.
+
 ## Everyday commands
 
 ```text
@@ -74,6 +90,9 @@ coop tui                  Open the workspace dashboard
 coop doctor               Check host requirements and configuration
 coop rebuild              Rebuild after changing configured tools
 coop upgrade              Update Coop's locked core toolset
+coop apply                Apply maintenance to a stopped workspace
+coop backup destination   Back up a stopped workspace
+coop restore archive      Restore into an absent workspace
 coop destroy              Delete this workspace and its state volumes
 ```
 
@@ -148,6 +167,8 @@ forwarding SSH, mounting more host directories, or seeding sensitive data.
   credential sources
 - [Runtime model](docs/runtime.md): project selection, persistence, images,
   Flox, and recovery
+- [GitHub workers](docs/workers.md): OpenCode servers, unattended approved work,
+  review handoffs, controls and recovery
 - [Security model](docs/security-model.md): trust boundaries and non-promises
 - [Release process](docs/release.md): contributor-only release procedure
 

@@ -484,7 +484,7 @@ func TestStatusReportsDesiredRunningAndPendingState(t *testing.T) {
 		"running image:      coop:local-old",
 		"desired image:      " + session.EffectiveImageName(s.Cfg),
 		"rebuild required:   no",
-		"recreation pending: yes",
+		"maintenance pending: yes",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("status output missing %q:\n%s", want, output.String())

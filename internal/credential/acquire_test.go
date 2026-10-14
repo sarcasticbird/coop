@@ -19,6 +19,48 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func TestHostOnlyAcquisitionDoesNotTreatCurrentDirectoryAsProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	if err := os.WriteFile(filepath.Join(home, "secret"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager("")
+	for _, source := range []config.CredentialSource{{Type: "file", Path: "~/secret"}, {Type: "command", Argv: []string{"/bin/sh", "-c", "printf fixture"}}} {
+		items, err := m.AcquireAll(context.Background(), home, []Selected{{Name: "host", Spec: config.Credential{Source: source}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 1 || string(items[0].payload) != "fixture" {
+			t.Fatal("host credential was not acquired")
+		}
+	}
+}
+
+func TestNoninteractiveAcquisitionSuppressesHelperDiagnostics(t *testing.T) {
+	if os.Getenv("COOP_TEST_QUIET_HELPER") == "child" {
+		m := NewManager("")
+		m.NonInteractive = true
+		_, err := m.AcquireAll(context.Background(), os.Getenv("COOP_TEST_QUIET_HOME"), []Selected{{Name: "app", Spec: config.Credential{Source: config.CredentialSource{Type: "command", Argv: []string{"/bin/sh", "-c", "printf DO_NOT_PRINT_SOURCE_SECRET >&2; exit 7"}}}}})
+		if err == nil {
+			t.Fatal("failing source accepted")
+		}
+		if strings.Contains(err.Error(), "DO_NOT_PRINT_SOURCE_SECRET") {
+			t.Fatal("secret in acquisition error")
+		}
+		return
+	}
+	child := exec.Command(os.Args[0], "-test.run=^TestNoninteractiveAcquisitionSuppressesHelperDiagnostics$")
+	child.Env = append(os.Environ(), "COOP_TEST_QUIET_HELPER=child", "COOP_TEST_QUIET_HOME="+t.TempDir())
+	out, err := child.CombinedOutput()
+	if err != nil {
+		t.Fatal("acquisition subprocess failed")
+	}
+	if bytes.Contains(out, []byte("DO_NOT_PRINT_SOURCE_SECRET")) {
+		t.Fatal("raw helper diagnostic escaped noninteractive acquisition")
+	}
+}
+
 func TestAcquireFileExpandsHomeAndRequiresRegularFile(t *testing.T) {
 	home := t.TempDir()
 	secretPath := filepath.Join(home, ".token")
@@ -445,6 +487,7 @@ func TestRunCommandCancellationTerminatesDescendants(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	result := make(chan error, 1)
 	home := t.TempDir()
 	project := t.TempDir()
@@ -456,7 +499,9 @@ func TestRunCommandCancellationTerminatesDescendants(t *testing.T) {
 	var childPID int
 	for {
 		raw, err := os.ReadFile(pidFile)
-		if err == nil {
+		// The file exists as soon as the shell opens it, before printf has
+		// necessarily written the PID. Wait for the complete fixture record.
+		if err == nil && strings.HasSuffix(string(raw), "\n") {
 			if _, err := fmt.Sscanf(string(raw), "%d", &childPID); err != nil {
 				t.Fatal(err)
 			}

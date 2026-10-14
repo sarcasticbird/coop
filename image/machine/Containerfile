@@ -1,0 +1,34 @@
+# The workbench stage is generated from Coop's existing pinned image definition.
+FROM ubuntu:24.04@sha256:08571ca13e00ca07a2a84eab83a959b4242e22cceb16486a11bef1428c9e93a7
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    systemd systemd-sysv dbus ca-certificates bash coreutils util-linux && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /etc/nix /workspace /var/lib/coop /usr/local/libexec && \
+    printf 'sandbox = false\n' > /etc/nix/nix.conf && \
+    truncate -s 0 /etc/machine-id && rm -f /var/lib/dbus/machine-id && \
+    systemctl set-default multi-user.target && \
+    systemctl mask dev-hugepages.mount sys-fs-fuse-connections.mount \
+      systemd-update-utmp.service systemd-tmpfiles-setup.service console-getty.service
+COPY --from=workbench /nix /nix
+COPY --from=workbench /opt /opt
+RUN ln -s "$(readlink /opt/coop-flox)" /usr/local/bin/flox
+COPY coop-user-env /usr/local/bin/coop-user-env
+COPY coop-guest /usr/local/libexec/coop-guest
+COPY coop-env /usr/local/libexec/coop-env
+COPY coop-agent-run /usr/local/libexec/coop-agent-run
+COPY coop-service-run /usr/local/libexec/coop-service-run
+COPY coop-agent.service /etc/systemd/system/coop-agent.service
+COPY coop-helper@.service /etc/systemd/system/coop-helper@.service
+COPY zshrc /etc/zshrc
+RUN chmod 0755 /usr/local/bin/coop-user-env /usr/local/libexec/coop-* && \
+    chmod 0700 /var/lib/coop
+ENV HOME=/root
+ENV COOP_CORE=/opt/coop-core
+ENV COOP_TOOLS_PROFILE=/opt/coop-tools/profile
+ENV COOP_RELEASE_TOOLS=/opt/coop-release-tools
+ENV PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV NIX_REMOTE=local
+ENV container=container
+WORKDIR /workspace
+CMD ["/sbin/init"]

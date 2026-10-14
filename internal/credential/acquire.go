@@ -30,29 +30,33 @@ type GitCredentialRunner func(context.Context, string, []byte) ([]byte, error)
 
 // Manager contains host dependencies used during credential acquisition.
 type Manager struct {
-	OpenFile      func(string) (*os.File, error)
-	Run           Runner
-	GitCredential GitCredentialRunner
-	Now           func() time.Time
+	// NonInteractive prevents provider prompts and raw diagnostics in supervisors.
+	NonInteractive bool
+	OpenFile       func(string) (*os.File, error)
+	Run            Runner
+	GitCredential  GitCredentialRunner
+	Now            func() time.Time
 
 	projectRoot string
 	acquire     func(context.Context, string, Selected) (Acquired, error)
 }
 
 // NewManager returns a manager backed by the host operating system. Commands
-// cannot resolve executables from the untrusted project tree.
+// cannot resolve executables from the untrusted project tree. An empty root
+// selects host-only acquisition for named machines, independent of the cwd.
 func NewManager(projectRoot string) *Manager {
-	return &Manager{
+	m := &Manager{
 		OpenFile: openCredentialFile,
-		Run: func(ctx context.Context, home string, argv []string) ([]byte, error) {
-			return runCommand(ctx, home, projectRoot, argv)
-		},
 		GitCredential: func(ctx context.Context, home string, request []byte) ([]byte, error) {
 			return runGitCredential(ctx, home, projectRoot, request)
 		},
 		Now:         time.Now,
 		projectRoot: projectRoot,
 	}
+	m.Run = func(ctx context.Context, home string, argv []string) ([]byte, error) {
+		return runCommandMode(ctx, home, projectRoot, argv, m.NonInteractive)
+	}
+	return m
 }
 
 // AcquireAll acquires grants in order and rolls back earlier grants if a later
@@ -182,13 +186,38 @@ func openCredentialFile(path string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), path), nil
 }
 
+// ReadPrivateFile reuses credential no-follow traversal for host signing keys.
+// Permission and size checks apply to the opened descriptor, not a prior stat.
+func ReadPrivateFile(path string) ([]byte, error) {
+	file, err := openCredentialFile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		return nil, errors.New("private credential file must be regular and mode 0600")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, MaxPayloadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxPayloadBytes {
+		return nil, ErrPayloadTooLarge
+	}
+	return data, nil
+}
+
 func trustedCredentialFilePath(projectRoot, path string) (string, error) {
-	projectLexicalRoot := filepath.Clean(projectRoot)
-	projectCanonicalRoot, err := filepath.EvalSymlinks(projectRoot)
+	projectLexicalRoot := cleanCredentialProjectRoot(projectRoot)
+	projectCanonicalRoot, err := resolveCredentialProjectRoot(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve project root for credential file: %w", err)
 	}
-	projectCanonicalRoot = filepath.Clean(projectCanonicalRoot)
+	projectCanonicalRoot = cleanCredentialProjectRoot(projectCanonicalRoot)
 	if withinRoot(projectLexicalRoot, path) || withinRoot(projectCanonicalRoot, path) {
 		return "", errors.New("credential file path enters the project")
 	}
@@ -244,6 +273,10 @@ func (m *Manager) runAcquisitionCommand(ctx context.Context, home string, argv [
 }
 
 func runCommand(ctx context.Context, home, projectRoot string, argv []string) (payload []byte, retErr error) {
+	return runCommandMode(ctx, home, projectRoot, argv, false)
+}
+
+func runCommandMode(ctx context.Context, home, projectRoot string, argv []string, nonInteractive bool) (payload []byte, retErr error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty credential command")
 	}
@@ -268,8 +301,19 @@ func runCommand(ctx context.Context, home, projectRoot string, argv []string) (p
 	cmd.Args = slices.Clone(argv)
 	cmd.Dir = home
 	cmd.Env = commandEnv
-	cmd.Stdin = os.Stdin
+	input := os.Stdin
+	if nonInteractive {
+		input, err = os.Open(os.DevNull)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = input.Close() }()
+	}
+	cmd.Stdin = input
 	cmd.Stderr = os.Stderr
+	if nonInteractive {
+		cmd.Stderr = io.Discard
+	}
 	stdout, childStdout, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("create credential command stdout pipe: %w", err)
@@ -277,7 +321,7 @@ func runCommand(ctx context.Context, home, projectRoot string, argv []string) (p
 	defer func() { _ = stdout.Close() }()
 	cmd.Stdout = childStdout
 	cmd.WaitDelay = commandWaitDelay
-	terminal, err := jobcontrol.Configure(cmd, os.Stdin)
+	terminal, err := jobcontrol.Configure(cmd, input)
 	if err != nil {
 		_ = childStdout.Close()
 		return nil, fmt.Errorf("configure credential command job control: %w", err)
@@ -373,11 +417,11 @@ func runCommand(ctx context.Context, home, projectRoot string, argv []string) (p
 }
 
 func resolveExecutable(home, projectRoot, name, path string) (string, error) {
-	projectRoot, err := filepath.EvalSymlinks(projectRoot)
+	projectRoot, err := resolveCredentialProjectRoot(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve project root for credential command: %w", err)
 	}
-	projectRoot = filepath.Clean(projectRoot)
+	projectRoot = cleanCredentialProjectRoot(projectRoot)
 	if strings.ContainsRune(name, filepath.Separator) {
 		if !filepath.IsAbs(name) {
 			return "", fmt.Errorf("credential executable path %q is relative", name)
@@ -406,11 +450,11 @@ func resolveExecutable(home, projectRoot, name, path string) (string, error) {
 }
 
 func trustedSearchPath(home, projectRoot, search string) (string, error) {
-	projectRoot, err := filepath.EvalSymlinks(projectRoot)
+	projectRoot, err := resolveCredentialProjectRoot(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve project root for credential PATH: %w", err)
 	}
-	projectRoot = filepath.Clean(projectRoot)
+	projectRoot = cleanCredentialProjectRoot(projectRoot)
 	dirs := make([]string, 0, len(filepath.SplitList(search)))
 	seen := make(map[string]struct{})
 	for _, dir := range filepath.SplitList(search) {
@@ -449,8 +493,8 @@ func executableFile(candidate string) (string, bool) {
 }
 
 func trustedCommandEnvironment(env []string, home, projectRoot, trustedPath string) ([]string, error) {
-	projectLexicalRoot := filepath.Clean(projectRoot)
-	projectRoot, err := filepath.EvalSymlinks(projectRoot)
+	projectLexicalRoot := cleanCredentialProjectRoot(projectRoot)
+	projectRoot, err := resolveCredentialProjectRoot(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project root for credential environment: %w", err)
 	}
@@ -458,7 +502,7 @@ func trustedCommandEnvironment(env []string, home, projectRoot, trustedPath stri
 	if err != nil {
 		return nil, fmt.Errorf("resolve home for credential environment: %w", err)
 	}
-	if withinRoot(filepath.Clean(projectRoot), filepath.Clean(homeRoot)) {
+	if withinRoot(cleanCredentialProjectRoot(projectRoot), filepath.Clean(homeRoot)) {
 		return nil, errors.New("credential command home resolves inside the project")
 	}
 
@@ -500,18 +544,35 @@ func trustedCommandEnvironment(env []string, home, projectRoot, trustedPath stri
 		// symlink in the checkout could pass validation while targeting a safe
 		// path, then be retargeted before the helper consumes the variable.
 		cleanValue := filepath.Clean(value)
-		if withinRoot(projectLexicalRoot, cleanValue) || withinRoot(filepath.Clean(projectRoot), cleanValue) {
+		if withinRoot(projectLexicalRoot, cleanValue) || withinRoot(cleanCredentialProjectRoot(projectRoot), cleanValue) {
 			continue
 		}
 		resolved, err := filepath.EvalSymlinks(value)
-		if err == nil && !withinRoot(filepath.Clean(projectRoot), filepath.Clean(resolved)) {
+		if err == nil && !withinRoot(cleanCredentialProjectRoot(projectRoot), filepath.Clean(resolved)) {
 			clean = append(clean, name+"="+filepath.Clean(resolved))
 		}
 	}
 	return clean, nil
 }
 
+func cleanCredentialProjectRoot(root string) string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Clean(root)
+}
+func resolveCredentialProjectRoot(root string) (string, error) {
+	if root == "" {
+		return "", nil
+	}
+	return filepath.EvalSymlinks(root)
+}
+
 func withinRoot(root, candidate string) bool {
+	if root == "" {
+		return false
+	}
+
 	rel, err := filepath.Rel(root, candidate)
 	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return true

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "name": "example",
+  "role": "implementer",
+  "model": "provider/model",
+  "owner": {
+    "id": 1,
+    "login": "owner",
+    "kind": "User"
+  },
+  "self": {
+    "id": 2,
+    "login": "builder[bot]",
+    "kind": "Bot"
+  },
+  "implementer": {
+    "id": 2,
+    "login": "builder[bot]",
+    "kind": "Bot"
+  },
+  "reviewer": {
+    "id": 3,
+    "login": "reviewer[bot]",
+    "kind": "Bot"
+  },
+  "code_owners": [
+    "example"
+  ],
+  "project_owners": [
+    "example"
+  ],
+  "discussion_repositories": [
+    "example/board"
+  ],
+  "state_dir": "/var/lib/coop/worker/state",
+  "work_root": "/workspace/worker",
+  "opencode": {
+    "base_url": "http://127.0.0.1:4096",
+    "password_file": "/var/lib/coop/opencode/server-password",
+    "request_timeout": "10s",
+    "reconcile_interval": "5s"
+  },
+  "limits": {
+    "poll_interval": "1m",
+    "turn_limit": "30m",
+    "retry_base": "1m",
+    "retry_cap": "15m",
+    "max_attempts": 3,
+    "max_review_cycles": 5
+  },
+  "wake": {
+    "enabled": false,
+    "coordination_url": "https://github.com/orgs/example/discussions/1",
+    "peer_hop_limit": 2
+  }
+}

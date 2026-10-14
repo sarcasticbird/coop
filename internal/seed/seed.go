@@ -18,20 +18,27 @@ import (
 	goruntime "runtime"
 
 	"github.com/sarcasticbird/coop/internal/config"
-	"github.com/sarcasticbird/coop/internal/runtime"
 )
+
+// Runtime is the filesystem transport required for seeding, independent of
+// whether the guest is a mounted container or a self-contained machine.
+type Runtime interface {
+	Exec(string, []string, io.Reader) error
+	ExecContext(context.Context, string, []string, io.Reader) error
+	GuestFileExists(string, string) (bool, error)
+}
 
 // goos is variable for tests; production value is the build platform.
 var goos = goruntime.GOOS
 
 // Apply runs every seed rule against a running container. Missing
 // sources are skipped silently (rules describe the superset of hosts).
-func Apply(rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
+func Apply(rt Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
 	return ApplyContext(context.Background(), rt, name, hostHome, guestHome, seeds)
 }
 
 // ApplyContext runs every seed rule and cancels guest transports with ctx.
-func ApplyContext(ctx context.Context, rt runtime.Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
+func ApplyContext(ctx context.Context, rt Runtime, name, hostHome, guestHome string, seeds []config.Seed) error {
 	for _, s := range seeds {
 		src := config.ExpandHome(s.Src, hostHome)
 		dest := config.ExpandHome(s.Dest, guestHome)
@@ -65,7 +72,7 @@ func ApplyContext(ctx context.Context, rt runtime.Runtime, name, hostHome, guest
 	return nil
 }
 
-func copyIfAbsent(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
+func copyIfAbsent(ctx context.Context, rt Runtime, name, src, dest string) error {
 	fi, err := os.Stat(src)
 	if os.IsNotExist(err) {
 		return nil
@@ -82,7 +89,7 @@ func copyIfAbsent(ctx context.Context, rt runtime.Runtime, name, src, dest strin
 	return copyFile(ctx, rt, name, src, dest)
 }
 
-func copyFile(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
+func copyFile(ctx context.Context, rt Runtime, name, src, dest string) error {
 	f, err := os.Open(src) // resolves symlinks
 	if os.IsNotExist(err) {
 		return nil
@@ -131,7 +138,7 @@ trap - EXIT`
 	return rt.ExecContext(ctx, name, []string{"sh", "-c", script, "coop-seed", dest, mode, filepath.Dir(dest)}, f)
 }
 
-func copyDirIfAbsent(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
+func copyDirIfAbsent(ctx context.Context, rt Runtime, name, src, dest string) error {
 	// Keep the parent distinct from a trailing-slash destination so mkdir
 	// cannot create the destination before the existence guard runs.
 	dest = filepath.Clean(dest)
@@ -234,7 +241,7 @@ func hostTarCommand(ctx context.Context, args ...string) *exec.Cmd {
 // LIMITATION: extraction follows guest-side symlinks inside the
 // destination tree. Use overlay only for non-sensitive trees (skills,
 // docs), never credentials.
-func overlayDir(ctx context.Context, rt runtime.Runtime, name, src, dest string) error {
+func overlayDir(ctx context.Context, rt Runtime, name, src, dest string) error {
 	if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 		return nil // missing or not a dir: skip
 	}
