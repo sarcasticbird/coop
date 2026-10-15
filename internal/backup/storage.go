@@ -23,7 +23,7 @@ type AppleStorage struct {
 	Machine           runtime.AppleMachine
 	Store             workspace.Store
 	Target            *workspace.Spec
-	CreateInteractive func(context.Context, workspace.Record, string) error
+	CreateInteractive func(context.Context, workspace.Record, string, func(string) error) error
 	Maintenance       bool
 	Archive           string
 	ArchiveSHA256     string
@@ -462,7 +462,7 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 				}
 			}
 		}
-		if err := s.CreateInteractive(ctx, r, ""); err != nil {
+		if err := s.CreateInteractive(ctx, r, "", nil); err != nil {
 			return err
 		}
 		bundle, err = ownedPath(root, "containers", r.RuntimeName)

@@ -56,8 +56,11 @@ func interactiveStorage(s *session.Session) (backup.AppleStorage, workspace.Spec
 		return backup.AppleStorage{}, workspace.Spec{}, err
 	}
 	spec := interactiveSpec(s)
-	storage := backup.AppleStorage{Machine: runtime.AppleMachine{}, Store: store, Target: &spec, CreateInteractive: func(ctx context.Context, r workspace.Record, token string) error {
-		runSpec, err := s.RunSpec(ctx)
+	storage := backup.AppleStorage{Machine: runtime.AppleMachine{}, Store: store, Target: &spec, CreateInteractive: func(ctx context.Context, r workspace.Record, token string, ensureVolume func(string) error) error {
+		if ensureVolume == nil {
+			ensureVolume = s.RT.EnsureVolume
+		}
+		runSpec, err := s.RunSpecWithVolumes(ctx, ensureVolume)
 		if err != nil {
 			return err
 		}

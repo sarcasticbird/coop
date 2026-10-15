@@ -176,6 +176,14 @@ Do not delete the journal, replace its disks, or start the runtime through
 external `container` commands. Coop's workspace lock does not serialize those
 external operations.
 
+Newly configured agent and project volumes are checkpointed too, before runtime
+bootstrap can attach them. If volume creation succeeds but its identity cannot
+be checkpointed, retry refuses the unverified same-name volume. Keep the Coop
+stopped, preserve that volume separately, and free its runtime name only after
+checking its ownership. Keep the original archive and journal; a retry may create
+a new volume only after a successful runtime listing proves that name absent.
+Coop never automatically deletes or adopts an uncheckpointed volume.
+
 Backup rechecks the stopped runtime after copying and rejects changes to the
 payload set, names, sizes, file identities, modification times, ownership record,
 runtime version, or archived runtime metadata before publishing an archive.

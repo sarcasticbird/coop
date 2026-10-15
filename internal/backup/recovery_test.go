@@ -74,6 +74,7 @@ type recoveryFixture struct {
 	store                workspace.FileStore
 	current              *containerInspection
 	volumes              []volumeRecord
+	targetVolumes        []string
 	creates, removes     int
 	commandFault         func([]string) error
 	createFault          func() error
@@ -199,7 +200,39 @@ func (f *recoveryFixture) storage(maintenance bool, store workspace.Store) Apple
 				f.removes++
 				f.current = nil
 				return os.RemoveAll(f.bundle())
+			case "volume ls --format json":
+				rows := []map[string]string{}
+				for _, name := range f.targetVolumes {
+					if _, err := os.Stat(f.volume(volumeRecord{Name: name})); err == nil {
+						rows = append(rows, map[string]string{"id": name})
+					} else if !os.IsNotExist(err) {
+						return err
+					}
+				}
+				for _, v := range f.volumes {
+					rows = append(rows, map[string]string{"id": v.Name})
+				}
+				return json.NewEncoder(out).Encode(rows)
 			default:
+				for _, name := range f.targetVolumes {
+					path := f.volume(volumeRecord{Name: name})
+					switch strings.Join(args, " ") {
+					case "volume create " + name:
+						j := f.journal()
+						if id, ok := j.Volumes[name]; !ok || id != (diskIdentity{}) {
+							f.t.Fatalf("volume create without durable zero intent: %#v", j.Volumes)
+						}
+						if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+							return err
+						}
+						return os.WriteFile(path, []byte("fresh target-only volume"), 0600)
+					case "volume inspect " + name:
+						if _, err := os.Stat(path); err != nil {
+							return err
+						}
+						return json.NewEncoder(out).Encode([]any{map[string]any{"configuration": map[string]string{"name": name, "source": path}}})
+					}
+				}
 				for _, v := range f.volumes {
 					if strings.Join(args, " ") == "volume inspect "+v.Name {
 						return json.NewEncoder(out).Encode([]any{map[string]any{"configuration": map[string]string{"name": v.Name, "source": f.volume(v)}}})
@@ -209,11 +242,20 @@ func (f *recoveryFixture) storage(maintenance bool, store workspace.Store) Apple
 				return nil
 			}
 		}},
-		CreateInteractive: func(_ context.Context, r workspace.Record, token string) error {
-			f.creates++
+		CreateInteractive: func(_ context.Context, r workspace.Record, token string, ensureVolume func(string) error) error {
 			if token == "" || !reflect.DeepEqual(r, f.target.Record()) {
 				f.t.Fatalf("create record/token = %#v, %q", r, token)
 			}
+			for _, name := range f.targetVolumes {
+				if err := ensureVolume(name); err != nil {
+					return err
+				}
+				got, err := identity(f.volume(volumeRecord{Name: name}))
+				if err != nil || got == (diskIdentity{}) || f.journal().Volumes[name] != got {
+					f.t.Fatalf("target volume %s not checkpointed before runtime creation: %#v, %v", name, got, err)
+				}
+			}
+			f.creates++
 			if err := os.MkdirAll(f.bundle(), 0700); err != nil {
 				return err
 			}
@@ -699,5 +741,193 @@ func TestMaintenanceRecoveryRejectsRunningVolumeUser(t *testing.T) {
 	}
 	if f.removes != 0 || f.creates != 0 {
 		t.Fatal("busy runtime mutated")
+	}
+}
+
+func TestMaintenanceRecoveryTargetOnlyVolumeOwnership(t *testing.T) {
+	for _, suffix := range []string{"opencode", "project-volume-0123456789abcdef"} {
+		for _, failure := range []string{"runtime-creation", "record-save", "post-bootstrap-replacement"} {
+			for _, replace := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/replace=%t", suffix, failure, replace), func(t *testing.T) {
+					f := newRecoveryFixture(t)
+					name := f.target.RuntimeName + "--" + suffix
+					f.targetVolumes = []string{name}
+					path := f.volume(volumeRecord{Name: name})
+					injected := errors.New("injected runtime creation failure")
+					var store workspace.Store = f.store
+					if failure == "record-save" {
+						store = recoveryFailSaveStore{f.store}
+						injected = errRecoverySave
+					} else {
+						f.createFault = func() error {
+							if failure == "post-bootstrap-replacement" {
+								if err := os.Rename(path, path+".original"); err != nil {
+									t.Fatal(err)
+								}
+								f.write(path, []byte("foreign target-only disk"))
+								return nil
+							}
+							return injected
+						}
+					}
+					err := f.storage(true, store).Publish(context.Background(), f.source, f.stage)
+					if failure == "post-bootstrap-replacement" {
+						if err == nil || !strings.Contains(err.Error(), "refusing changed destination volume "+name) {
+							t.Fatalf("post-bootstrap validation = %v", err)
+						}
+					} else if !errors.Is(err, injected) {
+						t.Fatalf("Publish = %v; want %v", err, injected)
+					}
+					j := f.journal()
+					wantDisks := len(f.volumes)
+					if failure == "record-save" {
+						wantDisks++
+					}
+					if j.Volumes[name] == (diskIdentity{}) || len(j.Disks) != wantDisks {
+						t.Fatalf("target-only identity missing or added as archive payload: %#v", j)
+					}
+					if failure == "post-bootstrap-replacement" {
+						// Restore the original inode to exercise a safe retry as well.
+						if err := os.Remove(path); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Rename(path+".original", path); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if got, err := identity(path); err != nil || got != j.Volumes[name] {
+						t.Fatalf("checkpoint = %#v; disk = %#v, %v", j.Volumes[name], got, err)
+					}
+					f.createFault = nil
+					if replace {
+						if err := os.Rename(path, path+".original"); err != nil {
+							t.Fatal(err)
+						}
+						f.write(path, []byte("foreign target-only disk"))
+						f.assertTargetVolumeRetryRejected("refusing changed destination volume " + name)
+						f.assertContents(path, []byte("foreign target-only disk"))
+					} else {
+						f.retry()
+						if got, err := identity(path); err != nil || got != j.Volumes[name] {
+							t.Fatalf("retry replaced target-only disk: %#v, %v", got, err)
+						}
+						f.assertContents(path, []byte("fresh target-only volume"))
+						wantCreates := 2
+						if failure == "record-save" {
+							wantCreates = 1
+						}
+						if f.creates != wantCreates || f.removes != wantCreates {
+							t.Fatalf("retry runtime creates=%d removes=%d; want %d", f.creates, f.removes, wantCreates)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestMaintenanceRecoveryTargetOnlyVolumeCreationFailures(t *testing.T) {
+	for _, suffix := range []string{"opencode", "project-volume-0123456789abcdef"} {
+		for _, failure := range []string{"identity-checkpoint", "ambiguous-create", "absent-create", "preexisting"} {
+			t.Run(suffix+"/"+failure, func(t *testing.T) {
+				f := newRecoveryFixture(t)
+				name := f.target.RuntimeName + "--" + suffix
+				f.targetVolumes = []string{name}
+				path := f.volume(volumeRecord{Name: name})
+				injected := errors.New("injected target volume preparation failure")
+				var store workspace.Store = f.store
+				switch failure {
+				case "identity-checkpoint":
+					// Initial journal, zero creation intent, then volume identity.
+					store = &recoveryFailJournalStore{FileStore: f.store, failAt: 3, err: injected}
+				case "preexisting":
+					if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+						t.Fatal(err)
+					}
+					f.write(path, []byte("unowned target-only disk"))
+				default:
+					f.commandFault = func(args []string) error {
+						if strings.Join(args, " ") != "volume create "+name {
+							return nil
+						}
+						if id, ok := f.journal().Volumes[name]; !ok || id != (diskIdentity{}) {
+							t.Fatal("create attempted without durable zero intent")
+						}
+						if failure == "ambiguous-create" {
+							if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+								t.Fatal(err)
+							}
+							f.write(path, []byte("ambiguous target-only disk"))
+						}
+						return injected
+					}
+				}
+				err := f.storage(true, store).Publish(context.Background(), f.source, f.stage)
+				if failure == "preexisting" {
+					if err == nil || !strings.Contains(err.Error(), "refusing uncheckpointed destination volume "+name) {
+						t.Fatalf("Publish = %v", err)
+					}
+				} else if !errors.Is(err, injected) {
+					t.Fatalf("Publish = %v; want injected failure", err)
+				}
+				id, ok := f.journal().Volumes[name]
+				if id != (diskIdentity{}) || ok != (failure != "preexisting") || f.creates != 0 || f.current != nil {
+					t.Fatalf("preparation failure state: identity=%#v present=%t creates=%d runtime=%#v", id, ok, f.creates, f.current)
+				}
+				f.commandFault = nil
+				if failure == "absent-create" {
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Fatalf("failed creation not absent: %v", err)
+					}
+					f.retry()
+					f.assertContents(path, []byte("fresh target-only volume"))
+				} else {
+					before := f.stat(path)
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					f.assertTargetVolumeRetryRejected("refusing uncheckpointed destination volume " + name)
+					f.assertContents(path, data)
+					if !os.SameFile(before, f.stat(path)) {
+						t.Fatal("retry replaced uncheckpointed volume")
+					}
+				}
+			})
+		}
+	}
+}
+
+func (f *recoveryFixture) assertTargetVolumeRetryRejected(want string) {
+	f.t.Helper()
+	before, err := f.store.LoadRecovery(f.source.Mode, f.source.Identity)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	creates, removes := f.creates, f.removes
+	if err := f.storage(false, f.store).Publish(context.Background(), f.source, f.stage); err == nil || !strings.Contains(err.Error(), want) {
+		f.t.Fatalf("retry = %v; want %q", err, want)
+	}
+	after, err := f.store.LoadRecovery(f.source.Mode, f.source.Identity)
+	if err != nil || string(after) != string(before) || f.creates != creates || f.removes != removes {
+		f.t.Fatalf("rejected retry changed journal/runtime: %v, creates=%d removes=%d", err, f.creates, f.removes)
+	}
+	r, err := f.store.Load(f.source.Mode, f.source.Identity)
+	if err != nil || !reflect.DeepEqual(r, f.source) {
+		f.t.Fatalf("rejected retry changed record: %#v, %v", r, err)
+	}
+}
+
+func TestMaintenanceRecoveryRejectsUncheckpointedAttachment(t *testing.T) {
+	f := newRecoveryFixture(t)
+	f.createFault = func() error {
+		return json.Unmarshal([]byte(`{"configuration":{"mounts":[{"type":{"volume":{"name":"coop-recovery--unprepared"}}}]}}`), f.current)
+	}
+	err := f.storage(true, f.store).Publish(context.Background(), f.source, f.stage)
+	if err == nil || !strings.Contains(err.Error(), "refusing uncheckpointed attached volume coop-recovery--unprepared") {
+		t.Fatalf("Publish = %v", err)
+	}
+	if f.journal().Disks["rootfs"] != (diskIdentity{}) {
+		t.Fatal("published disks before attachment ownership validation")
 	}
 }

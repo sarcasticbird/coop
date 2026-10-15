@@ -28,6 +28,7 @@ type maintenanceJournal struct {
 	Bundle                       diskIdentity
 	OriginalRoot                 diskIdentity
 	Disks                        map[string]diskIdentity
+	Volumes                      map[string]diskIdentity
 }
 
 func identity(path string) (diskIdentity, error) {
@@ -62,7 +63,7 @@ func (s AppleStorage) pending(mode workspace.Mode, name string) (*maintenanceJou
 	if err := d.Decode(new(any)); err != io.EOF {
 		return nil, fmt.Errorf("trailing recovery journal data")
 	}
-	if j.Version != 1 || j.Target.Mode != mode || j.Target.Identity != name || j.Token == "" || !filepath.IsAbs(j.Archive) || len(j.SHA256) != 64 {
+	if j.Version != 1 || j.Target.Mode != mode || j.Target.Identity != name || j.Token == "" || !filepath.IsAbs(j.Archive) || len(j.SHA256) != 64 || j.Volumes == nil {
 		return nil, fmt.Errorf("invalid recovery journal ownership")
 	}
 	if err := workspace.ValidateRecord(j.Source); err != nil {
@@ -180,7 +181,7 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 		if _, err := rand.Read(token[:]); err != nil {
 			return err
 		}
-		j = &maintenanceJournal{Version: 1, Archive: s.Archive, SHA256: s.ArchiveSHA256, Root: root, Token: hex.EncodeToString(token[:]), Source: meta.Source, Target: r, Bundle: id, OriginalRoot: originalID, Disks: map[string]diskIdentity{}}
+		j = &maintenanceJournal{Version: 1, Archive: s.Archive, SHA256: s.ArchiveSHA256, Root: root, Token: hex.EncodeToString(token[:]), Source: meta.Source, Target: r, Bundle: id, OriginalRoot: originalID, Disks: map[string]diskIdentity{}, Volumes: map[string]diskIdentity{}}
 		prior, err := s.Store.Load(r.Mode, r.Identity)
 		if err == nil {
 			j.Prior = &prior
@@ -197,6 +198,7 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 				return err
 			}
 			j.Disks[v.Payload] = id
+			j.Volumes[v.Name] = id
 		}
 		if err := saveJournal(store, j); err != nil {
 			return err
@@ -212,6 +214,11 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 	recordAbsent := os.IsNotExist(err) && j.Prior == nil
 	if !recordMatches && !recordAbsent {
 		return fmt.Errorf("destination ownership record changed during maintenance")
+	}
+	for name, want := range j.Volumes {
+		if err := s.prepareMaintenanceVolume(ctx, store, j, name, want); err != nil {
+			return err
+		}
 	}
 	// Existing volumes must keep their original identities, even across partial writes.
 	for _, v := range meta.Volumes {
@@ -267,7 +274,9 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 		if j.Disks["rootfs"] != (diskIdentity{}) {
 			return fmt.Errorf("maintenance target disappeared after disk publication")
 		}
-		if err := s.CreateInteractive(ctx, r, j.Token); err != nil {
+		if err := s.CreateInteractive(ctx, r, j.Token, func(name string) error {
+			return s.prepareMaintenanceVolume(ctx, store, j, name, j.Volumes[name])
+		}); err != nil {
 			return err
 		}
 	}
@@ -277,6 +286,19 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 	}
 	if current == nil || current.Status.State != "stopped" || current.Configuration.Labels[RestoreLabel] != j.Token || current.Configuration.Labels["coop.spec"] != r.Fingerprint || current.Configuration.Image.Reference != r.Image {
 		return fmt.Errorf("new maintenance target ownership or stopped-state mismatch")
+	}
+	for _, mount := range current.Configuration.Mounts {
+		if mount.Type.Volume != nil {
+			name := mount.Type.Volume.Name
+			if j.Volumes[name] == (diskIdentity{}) {
+				return fmt.Errorf("refusing uncheckpointed attached volume %s", name)
+			}
+		}
+	}
+	for name, want := range j.Volumes {
+		if err := s.prepareMaintenanceVolume(ctx, store, j, name, want); err != nil {
+			return err
+		}
 	}
 	bundle, err := ownedPath(root, "containers", r.RuntimeName)
 	if err != nil {
@@ -314,6 +336,72 @@ func (s AppleStorage) publishMaintenance(ctx context.Context, r workspace.Record
 		return err
 	}
 	return store.ClearRecovery(r.Mode, r.Identity)
+}
+
+func (s AppleStorage) prepareMaintenanceVolume(ctx context.Context, store workspace.RecoveryStore, j *maintenanceJournal, name string, want diskIdentity) error {
+	if !archiveVolumeName.MatchString(name) || !strings.HasPrefix(name, j.Target.RuntimeName+"--") {
+		return fmt.Errorf("invalid maintenance volume ownership %s", name)
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	if want == (diskIdentity{}) {
+		data, err := s.Machine.Output(ctx, "volume", "ls", "--format", "json")
+		if err != nil {
+			return err
+		}
+		var volumes []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(data, &volumes); err != nil {
+			return err
+		}
+		if volumes == nil {
+			return fmt.Errorf("volume listing schema mismatch")
+		}
+		for _, v := range volumes {
+			if v.ID == "" {
+				return fmt.Errorf("volume listing schema mismatch")
+			}
+			if v.ID == name {
+				return fmt.Errorf("refusing uncheckpointed destination volume %s; preserve the original archive and quarantine the unverified volume before retrying", name)
+			}
+		}
+		// A zero identity is durable creation intent, not proof of ownership.
+		// If interrupted before the identity checkpoint, an existing name must
+		// be quarantined by the operator rather than adopted on the next retry.
+		j.Volumes[name] = diskIdentity{}
+		if err := saveJournal(store, j); err != nil {
+			return err
+		}
+		if _, err := s.Machine.Output(ctx, "volume", "create", name); err != nil {
+			return err
+		}
+		path, err := s.volumeSource(ctx, j.Root, name)
+		if err != nil {
+			return err
+		}
+		want, err = identity(path)
+		if err != nil {
+			return err
+		}
+		j.Volumes[name] = want
+		if err := saveJournal(store, j); err != nil {
+			return err
+		}
+	}
+	path, err := s.volumeSource(ctx, j.Root, name)
+	if err != nil {
+		return err
+	}
+	id, err := identity(path)
+	if err != nil {
+		return err
+	}
+	if id != want {
+		return fmt.Errorf("refusing changed destination volume %s", name)
+	}
+	return nil
 }
 
 // In-place publication preserves the journaled inode. A short write or crash
