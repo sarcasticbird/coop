@@ -60,6 +60,15 @@ func (w *WakeCoordinator) Next(now time.Time) (WakeRequest, bool, error) {
 	for _, r := range records {
 		v, err := w.Store.Receipt(r.ID)
 		if err != nil {
+			return WakeRequest{}, false, err
+		}
+		if v.Phase == "recovery" {
+			return WakeRequest{}, false, nil
+		}
+	}
+	for _, r := range records {
+		v, err := w.Store.Receipt(r.ID)
+		if err != nil {
 			return r, false, err
 		}
 		if v.Phase == "queued" && !now.Before(v.Job.NextAttemptAt) {
@@ -189,6 +198,11 @@ func (w *WakeCoordinator) Pause(ctx context.Context) error {
 		return nil
 	}
 	if err := w.OpenCode.Abort(ctx, v.Job); err != nil {
+		v.Job = reconciliationFailure(v.Job, err, w.Config.Limits, w.Clock.Now())
+		if v.Job.Phase == "recovery" {
+			v.Phase, v.Reason = "recovery", "reconciliation_required"
+			return w.save(v)
+		}
 		v.Reason = "abort_unconfirmed"
 		v.Job.NextAttemptAt = w.Clock.Now().Add(w.Config.Limits.RetryBase)
 		if saveErr := w.save(v); saveErr != nil {
@@ -198,6 +212,7 @@ func (w *WakeCoordinator) Pause(ctx context.Context) error {
 	}
 	v.Phase = "queued"
 	v.Reason = "local_pause"
+	v.Job.ReconcileFailures, v.Job.ReconcileError = 0, ""
 	v.Job.Phase = "paused"
 	v.Job.MessageID = ""
 	v.Job.SubmissionState = ""
@@ -214,6 +229,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 		return err
 	}
 	if active {
+		if v.Job.ReconcileFailures > 0 && w.Clock.Now().Before(v.Job.NextAttemptAt) {
+			return nil
+		}
 		if w.Clock.Now().Before(w.nextObserve) {
 			return nil
 		}
@@ -226,20 +244,25 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 			r.Source = v.Source
 		}
 		turn, observeErr := w.OpenCode.Observe(ctx, v.Job)
+		if observeErr != nil {
+			return w.reconciliationFailure(v, observeErr)
+		}
 		expired := !w.Clock.Now().Before(v.Job.Deadline)
-		if observeErr != nil || !turn.Terminal {
+		if !turn.Terminal {
 			if !expired && turn.State != "blocked" {
-				if observeErr != nil {
-					v.Reason = "submission_unknown"
-					return w.save(v)
-				}
 				v.Job.SubmissionState = turn.State
+				v.Job.ReconcileFailures, v.Job.ReconcileError = 0, ""
 				return w.save(v)
 			}
 			if w.Clock.Now().Before(v.Job.NextAttemptAt) && v.Reason == "abort_unconfirmed" {
 				return nil
 			}
 			if err := w.OpenCode.Abort(ctx, v.Job); err != nil {
+				v.Job = reconciliationFailure(v.Job, err, w.Config.Limits, w.Clock.Now())
+				if v.Job.Phase == "recovery" {
+					v.Phase, v.Reason = "recovery", "reconciliation_required"
+					return w.save(v)
+				}
 				v.Reason = "abort_unconfirmed"
 				v.Job.NextAttemptAt = w.Clock.Now().Add(w.Config.Limits.RetryBase)
 				if saveErr := w.save(v); saveErr != nil {
@@ -247,6 +270,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 				}
 				return err
 			}
+		}
+		if v.Job.TerminalAt.IsZero() {
+			v.Job.TerminalAt = w.Clock.Now()
 		}
 		// A native terminal result frees no slot until GitHub writes are reconciled.
 		if !snapshot.Complete {
@@ -261,8 +287,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 				v.Reason = errorCategory(err)
 				return w.save(v)
 			}
-			return err
+			return w.reconciliationFailure(v, err)
 		}
+		v.Job.ReconcileFailures, v.Job.ReconcileError = 0, ""
 		if found {
 			v.Phase = "completed"
 			v.Job.Phase = "completed"

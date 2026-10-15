@@ -36,7 +36,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	command := args[0]
 	switch command {
-	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests":
+	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -46,6 +46,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	task := flags.String("task", "", "task issue URL")
 	goal := flags.String("goal", "", "goal URL")
 	requestID := flags.String("request-id", "", "exact wake request ID")
+	jobID := flags.String("job-id", "", "exact recovery intent ID")
+	sessionID := flags.String("session-id", "", "exact saved session ID")
+	messageID := flags.String("message-id", "", "exact saved message ID")
 	if flags.Parse(args[1:]) != nil || *path == "" || len(flags.Args()) > 0 {
 		return errors.New("worker command requires --config /absolute/private.json")
 	}
@@ -58,6 +61,15 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
 		return err
+	}
+	if command == "recover" {
+		if err := worker.RecoveryIntent(c, *jobID, *sessionID, *messageID); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]string{"state": "observation_requested"})
+	}
+	if *jobID != "" || *sessionID != "" || *messageID != "" {
+		return errors.New("intent flags require recover")
 	}
 	store := worker.NewFileStore(c.StateDir)
 	encode := func(value any) error { return json.NewEncoder(out).Encode(value) }

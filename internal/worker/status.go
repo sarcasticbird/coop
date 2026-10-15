@@ -8,6 +8,7 @@ import (
 )
 
 type Status struct {
+	RecoveryIntent     *Job             `json:"recovery_intent,omitempty"`
 	PromptFailure      *PromptSizeError `json:"prompt_failure,omitempty"`
 	WakeIntakeDeferred bool             `json:"wake_intake_deferred,omitempty"`
 	APINotBefore       time.Time        `json:"api_not_before,omitempty"`
@@ -74,6 +75,9 @@ func validateStatusPromptFailures(status Status) error {
 }
 
 func (e *Engine) idleStatus() {
+	if e.status.RecoveryIntent != nil {
+		return
+	}
 	if e.status.Paused || e.status.WaitReason == "server_unavailable" {
 		return
 	}
