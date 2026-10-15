@@ -476,12 +476,55 @@ func TestReviewScopeHistoryChangesDuringReviews(t *testing.T) {
 			} else if err == nil || pr.TaskURL != "" || len(pr.Reviews) != 0 {
 				t.Fatalf("changed history returned actionable PR: err=%v pr=%+v", err, pr)
 			}
+			if (scenario == "same_second_scope_ABA" || scenario == "edit_identity_changed") && !strings.Contains(err.Error(), "PR_scope_history_changed_during_read") {
+				t.Fatalf("mixed history was not rejected by the post-review comparison: %v", err)
+			}
 		})
 	}
 }
 
+func TestReviewScopeSettledSameSecondHistoryRecovers(t *testing.T) {
+	f := newReviewScopeFixture(t)
+	at := f.now.Add(-20 * time.Minute).Truncate(time.Second)
+	f.version["lastEditedAt"] = at
+	b := encodeMetadata("pr", prMetadata{Task: "https://github.com/code/repo/issues/3", Goal: f.s.Goals[0].URL})
+	restored, retargeted, original := f.edit(f.body(), at), f.edit(b, at), f.edit(f.body(), at)
+	restored["id"], retargeted["id"], original["id"] = "restored-A", "retargeted-B", "original-A"
+	f.edits = []map[string]any{restored, retargeted, original}
+	f.review("APPROVED", at.Add(-time.Second))
+	ref := f.version["url"].(string)
+	pr, err := f.client(t).readPR(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("settled same-second history cannot recover: %v", err)
+	}
+	bindReviewScope(&pr, f.s.Tasks[0])
+	f.s.PRs = []PR{pr}
+	j := Job{Kind: "deliver", GoalURL: pr.GoalURL, TaskURL: pr.TaskURL, PRURL: ref, HeadSHA: pr.HeadSHA}
+	// Restart with no client-local evidence, then freshly revalidate each verdict.
+	restarted := f.client(t)
+	for _, submitted := range []time.Time{at.Add(-time.Second), at, at.Add(time.Second)} {
+		f.review("APPROVED", submitted)
+		fresh, err := restarted.Revalidate(context.Background(), j, f.s)
+		if err != nil {
+			t.Fatalf("settled history failed after restart: %v", err)
+		}
+		p := fresh.PRs[0]
+		if !p.ScopeUpdatedAt.Equal(at) || p.ScopeRevision != pr.ScopeRevision {
+			t.Fatal("restart changed the settled scope evidence")
+		}
+		want := submitted.After(at)
+		if ok, reason := Admit(f.c, j, fresh, f.now); ok != want {
+			t.Fatalf("review at %s admitted=%v, want %v: %s", submitted, ok, want, reason)
+		}
+		jobs := Select(f.c, fresh, State{}, f.now)
+		if (len(jobs) == 1 && jobs[0].Kind == "deliver") != want {
+			t.Fatalf("review at %s selected=%+v, want delivery=%v", submitted, jobs, want)
+		}
+	}
+}
+
 func TestReviewScopeHistoryFailsClosed(t *testing.T) {
-	for _, scenario := range []string{"unavailable", "redacted", "deleted", "empty", "incomplete", "stalled_pagination", "mismatch_current_body", "mismatch_current_timestamp", "changed_between_scans", "version_changed_after_reviews"} {
+	for _, scenario := range []string{"unavailable", "redacted", "deleted", "empty", "incomplete", "stalled_pagination", "mismatch_current_body", "mismatch_current_timestamp", "out_of_order", "changed_between_scans", "version_changed_after_reviews"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newReviewScopeFixture(t)
 			at := f.now.Add(-20 * time.Minute)
@@ -503,6 +546,8 @@ func TestReviewScopeHistoryFailsClosed(t *testing.T) {
 				f.edits[0]["diff"] = "different body"
 			case "mismatch_current_timestamp":
 				f.edits[0]["editedAt"] = at.Add(-time.Second)
+			case "out_of_order":
+				f.edits = append(f.edits, f.edit(f.body(), at.Add(-time.Minute)))
 			}
 			f.change = func(stage string) error {
 				if stage == "history" && scenario == "unavailable" {

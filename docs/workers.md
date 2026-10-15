@@ -132,6 +132,8 @@ metadata. Catalog reads and fresh revalidation scan GitHub's durable PR body-edi
 history before and after reading reviews, comparing complete history including
 edit IDs and order, then verify the body version/head again. Whole-second body
 timestamps alone cannot rule out same-second changes that restore the old links.
+Settled histories may contain equal timestamps in their durable newest-first
+order; a review in that same second remains unproven and requires a later verdict.
 Changing either link, including restoring old links or repairing missing/invalid
 metadata, requires a review strictly after the latest scope transition. Restarts
 and edits made entirely between polls do not reset this boundary. The scope

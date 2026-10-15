@@ -41,7 +41,7 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 				ID, Diff            string
 				EditedAt, DeletedAt time.Time
 			}](raw)
-			if err != nil || edit.ID == "" || !edit.DeletedAt.IsZero() || edit.EditedAt.Before(version.CreatedAt) || edit.EditedAt.After(previous) || i > 0 && !edit.EditedAt.Before(previous) {
+			if err != nil || edit.ID == "" || !edit.DeletedAt.IsZero() || edit.EditedAt.Before(version.CreatedAt) || edit.EditedAt.After(previous) {
 				return "", ghError("invalid_PR_scope_history")
 			}
 			if i == 0 && (!edit.EditedAt.Equal(version.LastEditedAt) || edit.Diff != version.Body) {
