@@ -219,6 +219,16 @@ restarts. Persisted message intent prevents blind replay after a lost response.
 An uncertain submission or abort holds the active slot until reconciliation.
 Model prose alone never proves completion; later GitHub artifacts do.
 
+A failed task checkpoint stops the worker with `checkpoint_failed`. The worker
+reloads the stored ledger for inspection when possible and exits rather than
+continuing with uncommitted jobs, counters, or session bindings. Correct the
+storage problem before restarting; do not delete or reset the ledger. A save can
+report failure after replacing its file, so restart reconciles any saved message
+intent without blindly submitting it again. This fail-safe does not abort the
+OpenCode turn: it may already have been accepted and must retain its identity.
+Wake receipts and routing are read afresh from storage on each operation; failed
+writes likewise never authorize replay of a persisted running intent.
+
 Only worker-owned sessions receive unattended permissions. Existing explicit
 deny rules are preserved, interactive questions and credential-dump operations
 are denied, and unresolved tool permission requests block visibly. The VM still
