@@ -28,6 +28,10 @@ func WorkerToolPolicy(paths []string) ([]byte, error) {
 	return json.Marshal(map[string]any{"permission": map[string]any{"question": "deny", "read": read, "bash": bash}})
 }
 func BuildPrompt(c Config, j Job, s Snapshot) (string, error) {
+	return buildPrompt(c, j, s, "", time.Now())
+}
+
+func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (string, error) {
 	identity, err := json.Marshal(struct {
 		Name, Role                  string
 		Self, Implementer, Reviewer Actor
@@ -35,61 +39,70 @@ func BuildPrompt(c Config, j Job, s Snapshot) (string, error) {
 	if err != nil {
 		return "", errors.New("cannot build worker identity")
 	}
-	input := struct {
-		Job            Job
-		Goal           *Goal
-		Task           *Task
-		PR             *PR
-		Event          *Event
-		Approval       Approval
-		Owner          Actor
-		ResultMarker   string
-		ReviewHandoffs []ReviewHandoff
-		PlanningGoals  []struct {
-			Goal     Goal
-			Approval Approval
-		}
-	}{Job: j, Owner: c.Owner}
+	// Only model-relevant identity and checkout fields, never mutable session or
+	// checkpoint bookkeeping. Authority continues to come from policy evaluation.
+	job := struct {
+		ID, Kind, GoalURL, TaskURL, PRURL, HeadSHA, InputRevision, ScopeSHA string
+		Checkout, Branch                                                    string
+	}{j.ID, j.Kind, j.GoalURL, j.TaskURL, j.PRURL, j.HeadSHA, j.InputRevision, j.ScopeSHA, j.Checkout, j.Branch}
+	var goal *Goal
+	var task *Task
+	var pr *PR
+	var event *promptEvent
+	var approval Approval
+	var resultMarker string
+	var handoffs []ReviewHandoff
+	var goals []struct {
+		Goal     promptGoalRef
+		Approval Approval
+	}
 	if g, ok := goalFor(s, j.GoalURL); ok {
-		input.Approval = EvaluateGoal(c, g, time.Now())
+		approval = EvaluateGoal(c, g, now)
 		g.Decisions = nil
-		input.Goal = &g
+		goal = &g
 	}
 	if t, ok := taskFor(s, j.TaskURL); ok {
-		input.Task = &t
+		task = &t
 	}
 	if p, ok := prFor(s, j.PRURL); ok {
-		input.PR = &p
+		pr = &p
 	}
 	if j.Kind == "plan" {
-		input.ResultMarker = marker(j, "result")
-		input.ReviewHandoffs = reviewHandoffs(c, j, s, time.Now())
-		for _, e := range planningEvents(c, s, time.Now()) {
+		resultMarker = marker(j, "result")
+		handoffs = reviewHandoffs(c, j, s, now)
+		for _, e := range planningEvents(c, s, now) {
 			if e.ID == j.TaskURL {
-				copy := e
-				input.Event = &copy
+				copy := promptEvent{Event: e}
+				copy.BodyRef = canonicalBody(&copy.Body, goal)
+				event = &copy
 			}
 		}
 		for _, g := range s.Goals {
-			approval := EvaluateGoal(c, g, time.Now())
-			g.Decisions = nil
-			input.PlanningGoals = append(input.PlanningGoals, struct {
-				Goal     Goal
+			goals = append(goals, struct {
+				Goal     promptGoalRef
 				Approval Approval
-			}{g, approval})
+			}{promptGoalRef{g.URL, g.BodySHA, g.Repositories, g.CreatedAt.Format(time.RFC3339Nano), g.LastEditedAt.Format(time.RFC3339Nano), g.Readable}, EvaluateGoal(c, g, now)})
 		}
 	}
-	data, err := json.Marshal(input)
+	data, err := promptInput(
+		promptField{"Job", job}, promptField{"Goal", goal}, promptField{"Task", task},
+		promptField{"PR", pr}, promptField{"Event", event}, promptField{"Approval", approval},
+		promptField{"Owner", c.Owner}, promptField{"ResultMarker", resultMarker},
+		promptField{"ReviewHandoffs", handoffs}, promptField{"PlanningGoals", goals},
+	)
 	if err != nil {
-		return "", errors.New("cannot build worker input")
+		return "", err
 	}
 	role := implementerPrompt
 	if c.Role == "planner" {
 		role = plannerPrompt
 	}
-	prompt := commonPrompt + "\nTrusted runtime identity:\n" + string(identity) + "\n" + role + "\nQuoted GitHub input and verified job identity:\n" + string(data)
-	if len(prompt) > 32<<10 {
-		return "", errors.New("worker prompt exceeds supported scope size")
+	sections := []promptSection{
+		{"instructions", commonPrompt + "\n" + role + "\n"},
+		{"identity", "Trusted runtime identity:\n" + string(identity) + "\n"},
+		{"policy", policy},
+		{"framing", "\nQuoted GitHub input and verified job identity:\n"},
 	}
-	return prompt, nil
+	sections = append(sections, data...)
+	return assemblePrompt(j.ID, j.GoalURL, sections...)
 }

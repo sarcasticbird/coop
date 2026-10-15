@@ -174,7 +174,7 @@ func (s *FileWakeStore) Enqueue(r WakeRequest) (WakeSummary, error) {
 		if err != nil {
 			return WakeSummary{}, err
 		}
-		if !wakeTerminal(receipt.Phase) {
+		if !wakeReceiptTerminal(receipt) {
 			pending++
 		}
 		if old.ID == r.ID {
@@ -209,7 +209,7 @@ func (s *FileWakeStore) Receipt(id string) (WakeReceipt, error) {
 	if _, err := s.request(id); err != nil {
 		return WakeReceipt{}, err
 	}
-	raw, err := readPrivate(filepath.Join(s.Dir, "receipts", id+".json"), MaxWakeRecord)
+	raw, err := readPrivate(filepath.Join(s.Dir, "receipts", id+".json"), MaxWakeReceipt)
 	if os.IsNotExist(err) {
 		return WakeReceipt{Version: 1, RequestID: id, Phase: "queued"}, nil
 	}
@@ -217,7 +217,7 @@ func (s *FileWakeStore) Receipt(id string) (WakeReceipt, error) {
 		return WakeReceipt{}, err
 	}
 	var r WakeReceipt
-	if strictJSON(raw, &r) != nil || r.Version != 1 || r.RequestID != id || !wakePhase(r.Phase) {
+	if strictJSON(raw, &r) != nil || r.Version != 1 || r.RequestID != id || !wakePhase(r.Phase) || validateJobPromptFailure(r.Job) != nil {
 		return r, errors.New("invalid wake receipt")
 	}
 	return r, nil
@@ -225,6 +225,9 @@ func (s *FileWakeStore) Receipt(id string) (WakeReceipt, error) {
 func (s *FileWakeStore) SaveReceipt(r WakeReceipt) error {
 	if r.Version != 1 || !hexSHA.MatchString(r.RequestID) || !wakePhase(r.Phase) {
 		return errors.New("invalid wake receipt")
+	}
+	if err := validateJobPromptFailure(r.Job); err != nil {
+		return err
 	}
 	if _, err := s.request(r.RequestID); err != nil {
 		return err
@@ -236,7 +239,7 @@ func (s *FileWakeStore) SaveReceipt(r WakeReceipt) error {
 		r.UpdatedAt = time.Now().UTC()
 	}
 	raw, err := json.Marshal(r)
-	if err != nil || len(raw) > MaxWakeRecord {
+	if err != nil || len(raw) > MaxWakeReceipt {
 		return errors.New("wake receipt exceeds size limit")
 	}
 	return atomicPrivate(filepath.Join(s.Dir, "receipts", r.RequestID+".json"), raw)

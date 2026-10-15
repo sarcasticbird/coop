@@ -111,6 +111,8 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	PromptReportAttempts                                                         int              `json:",omitempty"`
+	PromptFailure                                                                *PromptSizeError `json:",omitempty"`
 	BlockReported                                                                bool
 	TerminalAt                                                                   time.Time
 	ScopeSHA, WaitReason                                                         string
