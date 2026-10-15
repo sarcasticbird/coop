@@ -138,7 +138,7 @@ func TestPRRepositoryBindingDiscoveryAndRevalidation(t *testing.T) {
 						case strings.Contains(req.Query, "WorkerDiscussionReplies"):
 							data = map[string]any{"node": map[string]any{"replies": page([]any{})}}
 						case strings.Contains(req.Query, "WorkerPR"):
-							data = map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"url": ref, "body": encodeMetadata("pr", prMetadata{Task: task.URL, Goal: goal.URL}), "state": "OPEN", "merged": merged, "headRefOid": head, "author": graphActor{Kind: c.Implementer.Kind, Login: c.Implementer.Login, ID: c.Implementer.ID}, "mergeStateStatus": "CLEAN", "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}}}
+							data = map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"url": ref, "createdAt": now.Add(-time.Hour), "body": encodeMetadata("pr", prMetadata{Task: task.URL, Goal: goal.URL}), "state": "OPEN", "merged": merged, "headRefOid": head, "author": graphActor{Kind: c.Implementer.Kind, Login: c.Implementer.Login, ID: c.Implementer.ID}, "mergeStateStatus": "CLEAN", "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}}}
 						default:
 							t.Fatalf("unexpected query: %s", req.Query)
 						}

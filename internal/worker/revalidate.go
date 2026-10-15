@@ -151,6 +151,8 @@ func (g *GitHubClient) Revalidate(ctx context.Context, j Job, old Snapshot) (Sna
 }
 
 func bindReviewScope(pr *PR, task Task) {
-	pr.ScopeUpdatedAt = task.MetadataUpdatedAt
-	pr.ScopeRevision = BodyHash(task.BodySHA + ":" + task.MetadataUpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	if task.MetadataUpdatedAt.After(pr.ScopeUpdatedAt) {
+		pr.ScopeUpdatedAt = task.MetadataUpdatedAt
+	}
+	pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, pr.ScopeUpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"), task.BodySHA, task.MetadataUpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00")}, "\x00"))
 }

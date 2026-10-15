@@ -487,7 +487,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 		return PR{}, ghError("invalid_PR_target")
 	}
 	p := strings.Split(repo, "/")
-	query := `query WorkerPR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body state merged headRefOid headRefName baseRefName updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`
+	query := `query WorkerPR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body createdAt lastEditedAt state merged headRefOid headRefName baseRefName updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`
 	data, err := g.graphql(ctx, p[0], query, map[string]any{"owner": p[0], "repo": p[1], "number": n})
 	if err != nil {
 		return PR{}, err
@@ -497,11 +497,12 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 		return PR{}, err
 	}
 	var item struct {
-		URL, Body, State, HeadRefOid, HeadRefName, BaseRefName, MergeStateStatus string
-		Merged                                                                   bool
-		UpdatedAt                                                                time.Time
-		Author                                                                   graphActor
-		Commits                                                                  struct {
+		prBodyVersion
+		State, HeadRefName, BaseRefName, MergeStateStatus string
+		Merged                                            bool
+		UpdatedAt                                         time.Time
+		Author                                            graphActor
+		Commits                                           struct {
 			Nodes []struct {
 				Commit struct{ StatusCheckRollup *struct{ State string } }
 			}
@@ -520,6 +521,14 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 	}
 	pr.TaskURL = m.Task
 	pr.GoalURL = m.Goal
+	var scopeHistory string
+	// Already-merged issue finalization needs current tracking, not a new review.
+	if !pr.Merged {
+		scopeHistory, err = g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		if err != nil {
+			return PR{}, err
+		}
+	}
 	if len(item.Commits.Nodes) == 1 {
 		pr.ChecksState = "none"
 		if rollup := item.Commits.Nodes[0].Commit.StatusCheckRollup; rollup != nil {
@@ -542,6 +551,20 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 			return pr, err
 		}
 		pr.Reviews = append(pr.Reviews, Review{ID: strconv.FormatInt(r.ID, 10), HeadSHA: r.CommitID, State: r.State, Author: r.User.actor(), SubmittedAt: r.SubmittedAt})
+	}
+	// Whole-second body timestamps cannot detect a same-second A -> B -> A.
+	// Recheck all edit identities/order after reviews, before the final version read.
+	if scopeHistory != "" {
+		freshHistory, err := g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		if err != nil {
+			return PR{}, err
+		}
+		if freshHistory != scopeHistory {
+			return PR{}, ghError("PR_scope_history_changed_during_read")
+		}
+	}
+	if err := g.verifyPRVersion(ctx, repo, n, item.prBodyVersion); err != nil {
+		return PR{}, err
 	}
 	return pr, nil
 }

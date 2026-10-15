@@ -36,7 +36,7 @@ func prFor(s Snapshot, url string) (PR, bool) {
 func latestReview(c Config, p PR) Review {
 	var latest Review
 	for _, r := range p.Reviews {
-		if r.SubmittedAt.Before(p.ScopeUpdatedAt) {
+		if !r.SubmittedAt.After(p.ScopeUpdatedAt) {
 			continue
 		}
 		if r.State != "APPROVED" && r.State != "CHANGES_REQUESTED" && r.State != "DISMISSED" {
@@ -120,6 +120,9 @@ func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
 	r := latestReview(c, p)
 	switch j.Kind {
 	case "review":
+		if j.InputRevision != "" && j.InputRevision != p.HeadSHA+":"+p.ScopeRevision {
+			return false, "saved PR review scope changed"
+		}
 		return c.Role == "planner" && (r.ID == "" || r.State == "DISMISSED"), "current head requires review"
 	case "fix":
 		return c.Role == "implementer" && r.State == "CHANGES_REQUESTED", "current-head changes requested"

@@ -127,6 +127,29 @@ is not silently adopted. Worker-created claims identify the worker instance.
 
 Robin opens PRs with `coop-pr:v1` metadata linking `task` and `goal`. Hawk reviews
 the exact head SHA in an independent checkout and submits a formal review.
+Review freshness also binds the canonical PR/task/goal links and trusted task
+metadata. Catalog reads and fresh revalidation scan GitHub's durable PR body-edit
+history before and after reading reviews, comparing complete history including
+edit IDs and order, then verify the body version/head again. Whole-second body
+timestamps alone cannot rule out same-second changes that restore the old links.
+Settled histories may contain equal timestamps in their durable newest-first
+order; a review in that same second remains unproven and requires a later verdict.
+Changing either link, including restoring old links or repairing missing/invalid
+metadata, requires a review strictly after the latest scope transition. Restarts
+and edits made entirely between polls do not reset this boundary. The scope
+revision also distinguishes dedicated review jobs at the same head.
+
+Comments, check updates and other unrelated PR activity do not invalidate reviews.
+Body prose edits or JSON formatting changes preserve the continuous canonical
+scope visible in edit history. GitHub does not expose the original pre-edit body:
+for edited PRs, reviews before the oldest known matching body version cannot be
+proven in scope and require re-review. Unedited PRs use their creation time.
+Unavailable, deleted, inconsistent or ambiguous history fails closed; no poll-local
+cache or current-link hash substitutes for that evidence. This is optimistic
+read validation, not a lock against subsequent GitHub edits or review changes.
+Already-merged PR issue finalization still checks current tracking and repository
+identity without requiring a new review or historical review-scope evidence.
+
 Every automated turn receives its configured agent name, bot identity and role
 separately from quoted GitHub input. A planning input that links a PR also carries
 a review handoff for its current head. Posting "Hawk will review next" does not

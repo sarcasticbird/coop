@@ -124,6 +124,7 @@ func TestGitHubDistinguishesAbsentAndUnknownChecks(t *testing.T) {
 	for _, state := range []string{"none", "success", "pending", "unknown"} {
 		c, s, _ := policyFixture(t)
 		item := map[string]any{"url": "https://github.com/code/repo/pull/5", "body": encodeMetadata("pr", prMetadata{Task: s.Tasks[0].URL, Goal: s.Goals[0].URL}), "state": "OPEN", "headRefOid": strings.Repeat("a", 40), "mergeStateStatus": "CLEAN", "author": map[string]any{"__typename": "Bot", "databaseId": c.Implementer.ID, "login": c.Implementer.Login}}
+		item["createdAt"] = s.Goals[0].CreatedAt
 		if state != "unknown" {
 			commit := map[string]any{"statusCheckRollup": nil}
 			if state != "none" {
