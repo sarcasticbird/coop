@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sarcasticbird/coop/internal/workspace"
 )
@@ -166,6 +168,109 @@ func TestRestoreRejectsUnsafeArchivesBeforePublication(t *testing.T) {
 }
 
 type fixtureStorage struct{ source, published string }
+
+type changingStorage struct {
+	fixtureStorage
+	calls  int
+	change func(*Snapshot) error
+}
+
+func (s *changingStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapshot, error) {
+	snapshot, err := s.fixtureStorage.Snapshot(ctx, r)
+	if err != nil {
+		return snapshot, err
+	}
+	volume := snapshot.Payloads[0]
+	volume.Name = "volume-0"
+	snapshot.Payloads = append(snapshot.Payloads, volume)
+	snapshot.Metadata = json.RawMessage(`{"initialized":true,"volumes":[{"name":"data","payload":"volume-0"}]}`)
+	s.calls++
+	if s.calls == 2 {
+		err = s.change(&snapshot)
+	}
+	return snapshot, err
+}
+
+func TestBackupComparesPostcopySnapshot(t *testing.T) {
+	for _, kind := range []string{"added", "removed", "renamed", "size", "runtime", "record", "metadata", "duplicate", "snapshot-error", "replacement", "mtime", "unchanged", "reordered"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			s := &changingStorage{fixtureStorage: fixtureStorage{source: filepath.Join(dir, "source")}}
+			if err := os.WriteFile(s.source, []byte("disk-data"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			s.change = func(snapshot *Snapshot) error {
+				switch kind {
+				case "added":
+					p := snapshot.Payloads[0]
+					p.Name = "volume-1"
+					snapshot.Payloads = append(snapshot.Payloads, p)
+				case "removed":
+					snapshot.Payloads = snapshot.Payloads[1:]
+				case "renamed":
+					snapshot.Payloads[0].Name = "new-rootfs"
+				case "size":
+					snapshot.Payloads[0].Size++
+				case "runtime":
+					snapshot.RuntimeVersion = "1.5.1"
+				case "record":
+					snapshot.Record.Applied.Command = []string{"changed"}
+				case "metadata":
+					snapshot.Metadata = json.RawMessage(`{"initialized":false}`)
+				case "duplicate":
+					snapshot.Payloads[1].Name = snapshot.Payloads[0].Name
+				case "snapshot-error":
+					return fmt.Errorf("runtime is running")
+				case "replacement":
+					info, err := os.Stat(s.source)
+					if err != nil {
+						return err
+					}
+					replacement := filepath.Join(dir, "replacement")
+					if err := os.WriteFile(replacement, []byte("disk-data"), 0600); err != nil {
+						return err
+					}
+					if err := os.Chtimes(replacement, info.ModTime(), info.ModTime()); err != nil {
+						return err
+					}
+					return os.Rename(replacement, s.source)
+				case "mtime":
+					changed := time.Now().Add(time.Hour)
+					return os.Chtimes(s.source, changed, changed)
+				case "reordered":
+					snapshot.Payloads[0], snapshot.Payloads[1] = snapshot.Payloads[1], snapshot.Payloads[0]
+					snapshot.Metadata = json.RawMessage(`{ "volumes": [{"payload":"volume-0","name":"data"}], "initialized": true }`)
+				}
+				return nil
+			}
+			archive := filepath.Join(dir, "backup.zip")
+			r := workspace.Record{Version: 1, Mode: workspace.Agent, Identity: "robin", RuntimeName: "coop-agent-robin"}
+			err := Create(context.Background(), s, r, archive)
+			if s.calls != 2 {
+				t.Fatalf("snapshot calls = %d, want 2", s.calls)
+			}
+			if kind == "unchanged" || kind == "reordered" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ReadManifest(archive); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "workspace changed during backup") {
+				t.Fatalf("changed snapshot error = %v", err)
+			}
+			if _, err := os.Stat(archive); !os.IsNotExist(err) {
+				t.Fatalf("changed snapshot published: %v", err)
+			}
+			leftovers, err := filepath.Glob(filepath.Join(dir, ".coop-backup-*"))
+			if err != nil || len(leftovers) != 0 {
+				t.Fatalf("temporary archives remain: %v, %v", leftovers, err)
+			}
+		})
+	}
+}
 
 func (f *fixtureStorage) Snapshot(_ context.Context, r workspace.Record) (Snapshot, error) {
 	info, err := os.Stat(f.source)

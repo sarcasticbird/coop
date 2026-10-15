@@ -163,6 +163,18 @@ Host mounts are outside backup ownership. Native guest auth and other secrets
 saved to disk may be included in the private archive. See
 [Persistent agents](agents.md#maintenance-and-recovery) for details.
 
+Backup rechecks the stopped runtime after copying and rejects changes to the
+payload set, names, sizes, file identities, modification times, ownership record,
+runtime version, or archived runtime metadata before publishing an archive.
+Payload enumeration and JSON object-key order do not affect this comparison.
+Each disk also retains size and modification-time checks during its own copy.
+These checks are not a runtime or filesystem lock: keep the workspace and all
+users of its owned volumes stopped for the entire backup, and avoid concurrent
+maintenance or host writes. A start-and-stop cycle between inspections, a change
+reverted before inspection, or same-size content writes that preserve modification
+times can escape detection. Archive checksums verify the bytes copied, not that
+concurrent writes formed a consistent point-in-time disk image.
+
 `coop rebuild` prepares an image; it never changes an existing guest. An
 existing guest whose desired image changes returns maintenance-required.
 Image replacement is currently unsupported to preserve arbitrary disk changes.

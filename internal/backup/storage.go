@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -264,6 +265,8 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 		if err != nil {
 			return snapshot, err
 		}
+		// Keep volume-to-payload identities stable across runtime enumeration order.
+		sort.Strings(volumes)
 		// Any running container using an owned volume makes a cold backup unsafe.
 		data, err := s.Machine.Output(ctx, "list", "--all", "--format", "json")
 		if err != nil {

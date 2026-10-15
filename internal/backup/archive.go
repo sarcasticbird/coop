@@ -3,6 +3,7 @@ package backup
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -51,6 +52,66 @@ type Manifest struct {
 var payloadName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
 
 const maxDiskSize = int64(1) << 40
+
+type snapshotState struct {
+	Metadata string
+	Disks    map[string]os.FileInfo
+}
+
+// Freeze metadata and file identities before copying; Open closures themselves
+// are not identities, and payload enumeration order is not significant.
+func inspectSnapshot(s Snapshot) (snapshotState, error) {
+	state := snapshotState{Disks: map[string]os.FileInfo{}}
+	metadata, err := json.Marshal(Manifest{Record: s.Record, RuntimeVersion: s.RuntimeVersion, Metadata: s.Metadata})
+	if err != nil {
+		return state, err
+	}
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(metadata))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return state, err
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return state, err
+	}
+	state.Metadata = string(canonical)
+	if len(s.Payloads) == 0 || len(s.Payloads) > 256 {
+		return state, fmt.Errorf("invalid backup payload count")
+	}
+	for _, p := range s.Payloads {
+		if !payloadName.MatchString(p.Name) || p.Name == "manifest.json" || state.Disks[p.Name] != nil {
+			return state, fmt.Errorf("invalid or duplicate payload name %q", p.Name)
+		}
+		input, err := p.Open()
+		if err != nil {
+			return state, err
+		}
+		f, ok := input.(*os.File)
+		if !ok {
+			_ = input.Close()
+			return state, fmt.Errorf("disk payload is not a regular file")
+		}
+		info, statErr := f.Stat()
+		closeErr := f.Close()
+		if statErr != nil {
+			return state, statErr
+		}
+		if closeErr != nil {
+			return state, closeErr
+		}
+		if !info.Mode().IsRegular() || info.Size() != p.Size || p.Size < 0 || p.Size > maxDiskSize {
+			return state, fmt.Errorf("invalid disk payload size")
+		}
+		state.Disks[p.Name] = info
+	}
+	return state, nil
+}
+
+func sameDisk(a, b os.FileInfo) bool {
+	return a != nil && b != nil && os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
 
 type countingWriter struct {
 	io.Writer
@@ -187,8 +248,9 @@ func Create(ctx context.Context, backend Storage, record workspace.Record, desti
 	if err != nil {
 		return err
 	}
-	if len(snapshot.Payloads) == 0 || len(snapshot.Payloads) > 256 {
-		return fmt.Errorf("invalid backup payload count")
+	before, err := inspectSnapshot(snapshot)
+	if err != nil {
+		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(destination), ".coop-backup-*")
 	if err != nil {
@@ -212,6 +274,11 @@ func Create(ctx context.Context, backend Storage, record workspace.Record, desti
 			_ = input.Close()
 			return fmt.Errorf("disk payload is not a regular file")
 		}
+		info, err := f.Stat()
+		if err != nil || !sameDisk(before.Disks[p.Name], info) {
+			_ = input.Close()
+			return fmt.Errorf("disk changed before backup copy: %s", p.Name)
+		}
 		header := &zip.FileHeader{Name: p.Name, Method: zip.Deflate}
 		header.SetMode(0600)
 		writer, err := zw.CreateHeader(header)
@@ -231,8 +298,21 @@ func Create(ctx context.Context, backend Storage, record workspace.Record, desti
 		}
 		manifest.Files = append(manifest.Files, fileRecord{Name: p.Name, Size: p.Size, EncodedSize: count.n, SHA256: hex.EncodeToString(hash.Sum(nil))})
 	}
-	if _, err := backend.Snapshot(ctx, record); err != nil {
+	postcopy, err := backend.Snapshot(ctx, record)
+	if err != nil {
 		return fmt.Errorf("workspace changed during backup: %w", err)
+	}
+	after, err := inspectSnapshot(postcopy)
+	if err != nil {
+		return fmt.Errorf("workspace changed during backup: %w", err)
+	}
+	if before.Metadata != after.Metadata || len(before.Disks) != len(after.Disks) {
+		return fmt.Errorf("workspace changed during backup: snapshot metadata or payload set differs")
+	}
+	for name, info := range before.Disks {
+		if !sameDisk(info, after.Disks[name]) {
+			return fmt.Errorf("workspace changed during backup: payload %s differs", name)
+		}
 	}
 	writer, err := zw.Create("manifest.json")
 	if err != nil {
