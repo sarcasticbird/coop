@@ -54,7 +54,7 @@ func TestPlanningReviewHandoffCannotCompleteWithPromise(t *testing.T) {
 	if planningResponded(c, j, s) {
 		t.Fatal("planning reply counted as a completed review handoff without a review or blocker")
 	}
-	s.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: "old-head"}}
+	s.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: "old-head", SubmittedAt: s.Events[0].OccurredAt}}
 	if planningResponded(c, j, s) {
 		t.Fatal("old-head review completed current-head handoff")
 	}
@@ -164,7 +164,7 @@ func TestWaitingPlanningHandoffDispatchesDedicatedReviewBeforeAnotherPlanningTur
 	g.snapshot.Goals[0].Decisions = append(g.snapshot.Goals[0].Decisions, Decision{Author: c.Self, Command: "Review requested.\n" + marker(j, "result")})
 	code.effect = func(c Config, job Job) {
 		if job.Kind == "review" {
-			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA}}
+			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA, SubmittedAt: clock.Now()}}
 		}
 	}
 	tick(t, e, clock)
@@ -197,7 +197,7 @@ func TestActivePlanningTurnYieldsToNewReviewWithoutFailure(t *testing.T) {
 			g.snapshot.PRs = s.PRs
 			g.snapshot.Goals[0].Decisions = append(g.snapshot.Goals[0].Decisions, Decision{Author: c.Self, Command: "Review requested.\n" + marker(job, "result")})
 		case "review":
-			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA}}
+			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA, SubmittedAt: clock.Now()}}
 		}
 	}
 	tick(t, e, clock)
