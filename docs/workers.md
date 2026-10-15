@@ -342,3 +342,46 @@ unchanged. It requires explicit operation on a running named VM. Keep the staged
 closure, checksum/version evidence and cold backup until live acceptance passes.
 For future VMs, perform this onboarding before enabling worker services; this
 delivery deliberately preserves the existing image fingerprint.
+
+## Prompt size failures
+
+Worker and wake prompts have a 32,768-byte UTF-8 limit. The worker measures the
+complete outgoing prompt after JSON escaping, framing and the daily-proposal
+restriction. Required identity, approval, current goal/task, source message and
+exact-head review facts are never truncated to fit.
+
+Planning includes the selected full goal once and a compact index of other goals.
+The index preserves URLs, repositories, versions and evaluated approval; it does
+not authorize administration of those other goals in this turn. A `BodyRef` points
+to the complete supplied goal body when a source repeats that exact text.
+There are no optional background excerpts in this format. All included sections
+share the final byte budget; excessive required context fails closed.
+
+An oversized prompt is blocked as `prompt_size` before model submission, without
+consuming an execution attempt or retrying unchanged input. `worker status` shows
+`prompt_failure` for a blocked task. `worker requests --request-id ID` shows the
+same diagnostic for a wake. Diagnostics contain the actual byte count, limit,
+job/request ID, source Discussion/goal URL and per-section byte counts, without
+quoted bodies or credential information. A marked report in the existing source
+thread explains the failure once. Wake report retries have bounded backoff and
+the configured attempt limit, independently of model execution attempts. Fresh
+eligible requests take precedence over stale reports. Terminal size failures do
+not consume pending queue capacity. Retrying a report does not retry the model.
+
+Use the section counts to identify required context that needs to be split into
+separate scoped inputs. Preserve the blocked job/receipt and its claims and
+session evidence. Do not clear the ledger, replay an uncertain turn, weaken the
+approved goal, or request redundant approval. A new eligible source revision or
+distinct supported ping can derive normal new work. Authorization failures still
+have their own scope/approval reasons; `prompt_build` identifies a different
+prompt-construction failure.
+
+The new reader accepts existing state and receipts. The optional `PromptFailure`
+and `PromptReportAttempts` job fields are emitted only for size failures and
+their wake report attempts. Previous strict readers
+reject records containing it, so a rollback must retain a compatible reader or
+reconcile/archive newer records explicitly. Never delete records to make an old
+binary start. Wake receipts use the existing 16 MiB snapshot ceiling for lossless revalidated
+sources, session identity and diagnostics, including JSON escape expansion; inbox requests remain limited to 32 KiB. Older readers
+also reject receipts above their former limit. Deploy the worker and matching
+status/request CLI together during an authorized maintenance window.

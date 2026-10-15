@@ -139,6 +139,9 @@ func validateState(s State) error {
 		if !hexSHA.MatchString(key) || j.ID != key {
 			return errors.New("invalid worker job identity")
 		}
+		if err := validateJobPromptFailure(j); err != nil {
+			return err
+		}
 	}
 	return nil
 }

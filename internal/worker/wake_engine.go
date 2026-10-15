@@ -56,6 +56,7 @@ func (w *WakeCoordinator) Next(now time.Time) (WakeRequest, bool, error) {
 	if err != nil {
 		return WakeRequest{}, false, err
 	}
+	var report *WakeRequest
 	for _, r := range records {
 		v, err := w.Store.Receipt(r.ID)
 		if err != nil {
@@ -64,6 +65,13 @@ func (w *WakeCoordinator) Next(now time.Time) (WakeRequest, bool, error) {
 		if v.Phase == "queued" && !now.Before(v.Job.NextAttemptAt) {
 			return r, true, nil
 		}
+		if report == nil && v.Phase == "blocked" && v.Reason == "prompt_size" && !v.Job.BlockReported && v.Job.PromptReportAttempts < w.Config.Limits.MaxAttempts && !now.Before(v.Job.NextAttemptAt) {
+			copy := r
+			report = &copy
+		}
+	}
+	if report != nil {
+		return *report, true, nil
 	}
 	return WakeRequest{}, false, nil
 }
@@ -82,7 +90,7 @@ func WakeSummaries(store WakeStore, limit int, id string) ([]WakeSummary, error)
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, WakeSummary{ID: r.ID, Kind: r.Kind, Phase: v.Phase, Reason: v.Reason})
+		summaries = append(summaries, WakeSummary{ID: r.ID, Kind: r.Kind, Phase: v.Phase, Reason: v.Reason, PromptFailure: v.Job.PromptFailure, ReportAttempts: v.Job.PromptReportAttempts})
 	}
 	if id != "" && len(summaries) == 0 {
 		return nil, errors.New("unknown wake request")
@@ -97,7 +105,7 @@ func (w *WakeCoordinator) save(v WakeReceipt) error {
 	if err := w.Store.SaveReceipt(v); err != nil {
 		return err
 	}
-	if wakeTerminal(v.Phase) {
+	if wakeReceiptTerminal(v) {
 		routing, err := w.Store.Routing()
 		if err != nil {
 			return err
@@ -108,6 +116,35 @@ func (w *WakeCoordinator) save(v WakeReceipt) error {
 		}
 	}
 	return nil
+}
+
+func (w *WakeCoordinator) reportPromptBlock(ctx context.Context, v WakeReceipt) error {
+	// Use the existing idempotent Discussion report, not a wake reply marker:
+	// the failed request has not been answered or executed by the model.
+	v.Job.PromptReportAttempts++
+	delay := w.Config.Limits.RetryBase
+	for i := 1; i < v.Job.PromptReportAttempts && delay < w.Config.Limits.RetryCap; i++ {
+		delay *= 2
+	}
+	if delay > w.Config.Limits.RetryCap {
+		delay = w.Config.Limits.RetryCap
+	}
+	v.Job.NextAttemptAt = w.Clock.Now().Add(delay)
+	// Persist a bounded reporting attempt before its external effect. This is
+	// independent of execution attempts and never requeues the model input.
+	if err := w.save(v); err != nil {
+		return err
+	}
+	j := v.Job
+	j.Kind, j.GoalURL = "plan", v.Source.DiscussionURL
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := w.GitHub.ReportBlock(ctx, j, "prompt_size", ""); err != nil {
+		return err
+	}
+	v.Job.BlockReported = true
+	v.Job.NextAttemptAt = time.Time{}
+	return w.save(v)
 }
 func (w *WakeCoordinator) retry(v WakeReceipt, reason string) error {
 	v.Job.Attempts++
@@ -247,6 +284,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 	if err != nil {
 		return err
 	}
+	if v.Phase == "blocked" && v.Reason == "prompt_size" {
+		return w.reportPromptBlock(ctx, v)
+	}
 	source, err := conversation.RevalidateWake(ctx, r)
 	if err != nil {
 		switch errorCategory(err) {
@@ -339,6 +379,15 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 	}
 	prompt, err := BuildWakePrompt(w.Config, r, source, snapshot)
 	if err != nil {
+		var size *PromptSizeError
+		if errors.As(err, &size) {
+			job.Phase, job.WaitReason, job.PromptFailure = "blocked", "prompt_size", size
+			v.Job, v.Phase, v.Reason = job, "blocked", "prompt_size"
+			if err := w.save(v); err != nil {
+				return err
+			}
+			return w.reportPromptBlock(ctx, v)
+		}
 		return w.retry(v, "wake_prompt")
 	}
 	job.Phase = "active"

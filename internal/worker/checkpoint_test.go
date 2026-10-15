@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -179,6 +180,59 @@ func TestCheckpointInitializationFailureDoesNotSkipPersistence(t *testing.T) {
 	}
 	if code.calls != 0 {
 		t.Fatal("failed initialization permitted dispatch")
+	}
+}
+
+func TestCheckpointFailureWhileBlockingOversizePrompt(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(fmt.Sprint(commit), func(t *testing.T) {
+			e, g, code, clock, _ := engineFixture(t)
+			g.snapshot.Cursor = map[string]string{}
+			g.snapshot.Tasks[0].Body = strings.Repeat("oversize", 6000)
+			g.snapshot.Tasks[0].BodySHA = TaskScopeHash(g.snapshot.Tasks[0].Title, g.snapshot.Tasks[0].Body)
+			g.snapshot.Tasks[0].MetadataScopeSHA = g.snapshot.Tasks[0].BodySHA
+			var size *PromptSizeError
+			store := &checkpointStore{Store: NewFileStore(filepath.Join(t.TempDir(), "state")), commit: commit}
+			store.fail = func(s State) bool {
+				for _, j := range s.Jobs {
+					if j.WaitReason == "prompt_size" {
+						size = j.PromptFailure
+						return true
+					}
+				}
+				return false
+			}
+			e.Store = store
+			if err := e.Tick(context.Background()); !errors.Is(err, errCheckpoint) {
+				t.Fatal(err)
+			}
+			if size == nil || errorCategory(size) != "prompt_size" || errorCategory(errors.Join(size, e.checkpointErr)) != "checkpoint_failed" {
+				t.Fatal("prompt/checkpoint error classification lost")
+			}
+			durable, err := store.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(e.state, durable) {
+				t.Fatal("prompt-size checkpoint left uncommitted state live")
+			}
+			for range 3 {
+				clock.now = clock.now.Add(e.Config.Limits.RetryBase)
+				if err := e.Tick(context.Background()); !errors.Is(err, errCheckpoint) {
+					t.Fatal(err)
+				}
+			}
+			if code.calls != 0 || code.aborts != 0 || e.status.WaitReason != "checkpoint_failed" {
+				t.Fatal("prompt failure bypassed checkpoint fail-safe")
+			}
+			if commit {
+				for _, j := range durable.Jobs {
+					if j.PromptFailure == nil || j.BlockReported || j.Phase != "blocked" {
+						t.Fatal("durable prompt diagnostic lost or reported before confirmed checkpoint")
+					}
+				}
+			}
+		})
 	}
 }
 
