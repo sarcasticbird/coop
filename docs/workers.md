@@ -84,6 +84,12 @@ goal. Approval is bound to the current goal body and edit timestamp. Editing the
 body requires renewed approval. Host bootstrap approvals are a separate explicit
 owner-confirmed configuration, not a bot's claim that a goal is approved.
 
+Catalog admission and fresh revalidation require two matching full comment scans
+bracketed by matching goal body/edit versions. A body edit or changed decision
+during those reads fails closed until a later poll obtains a coherent version.
+These are optimistic GitHub reads, not a lock on subsequent owner activity;
+revalidation still runs immediately before a selected job is submitted.
+
 You can also approve from your Mac through Coop:
 
 ```sh

@@ -126,9 +126,9 @@ func TestPRRepositoryBindingDiscoveryAndRevalidation(t *testing.T) {
 						switch {
 						case strings.Contains(req.Query, "WorkerIdentity"):
 							data = map[string]any{"viewer": graphActor{Kind: c.Self.Kind, Login: c.Self.Login, ID: c.Self.ID}}
-						case strings.Contains(req.Query, "WorkerDiscussions"), strings.Contains(req.Query, "WorkerGoalRefresh"):
+						case strings.Contains(req.Query, "WorkerDiscussions"), strings.Contains(req.Query, "WorkerGoalRefresh"), strings.Contains(req.Query, "WorkerGoalVersion"):
 							d := graphDiscussion{ID: "goal", URL: goal.URL, Body: goal.Body, CreatedAt: goal.CreatedAt, LastEditedAt: goal.LastEditedAt}
-							if strings.Contains(req.Query, "WorkerGoalRefresh") {
+							if !strings.Contains(req.Query, "WorkerDiscussions") {
 								data = map[string]any{"node": d}
 							} else {
 								data = map[string]any{"repository": map[string]any{"discussions": page([]any{d})}}

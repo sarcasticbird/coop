@@ -222,6 +222,8 @@ func TestSnapshotReadsNestedApprovalAndCrossOwnerProject(t *testing.T) {
 			data = map[string]any{"viewer": map[string]any{"__typename": "Bot", "databaseId": 2, "login": "builder"}}
 		case strings.Contains(req.Query, "WorkerDiscussions"):
 			data = map[string]any{"repository": map[string]any{"discussions": page([]any{map[string]any{"id": "discussion", "url": goal.URL, "body": goal.Body, "createdAt": now.Add(-time.Hour), "lastEditedAt": now.Add(-time.Hour), "author": map[string]any{"__typename": "Bot", "databaseId": 3, "login": "reviewer"}}})}}
+		case strings.Contains(req.Query, "WorkerGoalVersion"):
+			data = map[string]any{"node": map[string]any{"id": "discussion", "url": goal.URL, "body": goal.Body, "createdAt": now.Add(-time.Hour), "lastEditedAt": now.Add(-time.Hour), "author": map[string]any{"__typename": "Bot", "databaseId": 3, "login": "reviewer"}}}
 		case strings.Contains(req.Query, "WorkerDiscussionComments"):
 			data = map[string]any{"node": map[string]any{"comments": page([]any{map[string]any{"id": "parent-comment", "body": "Plan", "createdAt": now.Add(-time.Minute), "author": map[string]any{"__typename": "Bot", "databaseId": 3, "login": "reviewer"}}})}}
 		case strings.Contains(req.Query, "WorkerDiscussionReplies"):
