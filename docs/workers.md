@@ -44,6 +44,26 @@ managed artifacts before replacing them. It refuses independent guest changes.
 It does not start services or change profiles. Keep a cold VM backup before a
 cutover. Apply profile changes through Coop's supported down/apply/up lifecycle.
 
+Installation is serialized with a guest-local lock. Before replacing any live
+file, the installer durably publishes `worker/install-pending/` with verified
+before/after files, identity and manifests. A retry first verifies that every
+live file is an expected member of those two generations, then finishes that
+saved transaction before staging the requested package. It rejects independent
+content, mode, ownership or symlink changes rather than overwriting them.
+Failures leave the transaction and its prior-generation files intact; successful
+transactions are retained in private `worker/install-history.*/generation/`
+directories. Existing `install-before/` material is not removed. Do not delete
+the manifest or recovery directories to bypass a refusal; preserve the evidence
+and investigate the conflicting artifact.
+
+The guest uses file/filesystem syncs before and after publication renames, but
+the files span destination directories and are not exposed as one atomic set.
+Keep services stopped during installation and do not start them after a failed
+attempt until retry succeeds. The installer does not stop or restart live
+services itself. Local regression tests exercise SIGKILL and command failures
+against isolated filesystem fixtures; they do not simulate loss of kernel caches
+or prove the native VM/storage stack's power-loss behavior.
+
 Example profile commands, retaining existing resources, credentials and seeds:
 
 ```toml
