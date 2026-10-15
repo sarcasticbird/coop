@@ -303,6 +303,15 @@ func (s *Session) up(ctx context.Context) error {
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
+	store, err := workspace.DefaultStore()
+	if err != nil {
+		return err
+	}
+	if _, err := store.LoadRecovery(workspace.Interactive, s.Name); err == nil {
+		return fmt.Errorf("%w: interrupted restore; keep this Coop stopped and run coop apply to resume its original recovery archive", workspace.ErrMaintenanceRequired)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	want := s.SpecFingerprint()
 	state, err := s.RT.State(s.Name)
 	if err != nil {

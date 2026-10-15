@@ -56,13 +56,16 @@ func interactiveStorage(s *session.Session) (backup.AppleStorage, workspace.Spec
 		return backup.AppleStorage{}, workspace.Spec{}, err
 	}
 	spec := interactiveSpec(s)
-	storage := backup.AppleStorage{Machine: runtime.AppleMachine{}, Store: store, Target: &spec, CreateInteractive: func(ctx context.Context, r workspace.Record) error {
+	storage := backup.AppleStorage{Machine: runtime.AppleMachine{}, Store: store, Target: &spec, CreateInteractive: func(ctx context.Context, r workspace.Record, token string) error {
 		runSpec, err := s.RunSpec(ctx)
 		if err != nil {
 			return err
 		}
 		runSpec.Image = r.Image
 		runSpec.Labels[session.SpecLabel] = r.Fingerprint
+		if token != "" {
+			runSpec.Labels[backup.RestoreLabel] = token
+		}
 		rt := runtime.NewApple()
 		return prepareInteractiveTarget(ctx, rt, rt.CreateStopped, runSpec)
 	}}
@@ -132,6 +135,21 @@ func applyInteractive(cmd *cobra.Command) error {
 		return err
 	}
 	return recoveryLock(cmd.Context(), s.Name, func() error {
+		storage, spec, err := interactiveStorage(s)
+		if err != nil {
+			return err
+		}
+		archive, err := storage.PendingMaintenance()
+		if err != nil {
+			return err
+		}
+		if archive != "" {
+			if err := backup.Restore(cmd.Context(), storage, archive, spec.Identity); err != nil {
+				return fmt.Errorf("maintenance failed; recovery archive %s: %w", archive, err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Maintenance applied. Recovery archive: %s\n", archive)
+			return err
+		}
 		state, err := s.RT.State(s.Name)
 		if err != nil {
 			return err
@@ -146,10 +164,6 @@ func applyInteractive(cmd *cobra.Command) error {
 		if image != s.DesiredImageName() {
 			return fmt.Errorf("%w: changing the base image cannot preserve arbitrary guest root changes; existing guest preserved", workspace.ErrUnsupported)
 		}
-		storage, spec, err := interactiveStorage(s)
-		if err != nil {
-			return err
-		}
 		root := filepath.Join(storage.Store.(workspace.FileStore).Root, "..", "recovery")
 		if err := os.MkdirAll(root, 0700); err != nil {
 			return err
@@ -158,7 +172,7 @@ func applyInteractive(cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
-		archive := file.Name()
+		archive = file.Name()
 		if err := file.Close(); err != nil {
 			return err
 		}

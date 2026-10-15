@@ -163,6 +163,19 @@ Host mounts are outside backup ownership. Native guest auth and other secrets
 saved to disk may be included in the private archive. See
 [Persistent agents](agents.md#maintenance-and-recovery) for details.
 
+If `coop apply` is interrupted, keep the workspace stopped and the destination
+configuration unchanged, then rerun `coop apply` to resume the pending maintenance.
+Alternatively, run `coop restore /path/to/original-recovery.zip` with the original
+recovery archive. The durable maintenance journal rejects foreign disks and
+changes to the destination configuration or recovery archive. Preserve the
+original recovery archive until maintenance succeeds; retries reuse it without
+creating a fresh backup. Coop refuses normal workspace entry and backup while
+maintenance is incomplete. Disk writes retain their journaled file identities,
+so partial writes and ownership-record save failures can be replayed safely.
+Do not delete the journal, replace its disks, or start the runtime through
+external `container` commands. Coop's workspace lock does not serialize those
+external operations.
+
 Backup rechecks the stopped runtime after copying and rejects changes to the
 payload set, names, sizes, file identities, modification times, ownership record,
 runtime version, or archived runtime metadata before publishing an archive.
