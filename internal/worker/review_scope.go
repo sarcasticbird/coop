@@ -15,29 +15,25 @@ type prBodyVersion struct {
 // GitHub retains full body versions in UserContentEdit.diff, newest first.
 // Use that durable history rather than poll-local observations: A -> B -> A
 // must not resurrect A's old review, even across restarts or between polls.
-func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int, version prBodyVersion, pr *PR) error {
+func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int, version prBodyVersion, pr *PR) (string, error) {
 	if version.CreatedAt.IsZero() || version.LastEditedAt.Before(version.CreatedAt) && !version.LastEditedAt.IsZero() {
-		return ghError("invalid_PR_body_version")
+		return "", ghError("invalid_PR_body_version")
 	}
 	boundary := version.CreatedAt
+	history := ""
 	if !version.LastEditedAt.IsZero() {
 		parts := strings.Split(repo, "/")
 		query := `query WorkerScopeHistory($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){userContentEdits(first:100,after:$after){nodes{id editedAt deletedAt diff} pageInfo{hasNextPage endCursor}}}}}`
 		vars := map[string]any{"owner": parts[0], "repo": parts[1], "number": number}
 		edits, err := g.connection(ctx, parts[0], query, vars, []string{"repository", "pullRequest", "userContentEdits"})
 		if err != nil {
-			return err
+			return "", err
 		}
-		// A second complete scan rejects pagination churn and deleted history.
-		check, err := g.connection(ctx, parts[0], query, vars, []string{"repository", "pullRequest", "userContentEdits"})
-		if err != nil {
-			return err
+		if len(edits) == 0 {
+			return "", ghError("incoherent_PR_scope_history")
 		}
-		a, _ := json.Marshal(edits)
-		b, _ := json.Marshal(check)
-		if string(a) != string(b) || len(edits) == 0 {
-			return ghError("incoherent_PR_scope_history")
-		}
+		rawHistory, _ := json.Marshal(edits)
+		history = BodyHash(string(rawHistory))
 		previous := version.LastEditedAt
 		continuous := true
 		for i, raw := range edits {
@@ -46,10 +42,10 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 				EditedAt, DeletedAt time.Time
 			}](raw)
 			if err != nil || edit.ID == "" || !edit.DeletedAt.IsZero() || edit.EditedAt.Before(version.CreatedAt) || edit.EditedAt.After(previous) || i > 0 && !edit.EditedAt.Before(previous) {
-				return ghError("invalid_PR_scope_history")
+				return "", ghError("invalid_PR_scope_history")
 			}
 			if i == 0 && (!edit.EditedAt.Equal(version.LastEditedAt) || edit.Diff != version.Body) {
-				return ghError("incoherent_PR_scope_history")
+				return "", ghError("incoherent_PR_scope_history")
 			}
 			previous = edit.EditedAt
 			metadata, err := parsePRMetadata(edit.Diff)
@@ -65,7 +61,7 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 	}
 	pr.ScopeUpdatedAt = boundary
 	pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, boundary.Format(time.RFC3339Nano)}, "\x00"))
-	return nil
+	return history, nil
 }
 
 func (g *GitHubClient) verifyPRVersion(ctx context.Context, repo string, number int, version prBodyVersion) error {

@@ -129,7 +129,9 @@ Robin opens PRs with `coop-pr:v1` metadata linking `task` and `goal`. Hawk revie
 the exact head SHA in an independent checkout and submits a formal review.
 Review freshness also binds the canonical PR/task/goal links and trusted task
 metadata. Catalog reads and fresh revalidation scan GitHub's durable PR body-edit
-history twice and verify the body version/head again after reading reviews.
+history before and after reading reviews, comparing complete history including
+edit IDs and order, then verify the body version/head again. Whole-second body
+timestamps alone cannot rule out same-second changes that restore the old links.
 Changing either link, including restoring old links or repairing missing/invalid
 metadata, requires a review strictly after the latest scope transition. Restarts
 and edits made entirely between polls do not reset this boundary. The scope

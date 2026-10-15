@@ -432,6 +432,54 @@ func TestReviewScopeRestartAndSavedJobRevalidation(t *testing.T) {
 	}
 }
 
+func TestReviewScopeHistoryChangesDuringReviews(t *testing.T) {
+	for _, scenario := range []string{"same_second_scope_ABA", "edit_identity_changed", "post_review_history_unavailable", "unchanged_control"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newReviewScopeFixture(t)
+			at := f.now.Add(-20 * time.Minute).Truncate(time.Second)
+			f.version["lastEditedAt"] = at
+			f.edits = []map[string]any{f.edit(f.body(), at)}
+			f.review("APPROVED", f.now.Add(-time.Minute))
+			before, _ := json.Marshal(f.version)
+			f.change = func(stage string) error {
+				if stage == "history" && f.historyReads == 2 {
+					if f.reviewReads != 1 {
+						t.Fatal("second history scan must follow the review read")
+					}
+					if scenario == "post_review_history_unavailable" {
+						return errors.New("post-review history unavailable")
+					}
+				}
+				if stage != "reviews" {
+					return nil
+				}
+				switch scenario {
+				case "same_second_scope_ABA":
+					b := encodeMetadata("pr", prMetadata{Task: "https://github.com/code/repo/issues/3", Goal: f.s.Goals[0].URL})
+					restored, retargeted := f.edit(f.body(), at), f.edit(b, at)
+					restored["id"], retargeted["id"] = "restored-A", "retargeted-B"
+					f.edits = append([]map[string]any{restored, retargeted}, f.edits...)
+				case "edit_identity_changed":
+					f.edits[0]["id"] = "replacement-edit"
+				}
+				return nil
+			}
+			pr, err := f.client(t).readPR(context.Background(), f.version["url"].(string))
+			after, _ := json.Marshal(f.version)
+			if string(before) != string(after) || f.reviewReads != 1 {
+				t.Fatal("test must mutate history during reviews without changing the PR body version")
+			}
+			if scenario == "unchanged_control" {
+				if err != nil || latestReview(f.c, pr).State != "APPROVED" {
+					t.Fatalf("unchanged history rejected: %v", err)
+				}
+			} else if err == nil || pr.TaskURL != "" || len(pr.Reviews) != 0 {
+				t.Fatalf("changed history returned actionable PR: err=%v pr=%+v", err, pr)
+			}
+		})
+	}
+}
+
 func TestReviewScopeHistoryFailsClosed(t *testing.T) {
 	for _, scenario := range []string{"unavailable", "redacted", "deleted", "empty", "incomplete", "stalled_pagination", "mismatch_current_body", "mismatch_current_timestamp", "changed_between_scans", "version_changed_after_reviews"} {
 		t.Run(scenario, func(t *testing.T) {

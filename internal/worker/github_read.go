@@ -521,9 +521,11 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 	}
 	pr.TaskURL = m.Task
 	pr.GoalURL = m.Goal
+	var scopeHistory string
 	// Already-merged issue finalization needs current tracking, not a new review.
 	if !pr.Merged {
-		if err := g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr); err != nil {
+		scopeHistory, err = g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		if err != nil {
 			return PR{}, err
 		}
 	}
@@ -549,6 +551,17 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 			return pr, err
 		}
 		pr.Reviews = append(pr.Reviews, Review{ID: strconv.FormatInt(r.ID, 10), HeadSHA: r.CommitID, State: r.State, Author: r.User.actor(), SubmittedAt: r.SubmittedAt})
+	}
+	// Whole-second body timestamps cannot detect a same-second A -> B -> A.
+	// Recheck all edit identities/order after reviews, before the final version read.
+	if scopeHistory != "" {
+		freshHistory, err := g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		if err != nil {
+			return PR{}, err
+		}
+		if freshHistory != scopeHistory {
+			return PR{}, ghError("PR_scope_history_changed_during_read")
+		}
 	}
 	if err := g.verifyPRVersion(ctx, repo, n, item.prBodyVersion); err != nil {
 		return PR{}, err
