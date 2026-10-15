@@ -292,19 +292,69 @@ type messageEnvelope struct {
 	}
 }
 
-func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
+// readTurn reconciles the exact worker message even when a later manual turn
+// makes the session busy. Session status alone does not establish turn ownership.
+func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, error) {
 	turn := Turn{SessionID: j.SessionID, MessageID: j.MessageID, State: "unknown"}
 	if !validSession(j.SessionID) || !validMessage(j.MessageID) {
-		return turn, &OpenCodeError{Category: "invalid_submission_intent"}
+		return turn, "", &OpenCodeError{Category: "invalid_submission_intent"}
 	}
 	var message messageEnvelope
 	if err := c.request(ctx, "GET", "/session/"+j.SessionID+"/message/"+j.MessageID, j.Checkout, nil, &message); err != nil {
-		return turn, err
+		return turn, "", err
 	}
 	if message.Info.ID != j.MessageID || message.Info.SessionID != j.SessionID || message.Info.Role != "user" {
-		return turn, &OpenCodeError{Category: "foreign_message"}
+		return turn, "", &OpenCodeError{Category: "foreign_message"}
 	}
 	turn.Accepted = true
+	var messages []messageEnvelope
+	if err := c.request(ctx, "GET", "/session/"+j.SessionID+"/message?limit=20", j.Checkout, nil, &messages); err != nil {
+		return turn, "", err
+	}
+	var last *messageEnvelope
+	latestUser := ""
+	for i := range messages {
+		m := &messages[i]
+		if m.Info.SessionID != j.SessionID || !validMessage(m.Info.ID) {
+			return turn, "", &OpenCodeError{Category: "foreign_message"}
+		}
+		// The native message endpoint returns the bounded tail oldest first.
+		if m.Info.Role == "user" {
+			latestUser = m.Info.ID
+		} else if m.Info.Role != "assistant" || !validMessage(m.Info.ParentID) {
+			return turn, "", &OpenCodeError{Category: "foreign_message"}
+		}
+		if m.Info.Role == "assistant" && m.Info.ParentID == j.MessageID && (last == nil || m.Info.Time.Created >= last.Info.Time.Created) {
+			last = m
+		}
+	}
+	if latestUser == "" && len(messages) > 0 {
+		// Long tool loops can push the user message out of the tail. Do not
+		// override a visible newer user with a still-finishing older assistant.
+		latestUser = messages[len(messages)-1].Info.ParentID
+	}
+	if last != nil && last.Info.Error != nil {
+		turn.State = "interrupted"
+		turn.Terminal = true
+		turn.ErrorCategory = "execution"
+		return turn, latestUser, nil
+	}
+	if last != nil && last.Info.Time.Completed > 0 && last.Info.Finish != "" && last.Info.Finish != "tool-calls" {
+		turn.State = "completed"
+		turn.Terminal = true
+		return turn, latestUser, nil
+	}
+	return turn, latestUser, nil
+}
+
+func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
+	turn, latestUser, err := c.readTurn(ctx, j)
+	if err != nil || turn.Terminal {
+		return turn, err
+	}
+	if latestUser != j.MessageID {
+		return turn, &OpenCodeError{Category: "turn_ownership_unknown"}
+	}
 	status, err := c.status(ctx, j)
 	if err != nil {
 		return turn, err
@@ -326,28 +376,6 @@ func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
 		turn.State = "running"
 		return turn, nil
 	}
-	var messages []messageEnvelope
-	if err := c.request(ctx, "GET", "/session/"+j.SessionID+"/message?limit=20", j.Checkout, nil, &messages); err != nil {
-		return turn, err
-	}
-	var last *messageEnvelope
-	for i := range messages {
-		m := &messages[i]
-		if m.Info.Role == "assistant" && m.Info.SessionID == j.SessionID && m.Info.ParentID == j.MessageID && (last == nil || m.Info.Time.Created >= last.Info.Time.Created) {
-			last = m
-		}
-	}
-	if last != nil && last.Info.Error != nil {
-		turn.State = "interrupted"
-		turn.Terminal = true
-		turn.ErrorCategory = "execution"
-		return turn, nil
-	}
-	if last != nil && last.Info.Time.Completed > 0 && last.Info.Finish != "" && last.Info.Finish != "tool-calls" {
-		turn.State = "completed"
-		turn.Terminal = true
-		return turn, nil
-	}
 	if !j.SubmittedAt.IsZero() && time.Since(j.SubmittedAt) > 30*time.Second {
 		turn.State = "interrupted"
 		turn.Terminal = true
@@ -358,11 +386,28 @@ func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
 	return turn, nil
 }
 func (c *OpenCodeClient) Abort(ctx context.Context, j Job) error {
-	if !validSession(j.SessionID) {
+	if !validSession(j.SessionID) || !validMessage(j.MessageID) || !cleanPrivatePath(j.Checkout) {
 		return &OpenCodeError{Category: "invalid_session_id"}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	var session openCodeSession
+	if err := c.request(ctx, "GET", "/session/"+j.SessionID, j.Checkout, nil, &session); err != nil {
+		return err
+	}
+	if session.ID != j.SessionID || session.Directory != j.Checkout || session.ParentID != "" || session.Time.Archived != 0 {
+		return &OpenCodeError{Category: "foreign_session"}
+	}
+	turn, latestUser, err := c.readTurn(ctx, j)
+	if err != nil {
+		return err
+	}
+	if turn.Terminal {
+		return nil
+	}
+	if latestUser != j.MessageID {
+		return &OpenCodeError{Category: "turn_ownership_unknown"}
+	}
 	if err := c.request(ctx, "POST", "/session/"+j.SessionID+"/abort", j.Checkout, nil, nil); err != nil {
 		return err
 	}

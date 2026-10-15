@@ -149,6 +149,8 @@ func TestOpenCodeAmbiguousSubmissionReconcilesExactMessage(t *testing.T) {
 			} else {
 				writeJSON(w, map[string]any{"info": map[string]string{"id": messageID, "sessionID": "ses_task", "role": "user"}, "parts": []any{}})
 			}
+		case "/session/ses_task/message":
+			writeJSON(w, []any{map[string]any{"info": map[string]string{"id": messageID, "sessionID": "ses_task", "role": "user"}}})
 		case "/permission", "/question":
 			writeJSON(w, []any{})
 		default:
@@ -218,8 +220,15 @@ func TestOpenCodeRejectsForeignDirectoryAndRedactsErrors(t *testing.T) {
 }
 func TestOpenCodeAbortOnlyOwnedSession(t *testing.T) {
 	aborted := ""
+	dir := ""
 	c, client := apiFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/session/ses_task":
+			writeJSON(w, map[string]string{"id": "ses_task", "directory": dir})
+		case "/session/ses_task/message/msg_worker":
+			writeJSON(w, map[string]any{"info": map[string]string{"id": "msg_worker", "sessionID": "ses_task", "role": "user"}})
+		case "/session/ses_task/message":
+			writeJSON(w, []any{map[string]any{"info": map[string]string{"id": "msg_worker", "sessionID": "ses_task", "role": "user"}}})
 		case "/session/ses_task/abort":
 			aborted = "ses_task"
 			writeJSON(w, true)
@@ -230,7 +239,8 @@ func TestOpenCodeAbortOnlyOwnedSession(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	})
-	if err := client.Abort(context.Background(), Job{SessionID: "ses_task", Checkout: filepath.Join(c.WorkRoot, "task")}); err != nil {
+	dir = filepath.Join(c.WorkRoot, "task")
+	if err := client.Abort(context.Background(), Job{SessionID: "ses_task", MessageID: "msg_worker", Checkout: dir}); err != nil {
 		t.Fatal(err)
 	}
 	if aborted != "ses_task" {
