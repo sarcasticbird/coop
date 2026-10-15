@@ -12,6 +12,11 @@ var ErrWakeCapacity = errors.New("wake queue capacity exceeded")
 
 const MaxWakePrompt = 8192
 const MaxWakeRecord = 32768
+
+// Pings revalidate a Discussion root after intake. Preserve that lossless source
+// even when JSON escaping expands it beyond the inbox limit. Like snapshots,
+// receipts remain bounded, including a full API-page source and diagnostics.
+const MaxWakeReceipt = MaxSnapshot
 const MaxWakeQueued = 128
 const MaxWakeRecords = 10000
 
@@ -47,11 +52,13 @@ type WakeReceipt struct {
 	UpdatedAt                time.Time
 }
 type WakeSummary struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Phase     string `json:"phase"`
-	Reason    string `json:"reason,omitempty"`
-	Coalesced bool   `json:"coalesced,omitempty"`
+	ReportAttempts int              `json:"report_attempts,omitempty"`
+	PromptFailure  *PromptSizeError `json:"prompt_failure,omitempty"`
+	ID             string           `json:"id"`
+	Kind           string           `json:"kind"`
+	Phase          string           `json:"phase"`
+	Reason         string           `json:"reason,omitempty"`
+	Coalesced      bool             `json:"coalesced,omitempty"`
 }
 type WakeBinding struct{ DiscussionID, ThreadID, Directory, SessionID string }
 type WakeChain struct {
@@ -134,4 +141,8 @@ func wakeTerminal(phase string) bool {
 }
 func wakePhase(phase string) bool {
 	return wakeTerminal(phase) || phase == "queued" || phase == "running" || phase == "blocked"
+}
+
+func wakeReceiptTerminal(v WakeReceipt) bool {
+	return wakeTerminal(v.Phase) || v.Phase == "blocked" && v.Reason == "prompt_size" && v.Job.PromptFailure != nil
 }

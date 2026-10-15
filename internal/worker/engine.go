@@ -103,6 +103,10 @@ func (e *Engine) paused() (bool, error) {
 	return false, nil
 }
 func errorCategory(err error) string {
+	var size *PromptSizeError
+	if errors.As(err, &size) {
+		return "prompt_size"
+	}
 	var gh *GitHubError
 	if errors.As(err, &gh) {
 		return gh.Category
@@ -478,16 +482,26 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 		return e.saveJob(j)
 	}
 	now = e.Clock.Now()
-	prompt, err := BuildPrompt(e.Config, j, e.state.SnapshotCache)
-	if err != nil {
-		return e.failed(ctx, j, "scope")
-	}
+	policy := ""
 	if j.Kind == "plan" {
 		if !e.state.LastProposalAt.IsZero() && now.Sub(e.state.LastProposalAt) < 24*time.Hour {
-			prompt += "\nDo not create a new-goal proposal in this turn; the daily proposal allowance has been used. Continue planning within approved goals and responding to existing conversations."
-		} else {
-			e.state.LastProposalAt = now
+			policy = "\nDo not create a new-goal proposal in this turn; the daily proposal allowance has been used. Continue planning within approved goals and responding to existing conversations.\n"
 		}
+	}
+	prompt, err := buildPrompt(e.Config, j, e.state.SnapshotCache, policy, now)
+	if err != nil {
+		var size *PromptSizeError
+		if errors.As(err, &size) {
+			j.Phase, j.WaitReason, j.PromptFailure = "blocked", "prompt_size", size
+			if err := e.saveJob(j); err != nil {
+				return err
+			}
+			return e.reportBlock(ctx, j, "prompt_size")
+		}
+		return e.failed(ctx, j, "prompt_build")
+	}
+	if j.Kind == "plan" && policy == "" {
+		e.state.LastProposalAt = now
 	}
 	j.MessageID = "msg_" + randomID()
 	j.TerminalAt = time.Time{}
@@ -555,6 +569,7 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		return err
 	}
 	e.status.WaitReason = ""
+	e.status.PromptFailure = nil
 	e.status.NextRetry = time.Time{}
 	defer func() {
 		e.noteAPIError(result, e.Clock.Now().Add(e.Config.Limits.RetryBase))

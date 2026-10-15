@@ -37,24 +37,32 @@ func BuildWakePrompt(c Config, r WakeRequest, source ConversationSource, snapsho
 	}{c.Name, c.Role, c.Self, c.Implementer, c.Reviewer, c.Owner})
 	input := struct {
 		RequestID, Kind, Prompt string
-		Source                  ConversationSource
+		Source                  promptSource
 		ReplyToID, ResultMarker string
 		Goal                    *Goal
 		Approval                Approval
-	}{RequestID: r.ID, Kind: r.Kind, Prompt: r.Prompt, Source: source, ReplyToID: wakeReplyTarget(source), ResultMarker: WakeResultMarker(r)}
+	}{RequestID: r.ID, Kind: r.Kind, Prompt: r.Prompt, Source: promptSource{ConversationSource: source}, ReplyToID: wakeReplyTarget(source), ResultMarker: WakeResultMarker(r)}
 	input.Approval = Approval{State: "blocked", Reason: "goal not discovered in a complete snapshot"}
 	if g, ok := goalFor(snapshot, source.DiscussionURL); ok && snapshot.Complete {
 		input.Approval = EvaluateGoal(c, g, time.Now())
 		g.Decisions = nil
 		input.Goal = &g
 	}
-	raw, err := json.Marshal(input)
+	input.Source.BodyRef = canonicalBody(&input.Source.Body, input.Goal)
+	data, err := promptInput(
+		promptField{"RequestID", input.RequestID}, promptField{"Kind", input.Kind}, promptField{"Prompt", input.Prompt},
+		promptField{"Source", input.Source}, promptField{"ReplyToID", input.ReplyToID}, promptField{"ResultMarker", input.ResultMarker},
+		promptField{"Goal", input.Goal}, promptField{"Approval", input.Approval},
+	)
 	if err != nil {
-		return "", errors.New("invalid wake input")
+		return "", err
 	}
-	prompt := "Trusted runtime identity:\n" + string(identity) + "\n" + wakePrompt + "\nRequired result marker:\n" + WakeResultMarker(r) + "\nQuoted wake input:\n" + string(raw)
-	if len(prompt) > 32<<10 {
-		return "", errors.New("wake prompt exceeds size limit")
+	sections := []promptSection{
+		{"identity", "Trusted runtime identity:\n" + string(identity) + "\n"},
+		{"instructions", wakePrompt + "\nBodyRef resolves to the complete supplied Goal.Body at the exact URL and body hash; it is not an excerpt.\n"},
+		{"ResultMarker", "Required result marker:\n" + WakeResultMarker(r) + "\n"},
+		{"framing", "Quoted wake input:\n"},
 	}
-	return prompt, nil
+	sections = append(sections, data...)
+	return assemblePrompt(r.ID, source.DiscussionURL, sections...)
 }

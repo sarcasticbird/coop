@@ -8,27 +8,31 @@ import (
 )
 
 type Status struct {
-	WakeIntakeDeferred bool          `json:"wake_intake_deferred,omitempty"`
-	APINotBefore       time.Time     `json:"api_not_before,omitempty"`
-	WakeEnabled        bool          `json:"wake_enabled,omitempty"`
-	Wakes              []WakeSummary `json:"wakes,omitempty"`
-	Name               string        `json:"name,omitempty"`
-	Enabled            bool          `json:"enabled"`
-	State              string        `json:"state"`
-	Paused             bool          `json:"paused"`
-	ServerHealthy      bool          `json:"server_healthy"`
-	ServerVersion      string        `json:"server_version,omitempty"`
-	Heartbeat          time.Time     `json:"heartbeat"`
-	LastPoll           time.Time     `json:"last_poll"`
-	ActiveTask         string        `json:"active_task,omitempty"`
-	SessionID          string        `json:"session_id,omitempty"`
-	SubmissionState    string        `json:"submission_state,omitempty"`
-	WaitReason         string        `json:"wait_reason,omitempty"`
-	LastError          string        `json:"last_error,omitempty"`
-	NextRetry          time.Time     `json:"next_retry,omitempty"`
+	PromptFailure      *PromptSizeError `json:"prompt_failure,omitempty"`
+	WakeIntakeDeferred bool             `json:"wake_intake_deferred,omitempty"`
+	APINotBefore       time.Time        `json:"api_not_before,omitempty"`
+	WakeEnabled        bool             `json:"wake_enabled,omitempty"`
+	Wakes              []WakeSummary    `json:"wakes,omitempty"`
+	Name               string           `json:"name,omitempty"`
+	Enabled            bool             `json:"enabled"`
+	State              string           `json:"state"`
+	Paused             bool             `json:"paused"`
+	ServerHealthy      bool             `json:"server_healthy"`
+	ServerVersion      string           `json:"server_version,omitempty"`
+	Heartbeat          time.Time        `json:"heartbeat"`
+	LastPoll           time.Time        `json:"last_poll"`
+	ActiveTask         string           `json:"active_task,omitempty"`
+	SessionID          string           `json:"session_id,omitempty"`
+	SubmissionState    string           `json:"submission_state,omitempty"`
+	WaitReason         string           `json:"wait_reason,omitempty"`
+	LastError          string           `json:"last_error,omitempty"`
+	NextRetry          time.Time        `json:"next_retry,omitempty"`
 }
 
 func (s *FileStore) WriteStatus(status Status) error {
+	if err := validateStatusPromptFailures(status); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(status)
 	if err != nil {
 		return err
@@ -47,11 +51,26 @@ func ReadStatus(dir string, now time.Time) (Status, error) {
 	if err := strictJSON(raw, &status); err != nil {
 		return status, err
 	}
+	if err := validateStatusPromptFailures(status); err != nil {
+		return status, err
+	}
 	if now.Sub(status.Heartbeat) > 2*time.Minute {
 		status.State = "stale"
 		status.ServerHealthy = false
 	}
 	return status, nil
+}
+
+func validateStatusPromptFailures(status Status) error {
+	if err := validatePromptFailure(status.PromptFailure); err != nil {
+		return err
+	}
+	for _, wake := range status.Wakes {
+		if err := validatePromptFailure(wake.PromptFailure); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) idleStatus() {
@@ -82,6 +101,7 @@ func (e *Engine) idleStatus() {
 		if j.Phase == "blocked" {
 			e.status.State = "blocked"
 			e.status.WaitReason = j.WaitReason
+			e.status.PromptFailure = j.PromptFailure
 			return
 		}
 	}

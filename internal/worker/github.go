@@ -389,11 +389,15 @@ func (g *GitHubClient) Claim(ctx context.Context, j Job, instance string) (Claim
 	return *claim, nil
 }
 func (g *GitHubClient) ReportBlock(ctx context.Context, j Job, category, detail string) error {
-	allowed := map[string]bool{"scope": true, "permission": true, "execution": true, "review_limit": true, "submission_unknown": true, "server_unavailable": true}
+	allowed := map[string]bool{"scope": true, "permission": true, "execution": true, "review_limit": true, "submission_unknown": true, "server_unavailable": true, "prompt_size": true, "prompt_build": true}
 	if !allowed[category] {
 		category = "execution"
 	}
-	_, err := g.postMarked(ctx, j, "blocked", "Work is blocked ("+category+"). Check the worker's local status for details.")
+	body := "Work is blocked (" + category + "). Check the worker's local status for details."
+	if category == "prompt_size" && j.PromptFailure != nil && validatePromptFailure(j.PromptFailure) == nil {
+		body = "Work is blocked before model submission. " + j.PromptFailure.Error() + " Job/request: " + j.PromptFailure.JobID + ". Source: " + j.PromptFailure.SourceURL
+	}
+	_, err := g.postMarked(ctx, j, "blocked", body)
 	return err
 }
 func (g *GitHubClient) Reconcile(ctx context.Context, j Job) (Artifacts, error) {
