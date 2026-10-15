@@ -18,6 +18,15 @@ to the VCS revision (see `resolvedVersion` in `cmd/coop/main.go`), so
 
 ## Cutting a Release
 
+Build and validate with Go 1.26.9 or newer, as required by `go.mod`.
+In a checkout, use `flox activate -- go ...` for the commands below.
+The Flox catalog currently supplies Go 1.26.8 as a bootstrap; the default
+`GOTOOLCHAIN=auto` selects and downloads the patched toolchain required by
+`go.mod`. First use therefore needs network access. Do not build with the
+bootstrap alone or lower the module requirement to avoid that download.
+CI and release workflows select their Go version from `go.mod` too.
+See [the advisory review](go-toolchain-security.md) for the upgrade rationale.
+
 Hosted CI runs the mocked runtime only — it cannot exercise Apple's
 `container` runtime. Steps 1–5 are the real-hardware validation that CI
 cannot provide.
