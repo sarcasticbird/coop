@@ -24,7 +24,7 @@ func planningEvents(c Config, s Snapshot, now time.Time) []Event {
 			continue
 		}
 		t, ok := taskFor(s, p.TaskURL)
-		if !ok || !t.Completed || t.GoalURL != p.GoalURL {
+		if !ok || !t.Completed || t.GoalURL != p.GoalURL || !referenceInRepo(p.URL, t.Repo, "pull") {
 			continue
 		}
 		g, ok := goalFor(s, p.GoalURL)

@@ -439,8 +439,8 @@ func (g *GitHubClient) issueGoal(ctx context.Context, t Task) (Goal, []Event, er
 }
 func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 	repo, n, err := parseRef(ref)
-	if err != nil {
-		return PR{}, err
+	if err != nil || !referenceInRepo(ref, repo, "pull") {
+		return PR{}, ghError("invalid_PR_target")
 	}
 	p := strings.Split(repo, "/")
 	query := `query WorkerPR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body state merged headRefOid headRefName baseRefName updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`
@@ -471,7 +471,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 		return pr, nil
 	}
 	m, err := parsePRMetadata(item.Body)
-	if err != nil {
+	if err != nil || !referenceInRepo(m.Task, repo, "issues") {
 		return pr, nil
 	}
 	pr.TaskURL = m.Task

@@ -310,6 +310,12 @@ func parseRef(raw string) (repo string, number int, err error) {
 	}
 	return p[0] + "/" + p[1], n, nil
 }
+
+func referenceInRepo(ref, repo, kind string) bool {
+	parsedRepo, n, err := parseRef(ref)
+	return err == nil && parsedRepo == repo && ref == "https://github.com/"+repo+"/"+kind+"/"+stringID(n)
+}
+
 func (g *GitHubClient) issueComments(ctx context.Context, repo string, number int) ([]Comment, error) {
 	nodes, err := g.restList(ctx, strings.Split(repo, "/")[0], "repos/"+repo+"/issues/"+stringID(number)+"/comments", "")
 	if err != nil {
