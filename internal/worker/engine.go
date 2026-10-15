@@ -29,6 +29,7 @@ func (RealClock) Wait(ctx context.Context, d time.Duration) error {
 }
 
 type Engine struct {
+	checkpointErr                       error
 	asynchronous                        bool
 	poll                                chan snapshotPoll
 	pollCancel                          context.CancelFunc
@@ -48,6 +49,9 @@ type Engine struct {
 }
 
 func (e *Engine) initialize() error {
+	if e.checkpointErr != nil {
+		return e.checkpointErr
+	}
 	if e.initialized {
 		return nil
 	}
@@ -78,11 +82,47 @@ func (e *Engine) initialize() error {
 		}
 		e.apiNotBefore = routing.APINotBefore
 	}
+	if err := e.save(); err != nil {
+		return err
+	}
 	e.initialized = true
-	return e.Store.Save(e.state)
+	return nil
 }
-func (e *Engine) save() error         { return e.Store.Save(e.state) }
-func (e *Engine) saveJob(j Job) error { e.state.Jobs[j.ID] = j; return e.save() }
+
+var errCheckpoint = errors.New("worker checkpoint failed; restart required")
+
+func (e *Engine) save() error {
+	if e.checkpointErr != nil {
+		return e.checkpointErr
+	}
+	if err := e.Store.Save(e.state); err != nil {
+		// A failed save may already have replaced the file. Reload for coherent
+		// inspection, but never execute from either version until restart.
+		e.checkpointErr = errors.Join(errCheckpoint, err)
+		state, loadErr := e.Store.Load()
+		if loadErr == nil {
+			loadErr = validateState(state)
+			if loadErr == nil && state.InstanceID != e.state.InstanceID {
+				loadErr = errors.New("worker identity changed during checkpoint recovery")
+			}
+		}
+		if loadErr != nil {
+			e.checkpointErr = errors.Join(e.checkpointErr, loadErr)
+		} else {
+			e.state = state
+		}
+		e.status.State, e.status.WaitReason, e.status.LastError = "blocked", "checkpoint_failed", "checkpoint_failed"
+		return e.checkpointErr
+	}
+	return nil
+}
+func (e *Engine) saveJob(j Job) error {
+	if e.checkpointErr != nil {
+		return e.checkpointErr
+	}
+	e.state.Jobs[j.ID] = j
+	return e.save()
+}
 func (e *Engine) active() (Job, bool) {
 	var ids []string
 	for id, j := range e.state.Jobs {
@@ -103,6 +143,9 @@ func (e *Engine) paused() (bool, error) {
 	return false, nil
 }
 func errorCategory(err error) string {
+	if errors.Is(err, errCheckpoint) {
+		return "checkpoint_failed"
+	}
 	var gh *GitHubError
 	if errors.As(err, &gh) {
 		return gh.Category
@@ -610,6 +653,12 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		} else if result == nil {
 			e.idleStatus()
 		}
+		if e.checkpointErr != nil {
+			if !errors.Is(result, errCheckpoint) {
+				result = errors.Join(result, e.checkpointErr)
+			}
+			e.status.State, e.status.WaitReason, e.status.LastError = "blocked", "checkpoint_failed", "checkpoint_failed"
+		}
 		if writer, ok := e.Store.(interface{ WriteStatus(Status) error }); ok {
 			if err := writer.WriteStatus(e.status); result == nil {
 				result = err
@@ -835,6 +884,9 @@ func (e *Engine) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if err := e.Tick(ctx); err != nil {
+			if errors.Is(err, errCheckpoint) {
+				return err
+			}
 			category := errorCategory(err)
 			if category != lastError {
 				slog.Warn("worker tick failed", "category", category)
