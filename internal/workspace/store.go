@@ -80,7 +80,11 @@ func openDirectory(path string, create bool) (*os.File, error) {
 			continue
 		}
 		if create {
-			if err := unix.Mkdirat(fd, part, 0700); err != nil && err != unix.EEXIST {
+			err := unix.Mkdirat(fd, part, 0700)
+			if err == nil {
+				err = unix.Fsync(fd)
+			}
+			if err != nil && err != unix.EEXIST {
 				_ = unix.Close(fd)
 				return nil, err
 			}

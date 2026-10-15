@@ -13,13 +13,18 @@ import (
 // RunSpec prepares owned volumes and validated mount targets without starting a
 // guest. Recovery uses the same shape as ordinary creation.
 func (s *Session) RunSpec(ctx context.Context) (runtime.RunSpec, error) {
+	return s.RunSpecWithVolumes(ctx, s.RT.EnsureVolume)
+}
+
+// RunSpecWithVolumes lets recovery checkpoint ownership before attaching volumes.
+func (s *Session) RunSpecWithVolumes(ctx context.Context, ensureVolume func(string) error) (runtime.RunSpec, error) {
 	var vols []runtime.Volume
 	for name, agent := range s.Cfg.Agents {
 		if err := context.Cause(ctx); err != nil {
 			return runtime.RunSpec{}, err
 		}
 		volume := s.Name + project.VolumeSep + name
-		if err := s.RT.EnsureVolume(volume); err != nil {
+		if err := ensureVolume(volume); err != nil {
 			return runtime.RunSpec{}, fmt.Errorf("volume %s: %w", volume, err)
 		}
 		vols = append(vols, runtime.Volume{Name: volume, Target: config.ExpandHome(agent.State, s.GuestHome)})
@@ -30,7 +35,7 @@ func (s *Session) RunSpec(ctx context.Context) (runtime.RunSpec, error) {
 			return runtime.RunSpec{}, fmt.Errorf("prepare project volume %q: %w", volume.Path, err)
 		}
 		name := projectVolumeName(s.Name, volume.Path)
-		if err := s.RT.EnsureVolume(name); err != nil {
+		if err := ensureVolume(name); err != nil {
 			return runtime.RunSpec{}, fmt.Errorf("volume %s for %q: %w", name, volume.Path, err)
 		}
 		vols = append(vols, runtime.Volume{Name: name, Target: target})

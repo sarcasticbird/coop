@@ -394,11 +394,56 @@ func readManifest(files []*zip.File) (Manifest, error) {
 }
 
 func Restore(ctx context.Context, backend Storage, archive, identity string) error {
-	zr, err := zip.OpenReader(archive)
+	f, err := os.Open(archive)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = zr.Close() }()
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	zr, err := zip.NewReader(f, info.Size())
+	if err != nil {
+		return err
+	}
+	if storage, ok := backend.(AppleStorage); ok {
+		storage.Archive, err = filepath.Abs(archive)
+		if err != nil {
+			return err
+		}
+		storage.Archive, err = filepath.EvalSymlinks(storage.Archive)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, io.NewSectionReader(f, 0, info.Size())); err != nil {
+			return err
+		}
+		storage.ArchiveSHA256 = hex.EncodeToString(hash.Sum(nil))
+		// The recovery journal must never outlive the archive directory entry.
+		if err := f.Sync(); err != nil {
+			return err
+		}
+		for path := filepath.Dir(storage.Archive); ; path = filepath.Dir(path) {
+			parent, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			syncErr := parent.Sync()
+			closeErr := parent.Close()
+			if syncErr != nil {
+				return syncErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			if path == filepath.Dir(path) {
+				break
+			}
+		}
+		backend = storage
+	}
 	m, err := readManifest(zr.File)
 	if err != nil {
 		return err

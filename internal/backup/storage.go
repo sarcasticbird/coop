@@ -23,8 +23,10 @@ type AppleStorage struct {
 	Machine           runtime.AppleMachine
 	Store             workspace.Store
 	Target            *workspace.Spec
-	CreateInteractive func(context.Context, workspace.Record) error
+	CreateInteractive func(context.Context, workspace.Record, string, func(string) error) error
 	Maintenance       bool
+	Archive           string
+	ArchiveSHA256     string
 }
 type volumeRecord struct {
 	Name    string `json:"name"`
@@ -204,6 +206,11 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 	if err := workspace.ValidateRecord(r); err != nil {
 		return Snapshot{}, err
 	}
+	if pending, err := s.pending(r.Mode, r.Identity); err != nil {
+		return Snapshot{}, err
+	} else if pending != nil {
+		return Snapshot{}, fmt.Errorf("incomplete maintenance; preserve and resume original archive %s before taking another backup", pending.Archive)
+	}
 	root, version, err := s.root(ctx)
 	if err != nil {
 		return Snapshot{}, err
@@ -381,7 +388,11 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 	if err := validatePayloadSet(dir, meta); err != nil {
 		return err
 	}
-	if _, err := s.Store.Load(r.Mode, r.Identity); err == nil && !s.Maintenance {
+	pending, err := s.pending(r.Mode, r.Identity)
+	if err != nil {
+		return err
+	}
+	if _, err := s.Store.Load(r.Mode, r.Identity); err == nil && !s.Maintenance && pending == nil {
 		return fmt.Errorf("destination ownership already exists")
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
@@ -401,6 +412,9 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 			return fmt.Errorf("%w: configure the destination with the archive's image before restoring", workspace.ErrUnsupported)
 		}
 		r = s.Target.Record()
+	}
+	if s.Maintenance || pending != nil {
+		return s.publishMaintenance(ctx, r, meta, root, dir, pending)
 	}
 	var bundle string
 	if r.Mode == workspace.Agent {
@@ -430,20 +444,8 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 		if err != nil {
 			return err
 		}
-		if state != runtime.StateAbsent && !s.Maintenance {
+		if state != runtime.StateAbsent {
 			return fmt.Errorf("destination interactive Coop already exists")
-		}
-		if s.Maintenance {
-			if state != runtime.StateStopped || meta.Source.RuntimeName != r.RuntimeName {
-				return fmt.Errorf("maintenance ownership or stopped-state mismatch")
-			}
-			current, err := s.container(ctx, r.RuntimeName)
-			if err != nil {
-				return err
-			}
-			if current.Configuration.Labels["coop.spec"] != meta.Source.Fingerprint {
-				return fmt.Errorf("workspace changed during maintenance")
-			}
 		}
 		for _, v := range meta.Volumes {
 			if !strings.HasPrefix(v.Name, meta.Source.RuntimeName+project.VolumeSep) || !payloadName.MatchString(v.Payload) {
@@ -455,17 +457,12 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 				return err
 			}
 			for _, existing := range volumes {
-				if existing == name && !s.Maintenance {
+				if existing == name {
 					return fmt.Errorf("destination volume %s already exists", name)
 				}
 			}
 		}
-		if s.Maintenance {
-			if err := runtime.NewApple().Remove(r.RuntimeName); err != nil {
-				return err
-			}
-		}
-		if err := s.CreateInteractive(ctx, r); err != nil {
+		if err := s.CreateInteractive(ctx, r, "", nil); err != nil {
 			return err
 		}
 		bundle, err = ownedPath(root, "containers", r.RuntimeName)
