@@ -18,10 +18,16 @@ GUEST_INSTALL = r'''set -eu
 umask 077
 expected=$1
 agent=$2
+owner=$(id -u):$(id -g)
 test "$(uname -m)" = aarch64 || { echo 'guest architecture mismatch' >&2; exit 1; }
 test ! -L /var/lib/coop/worker && test ! -L /usr/local/libexec || exit 1
 mkdir -p /var/lib/coop/worker /usr/local/libexec
 test "$(stat -c %a /var/lib/coop/worker)" = 700 || exit 1
+test "$(stat -c %u:%g /var/lib/coop/worker)" = "$owner" || exit 1
+# The kernel releases this lock even when the installer is killed.
+test ! -L /var/lib/coop/worker/install.lock || exit 1
+exec 9>/var/lib/coop/worker/install.lock
+flock -x 9
 stage=$(mktemp -d /var/lib/coop/worker/.install.XXXXXXXX)
 trap 'rm -rf -- "$stage"' EXIT
 cat > "$stage/package.tar"
@@ -34,55 +40,119 @@ chmod 0600 "$stage/config.json"
 "$stage/coop-worker" validate --config "$stage/config.json" >/dev/null
 test "$(cat "$stage/identity")" = "$agent" || exit 1
 manifest=/var/lib/coop/worker/install.sha256
-if test -e "$manifest"; then
+pending=/var/lib/coop/worker/install-pending
+files='coop-worker coop-opencode-server coop-opencode-attach coop-opencode-launch config.json'
+destination_for() {
+  destination=/usr/local/libexec/$file
+  mode=755
+  if test "$file" = config.json; then destination=/var/lib/coop/worker/config.json; mode=600; fi
+}
+matches() {
+  test ! -L "$1" && test -f "$1" &&
+    test "$(stat -c %a "$1")" = "$mode" &&
+    test "$(stat -c %u:%g "$1")" = "$owner" &&
+    test "$(sha256sum < "$1")" = "$(sha256sum < "$2")"
+}
+recover() {
+  test ! -L "$pending" && test -d "$pending" && test "$(stat -c %a "$pending")" = 700 || exit 1
+  test "$(stat -c %u:%g "$pending")" = "$owner" || exit 1
+  for record in identity old.manifest new.manifest evidence.sha256; do
+    test ! -L "$pending/$record" && test -f "$pending/$record" || exit 1
+    test "$(stat -c %a "$pending/$record")" = 600 || exit 1
+    test "$(stat -c %u:%g "$pending/$record")" = "$owner" || exit 1
+  done
+  for directory in before after; do
+    test ! -L "$pending/$directory" && test -d "$pending/$directory" || exit 1
+    test "$(stat -c %a "$pending/$directory")" = 700 || exit 1
+    test "$(stat -c %u:%g "$pending/$directory")" = "$owner" || exit 1
+  done
+  test "$(cat "$pending/identity")" = "$agent" || exit 1
+  # Check all recovery evidence and live files before changing any of them.
+  (cd "$pending" && sha256sum -c evidence.sha256 >/dev/null) || exit 1
+  if test -e "$manifest" || test -L "$manifest"; then
+    mode=600
+    matches "$manifest" "$pending/old.manifest" || matches "$manifest" "$pending/new.manifest" || exit 1
+  else
+    test ! -s "$pending/old.manifest" || exit 1
+  fi
+  for file in $files; do
+    destination_for
+    test ! -L "$pending/after/$file" && test -f "$pending/after/$file" || exit 1
+    test "$(stat -c %a "$pending/after/$file")" = "$mode" || exit 1
+    test "$(stat -c %u:%g "$pending/after/$file")" = "$owner" || exit 1
+    if test -e "$pending/before/$file"; then
+      test ! -L "$pending/before/$file" && test "$(stat -c %a "$pending/before/$file")" = "$mode" || exit 1
+      test "$(stat -c %u:%g "$pending/before/$file")" = "$owner" || exit 1
+    fi
+    if test -e "$destination" || test -L "$destination"; then
+      matches "$destination" "$pending/after/$file" ||
+        { test -f "$pending/before/$file" && matches "$destination" "$pending/before/$file"; } || {
+          echo 'independent guest changes; preserving installation transaction' >&2; exit 1;
+        }
+    else
+      test ! -e "$pending/before/$file" || exit 1
+    fi
+  done
+  for file in $files; do
+    destination_for
+    # Do not consume recovery material. A failed copy/rename is retryable.
+    next=$(mktemp "$(dirname "$destination")/.worker.XXXXXXXX")
+    cp -p "$pending/after/$file" "$next"
+    sync -f "$next"
+    mv -f "$next" "$destination"
+    sync -f "$(dirname "$destination")"
+  done
+  next=$(mktemp /var/lib/coop/worker/.manifest.XXXXXXXX)
+  cp -p "$pending/new.manifest" "$next"
+  sync -f "$next"
+  mv -f "$next" "$manifest"
+  sync -f /var/lib/coop/worker
+  # Retain verified prior-generation material, including after successful retry.
+  history=$(mktemp -d /var/lib/coop/worker/install-history.XXXXXXXX)
+  mv "$pending" "$history/generation"
+  sync -f /var/lib/coop/worker
+}
+if test -e "$pending" || test -L "$pending"; then recover; fi
+if test -e "$manifest" || test -L "$manifest"; then
   test ! -L "$manifest" && test "$(stat -c %a "$manifest")" = 600 || exit 1
+  test "$(stat -c %u:%g "$manifest")" = "$owner" || exit 1
   sha256sum -c "$manifest" >/dev/null || { echo 'independent guest changes; refusing replacement' >&2; exit 1; }
 fi
-backup=/var/lib/coop/worker/install-before
-test ! -L "$backup" || exit 1
-mkdir -p "$backup"
-test "$(stat -c %a "$backup")" = 700 || exit 1
-for file in coop-worker coop-opencode-server coop-opencode-attach coop-opencode-launch config.json; do
-  destination=/usr/local/libexec/$file
-  if test "$file" = config.json; then destination=/var/lib/coop/worker/config.json; fi
+mkdir "$stage/before" "$stage/after"
+: > "$stage/old.manifest"
+if test -e "$manifest"; then cp -p "$manifest" "$stage/old.manifest"; fi
+: > "$stage/new.manifest"
+: > "$stage/current.manifest"
+for file in $files; do
+  destination_for
   test ! -L "$destination" || exit 1
   if test -e "$destination"; then
     test -f "$destination" || exit 1
-    mode=755
-    if test "$file" = config.json; then mode=600; fi
     test "$(stat -c %a "$destination")" = "$mode" || { echo 'independent artifact mode change' >&2; exit 1; }
+    test "$(stat -c %u:%g "$destination")" = "$owner" || exit 1
     if test ! -e "$manifest"; then
       echo 'unmanaged worker artifact; refusing replacement' >&2; exit 1
     fi
-    cp -p "$destination" "$stage/$file.previous"
-    if test ! -e "$backup/$file"; then cp -p "$destination" "$backup/$file"; fi
+    cp -p "$destination" "$stage/before/$file"
+    sha256sum "$destination" >> "$stage/current.manifest"
+  elif test -e "$manifest"; then
+    # A managed generation must contain every canonical destination.
+    echo 'incomplete managed worker generation; refusing replacement' >&2; exit 1
   fi
+  cp -p "$stage/$file" "$stage/after/$file"
+  digest=$(sha256sum < "$stage/$file"); digest=${digest%% *}
+  printf '%s  %s\n' "$digest" "$destination" >> "$stage/new.manifest"
 done
-rollback() {
-  for file in coop-worker coop-opencode-server coop-opencode-attach coop-opencode-launch config.json; do
-    destination=/usr/local/libexec/$file
-    if test "$file" = config.json; then destination=/var/lib/coop/worker/config.json; fi
-    if test -e "$stage/$file.installed"; then
-      if test -e "$stage/$file.previous"; then mv -f "$stage/$file.previous" "$destination"; else rm -f "$destination"; fi
-    fi
-  done
-  rm -rf -- "$stage"
-}
-trap rollback EXIT
-: > "$stage/manifest"
-for file in coop-worker coop-opencode-server coop-opencode-attach coop-opencode-launch config.json; do
-  destination=/usr/local/libexec/$file
-  if test "$file" = config.json; then destination=/var/lib/coop/worker/config.json; fi
-  # Each rename is on its destination filesystem.
-  next=$(mktemp "$(dirname "$destination")/.worker.XXXXXXXX")
-  cp -p "$stage/$file" "$next"
-  mv -f "$next" "$destination"
-  touch "$stage/$file.installed"
-  sha256sum "$destination" >> "$stage/manifest"
-done
-chmod 0600 "$stage/manifest"
-mv -f "$stage/manifest" "$manifest"
-trap 'rm -rf -- "$stage"' EXIT
+if test -e "$manifest"; then cmp -s "$manifest" "$stage/current.manifest" || exit 1; fi
+(cd "$stage" && {
+  sha256sum identity old.manifest new.manifest after/*
+  if test -e before/coop-worker; then sha256sum before/*; fi
+} > evidence.sha256)
+sync -f "$stage"
+# Publishing this directory is the write-ahead commit: no live file changed yet.
+mv "$stage" "$pending"
+sync -f /var/lib/coop/worker
+recover
 '''
 
 
