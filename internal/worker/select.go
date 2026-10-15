@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -50,8 +49,7 @@ func latestReview(c Config, p PR) Review {
 	return latest
 }
 func taskAdmitted(c Config, t Task, g Goal, s Snapshot) bool {
-	u, err := url.Parse(t.URL)
-	if err != nil || !strings.HasPrefix(u.Path, "/"+t.Repo+"/issues/") {
+	if !referenceInRepo(t.URL, t.Repo, "issues") {
 		return false
 	}
 	if t.Completed || t.Closed || !validGitHubURL(t.URL) || !validRepo(t.Repo) || !containsFold(c.CodeOwners, strings.Split(t.Repo, "/")[0]) || !containsFold(g.Repositories, t.Repo) || t.GoalURL != g.URL || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.MetadataScopeSHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, c.Reviewer)) {
@@ -110,10 +108,13 @@ func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
 		return true, "Ready task in approved goal"
 	}
 	p, ok := prFor(s, j.PRURL)
-	if ok && p.Merged && j.Kind == "deliver" && p.TaskURL == t.URL && p.GoalURL == g.URL && p.HeadSHA == j.HeadSHA && sameActor(p.Author, c.Implementer) {
+	if !ok || !referenceInRepo(p.URL, t.Repo, "pull") {
+		return false, "PR repository does not match task repository"
+	}
+	if p.Merged && j.Kind == "deliver" && p.TaskURL == t.URL && p.GoalURL == g.URL && p.HeadSHA == j.HeadSHA && sameActor(p.Author, c.Implementer) {
 		return c.Role == "implementer", "merged task requires issue completion"
 	}
-	if !ok || p.Closed || p.Merged || p.HeadSHA != j.HeadSHA || p.TaskURL != t.URL || p.GoalURL != g.URL || !sameActor(p.Author, c.Implementer) {
+	if p.Closed || p.Merged || p.HeadSHA != j.HeadSHA || p.TaskURL != t.URL || p.GoalURL != g.URL || !sameActor(p.Author, c.Implementer) {
 		return false, "PR identity or head changed"
 	}
 	r := latestReview(c, p)
