@@ -135,6 +135,9 @@ for file in $files; do
     fi
     cp -p "$destination" "$stage/before/$file"
     sha256sum "$destination" >> "$stage/current.manifest"
+  elif test -e "$manifest"; then
+    # A managed generation must contain every canonical destination.
+    echo 'incomplete managed worker generation; refusing replacement' >&2; exit 1
   fi
   cp -p "$stage/$file" "$stage/after/$file"
   digest=$(sha256sum < "$stage/$file"); digest=${digest%% *}

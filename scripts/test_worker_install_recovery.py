@@ -158,6 +158,37 @@ class Recovery(unittest.TestCase):
         self.assertNotEqual(self.run_install().returncode, 0)
         self.assertIn('# old\n', (self.libexec / 'coop-worker').read_text())
 
+    def test_manifest_must_cover_exactly_the_complete_canonical_generation(self):
+        for edit in (*FILES, 'duplicate-row', 'extra-row'):
+            with self.subTest(edit=edit), tempfile.TemporaryDirectory() as directory:
+                script = self.script.replace(str(self.root), directory)
+                self.assertEqual(self.run_install('old', script=script).returncode, 0)
+                state, libexec = Path(directory) / 'state', Path(directory) / 'libexec'
+                manifest = state / 'install.sha256'
+                rows = manifest.read_text().splitlines(keepends=True)
+                paths = [(state if name == 'config.json' else libexec) / name for name in FILES]
+                if edit in FILES:
+                    index = FILES.index(edit)
+                    paths[index].unlink()
+                    del rows[index]
+                elif edit == 'duplicate-row':
+                    rows.append(rows[0])
+                else:
+                    outside = Path(directory) / 'outside'
+                    outside.write_bytes(b'not a managed artifact')
+                    rows.append(hashlib.sha256(outside.read_bytes()).hexdigest() + '  ' + str(outside) + '\n')
+                damaged = ''.join(rows)
+                manifest.write_text(damaged)
+                result = self.run_install(script=script)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(manifest.read_text(), damaged)
+                self.assertFalse((state / 'install-pending').exists())
+                for name, path in zip(FILES, paths):
+                    if name == edit:
+                        self.assertFalse(path.exists())
+                    else:
+                        self.assertIn('# old\n', path.read_text())
+
     def test_independent_edits_and_damaged_evidence_are_preserved(self):
         for target in ('live', 'manifest', 'evidence', 'mode', 'symlink'):
             with self.subTest(target=target):
