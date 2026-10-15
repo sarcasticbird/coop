@@ -1,11 +1,55 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
 	"time"
 )
+
+// Production artifact reconciliation depends on the snapshot poll. A failed
+// poll must not bypass the recovery budget for a turn that has already ended.
+func (e *Engine) reconcilePollFailure(ctx context.Context, pollErr error) (bool, error) {
+	j, active := e.active()
+	var receipt WakeReceipt
+	if !active && e.Wakes != nil {
+		var err error
+		receipt, active, err = e.Wakes.Active()
+		if err != nil {
+			return false, err
+		}
+		j = receipt.Job
+	}
+	if !active {
+		return false, nil
+	}
+	if j.ReconcileFailures > 0 && e.Clock.Now().Before(j.NextAttemptAt) {
+		return true, nil
+	}
+	if j.TerminalAt.IsZero() {
+		turn, err := e.OpenCode.Observe(ctx, j)
+		if err != nil {
+			// Native uncertainty still uses its own categorized failure, rather
+			// than treating a catalog outage as evidence that the turn ended.
+			pollErr = err
+		} else if !turn.Terminal {
+			return false, nil
+		} else {
+			j.TerminalAt, j.SubmissionState = e.Clock.Now(), turn.State
+		}
+	}
+	j.WaitReason = "reconciling"
+	j = reconciliationFailure(j, pollErr, e.Config.Limits, e.Clock.Now())
+	if receipt.RequestID != "" {
+		receipt.Job, receipt.Reason = j, j.WaitReason
+		if j.Phase == "recovery" {
+			receipt.Phase = "recovery"
+		}
+		return true, e.Wakes.save(receipt)
+	}
+	return true, e.saveJob(j)
+}
 
 // A missing native record says nothing about external effects. Escalation
 // preserves the intent and holds all dispatch, rather than retrying the prompt.

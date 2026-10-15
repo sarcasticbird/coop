@@ -271,6 +271,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 				return err
 			}
 		}
+		if v.Job.TerminalAt.IsZero() {
+			v.Job.TerminalAt = w.Clock.Now()
+		}
 		// A native terminal result frees no slot until GitHub writes are reconciled.
 		if !snapshot.Complete {
 			v.Reason = "reconciling"

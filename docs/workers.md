@@ -401,8 +401,14 @@ status/request CLI together during an authorized maintenance window.
 
 Task and wake intents enter durable `recovery` after `limits.max_attempts`
 consecutive failed native observations, ownership-safe aborts, or terminal
-artifact reconciliation attempts. Successful reconciliation resets this separate
-failure counter; model execution attempts are not charged. Failed attempts wait
+artifact reconciliation attempts. In production asynchronous mode, failed snapshot
+polls count when the exact active task or wake is known to be terminal (or native
+observation itself fails). The terminal marker and failure budget survive restarts,
+including when the first failed poll arrives before terminal observation. Pre-turn catalog
+outages and catalog outages during a confirmed running turn remain degraded
+without consuming this recovery budget. Pending polls are not failed attempts.
+Successful reconciliation resets this separate failure counter; model execution
+attempts are not charged. Failed attempts wait
 `limits.retry_base` before another reconciliation, including across restarts.
 A native HTTP 404 is
 reported as `native_record_missing`, separately from transport/API outages. Both

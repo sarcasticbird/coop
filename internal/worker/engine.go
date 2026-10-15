@@ -765,6 +765,16 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 			pending = true
 			e.status.State = "syncing"
 		} else if err != nil {
+			if e.asynchronous && !errors.Is(err, errCheckpoint) {
+				handled, recoveryErr := e.reconcilePollFailure(ctx, err)
+				if recoveryErr != nil {
+					return recoveryErr
+				}
+				if handled {
+					e.status.State = "degraded"
+					return err
+				}
+			}
 			if authorizationLost(err) {
 				if j, ok := e.active(); ok {
 					if stopErr := e.stop(ctx, j, "scope"); stopErr != nil {
