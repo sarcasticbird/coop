@@ -397,6 +397,15 @@ binary start. Wake receipts use the existing 16 MiB snapshot ceiling for lossles
 sources, session identity and diagnostics, including JSON escape expansion; inbox requests remain limited to 32 KiB. Older readers
 also reject receipts above their former limit. Deploy the worker and matching
 status/request CLI together during an authorized maintenance window.
+
+## Validation timeouts
+
+Fresh pre-dispatch GitHub validation has a one-minute total budget for the
+coherent goal, task, dependency and PR reads. Individual API calls retain their
+30-second limit, and shorter caller deadlines still apply. Expired or incomplete
+validation prevents model submission. This budget does not relax scope, approval
+or exact-head checks.
+
 ## Reconciliation Recovery
 
 Task and wake intents enter durable `recovery` after `limits.max_attempts`

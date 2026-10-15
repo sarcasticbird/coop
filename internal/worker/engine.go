@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// Fresh scope validation reads a coherent goal, task dependencies and PR.
+// Bound the complete read sequence without clipping it to one request budget.
+const githubRevalidationTimeout = time.Minute
+
 type Clock interface {
 	Now() time.Time
 	Wait(context.Context, time.Duration) error
@@ -515,7 +519,7 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	if reader, ok := e.GitHub.(interface {
 		Revalidate(context.Context, Job, Snapshot) (Snapshot, error)
 	}); ok {
-		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		checkCtx, cancel := context.WithTimeout(ctx, githubRevalidationTimeout)
 		snapshot, checkErr := reader.Revalidate(checkCtx, j, e.state.SnapshotCache)
 		cancel()
 		if checkErr != nil {
