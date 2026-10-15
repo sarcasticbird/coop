@@ -206,8 +206,20 @@ The helper units use Coop's `coop-helper@.service` template. There is no
 `coop-worker.service` unit. Unit status proves the process is running; worker
 status also reports the last GitHub poll, server health and admission wait reason.
 
-Pause aborts only the worker-owned OpenCode session. Resume clears local pause;
-it cannot override a goal paused on GitHub. Safe status reports heartbeat, server
+Pause reconciles the worker's exact message before attempting a session abort.
+The same guard covers deadlines, permission blocks, revoked approval and wake
+interruptions. A terminal worker reply is reconciled even if a later manual turn
+has made the session busy; no abort is sent in that case. Missing messages (including
+404), unreadable history, a foreign session, or a newer user message without a
+terminal worker reply leave ownership uncertain and retain the active slot with
+retry backoff, rather than cancelling manual work or replaying the worker prompt.
+The bounded history window may require operator reconciliation for old messages.
+These are optimistic reads: OpenCode 1.18.18 exposes session-wide abort, not an
+atomic message-conditional abort. A takeover concurrent with the final ownership
+read and abort request is not protected by a server-side lock; pause automation
+and let its active turn settle before starting manual work in the same session.
+Resume clears local pause; it cannot override a goal paused on GitHub.
+Safe status reports heartbeat, server
 health, active task, submission state and reasons such as owner approval, review,
 retry or unknown submission. A heartbeat older than two minutes is stale.
 
