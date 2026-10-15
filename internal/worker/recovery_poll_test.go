@@ -216,3 +216,70 @@ func TestAsynchronousCatalogOutageDoesNotEscalateWithoutTerminalTurn(t *testing.
 		})
 	}
 }
+
+func TestAsynchronousRunningObservationResetsNativeFailureAcrossRestarts(t *testing.T) {
+	for _, wake := range []bool{false, true} {
+		t.Run(fmt.Sprint(wake), func(t *testing.T) {
+			e, code, clock, wakes := wakeEngineFixture(t)
+			g := e.GitHub.(*wakeGitHub)
+			if wake {
+				if _, err := QueuePing(e.Config, wakes, PingInput{Prompt: "transient native outage"}, clock.Now()); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				_, g.snapshot, _ = policyFixture(t)
+			}
+			g.snapshot.Cursor = map[string]string{}
+			e.Store = NewFileStore(filepath.Join(t.TempDir(), "state"))
+			code.running = true
+			tick(t, e, clock)
+			j := code.last
+			instance := e.state.InstanceID
+			g.pollError = ghError("api_error")
+			outage := &observationOutage{fakeOpenCode: code}
+			for i := 0; i < e.Config.Limits.MaxAttempts+2; i++ {
+				for _, nativeError := range []bool{true, false} {
+					outage.err = nil
+					if nativeError {
+						outage.err = &OpenCodeError{Category: "transport_failed"}
+					}
+					e = &Engine{Config: e.Config, Store: e.Store, GitHub: g, Checkouts: e.Checkouts, OpenCode: outage, Clock: clock, asynchronous: true}
+					if wake {
+						e.Wakes = NewWakeCoordinator(e.Config, wakes, g, outage, clock)
+					}
+					clock.now = clock.now.Add(e.Config.Limits.RetryBase + e.Config.OpenCode.ReconcileInterval)
+					failedArtifactPoll(t, e)
+					// Read the durable record, not just the live engine copy.
+					state, err := e.Store.Load()
+					if err != nil {
+						t.Fatal(err)
+					}
+					after := state.Jobs[j.ID]
+					if wake {
+						v, err := wakes.Receipt(j.ID)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if v.Phase != "running" {
+							t.Fatal(v)
+						}
+						after = v.Job
+						if !nativeError && v.Reason != "" {
+							t.Fatal(v)
+						}
+					}
+					if after.Phase != "active" || !after.TerminalAt.IsZero() || after.MessageID != j.MessageID || after.SessionID != j.SessionID || state.InstanceID != instance || code.calls != 1 || code.aborts != 0 {
+						t.Fatalf("transient outage changed intent: %+v", after)
+					}
+					if nativeError {
+						if after.ReconcileFailures != 1 || after.ReconcileError != "transport_failed" {
+							t.Fatal(after)
+						}
+					} else if after.ReconcileFailures != 0 || after.ReconcileError != "" || after.SubmissionState != "running" || after.WaitReason != "" || !after.NextAttemptAt.IsZero() {
+						t.Fatalf("successful observation did not durably reset failure: %+v", after)
+					}
+				}
+			}
+		})
+	}
+}

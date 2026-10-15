@@ -34,7 +34,14 @@ func (e *Engine) reconcilePollFailure(ctx context.Context, pollErr error) (bool,
 			// than treating a catalog outage as evidence that the turn ended.
 			pollErr = err
 		} else if !turn.Terminal {
-			return false, nil
+			j.SubmissionState, j.WaitReason = turn.State, ""
+			j.ReconcileFailures, j.ReconcileError = 0, ""
+			j.NextAttemptAt = time.Time{}
+			if receipt.RequestID != "" {
+				receipt.Job, receipt.Reason = j, ""
+				return false, e.Wakes.save(receipt)
+			}
+			return false, e.saveJob(j)
 		} else {
 			j.TerminalAt, j.SubmissionState = e.Clock.Now(), turn.State
 		}
