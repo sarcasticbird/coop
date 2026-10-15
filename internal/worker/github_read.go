@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -368,7 +369,7 @@ func (g *GitHubClient) discussions(ctx context.Context, repo string) ([]Goal, []
 		if err != nil || d.ID == "" || !validGitHubURL(d.URL) {
 			return nil, nil, nil, ghError("invalid_discussion")
 		}
-		comments, err := g.discussionComments(ctx, p[0], d.ID)
+		comments, err := g.goalComments(ctx, p[0], d)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -381,6 +382,49 @@ func (g *GitHubClient) discussions(ctx context.Context, repo string) ([]Goal, []
 	}
 	return goals, events, sources, nil
 }
+
+// Separate body and paginated comment reads are not a goal version. Collect
+// comments twice, bracketing both scans with body checks, so an intervening edit
+// or decision cannot authorize a mixed snapshot. Churn fails closed until the
+// next poll rather than retrying indefinitely.
+func (g *GitHubClient) goalComments(ctx context.Context, owner string, d graphDiscussion) ([]Comment, error) {
+	readComments := func() ([]Comment, error) {
+		if strings.Contains(d.URL, "/discussions/") {
+			return g.discussionComments(ctx, owner, d.ID)
+		}
+		repo, n, err := parseRef(d.URL)
+		if err != nil {
+			return nil, err
+		}
+		return g.issueComments(ctx, repo, n)
+	}
+	var previous []Comment
+	for scan := 0; scan < 2; scan++ {
+		comments, err := readComments()
+		if err != nil {
+			return nil, err
+		}
+		query := `query WorkerGoalVersion($id:ID!){node(id:$id){... on Discussion {id url body createdAt lastEditedAt author{` + actorFields + `}} ... on Issue {id url body createdAt lastEditedAt author{` + actorFields + `}}}}`
+		data, err := g.graphql(ctx, owner, query, map[string]any{"id": d.ID})
+		if err != nil {
+			return nil, err
+		}
+		raw, err := at(data, "node")
+		if err != nil {
+			return nil, err
+		}
+		current, err := decode[graphDiscussion](raw)
+		if err != nil || d.ID == "" || current.ID != d.ID || current.URL != d.URL || current.Body != d.Body || !current.CreatedAt.Equal(d.CreatedAt) || !current.LastEditedAt.Equal(d.LastEditedAt) || current.Author != d.Author {
+			return nil, ghError("goal_version_changed")
+		}
+		if scan > 0 && !slices.Equal(previous, comments) {
+			return nil, ghError("goal_version_changed")
+		}
+		previous = comments
+	}
+	return previous, nil
+}
+
 func (g *GitHubClient) discussionComments(ctx context.Context, owner, id string) ([]Comment, error) {
 	query := `query WorkerDiscussionComments($id:ID!,$after:String){node(id:$id){... on Discussion {comments(first:100,after:$after){nodes{id url body createdAt lastEditedAt replyTo{id author{` + actorFields + `}} author{` + actorFields + `}} pageInfo{hasNextPage endCursor}}}}}`
 	nodes, err := g.connection(ctx, owner, query, map[string]any{"id": id}, []string{"node", "comments"})
@@ -430,7 +474,7 @@ func (g *GitHubClient) issueGoal(ctx context.Context, t Task) (Goal, []Event, er
 	if err != nil {
 		return Goal{}, nil, err
 	}
-	comments, err := g.issueComments(ctx, t.Repo, n)
+	comments, err := g.goalComments(ctx, p[0], d)
 	if err != nil {
 		return Goal{}, nil, err
 	}

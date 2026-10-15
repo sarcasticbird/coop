@@ -45,7 +45,7 @@ func (g *GitHubClient) Revalidate(ctx context.Context, j Job, old Snapshot) (Sna
 		if readErr != nil || d.URL != j.GoalURL {
 			return Snapshot{}, ghError("invalid_discussion")
 		}
-		comments, readErr := g.discussionComments(ctx, owner, id)
+		comments, readErr := g.goalComments(ctx, owner, d)
 		if readErr != nil {
 			return Snapshot{}, readErr
 		}
