@@ -426,6 +426,20 @@ coherent goal, task, dependency and PR reads. Individual API calls retain their
 validation prevents model submission. This budget does not relax scope, approval
 or exact-head checks.
 
+## Automatic conversation compaction
+
+With OpenCode 1.18.18, the worker recognizes a native automatic compaction,
+its completed summary, and the explicitly marked synthetic continuation as
+part of the saved turn. Only the continuation's actual terminal response can
+complete that turn; a summary or idle session alone cannot. Required GitHub
+artifacts are still reconciled normally. Genuine later user input remains
+protected from worker aborts.
+
+History reads expand from 20 to at most 320 messages in three bounded requests
+when the saved parent is outside the initial tail. Missing or ambiguous lineage,
+unmarked continuations, and media-overflow replay remain explicit reconciliation
+failures rather than permission to replay input or clear ownership.
+
 ## Reconciliation Recovery
 
 Task and wake intents enter durable `recovery` after `limits.max_attempts`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -287,10 +288,30 @@ func (c *OpenCodeClient) status(ctx context.Context, j Job) (string, error) {
 type messageEnvelope struct {
 	Info struct {
 		ID, SessionID, Role, ParentID, Finish string
+		Summary                               json.RawMessage
 		Time                                  struct{ Created, Completed int64 }
 		Error                                 *struct{ Name string }
 	}
+	Parts []struct {
+		Type                      string
+		Auto, Overflow, Synthetic bool
+		Metadata                  struct {
+			CompactionContinue bool `json:"compaction_continue"`
+		}
+	}
 }
+
+func (m messageEnvelope) autoCompaction() bool {
+	return len(m.Parts) == 1 && m.Parts[0].Type == "compaction" && m.Parts[0].Auto && !m.Parts[0].Overflow
+}
+
+func (m messageEnvelope) compactionContinuation() bool {
+	// Native 1.18.18 marks its injected continuation explicitly. Synthetic text
+	// alone is insufficient, and overflow replay has no equivalent lineage proof.
+	return len(m.Parts) == 1 && m.Parts[0].Type == "text" && m.Parts[0].Synthetic && m.Parts[0].Metadata.CompactionContinue
+}
+
+func (m messageEnvelope) summary() bool { return bytes.Equal(m.Info.Summary, []byte("true")) }
 
 // readTurn reconciles the exact worker message even when a later manual turn
 // makes the session busy. Session status alone does not establish turn ownership.
@@ -308,11 +329,28 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 	}
 	turn.Accepted = true
 	var messages []messageEnvelope
-	if err := c.request(ctx, "GET", "/session/"+j.SessionID+"/message?limit=20", j.Checkout, nil, &messages); err != nil {
-		return turn, "", err
+	// Most observations need only the tail. Compaction can move the saved
+	// parent further back, so expand within a fixed request and response budget.
+	for limit := 20; ; limit *= 4 {
+		// json.Unmarshal reuses slice entries and leaves omitted fields intact.
+		// Each native response must supply its own complete observation.
+		messages = nil
+		if err := c.request(ctx, "GET", fmt.Sprintf("/session/%s/message?limit=%d", j.SessionID, limit), j.Checkout, nil, &messages); err != nil {
+			return turn, "", err
+		}
+		anchored := slices.ContainsFunc(messages, func(m messageEnvelope) bool {
+			return m.Info.ID == j.MessageID || (m.Info.Role == "assistant" && m.Info.ParentID == j.MessageID)
+		})
+		if anchored || len(messages) < limit || limit >= 320 {
+			break
+		}
 	}
 	var last *messageEnvelope
 	latestUser := ""
+	visibleUser := false
+	ownedUser := j.MessageID
+	compaction, summary := "", ""
+	compacted := false
 	for i := range messages {
 		m := &messages[i]
 		if m.Info.SessionID != j.SessionID || !validMessage(m.Info.ID) {
@@ -320,18 +358,41 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 		}
 		// The native message endpoint returns the bounded tail oldest first.
 		if m.Info.Role == "user" {
+			switch {
+			case m.Info.ID == j.MessageID:
+				ownedUser, compaction, summary = j.MessageID, "", ""
+			case m.autoCompaction() && latestUser == ownedUser && latestUser != "":
+				compaction, summary = m.Info.ID, ""
+				last, compacted = nil, true
+			case m.compactionContinuation() && compaction != "" && latestUser == compaction && summary != "" && i > 0 && messages[i-1].Info.ID == summary:
+				ownedUser, compaction, summary = m.Info.ID, "", ""
+				last = nil
+			default:
+				compaction, summary = "", ""
+			}
 			latestUser = m.Info.ID
+			visibleUser = true
 		} else if m.Info.Role != "assistant" || !validMessage(m.Info.ParentID) {
 			return turn, "", &OpenCodeError{Category: "foreign_message"}
 		}
-		if m.Info.Role == "assistant" && m.Info.ParentID == j.MessageID && (last == nil || m.Info.Time.Created >= last.Info.Time.Created) {
+		// A visible user takes precedence over late assistant replies. Without
+		// one, any foreign parent makes ownership ambiguous; a still-finishing
+		// owned assistant must not hide that evidence of manual work.
+		if m.Info.Role == "assistant" && !visibleUser && (latestUser == "" || m.Info.ParentID != ownedUser) {
+			latestUser = m.Info.ParentID
+		}
+		if m.Info.Role == "assistant" && m.Info.ParentID == compaction && m.summary() && m.Info.Error == nil && m.Info.Time.Completed > 0 && m.Info.Finish == "stop" {
+			summary = m.Info.ID
+		}
+		if m.Info.Role == "assistant" && compaction == "" && m.Info.ParentID == ownedUser && !m.summary() && (last == nil || m.Info.Time.Created >= last.Info.Time.Created) {
 			last = m
 		}
 	}
-	if latestUser == "" && len(messages) > 0 {
-		// Long tool loops can push the user message out of the tail. Do not
-		// override a visible newer user with a still-finishing older assistant.
-		latestUser = messages[len(messages)-1].Info.ParentID
+	if latestUser == ownedUser || (compaction != "" && latestUser == compaction) {
+		latestUser = j.MessageID
+	}
+	if compacted {
+		turn.State = "compacting"
 	}
 	if last != nil && last.Info.Error != nil {
 		turn.State = "interrupted"
@@ -358,6 +419,9 @@ func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
 	status, err := c.status(ctx, j)
 	if err != nil {
 		return turn, err
+	}
+	if turn.State == "compacting" && status == "idle" {
+		return turn, &OpenCodeError{Category: "compaction_incomplete"}
 	}
 	for _, endpoint := range []string{"/permission", "/question"} {
 		var pending []struct{ SessionID string }

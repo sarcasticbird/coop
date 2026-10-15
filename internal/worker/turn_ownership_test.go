@@ -8,7 +8,7 @@ import (
 )
 
 func TestOpenCodeAbortReconcilesTurnOwnership(t *testing.T) {
-	for _, mode := range []string{"completed_manual", "interrupted_manual", "uncertain_manual", "missing_message", "missing_tail", "foreign_message", "foreign_session", "history_error", "tool_calls_manual", "queued_manual"} {
+	for _, mode := range []string{"completed_manual", "interrupted_manual", "uncertain_manual", "missing_message", "missing_tail", "foreign_message", "foreign_session", "history_error", "tool_calls_manual", "queued_manual", "assistant_tail_manual", "assistant_tail_manual_then_worker"} {
 		t.Run(mode, func(t *testing.T) {
 			j := Job{SessionID: "ses_task", MessageID: "msg_worker"}
 			mutations := 0
@@ -61,6 +61,14 @@ func TestOpenCodeAbortReconcilesTurnOwnership(t *testing.T) {
 						messages = append(messages, manual)
 						if mode == "queued_manual" {
 							messages = append(messages, ownershipMessage(j, "msg_stillfinishing", "assistant", j.MessageID))
+						}
+					}
+					if mode == "assistant_tail_manual" || mode == "assistant_tail_manual_then_worker" {
+						// Both user messages have fallen outside the native tail.
+						// A late owned tool response does not prove the manual turn ended.
+						messages = []any{ownershipMessage(j, "msg_ownedtool", "assistant", j.MessageID), ownershipMessage(j, "msg_manualtool", "assistant", "msg_manual")}
+						if mode == "assistant_tail_manual_then_worker" {
+							messages = append(messages, ownershipMessage(j, "msg_lateownedtool", "assistant", j.MessageID))
 						}
 					}
 					writeJSON(w, messages)

@@ -56,6 +56,16 @@ Native coding-tool login state, installed packages, databases, and checkouts
 remain on the guest disk. Each coding tool still controls its own permission
 and approval settings; Coop does not rewrite them.
 
+To restart a named Coop, run `coop --agent robin down` followed by
+`coop --agent robin up`. The worker ledger, queued requests, coding-tool
+conversation database, instructions and working notes persist with the disk.
+Unsaved process state and active execution are interrupted. On restart the
+worker reconciles its saved intent before dispatching new work; restarting does
+not clear an uncertain turn or repair an ownership/reconciliation defect.
+Agents must write durable notes and reread current GitHub state to recover
+their working context. Persistent files preserve recorded information, not
+every thought from an interrupted turn.
+
 ## Servers and helper services
 
 A profile command can be a server. For example:
