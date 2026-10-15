@@ -285,6 +285,10 @@ func (e *Engine) stop(ctx context.Context, j Job, reason string) error {
 	}
 	if j.SessionID != "" {
 		if err := e.OpenCode.Abort(ctx, j); err != nil {
+			j = reconciliationFailure(j, err, e.Config.Limits, e.Clock.Now())
+			if j.Phase == "recovery" {
+				return e.saveJob(j)
+			}
 			j.WaitReason = "abort_unconfirmed"
 			j.NextAttemptAt = e.Clock.Now().Add(e.Config.Limits.RetryBase)
 			e.status.LastError = "abort_unconfirmed"
@@ -293,6 +297,7 @@ func (e *Engine) stop(ctx context.Context, j Job, reason string) error {
 		}
 	}
 	j.Phase = "paused"
+	j.ReconcileFailures, j.ReconcileError = 0, ""
 	j.WaitReason = reason
 	j.SubmissionState = "interrupted"
 	e.nextObserve = time.Time{}
@@ -331,16 +336,14 @@ func (e *Engine) observe(ctx context.Context, j Job) error {
 	e.nextObserve = e.Clock.Now().Add(e.Config.OpenCode.ReconcileInterval)
 	if err != nil {
 		e.status.LastError = errorCategory(err)
+		j = reconciliationFailure(j, err, e.Config.Limits, e.Clock.Now())
+		if j.Phase == "recovery" {
+			return e.saveJob(j)
+		}
 		if j.SubmissionState == "unknown" {
 			j.WaitReason = "submission_unknown"
-			if saveErr := e.saveJob(j); saveErr != nil {
-				return saveErr
-			}
-			if blockErr := e.reportBlock(ctx, j, "submission_unknown"); blockErr != nil {
-				e.status.LastError = errorCategory(blockErr)
-			}
 		}
-		return nil
+		return e.saveJob(j)
 	}
 	j.SubmissionState = turn.State
 	if turn.Accepted && turn.State != "blocked" {
@@ -348,18 +351,24 @@ func (e *Engine) observe(ctx context.Context, j Job) error {
 	}
 	if turn.State == "blocked" {
 		if err := e.OpenCode.Abort(ctx, j); err != nil {
+			j = reconciliationFailure(j, err, e.Config.Limits, e.Clock.Now())
+			if j.Phase == "recovery" {
+				return e.saveJob(j)
+			}
 			j.WaitReason = "abort_unconfirmed"
 			j.NextAttemptAt = e.Clock.Now().Add(e.Config.Limits.RetryBase)
 			return e.saveJob(j)
 		}
 		j.Phase = "blocked"
 		j.WaitReason = "permission"
+		j.ReconcileFailures, j.ReconcileError = 0, ""
 		if err := e.saveJob(j); err != nil {
 			return err
 		}
 		return e.reportBlock(ctx, j, "permission")
 	}
 	if !turn.Terminal {
+		j.ReconcileFailures, j.ReconcileError = 0, ""
 		return e.saveJob(j)
 	}
 	if j.TerminalAt.IsZero() {
@@ -372,8 +381,10 @@ func (e *Engine) observe(ctx context.Context, j Job) error {
 	}
 	a, err := e.reconcile(ctx, j)
 	if err != nil {
-		return err
+		j = reconciliationFailure(j, err, e.Config.Limits, e.Clock.Now())
+		return e.saveJob(j)
 	}
+	j.ReconcileFailures, j.ReconcileError = 0, ""
 	if artifactCompletes(e.Config, j, a) {
 		j.Phase = "completed"
 		j.WaitReason = ""
@@ -685,6 +696,31 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		return err
 	}
 	e.status.Paused = paused
+	for _, j := range e.state.Jobs {
+		if j.Phase == "recovery" {
+			e.status.State, e.status.WaitReason = "blocked", "reconciliation_required"
+			e.status.RecoveryIntent = &j
+			return nil
+		}
+	}
+	if e.Wakes != nil {
+		records, err := e.Wakes.Store.Requests()
+		if err != nil {
+			return err
+		}
+		for _, r := range records {
+			v, err := e.Wakes.Store.Receipt(r.ID)
+			if err != nil {
+				return err
+			}
+			if v.Phase == "recovery" {
+				e.status.State, e.status.WaitReason = "blocked", "reconciliation_required"
+				e.status.RecoveryIntent = &v.Job
+				return nil
+			}
+		}
+	}
+	e.status.RecoveryIntent = nil
 	var hasWake bool
 	if e.Wakes != nil {
 		_, hasWake, err = e.Wakes.Active()
@@ -765,6 +801,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 	}
 	if j, ok := e.active(); ok {
 		e.status.State = "working"
+		if j.ReconcileFailures > 0 && e.Clock.Now().Before(j.NextAttemptAt) {
+			return nil
+		}
 		if j.WaitReason == "abort_unconfirmed" && e.Clock.Now().Before(j.NextAttemptAt) {
 			e.status.WaitReason = j.WaitReason
 			e.status.NextRetry = j.NextAttemptAt
@@ -775,6 +814,10 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		}
 		if j.TerminalAt.IsZero() && !e.Clock.Now().Before(j.Deadline) {
 			if err := e.OpenCode.Abort(ctx, j); err != nil {
+				j = reconciliationFailure(j, err, e.Config.Limits, e.Clock.Now())
+				if j.Phase == "recovery" {
+					return e.saveJob(j)
+				}
 				j.WaitReason = "abort_unconfirmed"
 				j.NextAttemptAt = e.Clock.Now().Add(e.Config.Limits.RetryBase)
 				return e.saveJob(j)

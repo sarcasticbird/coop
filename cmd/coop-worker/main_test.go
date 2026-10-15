@@ -103,6 +103,49 @@ func TestWorkerCLIValidateStatusAndLocalPause(t *testing.T) {
 		t.Fatal("v2 ping accidentally implemented")
 	}
 }
+
+func TestWorkerCLIRecoveryResumesOnlyExactSavedIntent(t *testing.T) {
+	path := cliConfig(t)
+	c, err := worker.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := worker.NewFileStore(c.StateDir)
+	state, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := worker.BodyHash("recovery")
+	state.Jobs[id] = worker.Job{ID: id, Phase: "recovery", SessionID: "ses_saved", MessageID: "msg_saved", SubmissionState: "unknown"}
+	if err := s.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	old := clients
+	t.Cleanup(func() { clients = old })
+	clients = func(worker.Config) (worker.GitHub, *worker.OpenCodeClient, error) {
+		t.Fatal("recovery created network clients")
+		return nil, nil, nil
+	}
+	var out bytes.Buffer
+	args := []string{"recover", "--config", path, "--job-id", id, "--session-id", "ses_saved", "--message-id", "msg_later"}
+	if err := run(args, &out); err == nil {
+		t.Fatal("recovered different turn")
+	}
+	args[len(args)-1] = "msg_saved"
+	if err := run(args, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "observation_requested") {
+		t.Fatal(out.String())
+	}
+	after, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Jobs[id].MessageID != "msg_saved" || after.Jobs[id].SubmissionState != "unknown" || after.Jobs[id].Phase != "active" || after.InstanceID != state.InstanceID {
+		t.Fatal("recovery replaced intent or worker")
+	}
+}
 func TestWorkerCLIRejectsCredentialFlagsAndUnknownCommands(t *testing.T) {
 	for _, args := range [][]string{{"status", "--config", "/absent", "--token", "sentinel-secret"}, {"unknown"}, {"run"}} {
 		var out bytes.Buffer

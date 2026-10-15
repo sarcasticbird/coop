@@ -111,6 +111,8 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	ReconcileFailures                                                            int              `json:",omitempty"`
+	ReconcileError                                                               string           `json:",omitempty"`
 	PromptReportAttempts                                                         int              `json:",omitempty"`
 	PromptFailure                                                                *PromptSizeError `json:",omitempty"`
 	BlockReported                                                                bool

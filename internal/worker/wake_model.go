@@ -140,7 +140,7 @@ func wakeTerminal(phase string) bool {
 	return false
 }
 func wakePhase(phase string) bool {
-	return wakeTerminal(phase) || phase == "queued" || phase == "running" || phase == "blocked"
+	return wakeTerminal(phase) || phase == "queued" || phase == "running" || phase == "blocked" || phase == "recovery"
 }
 
 func wakeReceiptTerminal(v WakeReceipt) bool {

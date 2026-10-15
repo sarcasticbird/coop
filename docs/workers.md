@@ -397,3 +397,46 @@ binary start. Wake receipts use the existing 16 MiB snapshot ceiling for lossles
 sources, session identity and diagnostics, including JSON escape expansion; inbox requests remain limited to 32 KiB. Older readers
 also reject receipts above their former limit. Deploy the worker and matching
 status/request CLI together during an authorized maintenance window.
+## Reconciliation Recovery
+
+Task and wake intents enter durable `recovery` after `limits.max_attempts`
+consecutive failed native observations, ownership-safe aborts, or terminal
+artifact reconciliation attempts. Successful reconciliation resets this separate
+failure counter; model execution attempts are not charged. Failed attempts wait
+`limits.retry_base` before another reconciliation, including across restarts.
+A native HTTP 404 is
+reported as `native_record_missing`, separately from transport/API outages. Both
+are retried within the same bound: a missing message may be temporary, and it
+never proves that the original POST or its external effects did not happen.
+
+Recovery is an explicit operator escalation, not an execution retry. It removes
+the intent from the active-turn loop, preserves its original session, message,
+checkout, branch, submission state, deadline, claim and external artifacts, and
+holds **all new task and wake dispatch**. This conservative global hold is
+intentional: the lost record may describe an executing turn, so freeing capacity
+for another turn is not safe merely because observation failed. `status` exposes
+`wait_reason: reconciliation_required` and the exact `recovery_intent`, including
+the last categorized failure and durable count. No repeated abort, model POST,
+or GitHub blocker-comment loop runs in this state, including after restart.
+
+To retry reconciliation after repairing connectivity or recovering native server
+records, stop the worker service and inspect the saved intent, native session,
+checkout, PR/review/merge and Discussion artifacts. Do not delete the ledger,
+reset a claim, or create replacement input to escape a missing-message error.
+Then use the exact IDs shown by status:
+
+```sh
+coop-worker recover --config /absolute/private/worker.json \
+  --job-id EXACT_JOB_OR_WAKE_ID --session-id ses_EXACT --message-id msg_EXACT
+```
+
+The command requires the worker's exclusive lock and exact saved recovery
+identity. Pause alone does not release the lock. It resets only reconciliation
+failure diagnostics and resumes the **same** intent, never resubmitting it.
+Restarting the service then uses normal observation and artifact reconciliation;
+expired or revoked work uses the existing ownership-checked abort, never a blind
+session-wide cancellation. Later manual turns remain protected by that ownership
+check and its documented native API concurrency limitation. If records remain
+unavailable, bounded attempts return to recovery. This command is not a force
+clear, artifact-completion override, or permission to replay uncertain work;
+irrecoverable native history remains escalated for operator investigation.

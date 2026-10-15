@@ -188,7 +188,7 @@ func TestInterruptionProtectsLaterManualTurn(t *testing.T) {
 				if !terminal {
 					if wake {
 						v, active, err := e.Wakes.Active()
-						if err != nil || !active || v.Job.MessageID != j.MessageID || v.Reason != "abort_unconfirmed" {
+						if err != nil || !active || v.Job.MessageID != j.MessageID || (v.Reason != "abort_unconfirmed" && v.Job.ReconcileError != "turn_ownership_unknown") {
 							t.Fatalf("lost uncertain wake ownership: %+v %v", v, err)
 						}
 					} else if current, active := e.active(); !active || current.MessageID != j.MessageID || current.WaitReason != "abort_unconfirmed" {
