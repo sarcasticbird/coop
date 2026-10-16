@@ -158,6 +158,6 @@ func bindReviewScope(pr *PR, task Task) {
 	}
 	pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, pr.ScopeUpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"), task.BodySHA, task.MetadataUpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00")}, "\x00"))
 	if task.Assignment != nil {
-		pr.ScopeRevision = BodyHash(pr.ScopeRevision + "\x00" + pr.AssignmentSHA)
+		pr.ScopeRevision = BodyHash(strings.Join([]string{pr.ScopeRevision, pr.AssignmentSHA, pr.BaseBranch, pr.BaseScopeRevision}, "\x00"))
 	}
 }

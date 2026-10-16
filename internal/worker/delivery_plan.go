@@ -39,7 +39,7 @@ func planningEvents(c Config, s Snapshot, now time.Time) []Event {
 		}
 		if c.Version == 2 {
 			a, err := resolveTeamAssignment(c, check, g, now)
-			if err != nil || p.AssignmentSHA != a.SHA || !sameActor(p.Author, a.Author) {
+			if err != nil || p.BaseBranch != t.Assignment.BaseBranch || p.AssignmentSHA != a.SHA || !sameActor(p.Author, a.Author) {
 				continue
 			}
 		}
@@ -87,7 +87,7 @@ func deliveryPlanProgress(c Config, j Job, s Snapshot) bool {
 			if pr.TaskURL == dependent.URL && pr.GoalURL == g.URL && teamTaskAuthor(c, dependent, pr.Author) && (!pr.Closed || pr.Merged) {
 				if c.Version == 2 {
 					a, err := resolveTeamAssignment(c, dependent, g, time.Now())
-					if err != nil || pr.AssignmentSHA != a.SHA || !referenceInRepo(pr.URL, dependent.Repo, "pull") {
+					if err != nil || pr.BaseBranch != dependent.Assignment.BaseBranch || pr.AssignmentSHA != a.SHA || !referenceInRepo(pr.URL, dependent.Repo, "pull") {
 						continue
 					}
 				}

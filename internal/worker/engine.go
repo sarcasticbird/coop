@@ -307,7 +307,7 @@ func artifactCompletes(c Config, j Job, a Artifacts) bool {
 			return false
 		}
 		sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, QAPolicy{})
-		if err != nil || sha != j.Binding.AssignmentSHA || p.AssignmentSHA != sha || !teamTaskAuthor(c, t, p.Author) || p.TaskURL != j.TaskURL || p.GoalURL != j.GoalURL || !referenceInRepo(p.URL, t.Repo, "pull") || (j.PRURL != "" && p.URL != j.PRURL) || (j.PRScopeRevision != "" && p.ScopeRevision != j.PRScopeRevision) {
+		if err != nil || p.BaseBranch != t.Assignment.BaseBranch || sha != j.Binding.AssignmentSHA || p.AssignmentSHA != sha || !teamTaskAuthor(c, t, p.Author) || p.TaskURL != j.TaskURL || p.GoalURL != j.GoalURL || !referenceInRepo(p.URL, t.Repo, "pull") || (j.PRURL != "" && p.URL != j.PRURL) || (j.PRScopeRevision != "" && p.ScopeRevision != j.PRScopeRevision) {
 			return false
 		}
 		if j.Kind == "review" {
@@ -706,7 +706,7 @@ func (e *Engine) syncBoard(ctx context.Context) error {
 		}
 		state := "in_progress"
 		for _, p := range e.state.SnapshotCache.PRs {
-			if p.TaskURL == t.URL && p.Merged && t.Completed && teamTaskAuthor(e.Config, t, p.Author) && (e.Config.Version != 2 || p.GoalURL == t.GoalURL && t.Claim.Binding != nil && p.AssignmentSHA == t.Claim.Binding.AssignmentSHA) {
+			if p.TaskURL == t.URL && p.Merged && t.Completed && teamTaskAuthor(e.Config, t, p.Author) && (e.Config.Version != 2 || p.BaseBranch == t.Assignment.BaseBranch && p.GoalURL == t.GoalURL && t.Claim.Binding != nil && p.AssignmentSHA == t.Claim.Binding.AssignmentSHA) {
 				state = "done"
 			}
 		}

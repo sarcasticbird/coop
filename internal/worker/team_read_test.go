@@ -31,11 +31,12 @@ func newTeamReadFixture() *teamReadFixture {
 	body := teamMarker("pr", TeamPRMetadata{Task: "https://github.com/code/repo/issues/4", Goal: "https://github.com/planning/board/discussions/1", AssignmentSHA: BodyHash("assignment")})
 	f := &teamReadFixture{
 		c:       Config{Version: 2, Team: &p, Repositories: []string{"code/repo"}, CodeOwners: []string{"code"}},
-		version: map[string]any{"url": "https://github.com/code/repo/pull/5", "body": body, "headRefOid": "head", "createdAt": now.Add(-time.Hour), "updatedAt": now, "state": "OPEN", "author": graphActor{ID: author.ID, Kind: author.Kind, Login: author.Login}},
+		version: map[string]any{"baseRefName": "feature/integration", "url": "https://github.com/code/repo/pull/5", "body": body, "headRefOid": "head", "createdAt": now.Add(-time.Hour), "updatedAt": now, "state": "OPEN", "author": graphActor{ID: author.ID, Kind: author.Kind, Login: author.Login}},
 		pages: map[string][]map[string]any{
-			"reviews":     {teamReadPage([]any{map[string]any{"fullDatabaseId": "4294967297", "state": "APPROVED", "commit": map[string]any{"oid": "head"}, "submittedAt": now, "author": graphActor{ID: 11, Kind: "Bot", Login: "renamed[bot]"}}}, 1, "")},
-			"commits":     {teamReadPage([]any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": "head"}}}, 1, "")},
-			"commit-head": {teamReadPage([]any{map[string]any{"user": graphActor{ID: author.ID, Kind: "User", Login: author.Login}}}, 1, "")},
+			"timelineItems": {teamReadPage([]any{}, 0, "")},
+			"reviews":       {teamReadPage([]any{map[string]any{"fullDatabaseId": "4294967297", "state": "APPROVED", "commit": map[string]any{"oid": "head"}, "submittedAt": now, "author": graphActor{ID: 11, Kind: "Bot", Login: "renamed[bot]"}}}, 1, "")},
+			"commits":       {teamReadPage([]any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": "head", "committer": map[string]any{"user": graphActor{ID: author.ID, Kind: "User"}}}}}, 1, "")},
+			"commit-head":   {teamReadPage([]any{map[string]any{"user": graphActor{ID: author.ID, Kind: "User", Login: author.Login}}}, 1, "")},
 		},
 		accounts: map[int64]restActor{author.ID: restActor(author)}, calls: map[string]int{},
 	}
@@ -74,6 +75,8 @@ func (f *teamReadFixture) client(t *testing.T) *GitHubClient {
 			key = "commits"
 		case strings.Contains(req.Query, "WorkerTeamAuthors"):
 			key, _ = req.Variables["id"].(string)
+		case strings.Contains(req.Query, "WorkerTeamBaseScope"):
+			key = "timelineItems"
 		case strings.Contains(req.Query, "WorkerScopeHistory"):
 			key = "userContentEdits"
 		case strings.Contains(req.Query, "WorkerPRVersion"):
@@ -251,7 +254,7 @@ func TestTeamReadEvidenceEngineeringGate(t *testing.T) {
 			r := f.pages["reviews"][0]["nodes"].([]any)[0].(map[string]any)
 			r["commit"] = map[string]any{"oid": source.HeadSHA}
 			r["submittedAt"] = time.Now().Add(-time.Minute)
-			f.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": source.HeadSHA}}}
+			f.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": source.HeadSHA, "committer": map[string]any{"user": graphActor{ID: source.Author.ID, Kind: "User"}}}}}
 			f.pages["commit-head"][0]["nodes"] = []any{map[string]any{"user": graphActor{ID: source.Author.ID, Kind: "User", Login: source.Author.Login}}}
 			f.accounts[source.Author.ID] = restActor(source.Author)
 			switch scenario {
@@ -319,7 +322,7 @@ func TestTeamReadMergedDeliveryPreservesSavedScope(t *testing.T) {
 				r["commit"], r["submittedAt"] = map[string]any{"oid": source.HeadSHA}, reviewedAt
 				peer := source.Reviews[0].Author
 				r["author"] = graphActor{ID: peer.ID, Kind: peer.Kind, Login: peer.Login}
-				f.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": source.HeadSHA}}}
+				f.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": source.HeadSHA, "committer": map[string]any{"user": graphActor{ID: source.Author.ID, Kind: "User"}}}}}
 				f.pages["commit-head"][0]["nodes"] = []any{map[string]any{"user": graphActor{ID: source.Author.ID, Kind: "User", Login: source.Author.Login}}}
 				f.accounts[source.Author.ID] = restActor(source.Author)
 				g := f.client(t)

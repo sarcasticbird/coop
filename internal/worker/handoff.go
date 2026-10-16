@@ -110,7 +110,7 @@ func teamReviewHandoff(c Config, j Job, s Snapshot, p PR, now time.Time) ReviewH
 		h.Reason = err.Error()
 		return h
 	}
-	if p.AssignmentSHA != a.SHA || !sameActor(p.Author, a.Author) {
+	if p.BaseBranch != t.Assignment.BaseBranch || p.AssignmentSHA != a.SHA || !sameActor(p.Author, a.Author) {
 		h.Reason = "PR assignment or author changed"
 		return h
 	}

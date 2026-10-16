@@ -21,7 +21,7 @@ func TestTeamOwnershipV1EncodingOmitsBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"Binding", "PRScopeRevision", "ClaimConflict", "AssignmentSHA", "Contributors", "ContributorsComplete", "ReviewsComplete"} {
+	for _, field := range []string{"Binding", "PRScopeRevision", "ClaimConflict", "AssignmentSHA", "BaseScopeRevision", "Contributors", "ContributorsComplete", "ReviewsComplete"} {
 		if strings.Contains(string(raw), `"`+field+`"`) {
 			t.Fatalf("v1 state gained v2 field %s", field)
 		}

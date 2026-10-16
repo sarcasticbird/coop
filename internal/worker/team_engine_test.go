@@ -94,7 +94,7 @@ func TestTeamEngineUnknownSubmissionArtifactsReciprocal(t *testing.T) {
 				}
 				switch kind {
 				case "implement":
-					g.snapshot.PRs = []PR{{URL: "https://github.com/code/repo/pull/2", TaskURL: j.TaskURL, GoalURL: j.GoalURL, Author: e.Config.Self, Branch: j.Branch, HeadSHA: BodyHash("new head"), AssignmentSHA: j.Binding.AssignmentSHA}}
+					g.snapshot.PRs = []PR{{URL: "https://github.com/code/repo/pull/2", TaskURL: j.TaskURL, GoalURL: j.GoalURL, Author: e.Config.Self, Branch: j.Branch, BaseBranch: g.snapshot.Tasks[0].Assignment.BaseBranch, HeadSHA: BodyHash("new head"), AssignmentSHA: j.Binding.AssignmentSHA}}
 				case "review":
 					g.snapshot.PRs[0].Reviews = []Review{{ID: "20", HeadSHA: j.HeadSHA, Author: e.Config.Self, State: "CHANGES_REQUESTED", SubmittedAt: e.Clock.Now().Add(time.Second)}}
 				case "fix":

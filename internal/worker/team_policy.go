@@ -22,6 +22,7 @@ type TeamPolicy struct {
 }
 
 type TaskAssignment struct {
+	BaseBranch  string `json:"base_branch"`
 	Version     int    `json:"version"`
 	Author      string `json:"author"`
 	Peer        string `json:"peer"`
@@ -98,7 +99,7 @@ func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
 	if err != nil {
 		return err
 	}
-	if a.Version != 2 || !hexSHA.MatchString(a.GoalBodySHA) || !hexSHA.MatchString(a.TaskBodySHA) || !hexSHA.MatchString(a.PolicySHA) || a.PolicySHA != policySHA {
+	if a.Version != 2 || !validBaseBranch(a.BaseBranch) || !hexSHA.MatchString(a.GoalBodySHA) || !hexSHA.MatchString(a.TaskBodySHA) || !hexSHA.MatchString(a.PolicySHA) || a.PolicySHA != policySHA {
 		return errors.New("invalid assignment version or scope hashes")
 	}
 	if a.Author == "" || a.Peer == "" || p.EngineeringPeers[a.Author] != a.Peer {

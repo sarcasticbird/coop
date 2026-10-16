@@ -62,7 +62,9 @@ func (g *GitHubClient) teamConnection(ctx context.Context, owner, query string, 
 			return nil, ghError("incoherent_team_connection")
 		}
 		if !*page.PageInfo.HasNextPage {
-			if len(nodes) != total {
+			// Timeline totalCount includes filtered/hidden entries even on an
+			// explicit terminal page. Identity connections require exact counts.
+			if len(nodes) != total && (len(path) == 0 || path[len(path)-1] != "timelineItems") {
 				return nil, ghError("incomplete_team_connection")
 			}
 			return nodes, nil
@@ -76,14 +78,14 @@ func (g *GitHubClient) teamConnection(ctx context.Context, owner, query string, 
 	}
 }
 
-func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number int, pr *PR) error {
+func (g *GitHubClient) readTeamReviews(ctx context.Context, repo string, number int) ([]Review, error) {
 	readAt := time.Now().UTC()
 	parts := strings.Split(repo, "/")
 	vars := map[string]any{"owner": parts[0], "repo": parts[1], "number": number}
 	query := `query WorkerTeamReviews($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviews(first:100,after:$after){totalCount nodes{fullDatabaseId state submittedAt commit{oid} author{` + actorFields + `}} pageInfo{hasNextPage endCursor}}}}}`
 	nodes, err := g.teamConnection(ctx, parts[0], query, vars, "repository", "pullRequest", "reviews")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	seenReviews := map[int64]bool{}
 	var reviews []Review
@@ -97,28 +99,38 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 		}](raw)
 		id, idErr := strconv.ParseInt(r.FullDatabaseID.String(), 10, 64)
 		if err != nil || idErr != nil || id <= 0 || seenReviews[id] || !knownTeamActor(r.Author.actor()) || r.Commit == nil || r.Commit.OID == "" {
-			return ghError("unresolved_team_review")
+			return nil, ghError("unresolved_team_review")
 		}
 		if r.SubmittedAt.After(readAt) {
-			return ghError("invalid_team_review_time")
+			return nil, ghError("invalid_team_review_time")
 		}
 		switch r.State {
 		case "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED":
 			if r.SubmittedAt.IsZero() {
-				return ghError("invalid_team_review_time")
+				return nil, ghError("invalid_team_review_time")
 			}
 		case "PENDING":
 			if !r.SubmittedAt.IsZero() {
-				return ghError("invalid_team_review_time")
+				return nil, ghError("invalid_team_review_time")
 			}
 		default:
-			return ghError("invalid_team_review_state")
+			return nil, ghError("invalid_team_review_state")
 		}
 		seenReviews[id] = true
-		reviews = append(reviews, Review{ID: strconv.FormatInt(id, 10), HeadSHA: r.Commit.OID, State: r.State, Author: r.Author.actor(), SubmittedAt: r.SubmittedAt})
+		reviews = append(reviews, Review{ID: strconv.FormatInt(id, 10), HeadSHA: r.Commit.OID, State: r.State, Author: r.Author.actor(), SubmittedAt: r.SubmittedAt.UTC()})
 	}
+	sort.Slice(reviews, func(i, j int) bool { return reviews[i].ID < reviews[j].ID })
+	return reviews, nil
+}
 
-	query = `query WorkerTeamCommits($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){commits(first:100,after:$after){totalCount nodes{commit{id oid}} pageInfo{hasNextPage endCursor}}}}}`
+func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number int, pr *PR) error {
+	reviews, err := g.readTeamReviews(ctx, repo, number)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(repo, "/")
+	vars := map[string]any{"owner": parts[0], "repo": parts[1], "number": number}
+	query := `query WorkerTeamCommits($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){commits(first:100,after:$after){totalCount nodes{commit{id oid committer{user{__typename databaseId login}}}} pageInfo{hasNextPage endCursor}}}}}`
 	commits, err := g.teamConnection(ctx, parts[0], query, vars, "repository", "pullRequest", "commits")
 	if err != nil {
 		return err
@@ -130,11 +142,19 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 	resolved := map[int64]Actor{}
 	seenCommits := map[string]bool{}
 	for _, raw := range commits {
-		c, err := decode[struct{ Commit struct{ ID, OID string } }](raw)
+		c, err := decode[struct {
+			Commit struct {
+				ID, OID   string
+				Committer *struct{ User *graphActor }
+			}
+		}](raw)
 		if err != nil || c.Commit.ID == "" || c.Commit.OID == "" || seenCommits[c.Commit.OID] {
 			return ghError("invalid_team_commit")
 		}
 		seenCommits[c.Commit.OID] = true
+		if c.Commit.Committer == nil || c.Commit.Committer.User == nil || c.Commit.Committer.User.ID <= 0 {
+			return ghError("unresolved_team_contributors")
+		}
 		// Commit.authors includes the primary author and GitHub-resolved
 		// co-authors. Never infer identity from names, emails or login suffixes.
 		query := `query WorkerTeamAuthors($id:ID!,$after:String){node(id:$id){... on Commit{authors(first:100,after:$after){totalCount nodes{user{__typename databaseId login}} pageInfo{hasNextPage endCursor}}}}}`
@@ -146,23 +166,27 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 			return ghError("unresolved_team_contributors")
 		}
 		seenAuthors := map[int64]bool{}
+		identities := []int64{c.Commit.Committer.User.ID}
 		for _, raw := range authors {
 			a, err := decode[struct{ User *graphActor }](raw)
 			if err != nil || a.User == nil || a.User.ID <= 0 || seenAuthors[a.User.ID] {
 				return ghError("unresolved_team_contributors")
 			}
 			seenAuthors[a.User.ID] = true
-			actor, ok := resolved[a.User.ID]
+			identities = append(identities, a.User.ID)
+		}
+		for _, id := range identities {
+			actor, ok := resolved[id]
 			if !ok {
 				// GitActor.user has GraphQL User shape even for some bots.
 				// Resolve by database ID through REST to retain the actual kind.
-				body, _, err := g.api(ctx, parts[0], "GET", "user/"+strconv.FormatInt(a.User.ID, 10), nil)
+				body, _, err := g.api(ctx, parts[0], "GET", "user/"+strconv.FormatInt(id, 10), nil)
 				if err != nil {
 					return err
 				}
 				account, err := decode[restActor](body)
 				actor = account.actor()
-				if err != nil || actor.ID != a.User.ID || !knownTeamActor(actor) {
+				if err != nil || actor.ID != id || !knownTeamActor(actor) {
 					return ghError("unresolved_team_contributors")
 				}
 				resolved[actor.ID] = actor
@@ -175,6 +199,15 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 	}
 	if !seenCommits[pr.HeadSHA] {
 		return ghError("incoherent_team_head")
+	}
+	// A stable PR head/body does not prove native reviews stayed unchanged
+	// while contributor connections were paged. Reject mixed evidence.
+	freshReviews, err := g.readTeamReviews(ctx, repo, number)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(reviews, freshReviews) {
+		return ghError("team_reviews_changed_during_read")
 	}
 	var actors []Actor
 	for _, actor := range contributors {

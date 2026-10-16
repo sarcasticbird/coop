@@ -75,7 +75,7 @@ func teamIndependentPeer(c Config, t Task, p PR) (Actor, bool) {
 	if c.Version != 2 || c.Team == nil || t.Assignment == nil || !p.ContributorsComplete || !p.ReviewsComplete || len(p.Contributors) == 0 || p.ScopeRevision == "" || p.ScopeUpdatedAt.IsZero() {
 		return Actor{}, false
 	}
-	if !referenceInRepo(p.URL, t.Repo, "pull") || p.TaskURL != t.URL || p.GoalURL != t.GoalURL || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.Assignment.TaskBodySHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, teamPlanner(c))) {
+	if p.BaseBranch != t.Assignment.BaseBranch || !referenceInRepo(p.URL, t.Repo, "pull") || p.TaskURL != t.URL || p.GoalURL != t.GoalURL || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.Assignment.TaskBodySHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, teamPlanner(c))) {
 		return Actor{}, false
 	}
 	sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, QAPolicy{})

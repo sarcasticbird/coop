@@ -93,7 +93,7 @@ func PRMetadataComment(c Config, s Snapshot, prURL, taskURL, goalURL string, now
 	if err != nil {
 		return "", err
 	}
-	if !sameActor(p.Author, a.Author) || (!isPlanner(c) && !sameActor(c.Self, a.Author)) {
+	if p.BaseBranch != t.Assignment.BaseBranch || !sameActor(p.Author, a.Author) || (!isPlanner(c) && !sameActor(c.Self, a.Author)) {
 		return "", errors.New("PR metadata requires assigned author or planner")
 	}
 	if p.TaskURL != "" && p.TaskURL != t.URL || p.GoalURL != "" && p.GoalURL != g.URL || p.AssignmentSHA != "" && p.AssignmentSHA != a.SHA {

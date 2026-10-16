@@ -8,6 +8,7 @@ import (
 )
 
 type prBodyVersion struct {
+	BaseRefName             string
 	URL, Body, HeadRefOid   string
 	CreatedAt, LastEditedAt time.Time
 }
@@ -85,7 +86,16 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 	pr.ScopeUpdatedAt = boundary
 	pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, boundary.Format(time.RFC3339Nano)}, "\x00"))
 	if g.config.Version == 2 {
-		pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, pr.AssignmentSHA, boundary.Format(time.RFC3339Nano)}, "\x00"))
+		baseHistory, baseTime, err := g.readTeamBaseScope(ctx, repo, number, version)
+		if err != nil {
+			return "", err
+		}
+		if baseTime.After(pr.ScopeUpdatedAt) {
+			pr.ScopeUpdatedAt = baseTime
+		}
+		pr.BaseScopeRevision = baseHistory
+		pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, pr.AssignmentSHA, pr.BaseBranch, baseHistory, pr.ScopeUpdatedAt.Format(time.RFC3339Nano)}, "\x00"))
+		history = BodyHash(history + "\x00" + baseHistory)
 	}
 	return history, nil
 }
@@ -93,6 +103,9 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 func (g *GitHubClient) verifyPRVersion(ctx context.Context, repo string, number int, version prBodyVersion) error {
 	parts := strings.Split(repo, "/")
 	query := `query WorkerPRVersion($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body headRefOid createdAt lastEditedAt}}}`
+	if g.config.Version == 2 {
+		query = strings.Replace(query, "url body", "baseRefName url body", 1)
+	}
 	data, err := g.graphql(ctx, parts[0], query, map[string]any{"owner": parts[0], "repo": parts[1], "number": number})
 	if err != nil {
 		return err

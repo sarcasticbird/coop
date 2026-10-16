@@ -22,7 +22,7 @@ func assignmentFixture(t *testing.T, p TeamPolicy) TaskAssignment {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return TaskAssignment{Version: 2, Author: "engineer", Peer: "planner", GoalBodySHA: BodyHash("goal"), TaskBodySHA: BodyHash("task"), PolicySHA: sha}
+	return TaskAssignment{BaseBranch: "feature/integration", Version: 2, Author: "engineer", Peer: "planner", GoalBodySHA: BodyHash("goal"), TaskBodySHA: BodyHash("task"), PolicySHA: sha}
 }
 
 func TestTeamPolicyFourthEngineerFromConfig(t *testing.T) {

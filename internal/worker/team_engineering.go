@@ -47,7 +47,7 @@ func admitTeam(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
 		return true, "assigned Ready task in approved goal"
 	}
 	p, ok := prFor(s, j.PRURL)
-	if !ok || !referenceInRepo(p.URL, t.Repo, "pull") || p.TaskURL != t.URL || p.GoalURL != g.URL || p.HeadSHA != j.HeadSHA || p.AssignmentSHA != j.Binding.AssignmentSHA || !teamTaskAuthor(c, t, p.Author) {
+	if !ok || p.BaseBranch != t.Assignment.BaseBranch || !referenceInRepo(p.URL, t.Repo, "pull") || p.TaskURL != t.URL || p.GoalURL != g.URL || p.HeadSHA != j.HeadSHA || p.AssignmentSHA != j.Binding.AssignmentSHA || !teamTaskAuthor(c, t, p.Author) {
 		return false, "PR identity, head or assignment changed"
 	}
 	if p.Merged && j.Kind == "deliver" {

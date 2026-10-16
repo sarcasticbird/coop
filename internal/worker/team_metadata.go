@@ -9,8 +9,9 @@ import (
 )
 
 type TeamGoalMetadata struct {
-	Repositories []string `json:"repositories"`
-	QA           QAPolicy `json:"qa"`
+	BaseBranches map[string]string `json:"base_branches"`
+	Repositories []string          `json:"repositories"`
+	QA           QAPolicy          `json:"qa"`
 }
 
 type TeamTaskMetadata struct {
@@ -106,6 +107,14 @@ func ParseTeamGoalMetadata(body string) (TeamGoalMetadata, error) {
 		}
 		seen[key] = true
 	}
+	if len(m.BaseBranches) != len(seen) {
+		return m, errors.New("goal requires an explicit base branch for every repository")
+	}
+	for repo, branch := range m.BaseBranches {
+		if repo != strings.ToLower(repo) || !seen[repo] || !validBaseBranch(branch) {
+			return m, errors.New("invalid goal base branch scope")
+		}
+	}
 	if m.QA.Required {
 		return m, errors.New("qa_not_supported")
 	}
@@ -196,6 +205,9 @@ func ValidateTeamScope(c Config, t Task, g Goal, now time.Time) (string, error) 
 	}
 	if !sameRepositories(m.Repositories, g.Repositories) || !containsFold(m.Repositories, t.Repo) || t.GoalURL != g.URL || t.Assignment.GoalBodySHA != g.BodySHA || t.Assignment.TaskBodySHA != t.BodySHA || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) {
 		return "", errors.New("assignment scope changed")
+	}
+	if t.Assignment.BaseBranch != m.BaseBranches[strings.ToLower(t.Repo)] {
+		return "", errors.New("assignment base branch outside approved goal")
 	}
 	planner := Actor{}
 	for _, member := range c.Team.Members {

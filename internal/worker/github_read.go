@@ -281,6 +281,9 @@ func (g *GitHubClient) readTask(ctx context.Context, repo string, issue restIssu
 	if !validGitHubURL(issue.URL) || issue.Number <= 0 || !strings.HasPrefix(issue.URL, "https://github.com/"+repo+"/issues/") {
 		return Task{}, ghError("invalid_issue_reference")
 	}
+	if g.config.Version == 2 && (issue.URL != "https://github.com/"+repo+"/issues/"+stringID(issue.Number) || len(issue.PullRequest) > 0 && string(issue.PullRequest) != "null") {
+		return Task{}, ghError("invalid_issue_reference")
+	}
 	t := Task{URL: issue.URL, Repo: repo, Title: issue.Title, Body: issue.Body, BodySHA: TaskScopeHash(issue.Title, issue.Body), Revision: issue.UpdatedAt.Format(time.RFC3339Nano), Completed: issue.State == "closed" && issue.StateReason == "completed"}
 	t.Closed = issue.State == "closed"
 	comments, err := g.issueComments(ctx, repo, issue.Number)
@@ -305,6 +308,11 @@ func (g *GitHubClient) readTask(ctx context.Context, repo string, issue restIssu
 			t.ClaimConflict = true
 		}
 	}
+	if g.config.Version == 2 {
+		if err := g.verifyTeamTaskSnapshot(ctx, repo, issue, comments); err != nil {
+			return Task{}, err
+		}
+	}
 	return t, nil
 }
 func (g *GitHubClient) taskByURL(ctx context.Context, ref string) (Task, error) {
@@ -322,6 +330,9 @@ func (g *GitHubClient) taskByURL(ctx context.Context, ref string) (Task, error) 
 	issue, err := decode[restIssue](raw)
 	if err != nil {
 		return Task{}, err
+	}
+	if g.config.Version == 2 && (issue.URL != ref || issue.Number != n) {
+		return Task{}, ghError("invalid_issue_reference")
 	}
 	return g.readTask(ctx, repo, issue)
 }
@@ -528,6 +539,10 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 		return PR{}, ghError("invalid_PR_response")
 	}
 	pr := PR{URL: ref, Author: item.Author.actor(), HeadSHA: item.HeadRefOid, Branch: item.HeadRefName, BaseBranch: item.BaseRefName, Revision: item.UpdatedAt.Format(time.RFC3339Nano), Merged: item.Merged, Closed: item.State == "CLOSED" || item.Merged, MergeState: item.MergeStateStatus, ChecksState: "unknown"}
+	version := item.prBodyVersion
+	if g.config.Version == 2 {
+		version.BaseRefName = item.BaseRefName
+	}
 	if !configuredImplementer(g.config, pr.Author) {
 		return pr, nil
 	}
@@ -550,7 +565,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 	var scopeHistory string
 	// Already-merged issue finalization needs current tracking, not a new review.
 	if !pr.Merged || g.config.Version == 2 {
-		scopeHistory, err = g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		scopeHistory, err = g.readPRScope(ctx, repo, n, version, &pr)
 		if err != nil {
 			return PR{}, err
 		}
@@ -587,7 +602,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 	// Whole-second body timestamps cannot detect a same-second A -> B -> A.
 	// Recheck all edit identities/order after reviews, before the final version read.
 	if scopeHistory != "" {
-		freshHistory, err := g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
+		freshHistory, err := g.readPRScope(ctx, repo, n, version, &pr)
 		if err != nil {
 			return PR{}, err
 		}
@@ -595,7 +610,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 			return PR{}, ghError("PR_scope_history_changed_during_read")
 		}
 	}
-	if err := g.verifyPRVersion(ctx, repo, n, item.prBodyVersion); err != nil {
+	if err := g.verifyPRVersion(ctx, repo, n, version); err != nil {
 		return PR{}, err
 	}
 	return pr, nil

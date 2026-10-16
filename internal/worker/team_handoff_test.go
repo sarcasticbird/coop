@@ -29,7 +29,7 @@ func teamHandoffFixture(t *testing.T, author string) (Config, Snapshot, Job, tim
 			assignedAuthor = m.Actor
 		}
 	}
-	p := PR{URL: "https://github.com/code/repo/pull/5", TaskURL: task.URL, GoalURL: goal.URL, HeadSHA: strings.Repeat("a", 40), AssignmentSHA: digest, Author: assignedAuthor,
+	p := PR{URL: "https://github.com/code/repo/pull/5", TaskURL: task.URL, GoalURL: goal.URL, BaseBranch: a.BaseBranch, HeadSHA: strings.Repeat("a", 40), AssignmentSHA: digest, Author: assignedAuthor,
 		ScopeRevision: BodyHash("reviewable scope"), ScopeUpdatedAt: now.Add(-time.Minute), ReviewsComplete: true, ContributorsComplete: true, Contributors: []Actor{assignedAuthor}}
 	e := Event{ID: "team-review-request", URL: goal.URL, Kind: "planning", Revision: "request-1", Body: "Ready for review: " + p.URL, Author: assignedAuthor, OccurredAt: now}
 	s := Snapshot{Complete: true, Tasks: []Task{task}, Goals: []Goal{goal}, PRs: []PR{p}, Events: []Event{e}}
@@ -132,7 +132,7 @@ func TestTeamDeliveryPlanRequiresAssignedDependentProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.PRs = append(s.PRs, PR{URL: "https://github.com/code/repo/pull/7", TaskURL: dependent.URL, GoalURL: dependent.GoalURL, AssignmentSHA: digest, Author: c.Team.Members[0].Actor})
+	s.PRs = append(s.PRs, PR{URL: "https://github.com/code/repo/pull/7", TaskURL: dependent.URL, GoalURL: dependent.GoalURL, BaseBranch: dependent.Assignment.BaseBranch, AssignmentSHA: digest, Author: c.Team.Members[0].Actor})
 	if deliveryPlanProgress(c, j, s) {
 		t.Fatal("wrong-author PR counted as dependent progress")
 	}
@@ -170,7 +170,7 @@ func TestTeamCompletedDeliveryFromEitherAuthorWakesOnlyPlanner(t *testing.T) {
 }
 
 func TestTeamCompletedDeliveryRejectsStaleOrForeignAssignment(t *testing.T) {
-	for _, name := range []string{"digest", "author", "scope", "metadata", "not-completed", "not-merged", "partial"} {
+	for _, name := range []string{"digest", "author", "scope", "metadata", "base", "not-completed", "not-merged", "partial"} {
 		t.Run(name, func(t *testing.T) {
 			c, s, _, now := teamHandoffFixture(t, "planner")
 			s.Events = nil
@@ -185,6 +185,8 @@ func TestTeamCompletedDeliveryRejectsStaleOrForeignAssignment(t *testing.T) {
 				s.Tasks[0].Body += " changed"
 			case "metadata":
 				s.Tasks[0].MetadataAuthor = c.Team.Members[1].Actor
+			case "base":
+				s.PRs[0].BaseBranch = "main"
 			case "not-completed":
 				s.Tasks[0].Completed = false
 			case "not-merged":

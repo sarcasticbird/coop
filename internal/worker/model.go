@@ -92,6 +92,7 @@ type Review struct {
 	SubmittedAt        time.Time
 }
 type PR struct {
+	BaseScopeRevision                                            string  `json:",omitempty"`
 	AssignmentSHA                                                string  `json:",omitempty"`
 	Contributors                                                 []Actor `json:",omitempty"`
 	ContributorsComplete, ReviewsComplete                        bool    `json:",omitempty"`

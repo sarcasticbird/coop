@@ -44,6 +44,7 @@ func TestTeamGitHubTaskMetadataFreshReads(t *testing.T) {
 				freshBody += legacy
 			}
 			issueReads, commentReads := 0, 0
+			useFreshComments := false
 			f := &fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
 				if owner != "code" || method != "GET" {
 					t.Fatalf("unexpected route: %s %s %s", owner, method, endpoint)
@@ -55,15 +56,15 @@ func TestTeamGitHubTaskMetadataFreshReads(t *testing.T) {
 				case strings.HasPrefix(endpoint, "repos/code/repo/issues/1/comments?"):
 					commentReads++
 					currentBody, edited := comment.Body, now
-					if issueReads > 1 {
+					if useFreshComments {
 						currentBody, edited = freshBody, now.Add(time.Second)
 					}
 					comments := []restComment{{ID: 2, Body: currentBody, Author: restActor(comment.Author), CreatedAt: now, UpdatedAt: edited}}
-					if issueReads > 1 && (name == "malformed_trusted" || name == "v1_only") {
+					if useFreshComments && (name == "malformed_trusted" || name == "v1_only") {
 						// An older valid record must not rescue an invalid trusted edit.
 						comments = append([]restComment{{ID: 1, Body: comment.Body, Author: restActor(comment.Author), CreatedAt: now.Add(-time.Second)}}, comments...)
 					}
-					if issueReads > 1 && name == "malformed_outsider" {
+					if useFreshComments && name == "malformed_outsider" {
 						comments = append(comments, restComment{ID: 3, Body: "<!-- coop-task:v2 invalid -->", Author: restActor{ID: 999, Login: comment.Author.Login, Kind: "Bot"}, CreatedAt: edited})
 					}
 					return jsonResponse(comments), nil
@@ -82,11 +83,12 @@ func TestTeamGitHubTaskMetadataFreshReads(t *testing.T) {
 			if err != nil {
 				t.Fatal("initial API metadata not admitted:", err)
 			}
+			useFreshComments = true
 			fresh, err := g.taskByURL(context.Background(), task.URL)
 			if err != nil {
 				t.Fatal("metadata rejection must not be an API failure:", err)
 			}
-			if issueReads != 2 || commentReads != 2 || fresh.Revision != first.Revision {
+			if issueReads != 6 || commentReads != 4 || fresh.Revision != first.Revision {
 				t.Fatalf("expected fresh comment reads without issue revision change: issues=%d comments=%d", issueReads, commentReads)
 			}
 			got, scopeErr := ValidateTeamScope(c, fresh, goal, now.Add(2*time.Second))

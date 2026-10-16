@@ -601,10 +601,24 @@ The host roster can configure either direction or add engineers without source
 identity changes. Required customer QA still fails as unsupported in this stage,
 and the v2 runtime startup fence remains in place.
 
+V2 goal metadata requires `base_branches`, a map from each canonical lowercase
+repository to its explicitly authorized target branch. The trusted task
+assignment repeats that repository's target as `base_branch`; it must match the
+current owner-approved goal. Missing target scope fails closed, without a default
+to `main` or a guess from prose. Changing a goal target requires renewed owner
+approval and a new matching assignment. This does not edit or migrate any live
+goal or metadata, and v1 metadata semantics remain unchanged.
+
 Engineering clearance records the native review ID and immutable actor ID,
 canonical repository/PR/task/goal, exact head, assignment digest and durable PR
-scope revision. All native review, commit and commit-author/coauthor pages must
-be complete. Unresolved identities, self-review, joint authorship involving the
+scope revision, including the target branch and complete native base-retargeting
+timeline. Retargeting away and back cannot resurrect an earlier review; changes
+during collection block the read. Branch-tip advancement alone is not a scope
+retarget: current-head checks, CLEAN eligibility and expected-head merge
+protection remain required, rather than pinning the target branch tip forever.
+All native review, commit and commit-author/coauthor pages must be complete.
+Committer identities count as contributors too. Unresolved identities,
+self-review, joint authorship involving the
 assigned peer, stale assignments and changed scope cannot clear delivery.
 Unrelated actors' approvals never substitute for the assigned engineering peer.
 Delivery still requires successful or explicitly absent checks, CLEAN merge
@@ -628,3 +642,9 @@ their saved intent and existing recovery rules, never blind replay.
 Live reciprocal bot handoffs, App permission changes, external fixtures, state
 conversion and service cutover require the separately authorized rollout packet.
 Unit/API fixtures do not establish live workflow acceptance.
+
+V2 task reads bracket the complete comment set with exact issue-version checks
+and reject concurrent title/body/state/assignment/claim mutations. Native review
+records are completely reread after contributor evidence collection and compared
+by review identity, state, head, author and submission time. A dismissal or newer
+decision during that interval blocks clearance rather than mixing observations.

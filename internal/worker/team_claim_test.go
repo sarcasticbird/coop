@@ -51,7 +51,7 @@ func newTeamClaimFixture(t *testing.T, reverse bool, kind string) *teamClaimFixt
 	reads.version["body"] = teamMarker("pr", TeamPRMetadata{Task: task.URL, Goal: goal.URL, AssignmentSHA: pr.AssignmentSHA})
 	reads.version["author"] = graphActor{ID: pr.Author.ID, Kind: pr.Author.Kind, Login: pr.Author.Login}
 	reads.pages["reviews"] = []map[string]any{teamReadPage([]any{}, 0, "")}
-	reads.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": pr.HeadSHA}}}
+	reads.pages["commits"][0]["nodes"] = []any{map[string]any{"commit": map[string]any{"id": "commit-head", "oid": pr.HeadSHA, "committer": map[string]any{"user": graphActor{ID: pr.Author.ID, Kind: "User", Login: pr.Author.Login}}}}}
 	reads.pages["commit-head"][0]["nodes"] = []any{map[string]any{"user": graphActor{ID: pr.Author.ID, Kind: "User", Login: pr.Author.Login}}}
 	reads.accounts[pr.Author.ID] = restActor(pr.Author)
 	base := reads.client(t).runner.(*fakeCommands).respond
@@ -175,7 +175,7 @@ func TestTeamClaimRetry(t *testing.T) {
 					if !lost && !reflect.DeepEqual(first, again) {
 						t.Fatal("repeat changed claim")
 					}
-					if f.taskReads != 2 || f.goals != 6 {
+					if f.taskReads != 6 || f.goals != 6 {
 						t.Fatalf("retry skipped full revalidation: task=%d goal=%d", f.taskReads, f.goals)
 					}
 					if kind == "review" && len(f.comments["repos/code/repo/issues/1/comments"]) != 1 {
@@ -214,7 +214,7 @@ func TestTeamClaimConflicts(t *testing.T) {
 					if !errors.As(err, &apiErr) || apiErr.Category != want {
 						t.Fatalf("conflicting ownership: got %v, want %s", err, want)
 					}
-					if f.posts != 0 || f.taskReads != 1 || f.goals != 3 {
+					if f.posts != 0 || f.taskReads != 3 || f.goals != 3 {
 						t.Fatalf("conflict bypassed fresh validation or posted: %+v", f)
 					}
 				})
@@ -335,6 +335,9 @@ func TestTeamClaimFreshAssignmentChange(t *testing.T) {
 				f := newTeamClaimFixture(t, reverse, kind)
 				wantAuthor := f.g.snapshot.Tasks[0].Assignment.Peer
 				f.beforeTask = func() {
+					if f.taskReads != 1 {
+						return
+					}
 					comments := f.comments["repos/code/repo/issues/1/comments"]
 					var m TeamTaskMetadata
 					if err := teamMetadata(comments[0].Body, "task", &m); err != nil {
@@ -348,12 +351,42 @@ func TestTeamClaimFreshAssignmentChange(t *testing.T) {
 				if !errors.As(err, &apiErr) || apiErr.Category != "claim_scope_changed" {
 					t.Fatalf("fresh assignment change not rejected by admission: %v", err)
 				}
-				if f.posts != 0 || f.taskReads != 1 || f.goals != 3 {
+				if f.posts != 0 || f.taskReads != 3 || f.goals != 3 {
 					t.Fatalf("changed assignment posted or skipped fresh reads: %+v", f)
 				}
 				fresh := f.g.snapshot.Tasks[0]
 				if fresh.Assignment == nil || fresh.Assignment.Author != wantAuthor {
 					t.Fatal("assignment change was only a metadata parse failure")
+				}
+			})
+		}
+	}
+}
+
+func TestTeamClaimAssignmentChangeDuringRead(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		for _, kind := range []string{"implement", "review"} {
+			t.Run(map[bool]string{false: "forward/", true: "reverse/"}[reverse]+kind, func(t *testing.T) {
+				f := newTeamClaimFixture(t, reverse, kind)
+				f.beforeTask = func() {
+					if f.taskReads != 2 {
+						return
+					}
+					comments := f.comments["repos/code/repo/issues/1/comments"]
+					var m TeamTaskMetadata
+					if err := teamMetadata(comments[0].Body, "task", &m); err != nil {
+						t.Fatal(err)
+					}
+					m.Assignment.Author, m.Assignment.Peer = m.Assignment.Peer, m.Assignment.Author
+					comments[0].Body = teamMarker("task", m)
+				}
+				_, err := f.g.Claim(context.Background(), f.j, BodyHash("live instance"))
+				var apiErr *GitHubError
+				if !errors.As(err, &apiErr) || apiErr.Category != "task_version_changed" {
+					t.Fatalf("assignment change during read not rejected: %v", err)
+				}
+				if f.posts != 0 {
+					t.Fatal("assignment change during read posted a claim")
 				}
 			})
 		}

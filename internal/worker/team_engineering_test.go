@@ -36,7 +36,8 @@ func engineeringFixture(t *testing.T, reverse bool) (Config, Snapshot, time.Time
 		}
 	}
 	p := PR{
-		URL: "https://github.com/code/repo/pull/2", TaskURL: task.URL, GoalURL: goal.URL,
+		BaseBranch: a.BaseBranch,
+		URL:        "https://github.com/code/repo/pull/2", TaskURL: task.URL, GoalURL: goal.URL,
 		HeadSHA: BodyHash("head"), Author: author, AssignmentSHA: sha,
 		ScopeRevision: BodyHash("durable scope"), ScopeUpdatedAt: now,
 		Contributors: []Actor{author}, ContributorsComplete: true, ReviewsComplete: true,
