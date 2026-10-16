@@ -526,8 +526,9 @@ irrecoverable native history remains escalated for operator investigation.
 
 Worker ledger versions are explicit. A v1 configuration reads and writes only
 v1 state; a v2 configuration reads and writes only v2 state. Loading state never
-upgrades it. V2 runtime execution and admission remain unavailable until the
-dependent workflow packages are complete; this command does not enable them.
+upgrades it. V2 runtime execution remains unavailable until the dependent
+workflow packages are complete; this command does not enable it. Isolated v2
+engineering admission and discovery fixtures are supported, not live activation.
 
 The supported conversion is one-way, offline, and bound to the exact saved
 `InstanceID`. With separately authorized stopped/drained workers and fenced
@@ -590,3 +591,40 @@ The isolated compatibility test lane accepts a saved pre-change binary via
 `COOP_TEST_OLD_WORKER`; run `flox activate -- env COOP_TEST_OLD_WORKER=/absolute/saved/coop-worker go test ./cmd/coop-worker -run TestMigrationSavedOldBinaryRefusesV2 -count=1`.
 It proves old `dry-run` and `ping` refusal with both v1 and v2 configurations,
 including a live lock/status and byte-identical inbox after the refused ping.
+
+## Assignment-bound engineering
+
+V2 engineering uses the current trusted task assignment, not the global planner
+role or Project Agent field. The assigned author owns implementation, fixes and
+delivery; only the assigned independent peer receives engineering-review work.
+The host roster can configure either direction or add engineers without source
+identity changes. Required customer QA still fails as unsupported in this stage,
+and the v2 runtime startup fence remains in place.
+
+Engineering clearance records the native review ID and immutable actor ID,
+canonical repository/PR/task/goal, exact head, assignment digest and durable PR
+scope revision. All native review, commit and commit-author/coauthor pages must
+be complete. Unresolved identities, self-review, joint authorship involving the
+assigned peer, stale assignments and changed scope cannot clear delivery.
+Unrelated actors' approvals never substitute for the assigned engineering peer.
+Delivery still requires successful or explicitly absent checks, CLEAN merge
+eligibility, fresh revalidation and expected-head protection. A merged PR keeps
+its scope history so final issue completion can reconcile the saved delivery.
+
+V2 job IDs, session bindings and private checkout-owner records include the
+assignment digest, executor ID and job role. Author implementation/fix/delivery
+share their own binding; peer review uses a separate clean checkout and native
+session at the fetched exact head. Historical migrated v1 records remain
+inspectable but are never adopted as bound v2 work.
+
+Claims carry the same binding and worker instance. Review claims are published
+on the PR without replacing its author's issue claim. A conflicting trusted
+claim blocks the affected task rather than poisoning the entire catalog; an
+outsider's pasted claim does not create authority. Claim publication is not an
+atomic distributed lock. Exactly one live worker per immutable actor remains a
+deployment requirement. Unknown native submissions and remote artifacts retain
+their saved intent and existing recovery rules, never blind replay.
+
+Live reciprocal bot handoffs, App permission changes, external fixtures, state
+conversion and service cutover require the separately authorized rollout packet.
+Unit/API fixtures do not establish live workflow acceptance.

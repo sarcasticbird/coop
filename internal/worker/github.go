@@ -376,6 +376,9 @@ func (g *GitHubClient) Claim(ctx context.Context, j Job, instance string) (Claim
 	if !hexSHA.MatchString(instance) {
 		return Claim{}, ghError("invalid_instance")
 	}
+	if g.config.Version == 2 {
+		return g.claimTeam(ctx, j, instance)
+	}
 	c, err := g.postMarked(ctx, j, "claim", "Picked up this approved task.\n"+encodeMetadata("claim", struct {
 		Instance string `json:"instance"`
 	}{instance}))
@@ -408,6 +411,7 @@ func (g *GitHubClient) Reconcile(ctx context.Context, j Job) (Artifacts, error) 
 	var a Artifacts
 	a.PlanResponded = planningResponded(g.config, j, s)
 	if task, ok := taskFor(s, j.TaskURL); ok {
+		a.Task = &task
 		a.Claim = task.Claim
 		a.IssueCompleted = task.Completed
 	}

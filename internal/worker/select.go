@@ -7,6 +7,9 @@ import (
 )
 
 func JobKey(j Job) string {
+	if j.Binding != nil {
+		return V2JobKey(j, j.Binding.AssignmentSHA, j.Binding.ExecutorID)
+	}
 	return BodyHash(strings.Join([]string{j.Kind, j.GoalURL, j.TaskURL, j.PRURL, j.HeadSHA, j.InputRevision}, "\x00"))
 }
 func goalFor(s Snapshot, url string) (Goal, bool) {
@@ -49,13 +52,28 @@ func latestReview(c Config, p PR) Review {
 	return latest
 }
 func taskAdmitted(c Config, t Task, g Goal, s Snapshot) bool {
+	if c.Version == 2 {
+		if t.Completed || t.Closed {
+			return false
+		}
+		if _, err := resolveTeamAssignment(c, t, g, time.Now()); err != nil {
+			return false
+		}
+		for _, url := range t.DependsOn {
+			dep, ok := taskFor(s, url)
+			if !ok || !dep.Completed {
+				return false
+			}
+		}
+		return true
+	}
 	if !referenceInRepo(t.URL, t.Repo, "issues") {
 		return false
 	}
 	if t.Completed || t.Closed || !validGitHubURL(t.URL) || !validRepo(t.Repo) || !containsFold(c.CodeOwners, strings.Split(t.Repo, "/")[0]) || !containsFold(g.Repositories, t.Repo) || t.GoalURL != g.URL || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.MetadataScopeSHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, c.Reviewer)) {
 		return false
 	}
-	if t.Claim != nil && (!sameActor(t.Claim.Author, c.Implementer) || t.Claim.Marker == "" || t.Claim.InstanceID == "") {
+	if t.Claim != nil && (t.Claim.Binding != nil || !sameActor(t.Claim.Author, c.Implementer) || t.Claim.Marker == "" || t.Claim.InstanceID == "") {
 		return false
 	}
 	for _, url := range t.DependsOn {
@@ -67,8 +85,11 @@ func taskAdmitted(c Config, t Task, g Goal, s Snapshot) bool {
 	return true
 }
 func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
+	if c.Version == 2 {
+		return admitTeam(c, j, s, now)
+	}
 	if c.Version != 1 {
-		return false, "v2 workflow not supported"
+		return false, "unsupported workflow version"
 	}
 	if !s.Complete {
 		return false, "incomplete GitHub snapshot"
@@ -135,6 +156,9 @@ func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
 	return false, "unsupported work kind"
 }
 func Select(c Config, s Snapshot, state State, now time.Time) []Job {
+	if c.Version == 2 {
+		return selectTeam(c, s, state, now)
+	}
 	var candidates []Job
 	for _, p := range s.PRs {
 		r := latestReview(c, p)

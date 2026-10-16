@@ -103,6 +103,7 @@ func (e *Engine) holdBusy(j Job) error {
 func snapshotArtifacts(c Config, j Job, s Snapshot) Artifacts {
 	a := Artifacts{PlanResponded: planningResponded(c, j, s)}
 	if t, ok := taskFor(s, j.TaskURL); ok {
+		a.Task = &t
 		a.Claim = t.Claim
 		a.IssueCompleted = t.Completed
 	}

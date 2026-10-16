@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -27,19 +28,31 @@ func InspectWork(c Config, s Snapshot, state State, now time.Time) WorkInspectio
 			continue
 		}
 		j := Job{Kind: "implement", GoalURL: task.GoalURL, TaskURL: task.URL}
+		if c.Version == 2 {
+			bound, err := bindTeamJob(c, j, s, now)
+			if err != nil {
+				result.Blocked = append(result.Blocked, WorkReason{TaskURL: task.URL, Reason: err.Error()})
+				continue
+			}
+			j = bound
+		}
 		if allowed, reason := Admit(c, j, s, now); !allowed {
 			result.Blocked = append(result.Blocked, WorkReason{TaskURL: task.URL, Reason: reason})
 		}
 	}
 	for _, p := range s.PRs {
-		if !p.Closed && !p.Merged && sameActor(p.Author, c.Implementer) && missingPRMetadata(p) {
-			result.Blocked = append(result.Blocked, WorkReason{TaskURL: p.URL, Reason: "PR missing task/goal metadata"})
+		if !p.Closed && !p.Merged && configuredImplementer(c, p.Author) && (missingPRMetadata(p) || c.Version == 2 && p.AssignmentSHA == "") {
+			reason := "PR missing task/goal metadata"
+			if c.Version == 2 {
+				reason = "PR missing task/goal/assignment metadata"
+			}
+			result.Blocked = append(result.Blocked, WorkReason{TaskURL: p.URL, Reason: reason})
 		}
 	}
 	return result
 }
 func TaskMetadataComment(c Config, s Snapshot, taskURL, goalURL string, now time.Time) (string, error) {
-	if !s.Complete || c.Role != "planner" || !validGitHubURL(taskURL) || !validGitHubURL(goalURL) {
+	if !s.Complete || !isPlanner(c) || !validGitHubURL(taskURL) || !validGitHubURL(goalURL) {
 		return "", errors.New("invalid task metadata request")
 	}
 	t, ok := taskFor(s, taskURL)
@@ -51,7 +64,46 @@ func TaskMetadataComment(c Config, s Snapshot, taskURL, goalURL string, now time
 		return "", errors.New("task needs an approved in-scope goal")
 	}
 	deps := append([]string{}, t.DependsOn...)
+	if c.Version == 2 {
+		if _, err := ValidateTeamScope(c, t, g, now); err != nil {
+			return "", err
+		}
+		raw, err := json.Marshal(TeamTaskMetadata{Goal: goalURL, ScopeSHA: t.BodySHA, DependsOn: deps, Assignment: *t.Assignment})
+		if err != nil {
+			return "", err
+		}
+		return "<!-- coop-task:v2 " + string(raw) + " -->", nil
+	}
 	return encodeMetadata("task", taskMetadata{Goal: goalURL, ScopeSHA: TaskScopeHash(t.Title, t.Body), DependsOn: deps}), nil
+}
+
+// PRMetadataComment repairs tracking only. It neither assigns work nor changes
+// the owner-approved goal or the task's reviewable scope.
+func PRMetadataComment(c Config, s Snapshot, prURL, taskURL, goalURL string, now time.Time) (string, error) {
+	if c.Version != 2 || !s.Complete || !validGitHubURL(prURL) {
+		return "", errors.New("invalid v2 PR metadata request")
+	}
+	p, ok := prFor(s, prURL)
+	t, taskOK := taskFor(s, taskURL)
+	g, goalOK := goalFor(s, goalURL)
+	if !ok || !taskOK || !goalOK || !referenceInRepo(p.URL, t.Repo, "pull") || p.Closed || p.Merged {
+		return "", errors.New("PR or task is not readable in configured scope")
+	}
+	a, err := resolveTeamAssignment(c, t, g, now)
+	if err != nil {
+		return "", err
+	}
+	if !sameActor(p.Author, a.Author) || (!isPlanner(c) && !sameActor(c.Self, a.Author)) {
+		return "", errors.New("PR metadata requires assigned author or planner")
+	}
+	if p.TaskURL != "" && p.TaskURL != t.URL || p.GoalURL != "" && p.GoalURL != g.URL || p.AssignmentSHA != "" && p.AssignmentSHA != a.SHA {
+		return "", errors.New("PR metadata conflicts with existing tracking")
+	}
+	raw, err := json.Marshal(TeamPRMetadata{Task: t.URL, Goal: g.URL, AssignmentSHA: a.SHA})
+	if err != nil {
+		return "", err
+	}
+	return "<!-- coop-pr:v2 " + string(raw) + " -->", nil
 }
 func (c *OpenCodeClient) Preflight(ctx context.Context, cfg Config) error {
 	request, err := http.NewRequestWithContext(ctx, "GET", c.config.BaseURL+"/global/health", nil)

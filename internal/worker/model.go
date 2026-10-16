@@ -70,10 +70,12 @@ type Goal struct {
 	Readable                bool
 }
 type Claim struct {
+	Binding                *JobBinding `json:",omitempty"`
 	ID, Marker, InstanceID string
 	Author                 Actor
 }
 type Task struct {
+	ClaimConflict                                                                         bool            `json:",omitempty"`
 	Assignment                                                                            *TaskAssignment `json:",omitempty"`
 	MetadataUpdatedAt                                                                     time.Time
 	URL, Repo, GoalURL, Title, Body, BodySHA, MetadataScopeSHA, Revision                  string
@@ -90,6 +92,9 @@ type Review struct {
 	SubmittedAt        time.Time
 }
 type PR struct {
+	AssignmentSHA                                                string  `json:",omitempty"`
+	Contributors                                                 []Actor `json:",omitempty"`
+	ContributorsComplete, ReviewsComplete                        bool    `json:",omitempty"`
 	ScopeUpdatedAt                                               time.Time
 	ScopeRevision                                                string
 	URL, TaskURL, GoalURL, HeadSHA, Branch, Revision, BaseBranch string
@@ -113,6 +118,8 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	PRScopeRevision                                                              string           `json:",omitempty"`
+	Binding                                                                      *JobBinding      `json:",omitempty"`
 	ReconcileFailures                                                            int              `json:",omitempty"`
 	ReconcileError                                                               string           `json:",omitempty"`
 	PromptReportAttempts                                                         int              `json:",omitempty"`
@@ -125,7 +132,16 @@ type Job struct {
 	Attempts, ReviewCycles                                                       int
 	NextAttemptAt, Deadline, SubmittedAt                                         time.Time
 }
-type SessionBinding struct{ TaskURL, GoalURL, Role, Kind, Checkout, Branch, SessionID string }
+type JobBinding struct {
+	Version       int
+	AssignmentSHA string
+	ExecutorID    int64
+	Role          string
+}
+type SessionBinding struct {
+	Binding                                                   *JobBinding `json:",omitempty"`
+	TaskURL, GoalURL, Role, Kind, Checkout, Branch, SessionID string
+}
 type State struct {
 	Attempts       map[string]int
 	Version        int
@@ -140,6 +156,7 @@ type State struct {
 }
 type Approval struct{ State, BodySHA, Reason string }
 type Artifacts struct {
+	Task           *Task
 	PlanResponded  bool
 	Claim          *Claim
 	PR             *PR

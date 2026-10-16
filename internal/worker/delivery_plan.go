@@ -16,11 +16,11 @@ func planningEvents(c Config, s Snapshot, now time.Time) []Event {
 			events = append(events, event)
 		}
 	}
-	if c.Role != "planner" || !s.Complete {
+	if !isPlanner(c) || !s.Complete {
 		return events
 	}
 	for _, p := range s.PRs {
-		if !p.Merged || !sameActor(p.Author, c.Implementer) || p.HeadSHA == "" {
+		if !p.Merged || !configuredImplementer(c, p.Author) || p.HeadSHA == "" {
 			continue
 		}
 		t, ok := taskFor(s, p.TaskURL)
@@ -37,7 +37,16 @@ func planningEvents(c Config, s Snapshot, now time.Time) []Event {
 		if !taskAdmitted(c, check, g, s) {
 			continue
 		}
+		if c.Version == 2 {
+			a, err := resolveTeamAssignment(c, check, g, now)
+			if err != nil || p.AssignmentSHA != a.SHA || !sameActor(p.Author, a.Author) {
+				continue
+			}
+		}
 		revision := BodyHash(p.URL + ":" + p.TaskURL + ":" + p.GoalURL + ":" + p.HeadSHA + ":" + t.BodySHA + ":" + g.BodySHA)
+		if c.Version == 2 {
+			revision = BodyHash(revision + ":" + p.AssignmentSHA)
+		}
 		events = append(events, Event{ID: "delivery:" + revision, Revision: revision, URL: g.URL, Kind: "delivery_completed", Author: p.Author, OccurredAt: now,
 			Body: fmt.Sprintf("Verified completed delivery: task %s, merged PR %s, head %s. Reconcile its Project item as Done and advance dependent tasks that serve this approved goal when their actual dependencies and acceptance conditions permit. Preserve scope and dependencies. Do not propose a new goal or request repeated owner approval. Report the concrete next queue state in this goal thread.", t.URL, p.URL, p.HeadSHA)})
 	}
@@ -73,9 +82,15 @@ func deliveryPlanProgress(c Config, j Job, s Snapshot) bool {
 		if dependent.Ready {
 			continue
 		}
-		inFlight := dependent.Claim != nil && sameActor(dependent.Claim.Author, c.Implementer)
+		inFlight := dependent.Claim != nil && teamTaskAuthor(c, dependent, dependent.Claim.Author)
 		for _, pr := range s.PRs {
-			if pr.TaskURL == dependent.URL && pr.GoalURL == g.URL && sameActor(pr.Author, c.Implementer) && (!pr.Closed || pr.Merged) {
+			if pr.TaskURL == dependent.URL && pr.GoalURL == g.URL && teamTaskAuthor(c, dependent, pr.Author) && (!pr.Closed || pr.Merged) {
+				if c.Version == 2 {
+					a, err := resolveTeamAssignment(c, dependent, g, time.Now())
+					if err != nil || pr.AssignmentSHA != a.SHA || !referenceInRepo(pr.URL, dependent.Repo, "pull") {
+						continue
+					}
+				}
 				inFlight = true
 			}
 		}

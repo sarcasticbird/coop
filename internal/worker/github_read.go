@@ -177,7 +177,7 @@ func (g *GitHubClient) readSnapshot(ctx context.Context, previous Snapshot) (Sna
 	}
 	// Goal issues are supported for private coordination.
 	for _, t := range tasks {
-		if strings.Contains(t.Body, "<!-- coop-goal:v1 ") {
+		if strings.Contains(t.Body, "<!-- coop-goal:v1 ") || c.Version == 2 && strings.Contains(t.Body, "<!-- coop-goal:v2 ") {
 			goal, events, err := g.issueGoal(ctx, t)
 			if err != nil {
 				return s, err
@@ -241,7 +241,7 @@ func (g *GitHubClient) readSnapshot(ctx context.Context, previous Snapshot) (Sna
 		}
 		// Observe unlinked implementer PRs without admitting them. Otherwise a
 		// manual handoff disappears and monitoring incorrectly reports idle.
-		if p.TaskURL != "" || sameActor(p.Author, c.Implementer) {
+		if p.TaskURL != "" || configuredImplementer(c, p.Author) {
 			s.PRs = append(s.PRs, p)
 		}
 	}
@@ -292,8 +292,17 @@ func (g *GitHubClient) readTask(ctx context.Context, repo string, issue restIssu
 		t.MetadataAuthor = Actor{}
 	}
 	for _, c := range comments {
+		if g.config.Version == 2 && !trustedTeamClaimActor(g.config, c.Author) {
+			continue
+		}
 		if claim := claimFromComment(c); claim != nil {
+			if g.config.Version == 2 && t.Claim != nil && (t.Claim.InstanceID != claim.InstanceID || !sameActor(t.Claim.Author, claim.Author) || t.Claim.Binding == nil || claim.Binding == nil || *t.Claim.Binding != *claim.Binding) {
+				t.ClaimConflict = true
+				continue
+			}
 			t.Claim = claim
+		} else if g.config.Version == 2 && strings.Contains(c.Body, "<!-- coop-claim:") {
+			t.ClaimConflict = true
 		}
 	}
 	return t, nil
@@ -519,18 +528,28 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 		return PR{}, ghError("invalid_PR_response")
 	}
 	pr := PR{URL: ref, Author: item.Author.actor(), HeadSHA: item.HeadRefOid, Branch: item.HeadRefName, BaseBranch: item.BaseRefName, Revision: item.UpdatedAt.Format(time.RFC3339Nano), Merged: item.Merged, Closed: item.State == "CLOSED" || item.Merged, MergeState: item.MergeStateStatus, ChecksState: "unknown"}
-	if !sameActor(pr.Author, g.config.Implementer) {
+	if !configuredImplementer(g.config, pr.Author) {
 		return pr, nil
 	}
-	m, err := parsePRMetadata(item.Body)
-	if err != nil || !referenceInRepo(m.Task, repo, "issues") {
-		return pr, nil
+	if g.config.Version == 2 {
+		var m TeamPRMetadata
+		if err := teamMetadata(item.Body, "pr", &m); err != nil {
+			return pr, nil
+		}
+		if _, err := ParseTeamPRMetadata(item.Body, repo, m.Task, m.Goal, m.AssignmentSHA); err != nil {
+			return pr, nil
+		}
+		pr.TaskURL, pr.GoalURL, pr.AssignmentSHA = m.Task, m.Goal, m.AssignmentSHA
+	} else {
+		m, err := parsePRMetadata(item.Body)
+		if err != nil || !referenceInRepo(m.Task, repo, "issues") {
+			return pr, nil
+		}
+		pr.TaskURL, pr.GoalURL = m.Task, m.Goal
 	}
-	pr.TaskURL = m.Task
-	pr.GoalURL = m.Goal
 	var scopeHistory string
 	// Already-merged issue finalization needs current tracking, not a new review.
-	if !pr.Merged {
+	if !pr.Merged || g.config.Version == 2 {
 		scopeHistory, err = g.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
 		if err != nil {
 			return PR{}, err
@@ -542,22 +561,28 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 			pr.ChecksState = strings.ToLower(rollup.State)
 		}
 	}
-	reviews, err := g.restList(ctx, p[0], "repos/"+repo+"/pulls/"+stringID(n)+"/reviews", "")
-	if err != nil {
-		return pr, err
-	}
-	for _, raw := range reviews {
-		r, err := decode[struct {
-			ID          int64
-			CommitID    string `json:"commit_id"`
-			State       string
-			User        restActor
-			SubmittedAt time.Time `json:"submitted_at"`
-		}](raw)
+	if g.config.Version == 2 {
+		if err := g.readTeamEvidence(ctx, repo, n, &pr); err != nil {
+			return PR{}, err
+		}
+	} else {
+		reviews, err := g.restList(ctx, p[0], "repos/"+repo+"/pulls/"+stringID(n)+"/reviews", "")
 		if err != nil {
 			return pr, err
 		}
-		pr.Reviews = append(pr.Reviews, Review{ID: strconv.FormatInt(r.ID, 10), HeadSHA: r.CommitID, State: r.State, Author: r.User.actor(), SubmittedAt: r.SubmittedAt})
+		for _, raw := range reviews {
+			r, err := decode[struct {
+				ID          int64
+				CommitID    string `json:"commit_id"`
+				State       string
+				User        restActor
+				SubmittedAt time.Time `json:"submitted_at"`
+			}](raw)
+			if err != nil {
+				return pr, err
+			}
+			pr.Reviews = append(pr.Reviews, Review{ID: strconv.FormatInt(r.ID, 10), HeadSHA: r.CommitID, State: r.State, Author: r.User.actor(), SubmittedAt: r.SubmittedAt})
+		}
 	}
 	// Whole-second body timestamps cannot detect a same-second A -> B -> A.
 	// Recheck all edit identities/order after reviews, before the final version read.
@@ -787,7 +812,7 @@ func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[
 	return nil
 }
 func (g *GitHubClient) syncProject(ctx context.Context, j Job, state string) error {
-	if g.config.Role != "planner" {
+	if !isPlanner(g.config) {
 		return nil
 	} // Robin's installation intentionally has Projects read-only.
 	t, ok := taskFor(g.snapshot, j.TaskURL)
