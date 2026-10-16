@@ -20,6 +20,9 @@ var plannerPrompt string
 //go:embed prompts/engineering-review.txt
 var engineeringReviewPrompt string
 
+//go:embed prompts/customer-qa.txt
+var customerQAPrompt string
+
 func WorkerToolPolicy(paths []string) ([]byte, error) {
 	read := map[string]string{}
 	for _, path := range append([]string{"*/auth.json", "*/credentials/*", "/run/coop/current-credentials/*", "/dev/shm/coop-credentials/*", "*/github-apps/*.pem"}, paths...) {
@@ -51,7 +54,14 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 		if err != nil || *bound.Binding != *j.Binding || bound.ID != j.ID || bound.PRScopeRevision != j.PRScopeRevision || bound.ScopeSHA != j.ScopeSHA || j.Binding.ExecutorID != c.Self.ID {
 			return "", errors.New("team job binding changed")
 		}
+		if j.Kind == "qa" {
+			p, ok := prFor(s, j.PRURL)
+			if !ok || j.QAArtifact == nil || p.QAArtifact == nil || *j.QAArtifact != *p.QAArtifact || j.QAArtifact.HeadSHA != j.HeadSHA {
+				return "", errors.New("QA job artifact changed")
+			}
+		}
 		var author, peer Actor
+		var qa *Actor
 		if j.Kind != "plan" {
 			t, _ := taskFor(s, j.TaskURL)
 			g, _ := goalFor(s, j.GoalURL)
@@ -60,11 +70,15 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 				return "", err
 			}
 			author, peer = a.Author, a.Peer
+			if a.QA.ID != 0 {
+				qa = &a.QA
+			}
 		}
 		identity, err = json.Marshal(struct {
 			Name, Role         string
 			Self, Author, Peer Actor
-		}{c.Name, j.Binding.Role, c.Self, author, peer})
+			QA                 *Actor `json:",omitempty"`
+		}{c.Name, j.Binding.Role, c.Self, author, peer, qa})
 		if err != nil {
 			return "", errors.New("cannot build worker identity")
 		}
@@ -76,9 +90,11 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 		Checkout, Branch                                                    string
 		Binding                                                             *JobBinding `json:",omitempty"`
 		PRScopeRevision                                                     string      `json:",omitempty"`
+		QAArtifact                                                          *QAArtifact `json:",omitempty"`
 	}{ID: j.ID, Kind: j.Kind, GoalURL: j.GoalURL, TaskURL: j.TaskURL, PRURL: j.PRURL, HeadSHA: j.HeadSHA, InputRevision: j.InputRevision, ScopeSHA: j.ScopeSHA, Checkout: j.Checkout, Branch: j.Branch}
 	if c.Version == 2 {
 		job.Binding, job.PRScopeRevision = j.Binding, j.PRScopeRevision
+		job.QAArtifact = j.QAArtifact
 	}
 	var goal *Goal
 	var task *Task
@@ -134,10 +150,16 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 		role = plannerPrompt
 	case "review":
 		role = engineeringReviewPrompt
+	case "qa":
+		role = customerQAPrompt
 	}
 	common := commonPrompt
 	if c.Version == 2 {
 		common = strings.Replace(common, "Self is your GitHub identity; Implementer and Reviewer identify your teammate and your own role.", "Self is your GitHub identity; Role is this job's role, and Author and Peer are the trusted task assignment, not global planner status.", 1)
+		if j.Kind == "qa" {
+			common = strings.Replace(common, "Author and Peer are the trusted task assignment, not global planner status.", "Author, Peer and QA are the trusted task assignment, not global planner status. You are Self, the assigned customer-qa actor, not the author or engineering peer.", 1)
+			common = strings.Replace(common, "post it once in the existing task or goal thread and return.", "record safe blocker metadata and evidence links in your formal QA review, keep private details in the authorized goal repository, and return.", 1)
+		}
 		role = strings.NewReplacer("Hawk", "the assigned peer", "Robin", "the assigned author").Replace(role)
 		switch j.Kind {
 		case "implement", "fix", "deliver":

@@ -60,14 +60,26 @@ func admitTeam(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
 		return false, "independent engineering evidence unavailable"
 	}
 	r := teamLatestReview(c, t, p)
+	qaReview, qaResult, qaValid := Review{}, QAResult{}, false
+	if t.QA.Required && p.QAArtifact != nil {
+		qaReview, qaResult, qaValid = latestTeamQA(c, t, p, t.QA, p.QAArtifact.SHA256)
+	}
 	switch j.Kind {
 	case "review":
 		return j.InputRevision == p.HeadSHA+":"+p.ScopeRevision && (r.ID == "" || r.State == "DISMISSED"), "current assigned head requires review"
 	case "fix":
-		return r.State == "CHANGES_REQUESTED" && j.InputRevision == r.ID, "current-head changes requested"
+		return r.State == "CHANGES_REQUESTED" && j.InputRevision == r.ID || qaValid && qaResult.Conclusion == "changes-needed" && j.InputRevision == "qa:"+qaReview.ID && qaArtifactEqual(j.QAArtifact, p.QAArtifact), "current-head changes requested"
+	case "qa":
+		_, cleared := EngineeringReviewFor(c, t, p)
+		return t.QA.Required && cleared && (p.ChecksState == "success" || p.ChecksState == "none") && qaArtifactEqual(j.QAArtifact, p.QAArtifact) && j.InputRevision == qaRevision(p) && !qaValid, "fresh engineering, checks and immutable artifact required before QA"
 	case "deliver":
 		_, cleared := EngineeringReviewFor(c, t, p)
-		return cleared && j.InputRevision == r.ID && (p.ChecksState == "success" || p.ChecksState == "none") && p.MergeState == "CLEAN", "current engineering clearance and checks required"
+		qaCleared, revision := !t.QA.Required, r.ID
+		if t.QA.Required {
+			qaCleared = qaValid && qaResult.Conclusion == "pass" && qaArtifactEqual(j.QAArtifact, p.QAArtifact)
+			revision += ":qa:" + qaReview.ID
+		}
+		return cleared && qaCleared && j.InputRevision == revision && (p.ChecksState == "success" || p.ChecksState == "none") && p.MergeState == "CLEAN", "current engineering, required QA clearance and checks required"
 	}
 	return false, "unsupported team work kind"
 }
@@ -80,6 +92,10 @@ func selectTeam(c Config, s Snapshot, state State, now time.Time) []Job {
 			continue
 		}
 		r := teamLatestReview(c, t, p)
+		qaReview, qaResult, qaValid := Review{}, QAResult{}, false
+		if t.QA.Required && p.QAArtifact != nil {
+			qaReview, qaResult, qaValid = latestTeamQA(c, t, p, t.QA, p.QAArtifact.SHA256)
+		}
 		kind, revision := "review", p.HeadSHA+":"+p.ScopeRevision
 		if teamTaskAuthor(c, t, c.Self) {
 			switch {
@@ -87,13 +103,29 @@ func selectTeam(c Config, s Snapshot, state State, now time.Time) []Job {
 				kind, revision = "deliver", "merged:"+p.HeadSHA
 			case r.State == "CHANGES_REQUESTED":
 				kind, revision = "fix", r.ID
+			case qaValid && qaResult.Conclusion == "changes-needed":
+				kind, revision = "fix", "qa:"+qaReview.ID
 			case r.State == "APPROVED":
 				kind, revision = "deliver", r.ID
+				if t.QA.Required {
+					revision += ":qa:" + qaReview.ID
+				}
 			default:
 				continue
 			}
 		}
-		candidates = append(candidates, Job{Kind: kind, GoalURL: p.GoalURL, TaskURL: p.TaskURL, PRURL: p.URL, HeadSHA: p.HeadSHA, InputRevision: revision})
+		if t.QA.Required && c.Team != nil && t.Assignment != nil {
+			for _, member := range c.Team.Members {
+				if member.Name == t.Assignment.QA && sameActor(member.Actor, c.Self) {
+					kind, revision = "qa", qaRevision(p)
+				}
+			}
+		}
+		j := Job{Kind: kind, GoalURL: p.GoalURL, TaskURL: p.TaskURL, PRURL: p.URL, HeadSHA: p.HeadSHA, InputRevision: revision}
+		if t.QA.Required && (kind == "qa" || kind == "fix" || kind == "deliver") {
+			j.QAArtifact = p.QAArtifact
+		}
+		candidates = append(candidates, j)
 	}
 	for _, t := range s.Tasks {
 		candidates = append(candidates, Job{Kind: "implement", GoalURL: t.GoalURL, TaskURL: t.URL, InputRevision: t.BodySHA})
@@ -124,7 +156,7 @@ func selectTeam(c Config, s Snapshot, state State, now time.Time) []Job {
 			result = append(result, j)
 		}
 	}
-	priority := map[string]int{"fix": 0, "review": 1, "deliver": 2, "implement": 3, "plan": 4}
+	priority := map[string]int{"fix": 0, "review": 1, "qa": 2, "deliver": 3, "implement": 4, "plan": 5}
 	sort.SliceStable(result, func(i, j int) bool {
 		a, b := result[i], result[j]
 		if priority[a.Kind] != priority[b.Kind] {

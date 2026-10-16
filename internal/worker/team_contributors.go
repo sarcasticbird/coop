@@ -82,7 +82,7 @@ func (g *GitHubClient) readTeamReviews(ctx context.Context, repo string, number 
 	readAt := time.Now().UTC()
 	parts := strings.Split(repo, "/")
 	vars := map[string]any{"owner": parts[0], "repo": parts[1], "number": number}
-	query := `query WorkerTeamReviews($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviews(first:100,after:$after){totalCount nodes{fullDatabaseId state submittedAt commit{oid} author{` + actorFields + `}} pageInfo{hasNextPage endCursor}}}}}`
+	query := `query WorkerTeamReviews($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviews(first:100,after:$after){totalCount nodes{fullDatabaseId state body submittedAt lastEditedAt commit{oid} author{` + actorFields + `}} pageInfo{hasNextPage endCursor}}}}}`
 	nodes, err := g.teamConnection(ctx, parts[0], query, vars, "repository", "pullRequest", "reviews")
 	if err != nil {
 		return nil, err
@@ -93,7 +93,9 @@ func (g *GitHubClient) readTeamReviews(ctx context.Context, repo string, number 
 		r, err := decode[struct {
 			FullDatabaseID json.Number
 			State          string
+			Body           string
 			SubmittedAt    time.Time
+			LastEditedAt   time.Time
 			Commit         *struct{ OID string }
 			Author         graphActor
 		}](raw)
@@ -117,7 +119,7 @@ func (g *GitHubClient) readTeamReviews(ctx context.Context, repo string, number 
 			return nil, ghError("invalid_team_review_state")
 		}
 		seenReviews[id] = true
-		reviews = append(reviews, Review{ID: strconv.FormatInt(id, 10), HeadSHA: r.Commit.OID, State: r.State, Author: r.Author.actor(), SubmittedAt: r.SubmittedAt.UTC()})
+		reviews = append(reviews, Review{ID: strconv.FormatInt(id, 10), HeadSHA: r.Commit.OID, State: r.State, Body: r.Body, Author: r.Author.actor(), SubmittedAt: r.SubmittedAt.UTC(), LastEditedAt: r.LastEditedAt.UTC()})
 	}
 	sort.Slice(reviews, func(i, j int) bool { return reviews[i].ID < reviews[j].ID })
 	return reviews, nil

@@ -229,6 +229,17 @@ func (g *GitHubClient) readSnapshot(ctx context.Context, previous Snapshot) (Sna
 		}
 		tasks[t.URL] = t
 	}
+	for ref, t := range tasks {
+		if c.Version == 2 {
+			t.QA = QAPolicy{}
+			if goal, ok := goalFor(s, t.GoalURL); ok {
+				if metadata, err := ParseTeamGoalMetadata(goal.Body); err == nil && t.Assignment != nil && t.Assignment.GoalBodySHA == goal.BodySHA {
+					t.QA = metadata.QA
+				}
+			}
+			tasks[ref] = t
+		}
+	}
 	for ref := range prRefs {
 		p, err := g.readPR(ctx, ref)
 		if err != nil {
@@ -237,6 +248,7 @@ func (g *GitHubClient) readSnapshot(ctx context.Context, previous Snapshot) (Sna
 		if p.TaskURL != "" {
 			if task, ok := tasks[p.TaskURL]; ok {
 				bindReviewScope(&p, task)
+				g.readQAArtifact(ctx, task, &p)
 			}
 		}
 		// Observe unlinked implementer PRs without admitting them. Otherwise a
@@ -555,6 +567,7 @@ func (g *GitHubClient) readPR(ctx context.Context, ref string) (PR, error) {
 			return pr, nil
 		}
 		pr.TaskURL, pr.GoalURL, pr.AssignmentSHA = m.Task, m.Goal, m.AssignmentSHA
+		pr.QAArtifact = m.Artifact
 	} else {
 		m, err := parsePRMetadata(item.Body)
 		if err != nil || !referenceInRepo(m.Task, repo, "issues") {

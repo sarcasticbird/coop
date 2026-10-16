@@ -155,6 +155,8 @@ func validateOwnershipBinding(b *JobBinding, kind string) error {
 		role = "implementer"
 	case "review":
 		role = "engineering-review"
+	case "qa":
+		role = "customer-qa"
 	}
 	if role == "" || b.Role != role {
 		return errors.New("worker ownership role mismatch")

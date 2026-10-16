@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 type TeamMember struct {
@@ -94,7 +95,9 @@ func TeamMemberForActor(p TeamPolicy, actor Actor) (TeamMember, bool) {
 	return TeamMember{}, false
 }
 
-func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
+// validateTaskAssignmentStructure does not infer QA requirements before the
+// approved goal is available. A named QA actor must still be independent.
+func validateTaskAssignmentStructure(p TeamPolicy, a TaskAssignment) error {
 	policySHA, err := TeamPolicySHA(p)
 	if err != nil {
 		return err
@@ -105,10 +108,7 @@ func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
 	if a.Author == "" || a.Peer == "" || p.EngineeringPeers[a.Author] != a.Peer {
 		return errors.New("assignment author or peer does not match team policy")
 	}
-	if !q.Required {
-		if a.QA != "" || q.Reviewer != "" || q.AcceptanceSHA != "" || q.Environment != "" || q.EnvironmentRevision != "" {
-			return errors.New("nonrequired QA must have no extra fields")
-		}
+	if a.QA == "" {
 		return nil
 	}
 	qualified := false
@@ -117,13 +117,41 @@ func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
 			qualified = true
 		}
 	}
-	if a.QA == "" || a.QA != q.Reviewer || !qualified || a.QA == a.Author || a.QA == a.Peer {
+	if !qualified || a.QA == a.Author || a.QA == a.Peer {
 		return errors.New("QA reviewer missing, unqualified or not independent")
 	}
-	if !hexSHA.MatchString(q.AcceptanceSHA) || strings.TrimSpace(q.Environment) == "" || strings.TrimSpace(q.EnvironmentRevision) == "" {
+	return nil
+}
+
+func validateQAPolicy(q QAPolicy) error {
+	if !q.Required {
+		if q != (QAPolicy{}) {
+			return errors.New("nonrequired QA must have no extra fields")
+		}
+		return nil
+	}
+	if !slug.MatchString(q.Reviewer) || q.Reviewer != strings.ToLower(q.Reviewer) || !hexSHA.MatchString(q.AcceptanceSHA) {
 		return errors.New("invalid QA acceptance hash or environment")
 	}
-	return errors.New("qa_not_supported")
+	for _, s := range []string{q.Environment, q.EnvironmentRevision} {
+		if s == "" || strings.TrimSpace(s) != s || len(s) > 2<<10 || !utf8.ValidString(s) || strings.ContainsAny(s, "\x00\r\n") {
+			return errors.New("invalid QA environment or revision")
+		}
+	}
+	return nil
+}
+
+func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
+	if err := validateTaskAssignmentStructure(p, a); err != nil {
+		return err
+	}
+	if err := validateQAPolicy(q); err != nil {
+		return err
+	}
+	if a.QA != q.Reviewer {
+		return errors.New("assignment QA does not match goal policy")
+	}
+	return nil
 }
 
 // TeamPolicySHA sorts set-like fields on copies and excludes mutable logins.
@@ -170,13 +198,16 @@ func AssignmentSHA(p TeamPolicy, repo, taskURL, goalURL string, a TaskAssignment
 	if !validRepo(repo) || !referenceInRepo(taskURL, repo, "issues") || !validTeamGoalURL(goalURL) {
 		return "", errors.New("invalid assignment repository or references")
 	}
-	var authorID, peerID int64
+	var authorID, peerID, qaID int64
 	for _, m := range p.Members {
 		if m.Name == a.Author {
 			authorID = m.Actor.ID
 		}
 		if m.Name == a.Peer {
 			peerID = m.Actor.ID
+		}
+		if m.Name == a.QA {
+			qaID = m.Actor.ID
 		}
 	}
 	raw, err := json.Marshal(struct {
@@ -186,8 +217,9 @@ func AssignmentSHA(p TeamPolicy, repo, taskURL, goalURL string, a TaskAssignment
 		Assignment TaskAssignment `json:"assignment"`
 		AuthorID   int64          `json:"author_id"`
 		PeerID     int64          `json:"peer_id"`
+		QAID       int64          `json:"qa_id"`
 		QA         QAPolicy       `json:"qa"`
-	}{repo, taskURL, goalURL, a, authorID, peerID, q})
+	}{repo, taskURL, goalURL, a, authorID, peerID, qaID, q})
 	if err != nil {
 		return "", err
 	}

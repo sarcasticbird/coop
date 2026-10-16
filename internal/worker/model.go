@@ -75,6 +75,7 @@ type Claim struct {
 	Author                 Actor
 }
 type Task struct {
+	QA                                                                                    QAPolicy        `json:",omitzero"`
 	ClaimConflict                                                                         bool            `json:",omitempty"`
 	Assignment                                                                            *TaskAssignment `json:",omitempty"`
 	MetadataUpdatedAt                                                                     time.Time
@@ -88,14 +89,18 @@ type Task struct {
 }
 type Review struct {
 	ID, HeadSHA, State string
+	Body               string `json:",omitempty"`
 	Author             Actor
 	SubmittedAt        time.Time
+	LastEditedAt       time.Time `json:",omitzero"`
 }
 type PR struct {
-	BaseScopeRevision                                            string  `json:",omitempty"`
-	AssignmentSHA                                                string  `json:",omitempty"`
-	Contributors                                                 []Actor `json:",omitempty"`
-	ContributorsComplete, ReviewsComplete                        bool    `json:",omitempty"`
+	QAArtifact                                                   *QAArtifact `json:",omitempty"`
+	QAArtifactError                                              string      `json:",omitempty"`
+	BaseScopeRevision                                            string      `json:",omitempty"`
+	AssignmentSHA                                                string      `json:",omitempty"`
+	Contributors                                                 []Actor     `json:",omitempty"`
+	ContributorsComplete, ReviewsComplete                        bool        `json:",omitempty"`
 	ScopeUpdatedAt                                               time.Time
 	ScopeRevision                                                string
 	URL, TaskURL, GoalURL, HeadSHA, Branch, Revision, BaseBranch string
@@ -119,6 +124,7 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	QAArtifact                                                                   *QAArtifact      `json:",omitempty"`
 	PRScopeRevision                                                              string           `json:",omitempty"`
 	Binding                                                                      *JobBinding      `json:",omitempty"`
 	ReconcileFailures                                                            int              `json:",omitempty"`

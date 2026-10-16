@@ -35,6 +35,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return errors.New("expected run, validate, preflight, dry-run, status, pause or resume")
 	}
 	command := args[0]
+	if command == "qa-source-digest" {
+		return qaSourceDigest(args[1:], out)
+	}
 	switch command {
 	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state":
 	default:
