@@ -521,3 +521,61 @@ check and its documented native API concurrency limitation. If records remain
 unavailable, bounded attempts return to recovery. This command is not a force
 clear, artifact-completion override, or permission to replay uncertain work;
 irrecoverable native history remains escalated for operator investigation.
+
+## Offline state compatibility
+
+Worker ledger versions are explicit. A v1 configuration reads and writes only
+v1 state; a v2 configuration reads and writes only v2 state. Loading state never
+upgrades it. V2 runtime execution and admission remain unavailable until the
+dependent workflow packages are complete; this command does not enable them.
+
+The supported conversion is one-way, offline, and bound to the exact saved
+`InstanceID`. With separately authorized stopped/drained workers and fenced
+producers, use a private, validated v2 configuration pointing at the existing
+state directory:
+
+```sh
+coop-worker migrate-state --config /absolute/private/worker-v2.json \
+  --from 1 --to 2 --expected-instance EXACT_SAVED_INSTANCE_SHA256
+```
+
+This task does not authorize running that command on live state. The command
+does not stop/start services, contact GitHub/OpenCode, change credentials, or
+inspect/modify native session history or checkouts. The operator must establish
+that manual sessions are drained too; local ledger validation cannot prove that.
+
+Conversion acquires the worker and wake-producer locks without waiting. It
+validates the entire managed store, rejects foreign instances/targets, unknown
+records, invalid sessions, active/preparing/recovery turns and uncertain message
+evidence, and preserves queued input. The private `migration-backup.json` is an
+immutable JSON map of relative paths to base64-encoded original bytes, including
+state, control, diagnostic status when present, and every wake record. Input is
+bounded to 128 MiB and the encoded backup to 256 MiB. The command rereads the
+backup before publishing a durable `migration.json` inspection hold, atomically
+replaces `state.json`, verifies all retained files and backup bytes, then marks
+the migration verified. Files are mode 0600 inside mode-0700 directories.
+
+Only the ledger version changes. Instance ID, job IDs, completed history,
+receipts, queued wakes, native session references, counters, cached evidence and
+scope remain intact. Historical wake records stay in `wake/v1` with their original
+record schema; access is gated by the parent ledger/config version. No old job
+receives an assignment, engineering clearance, or QA clearance by conversion.
+
+There is no automatic retry, reverse migration, or backup restore. Any existing
+migration evidence makes a repeated conversion refuse rather than overwrite the
+backup. A failed/ambiguous replacement leaves the backup and hold inspectable;
+new readers refuse a pending hold. If failure happened before the hold was
+published, original v1 state remains usable, but the backup still prevents a
+blind conversion retry. A failure after the verified marker was actually
+published can be an ambiguous success: inspect the marker and resulting state,
+never replay work to resolve it.
+
+The saved pre-conversion binary rejects a v2 ledger as invalid worker state.
+Keep older binaries and producers fenced; older diagnostic/control commands do
+not necessarily read the ledger. Rolling back requires a separately reviewed
+offline reconciliation that preserves any newer ledger and remote effects, not
+copying an old backup over v2 evidence. Keep compatible CLI, worker and reader
+artifacts together.
+
+The isolated compatibility test lane accepts a saved pre-change binary via
+`COOP_TEST_OLD_WORKER`; run `flox activate -- env COOP_TEST_OLD_WORKER=/absolute/saved/coop-worker go test ./cmd/coop-worker -run TestMigrationSavedOldBinaryRefusesV2 -count=1`.

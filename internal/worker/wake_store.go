@@ -13,12 +13,30 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type FileWakeStore struct{ Dir string }
+type FileWakeStore struct {
+	Dir     string
+	Version int
+}
 
 var wakeDirectorySync = syncWakeDir
 
-func NewWakeStore(dir string) *FileWakeStore { return &FileWakeStore{Dir: dir} }
+func NewWakeStore(dir string) *FileWakeStore { return NewVersionedWakeStore(dir, 1) }
+func NewVersionedWakeStore(dir string, version int) *FileWakeStore {
+	return &FileWakeStore{Dir: dir, Version: version}
+}
+func (s *FileWakeStore) compatible() error {
+	// Standalone wake fixtures have no parent ledger. Managed inboxes always live
+	// under wake/v1, whose record format stays v1 across the ledger conversion.
+	if filepath.Base(s.Dir) == "v1" && filepath.Base(filepath.Dir(s.Dir)) == "wake" {
+		_, err := NewVersionedFileStore(filepath.Dir(filepath.Dir(s.Dir)), s.Version).Load()
+		return err
+	}
+	return nil
+}
 func (s *FileWakeStore) ensure(create bool) error {
+	if err := s.compatible(); err != nil {
+		return err
+	}
 	if err := ensurePrivateDir(s.Dir, create); err != nil {
 		return err
 	}
@@ -30,6 +48,9 @@ func (s *FileWakeStore) ensure(create bool) error {
 	return nil
 }
 func (s *FileWakeStore) producerLock() (func(), error) {
+	return s.producerLockMode(false)
+}
+func (s *FileWakeStore) producerLockMode(nonblocking bool) (func(), error) {
 	if err := s.ensure(true); err != nil {
 		return nil, err
 	}
@@ -47,9 +68,18 @@ func (s *FileWakeStore) producerLock() (func(), error) {
 		_ = f.Close() // Preserve the primary lock error.
 		return nil, errors.New("unsafe wake producer lock")
 	}
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+	mode := unix.LOCK_EX
+	if nonblocking {
+		mode |= unix.LOCK_NB
+	}
+	if err := unix.Flock(fd, mode); err != nil {
 		_ = f.Close() // Preserve the primary lock error.
 		return nil, errors.New("cannot acquire wake producer lock")
+	}
+	if err := s.compatible(); err != nil {
+		_ = unix.Flock(fd, unix.LOCK_UN)
+		_ = f.Close()
+		return nil, err
 	}
 	return func() { _ = unix.Flock(fd, unix.LOCK_UN); _ = f.Close() }, nil
 }

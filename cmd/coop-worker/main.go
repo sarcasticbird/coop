@@ -36,7 +36,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	command := args[0]
 	switch command {
-	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover":
+	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -49,6 +49,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	jobID := flags.String("job-id", "", "exact recovery intent ID")
 	sessionID := flags.String("session-id", "", "exact saved session ID")
 	messageID := flags.String("message-id", "", "exact saved message ID")
+	from := flags.Int("from", 0, "source state version")
+	to := flags.Int("to", 0, "target state version")
+	expected := flags.String("expected-instance", "", "exact saved worker instance")
 	if flags.Parse(args[1:]) != nil || *path == "" || len(flags.Args()) > 0 {
 		return errors.New("worker command requires --config /absolute/private.json")
 	}
@@ -58,9 +61,21 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	if *requestID != "" && command != "requests" {
 		return errors.New("request-id requires requests")
 	}
+	if command != "migrate-state" && (*from != 0 || *to != 0 || *expected != "") {
+		return errors.New("migration flags require migrate-state")
+	}
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
 		return err
+	}
+	if command == "migrate-state" {
+		if *jobID != "" || *sessionID != "" || *messageID != "" {
+			return errors.New("intent flags require recover")
+		}
+		if err := worker.MigrateState(c, *from, *to, *expected); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]string{"state": "migration_verified"})
 	}
 	if command == "recover" {
 		if err := worker.RecoveryIntent(c, *jobID, *sessionID, *messageID); err != nil {
@@ -71,7 +86,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	if *jobID != "" || *sessionID != "" || *messageID != "" {
 		return errors.New("intent flags require recover")
 	}
-	store := worker.NewFileStore(c.StateDir)
+	store := worker.NewVersionedFileStore(c.StateDir, c.Version)
+	if command != "validate" && command != "status" {
+		if _, err := store.Load(); err != nil {
+			return err
+		}
+	}
 	encode := func(value any) error { return json.NewEncoder(out).Encode(value) }
 	switch command {
 	case "ping":
@@ -85,7 +105,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		if err := worker.WorkerAcceptingWake(c.StateDir, time.Now().UTC()); err != nil {
 			return err
 		}
-		summary, err := worker.QueuePing(c, worker.NewWakeStore(filepath.Join(c.StateDir, "wake", "v1")), input, time.Now().UTC())
+		summary, err := worker.QueuePing(c, worker.NewVersionedWakeStore(filepath.Join(c.StateDir, "wake", "v1"), c.Version), input, time.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -96,7 +116,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 				return err
 			}
 		}
-		summaries, err := worker.WakeSummaries(worker.NewWakeStore(filepath.Join(c.StateDir, "wake", "v1")), 20, *requestID)
+		summaries, err := worker.WakeSummaries(worker.NewVersionedWakeStore(filepath.Join(c.StateDir, "wake", "v1"), c.Version), 20, *requestID)
 		if err != nil {
 			return err
 		}
