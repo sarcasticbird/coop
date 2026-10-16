@@ -33,6 +33,7 @@ type Info struct {
 	Mode                                 Mode
 	State                                runtime.State
 	Fingerprint, Image, ChildContainerID string
+	RuntimeInstance, BootIdentity        string
 }
 type Runner interface {
 	Exec(context.Context, string, string, []string, io.Reader, io.Writer, io.Writer) error

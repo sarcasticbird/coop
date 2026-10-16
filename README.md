@@ -178,3 +178,5 @@ Third-party distribution notices for the embedded image are in
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Host control over MCP is documented in [docs/mcp.md](docs/mcp.md).
