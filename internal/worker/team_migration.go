@@ -275,6 +275,16 @@ func migrateState(c Config, from, to int, expected string, write func(string, []
 	if err := publish(); err != nil {
 		return fmt.Errorf("migration hold publication failed; inspect evidence: %w", err)
 	}
+	// Old ping binaries never read state.json. Publish an inbox entry they
+	// cannot interpret, under the producer lock and before v2 can become live.
+	fence, err := json.Marshal(wakeVersionFence{Version: 2, InstanceID: expected})
+	if err != nil {
+		return err
+	}
+	fencePath := filepath.Join(w.Dir, "inbox", wakeFenceName)
+	if err := write(fencePath, fence); err != nil {
+		return fmt.Errorf("migration wake fence uncertain; inspect evidence: %w", err)
+	}
 	if err := write(filepath.Join(s.Dir, "state.json"), after); err != nil {
 		return fmt.Errorf("migration replacement uncertain; inspect evidence: %w", err)
 	}
@@ -291,6 +301,10 @@ func migrateState(c Config, from, to int, expected string, write func(string, []
 	read, err = readPrivate(backupPath, migrationLimit)
 	if err != nil || !bytes.Equal(read, backup) {
 		return errors.New("migration backup changed; inspect evidence")
+	}
+	read, err = readPrivate(fencePath, 4096)
+	if err != nil || !bytes.Equal(read, fence) {
+		return errors.New("migration wake fence verification failed; inspect evidence")
 	}
 	m.Phase = "verified"
 	if err := publish(); err != nil {

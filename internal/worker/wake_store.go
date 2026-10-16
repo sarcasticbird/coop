@@ -20,6 +20,13 @@ type FileWakeStore struct {
 
 var wakeDirectorySync = syncWakeDir
 
+const wakeFenceName = "version.json"
+
+type wakeVersionFence struct {
+	Version    int
+	InstanceID string
+}
+
 func NewWakeStore(dir string) *FileWakeStore { return NewVersionedWakeStore(dir, 1) }
 func NewVersionedWakeStore(dir string, version int) *FileWakeStore {
 	return &FileWakeStore{Dir: dir, Version: version}
@@ -28,8 +35,20 @@ func (s *FileWakeStore) compatible() error {
 	// Standalone wake fixtures have no parent ledger. Managed inboxes always live
 	// under wake/v1, whose record format stays v1 across the ledger conversion.
 	if filepath.Base(s.Dir) == "v1" && filepath.Base(filepath.Dir(s.Dir)) == "wake" {
-		_, err := NewVersionedFileStore(filepath.Dir(filepath.Dir(s.Dir)), s.Version).Load()
-		return err
+		state, err := NewVersionedFileStore(filepath.Dir(filepath.Dir(s.Dir)), s.Version).Load()
+		if err != nil {
+			return err
+		}
+		if state.Version == 2 {
+			raw, err := readPrivate(filepath.Join(s.Dir, "inbox", wakeFenceName), 4096)
+			if err != nil {
+				return errors.New("missing or unreadable wake version fence")
+			}
+			var fence wakeVersionFence
+			if strictTeamJSON(raw, &fence) != nil || fence.Version != 2 || fence.InstanceID != state.InstanceID {
+				return errors.New("invalid wake version fence")
+			}
+		}
 	}
 	return nil
 }
@@ -122,6 +141,11 @@ func (s *FileWakeStore) Requests() ([]WakeRequest, error) {
 	}
 	var result []WakeRequest
 	for _, entry := range entries {
+		// This non-request name deliberately makes legacy Requests/Enqueue fail
+		// closed. V2 readers validated its instance binding in ensure above.
+		if s.Version == 2 && entry.Name() == wakeFenceName {
+			continue
+		}
 		if strings.HasPrefix(entry.Name(), ".request-") {
 			continue
 		}

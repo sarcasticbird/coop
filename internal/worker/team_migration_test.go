@@ -233,22 +233,22 @@ func TestTeamMigrationRefusesUndrainedOrInvalidRecords(t *testing.T) {
 }
 
 func TestTeamMigrationFaultsRemainInspectable(t *testing.T) {
-	for _, boundary := range []string{"hold before", "hold after", "replace before", "replace after", "verify state", "verify wake", "verify backup", "complete before", "complete after"} {
+	for _, boundary := range []string{"hold before", "hold after", "fence before", "fence after", "replace before", "replace after", "verify state", "verify wake", "verify backup", "verify fence", "complete before", "complete after"} {
 		t.Run(boundary, func(t *testing.T) {
 			c, s, state, _, _ := migrationFixture(t)
 			calls := 0
 			write := func(path string, raw []byte) error {
 				calls++
-				if boundary == "hold before" && calls == 1 || boundary == "replace before" && calls == 2 || boundary == "complete before" && calls == 3 {
+				if boundary == "hold before" && calls == 1 || boundary == "fence before" && calls == 2 || boundary == "replace before" && calls == 3 || boundary == "complete before" && calls == 4 {
 					return errors.New("injected before replacement")
 				}
 				if err := atomicPrivate(path, raw); err != nil {
 					return err
 				}
-				if boundary == "hold after" && calls == 1 || boundary == "replace after" && calls == 2 || boundary == "complete after" && calls == 3 {
+				if boundary == "hold after" && calls == 1 || boundary == "fence after" && calls == 2 || boundary == "replace after" && calls == 3 || boundary == "complete after" && calls == 4 {
 					return errors.New("injected ambiguous replacement")
 				}
-				if calls == 2 {
+				if calls == 3 {
 					switch boundary {
 					case "verify state":
 						return atomicPrivate(path, []byte(`{}`))
@@ -256,6 +256,8 @@ func TestTeamMigrationFaultsRemainInspectable(t *testing.T) {
 						return atomicPrivate(filepath.Join(s.Dir, "wake", "v1", "routing.json"), []byte(`{}`))
 					case "verify backup":
 						return atomicPrivate(filepath.Join(s.Dir, "migration-backup.json"), []byte(`{}`))
+					case "verify fence":
+						return atomicPrivate(filepath.Join(s.Dir, "wake", "v1", "inbox", wakeFenceName), []byte(`{}`))
 					}
 				}
 				return nil
@@ -334,6 +336,62 @@ func TestTeamMigrationWakeProducerRejectsConvertedLedger(t *testing.T) {
 	}
 	if err := s.SetPaused(false); err == nil {
 		t.Fatal("v1 control writer ignored v2 ledger")
+	}
+}
+
+func TestTeamMigrationRequiresIntactWakeFence(t *testing.T) {
+	for _, kind := range []string{"missing", "foreign", "wrong version", "unknown field", "duplicate field", "wrong mode", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			c, s, state, w, id := migrationFixture(t)
+			if err := MigrateState(c, 1, 2, state.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(w.Dir, "inbox", wakeFenceName)
+			switch kind {
+			case "missing":
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			case "foreign":
+				raw, _ := json.Marshal(wakeVersionFence{Version: 2, InstanceID: BodyHash("foreign")})
+				if err := atomicPrivate(path, raw); err != nil {
+					t.Fatal(err)
+				}
+			case "wrong version", "unknown field", "duplicate field":
+				extra := `"Version":1,`
+				if kind == "unknown field" {
+					extra = `"Unknown":true,"Version":2,`
+				}
+				if kind == "duplicate field" {
+					extra = `"Version":1,"Version":2,`
+				}
+				if err := atomicPrivate(path, []byte(`{`+extra+`"InstanceID":"`+state.InstanceID+`"}`)); err != nil {
+					t.Fatal(err)
+				}
+			case "wrong mode":
+				if err := os.Chmod(path, 0644); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink":
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(s.Dir, "state.json"), path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w = NewVersionedWakeStore(w.Dir, 2)
+			if _, err := w.Requests(); err == nil {
+				t.Fatal("unsafe fence accepted by reader")
+			}
+			if _, err := w.Receipt(id); err == nil {
+				t.Fatal("unsafe fence accepted by receipt reader")
+			}
+			if release, err := w.producerLock(); err == nil {
+				release()
+				t.Fatal("unsafe fence accepted by producer")
+			}
+		})
 	}
 }
 

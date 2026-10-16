@@ -551,14 +551,17 @@ evidence, and preserves queued input. The private `migration-backup.json` is an
 immutable JSON map of relative paths to base64-encoded original bytes, including
 state, control, diagnostic status when present, and every wake record. Input is
 bounded to 128 MiB and the encoded backup to 256 MiB. The command rereads the
-backup before publishing a durable `migration.json` inspection hold, atomically
-replaces `state.json`, verifies all retained files and backup bytes, then marks
-the migration verified. Files are mode 0600 inside mode-0700 directories.
+backup before publishing a durable `migration.json` inspection hold. Under both
+locks it publishes an instance-bound `wake/v1/inbox/version.json` compatibility
+fence before atomically replacing `state.json`. It verifies the fence, all
+retained files and backup bytes, then marks the migration verified. Files are
+mode 0600 inside mode-0700 directories.
 
-Only the ledger version changes. Instance ID, job IDs, completed history,
-receipts, queued wakes, native session references, counters, cached evidence and
-scope remain intact. Historical wake records stay in `wake/v1` with their original
-record schema; access is gated by the parent ledger/config version. No old job
+Within existing records, only the ledger version changes. Instance ID, job IDs,
+completed history, receipts, queued wakes, native session references, counters,
+cached evidence and scope remain intact. Historical wake records stay in `wake/v1`
+with their original record schema; access is gated by the parent ledger/config
+version. No old job
 receives an assignment, engineering clearance, or QA clearance by conversion.
 
 There is no automatic retry, reverse migration, or backup restore. Any existing
@@ -571,11 +574,19 @@ published can be an ambiguous success: inspect the marker and resulting state,
 never replay work to resolve it.
 
 The saved pre-conversion binary rejects a v2 ledger as invalid worker state.
-Keep older binaries and producers fenced; older diagnostic/control commands do
-not necessarily read the ledger. Rolling back requires a separately reviewed
-offline reconciliation that preserves any newer ledger and remote effects, not
+Its legacy wake reader rejects the non-request `version.json` filename before
+enqueueing, even with a healthy status and held worker lock. V2 wake readers
+validate the fence against the ledger instance before excluding it from request
+enumeration; missing, malformed or foreign fences block reads and writes. The
+fence is new compatibility metadata, not a synthetic wake request or clearance.
+Never remove it to make an old producer run. Keep older binaries and producers
+fenced; older diagnostic/control commands do not necessarily read the ledger.
+Rolling back requires a separately reviewed offline reconciliation that
+preserves any newer ledger and remote effects, not
 copying an old backup over v2 evidence. Keep compatible CLI, worker and reader
 artifacts together.
 
 The isolated compatibility test lane accepts a saved pre-change binary via
 `COOP_TEST_OLD_WORKER`; run `flox activate -- env COOP_TEST_OLD_WORKER=/absolute/saved/coop-worker go test ./cmd/coop-worker -run TestMigrationSavedOldBinaryRefusesV2 -count=1`.
+It proves old `dry-run` and `ping` refusal with both v1 and v2 configurations,
+including a live lock/status and byte-identical inbox after the refused ping.
