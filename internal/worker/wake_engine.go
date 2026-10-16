@@ -220,6 +220,10 @@ func (w *WakeCoordinator) Pause(ctx context.Context) error {
 	return w.save(v)
 }
 func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
+	return w.tick(ctx, snapshot, "")
+}
+
+func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedID string) error {
 	conversation, ok := w.GitHub.(WakeConversation)
 	if !ok {
 		return errors.New("wake backend unavailable")
@@ -306,6 +310,9 @@ func (w *WakeCoordinator) Tick(ctx context.Context, snapshot Snapshot) error {
 	r, found, err := w.Next(w.Clock.Now())
 	if err != nil || !found {
 		return err
+	}
+	if selectedID != "" && r.ID != selectedID {
+		return nil // Concurrent intake changed the winner; select and checkpoint it first.
 	}
 	v, err = w.Store.Receipt(r.ID)
 	if err != nil {

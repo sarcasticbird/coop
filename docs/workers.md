@@ -748,3 +748,33 @@ QA actor remains responsible for actually exercising the approved acceptance in
 the authorized environment. Linux fixtures do not establish native platform or
 live bot acceptance. This implementation grants no permissions, creates no
 external fixtures, and starts no QA service.
+
+## Bounded team scheduling
+
+The v2 scheduler shares one selection path for admitted new jobs, runnable saved
+jobs and queued conversation wakes. Review, fix, QA and delivery are handoffs and
+normally take precedence. After two consecutive completed handoffs, the oldest
+eligible planning job or wake gets service. After three completed foreground
+jobs (handoffs, planning or wakes), eligible implementation gets service first.
+The implementation bound wins if both allowances are exhausted. If a class has
+no runnable candidates, it does not hold the worker idle.
+
+Within a class, first eligibility time orders work, followed by task priority,
+Project ordinal and job ID. Job ages are checkpointed even when another job wins;
+wakes retain their durable creation time. Saved, owned implementations can
+continue after their Project card leaves Ready. Blocked, stale, unassigned and
+backoff-delayed jobs are not runnable candidates.
+
+Service counters change only on durable completed jobs that were submitted, not
+on selection, submission, retries or blocked admission. Job completion and its
+counter update share one ledger write. Completed wake receipts are accounted once
+before the next selection, with the consumed receipt IDs checkpointed in that
+ledger. Restart between receipt and ledger writes retries only local accounting,
+never a conversation turn or external effect. Historical v1 receipts do not
+consume v2 service. Counters saturate at their bounds and survive restart.
+
+Selection does not interrupt active jobs or wakes, take over manual turns, waive
+assignment validation or reset uncertain submission evidence. The selected job
+is freshly revalidated, and preparation still ends with scope/assignment and
+local-pause checks immediately before submission. V1 scheduling is unchanged.
+V2 startup remains gated; these source changes do not authorize live activation.

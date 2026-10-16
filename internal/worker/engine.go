@@ -130,6 +130,10 @@ func (e *Engine) saveJob(j Job) error {
 	if e.checkpointErr != nil {
 		return e.checkpointErr
 	}
+	if e.Config.Version == 2 && j.Binding != nil && j.Phase == "completed" && e.state.Jobs[j.ID].Phase != "completed" && !j.SubmittedAt.IsZero() {
+		s := e.teamScheduleState()
+		s.Counters = completedService(s.Counters, j)
+	}
 	e.state.Jobs[j.ID] = j
 	return e.save()
 }
@@ -501,6 +505,7 @@ func (e *Engine) observe(ctx context.Context, j Job) error {
 }
 func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	now := e.Clock.Now()
+	_, resumed := e.state.Jobs[j.ID]
 	if health, err := e.OpenCode.Health(ctx); err != nil {
 		e.status.LastError = errorCategory(err)
 		e.status.ServerHealthy = false
@@ -530,7 +535,11 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 				return e.failed(ctx, j, errorCategory(err))
 			}
 			e.state.SnapshotCache = snapshot
-			if allowed, reason := Admit(e.Config, j, snapshot, e.Clock.Now()); !allowed {
+			allowed, reason := Admit(e.Config, j, snapshot, e.Clock.Now())
+			if e.Config.Version == 2 && resumed {
+				allowed, reason = e.teamRunnable(j)
+			}
+			if !allowed {
 				j.Phase, j.WaitReason = "paused", reason
 				return e.saveJob(j)
 			}
@@ -965,7 +974,7 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 	if pending {
 		return nil
 	}
-	if !e.Clock.Now().Before(e.nextDispatch) {
+	if e.Config.Version != 2 && !e.Clock.Now().Before(e.nextDispatch) {
 		if handled, err := e.scheduleWake(ctx, fresh); handled || err != nil {
 			return err
 		}
@@ -980,6 +989,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		e.status.WaitReason = "server_unavailable"
 		e.status.NextRetry = e.nextDispatch
 		return nil
+	}
+	if e.Config.Version == 2 {
+		return e.scheduleTeam(ctx, fresh)
 	}
 	var waiting []Job
 	for _, j := range e.state.Jobs {
