@@ -67,6 +67,9 @@ func (w *WakeCoordinator) Next(now time.Time) (WakeRequest, bool, error) {
 		}
 	}
 	for _, r := range records {
+		if !discussionIntakeAllows(w.Config, r.Source.DiscussionURL) {
+			continue
+		}
 		v, err := w.Store.Receipt(r.ID)
 		if err != nil {
 			return r, false, err

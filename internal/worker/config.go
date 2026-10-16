@@ -240,6 +240,9 @@ func validActor(a Actor, kind string) bool {
 
 func ValidateConfig(c Config) error {
 	c = Defaults(c)
+	if err := validateDiscussionIntake(c); err != nil {
+		return err
+	}
 	if err := validateWakeConfig(c); err != nil {
 		return err
 	}

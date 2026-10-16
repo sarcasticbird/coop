@@ -98,7 +98,7 @@ func validateWakeConfig(c Config) error {
 	if u == "" && !c.Wake.Enabled {
 		return nil
 	}
-	if !validGitHubURL(u) || !strings.Contains(u, "/discussions/") || !goalInScope(c, Goal{URL: u}) {
+	if !validGitHubURL(u) || !strings.Contains(u, "/discussions/") || !goalInScope(c, Goal{URL: u}) || !discussionIntakeAllows(c, u) {
 		return errors.New("invalid wake coordination scope")
 	}
 	return nil

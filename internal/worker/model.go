@@ -52,6 +52,7 @@ type Config struct {
 	CodeOwners             []string          `json:"code_owners"`
 	ProjectOwners          []string          `json:"project_owners,omitempty"`
 	DiscussionRepositories []string          `json:"discussion_repositories"`
+	DiscussionURLs         []string          `json:"discussion_urls,omitempty"`
 	Repositories           []string          `json:"repositories,omitempty"`
 	Projects               []ProjectRef      `json:"projects,omitempty"`
 	BootstrapGoals         []BootstrapGoal   `json:"bootstrap_goals,omitempty"`

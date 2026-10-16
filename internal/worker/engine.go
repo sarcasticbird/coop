@@ -1043,6 +1043,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		if e.Config.Version == 2 && j.Binding == nil {
 			continue // Drained v1 history cannot report or acquire v2 authority.
 		}
+		if !discussionIntakeAllows(e.Config, j.GoalURL) {
+			continue
+		}
 		if j.Phase == "blocked" && !j.BlockReported {
 			return e.reportBlock(ctx, j, j.WaitReason)
 		}
