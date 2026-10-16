@@ -3,9 +3,9 @@
 This public guide covers source and offline artifact preparation only. It does
 not authorize installation, state conversion, profile changes, service reloads,
 live bot handoffs, permission changes or external acceptance fixtures. V2 worker
-engine initialization/dispatch remains fenced before the engine's state load
-(the CLI can read state and acquire locks first). A valid example, successful build
-or verified artifact manifest does not remove that fence or approve live work.
+startup requires explicitly initialized or converted state with matching fenced
+wake storage. A valid example, successful build or verified artifact manifest
+does not initialize storage or approve live work.
 The separately controlled private rollout packet is not reproduced here.
 
 Use the neutral [controlled acceptance checklist](scheduler-acceptance.md) to

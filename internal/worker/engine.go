@@ -63,9 +63,6 @@ func (e *Engine) initialize() error {
 	if err := ValidateConfig(e.Config); err != nil {
 		return err
 	}
-	if e.Config.Version == 2 {
-		return errors.New("v2 runtime unavailable: explicit state conversion and workflow support required")
-	}
 	if e.Clock == nil {
 		e.Clock = RealClock{}
 	}
@@ -76,6 +73,15 @@ func (e *Engine) initialize() error {
 	if state.Version != e.Config.Version {
 		return errors.New("worker state/config version mismatch")
 	}
+	if e.Config.Version == 2 {
+		if s, ok := e.Store.(*FileStore); ok {
+			// Run cannot bootstrap or silently repair a first/partially restored
+			// store, even if wake handling is currently disabled.
+			if err := s.checkTeamStartup(state); err != nil {
+				return err
+			}
+		}
+	}
 	e.state = state
 	if e.state.Attempts == nil {
 		e.state.Attempts = map[string]int{}
@@ -83,7 +89,7 @@ func (e *Engine) initialize() error {
 	e.status = Status{Name: e.Config.Name, Enabled: true, State: "starting"}
 	if wakeEnabled(e.Config) {
 		if e.Wakes == nil {
-			e.Wakes = NewWakeCoordinator(e.Config, NewWakeStore(filepath.Join(e.Config.StateDir, "wake", "v1")), e.GitHub, e.OpenCode, e.Clock)
+			e.Wakes = NewWakeCoordinator(e.Config, NewVersionedWakeStore(filepath.Join(e.Config.StateDir, "wake", "v1"), e.Config.Version), e.GitHub, e.OpenCode, e.Clock)
 		}
 		e.Wakes.Paused = e.admissionsPaused
 		routing, err := e.Wakes.Store.Routing()
@@ -1034,6 +1040,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		}
 	}
 	for _, j := range e.state.Jobs {
+		if e.Config.Version == 2 && j.Binding == nil {
+			continue // Drained v1 history cannot report or acquire v2 authority.
+		}
 		if j.Phase == "blocked" && !j.BlockReported {
 			return e.reportBlock(ctx, j, j.WaitReason)
 		}

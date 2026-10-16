@@ -387,7 +387,7 @@ func (g *GitHubClient) goalFromDiscussion(d graphDiscussion, comments []Comment)
 			goal.Decisions = append(goal.Decisions, Decision{ID: c.ID, Command: c.Body, Author: c.Author, CreatedAt: c.CreatedAt, EditedAt: c.EditedAt})
 		}
 		directed := wakeEnabled(g.config) && strings.Contains(d.URL, "/discussions/") && len(ConversationTargets(g.config, conversationSource(d, c))) > 0
-		if !directed && (sameActor(c.Author, g.config.Owner) || (!wakeEnabled(g.config) && sameActor(c.Author, g.config.Implementer))) && !strings.Contains(c.Body, "<!-- coop-worker:v1 ") {
+		if !directed && (sameActor(c.Author, g.config.Owner) || (!wakeEnabled(g.config) && configuredImplementer(g.config, c.Author))) && !strings.Contains(c.Body, "<!-- coop-worker:v1 ") {
 			events = append(events, Event{ID: c.ID, Revision: BodyHash(c.Body), URL: d.URL, Kind: "planning", Body: c.Body, Author: c.Author, OccurredAt: commentTime(c)})
 		}
 	}

@@ -104,6 +104,12 @@ func migrateState(c Config, from, to int, expected string, write func(string, []
 		return err
 	}
 	defer release()
+	return migrateStateLocked(c, s, expected, write)
+}
+
+// The caller holds the worker lock throughout initial state publication or
+// migration. The existing producer fence and migration journal remain shared.
+func migrateStateLocked(c Config, s *FileStore, expected string, write func(string, []byte) error) error {
 	// Exclude concurrent pings as well as the worker. Do not wait on a producer.
 	w := NewWakeStore(filepath.Join(s.Dir, "wake", "v1"))
 	if _, err := os.Lstat(filepath.Join(s.Dir, "wake")); err == nil {

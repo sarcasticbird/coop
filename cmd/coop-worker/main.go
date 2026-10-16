@@ -39,7 +39,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return qaSourceDigest(args[1:], out)
 	}
 	switch command {
-	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state":
+	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "init-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -50,6 +50,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	previous := flags.String("previous-config", "", "installed private configuration for check-install")
 	task := flags.String("task", "", "task issue URL")
 	goal := flags.String("goal", "", "goal URL")
+	assignment := flags.String("assignment", "", "private first v2 assignment JSON file")
 	requestID := flags.String("request-id", "", "exact wake request ID")
 	jobID := flags.String("job-id", "", "exact recovery intent ID")
 	sessionID := flags.String("session-id", "", "exact saved session ID")
@@ -62,6 +63,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if command != "task-metadata" && (*task != "" || *goal != "") {
 		return errors.New("task/goal flags require task-metadata")
+	}
+	if *assignment != "" && command != "task-metadata" {
+		return errors.New("assignment requires task-metadata")
 	}
 	if *requestID != "" && command != "requests" {
 		return errors.New("request-id requires requests")
@@ -78,6 +82,16 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
 		return err
+	}
+	if command == "init-state" {
+		if *jobID != "" || *sessionID != "" || *messageID != "" {
+			return errors.New("intent flags require recover")
+		}
+		instance, err := worker.InitializeTeamState(c)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]string{"state": "initialized", "instance_id": instance})
 	}
 	if command == "migrate-state" {
 		if *jobID != "" || *sessionID != "" || *messageID != "" {
@@ -186,14 +200,20 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		}
 		return encode(worker.InspectWork(c, snapshot, state, time.Now()))
 	case "task-metadata":
-		if *task == "" || *goal == "" || c.Role != "planner" {
+		planner := c.Version == 1 && c.Role == "planner" || c.Version == 2 && c.Team != nil && c.Team.Planner == c.Name
+		if *task == "" || *goal == "" || !planner {
 			return errors.New("task-metadata requires planner role, --task and --goal")
 		}
 		snapshot, err := github.Snapshot(ctx, c, worker.Snapshot{})
 		if err != nil {
 			return err
 		}
-		text, err := worker.TaskMetadataComment(c, snapshot, *task, *goal, time.Now())
+		var text string
+		if *assignment != "" {
+			text, err = worker.TaskMetadataWithAssignment(c, snapshot, *task, *goal, *assignment, time.Now())
+		} else {
+			text, err = worker.TaskMetadataComment(c, snapshot, *task, *goal, time.Now())
+		}
 		if err != nil {
 			return err
 		}
