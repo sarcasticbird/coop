@@ -215,3 +215,27 @@ func TestGuestPingStrictInputLocalOnlyAndRedactedRequests(t *testing.T) {
 		t.Fatal("fresh but stopped worker accepted")
 	}
 }
+
+func TestWorkerCLIAdmissionPausePreservesLegacyPause(t *testing.T) {
+	path := cliConfig(t)
+	c, err := worker.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := worker.NewFileStore(c.StateDir)
+	if err = store.SetPaused(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"pause", "resume"} {
+		var out bytes.Buffer
+		if err = run([]string{action, "--config", path, "--admission-only"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		if paused, err := store.AdmissionPaused(); err != nil || paused != (action == "pause") {
+			t.Fatal("CLI did not persist admission mode")
+		}
+		if hard, err := store.Paused(); err != nil || !hard {
+			t.Fatal("admission CLI modified legacy pause")
+		}
+	}
+}

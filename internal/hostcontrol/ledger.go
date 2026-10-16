@@ -177,12 +177,30 @@ func (l *Ledger) Accept(caller Caller, input Mutation, fingerprint, incarnation 
 		return OperationRecord{}, false, e
 	}
 	unresolved := 0
+	// Reserve one total-record slot for every uncancelled nonterminal target.
+	// A durable cancellation consumes its target's reservation, not work capacity.
+	reserved := map[string]bool{}
 	for _, r := range l.records {
-		if !terminal(r.State) {
+		if !terminal(r.State) && r.Input.Action != "cancel" {
 			unresolved++
+			if !r.CancelIntent {
+				reserved[r.ID] = true
+			}
 		}
 	}
-	if len(l.records) >= l.limits.Records || unresolved >= l.limits.Unresolved {
+	for _, r := range l.records {
+		if r.Input.Action == "cancel" && !terminal(r.State) {
+			delete(reserved, r.Input.TargetOperation)
+		}
+	}
+	needed := len(reserved) + 1 // the new ordinary operation needs its own cancellation slot
+	if input.Action == "cancel" {
+		delete(reserved, input.TargetOperation)
+		needed = len(reserved)
+	} else if unresolved >= l.limits.Unresolved {
+		return OperationRecord{}, false, fail("ledger_capacity")
+	}
+	if len(l.records)+1+needed > l.limits.Records {
 		return OperationRecord{}, false, fail("ledger_capacity")
 	}
 	id, e := randomHex(16)

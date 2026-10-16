@@ -7,15 +7,21 @@ import (
 
 // Recovery makes at most four bounded read probes per pass. Exec is never replayed.
 func (e *Engine) reconcile(ctx context.Context) {
-	probes := 0
+	var eligible []OperationRecord
 	for _, r := range e.ledger.all() {
-		if r.State != "indeterminate" || r.Input.Action == "exec" || r.Input.Action == "cancel" {
-			continue
+		if r.State == "indeterminate" && r.Input.Action != "exec" && r.Input.Action != "cancel" {
+			eligible = append(eligible, r)
 		}
-		if probes == 4 {
-			return
-		}
-		probes++
+	}
+	if len(eligible) == 0 {
+		e.reconcileCursor = 0
+		return
+	}
+	start := e.reconcileCursor % len(eligible)
+	count := min(4, len(eligible))
+	e.reconcileCursor = (start + count) % len(eligible)
+	for i := range count {
+		r := eligible[(start+i)%len(eligible)]
 		probe, stop := context.WithTimeout(ctx, time.Second)
 		switch r.Input.Action {
 		case "ping", "pause", "resume":

@@ -70,7 +70,7 @@ func (c *Config) Validate() error {
 		return fail("invalid_host_config")
 	}
 	l := c.Limits
-	if l.Active < 1 || l.Active > 4 || l.Unresolved < 1 || l.Unresolved > 256 || l.Records < 1 || l.Records > 4096 || l.Terminal < 1 || l.Terminal > 256 || l.OutputBytes < 4 || l.OutputBytes > 256<<10 {
+	if l.Active < 1 || l.Active > 4 || l.Unresolved < 1 || l.Unresolved > 256 || l.Records < 2 || l.Records > 4096 || l.Terminal < 1 || l.Terminal > 256 || l.OutputBytes < 4 || l.OutputBytes > 256<<10 {
 		return fail("invalid_limits")
 	}
 	if len(c.AllowedHosts) == 0 || len(c.AllowedHosts) > 16 || len(c.AllowedOrigins) > 16 || len(c.Callers) > 64 || len(c.Bindings) > 256 {

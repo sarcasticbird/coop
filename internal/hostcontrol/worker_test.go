@@ -16,11 +16,14 @@ import (
 
 type workerBackend struct {
 	execBackend
-	wake      worker.WakeSummary
-	prompt    string
-	pings     int
-	loseAck   bool
-	oversized bool
+	wake            worker.WakeSummary
+	prompt          string
+	pings           int
+	loseAck         bool
+	oversized       bool
+	pauseSupported  bool
+	admissionPaused bool
+	controls        int
 }
 
 func (f *workerBackend) Exec(ctx context.Context, n, cwd string, args []string, in io.Reader, out, errout io.Writer) error {
@@ -33,7 +36,14 @@ func (f *workerBackend) Exec(ctx context.Context, n, cwd string, args []string, 
 	}
 	switch args[1] {
 	case "status":
-		return json.NewEncoder(out).Encode(worker.Status{Enabled: true, WakeEnabled: true, State: "idle", Heartbeat: time.Now().UTC()})
+		return json.NewEncoder(out).Encode(worker.Status{Enabled: true, WakeEnabled: true, State: "idle", Heartbeat: time.Now().UTC(), AdmissionPauseSupported: f.pauseSupported, AdmissionPaused: f.admissionPaused})
+	case "pause", "resume":
+		f.controls++
+		if args[len(args)-1] != "--admission-only" {
+			return fail("interrupting_pause_forbidden")
+		}
+		f.admissionPaused = args[1] == "pause"
+		return json.NewEncoder(out).Encode(map[string]any{"admission_paused": f.admissionPaused, "state": args[1] + "_requested"})
 	case "ping":
 		var input worker.PingInput
 		if e := json.NewDecoder(in).Decode(&input); e != nil {
@@ -102,4 +112,29 @@ func TestMCPWorkerRejectsOversizedStatus(t *testing.T) {
 
 func configProfileForWorker() config.Profile {
 	return config.Profile{Services: map[string]config.Service{"worker": {Command: []string{"true"}}}}
+}
+
+func TestMCPAdmissionPauseRejectsLegacyAndPreservesMode(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "supported"}[supported], func(t *testing.T) {
+			e, c, b := fixtureWorkerEngine(t)
+			b.pauseSupported = supported
+			for _, action := range []string{"pause", "resume"} {
+				a, err := e.Submit(context.Background(), c, Mutation{Key: testKey(time.Now()), Workspace: e.control.reference("agent:robin"), Action: action})
+				if err != nil {
+					t.Fatal(err)
+				}
+				r, _ := e.ledger.Lookup(c, a.OperationID)
+				e.execute(context.Background(), r)
+				r, _ = e.ledger.Lookup(c, r.ID)
+				if !supported {
+					if b.controls != 0 || r.Outcome.Category != "noninterrupting_pause_unsupported" {
+						t.Fatal("legacy interrupting pause was called")
+					}
+				} else if r.State != "succeeded" || b.admissionPaused != (action == "pause") {
+					t.Fatalf("wrong admission control result: %+v", r.Outcome)
+				}
+			}
+		})
+	}
 }

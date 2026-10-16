@@ -9,29 +9,31 @@ import (
 )
 
 type Status struct {
-	Actor              Actor            `json:"actor"`
-	Current            *CurrentWork     `json:"current,omitempty"`
-	HistoricalJobs     int              `json:"historical_jobs,omitempty"`
-	RecoveryIntent     *Job             `json:"recovery_intent,omitempty"`
-	PromptFailure      *PromptSizeError `json:"prompt_failure,omitempty"`
-	WakeIntakeDeferred bool             `json:"wake_intake_deferred,omitempty"`
-	APINotBefore       time.Time        `json:"api_not_before,omitempty"`
-	WakeEnabled        bool             `json:"wake_enabled,omitempty"`
-	Wakes              []WakeSummary    `json:"wakes,omitempty"`
-	Name               string           `json:"name,omitempty"`
-	Enabled            bool             `json:"enabled"`
-	State              string           `json:"state"`
-	Paused             bool             `json:"paused"`
-	ServerHealthy      bool             `json:"server_healthy"`
-	ServerVersion      string           `json:"server_version,omitempty"`
-	Heartbeat          time.Time        `json:"heartbeat"`
-	LastPoll           time.Time        `json:"last_poll"`
-	ActiveTask         string           `json:"active_task,omitempty"`
-	SessionID          string           `json:"session_id,omitempty"`
-	SubmissionState    string           `json:"submission_state,omitempty"`
-	WaitReason         string           `json:"wait_reason,omitempty"`
-	LastError          string           `json:"last_error,omitempty"`
-	NextRetry          time.Time        `json:"next_retry,omitempty"`
+	Actor                   Actor            `json:"actor"`
+	Current                 *CurrentWork     `json:"current,omitempty"`
+	HistoricalJobs          int              `json:"historical_jobs,omitempty"`
+	RecoveryIntent          *Job             `json:"recovery_intent,omitempty"`
+	PromptFailure           *PromptSizeError `json:"prompt_failure,omitempty"`
+	WakeIntakeDeferred      bool             `json:"wake_intake_deferred,omitempty"`
+	APINotBefore            time.Time        `json:"api_not_before,omitempty"`
+	WakeEnabled             bool             `json:"wake_enabled,omitempty"`
+	Wakes                   []WakeSummary    `json:"wakes,omitempty"`
+	Name                    string           `json:"name,omitempty"`
+	Enabled                 bool             `json:"enabled"`
+	State                   string           `json:"state"`
+	Paused                  bool             `json:"paused"`
+	AdmissionPauseSupported bool             `json:"admission_pause_supported,omitempty"`
+	AdmissionPaused         bool             `json:"admission_paused,omitempty"`
+	ServerHealthy           bool             `json:"server_healthy"`
+	ServerVersion           string           `json:"server_version,omitempty"`
+	Heartbeat               time.Time        `json:"heartbeat"`
+	LastPoll                time.Time        `json:"last_poll"`
+	ActiveTask              string           `json:"active_task,omitempty"`
+	SessionID               string           `json:"session_id,omitempty"`
+	SubmissionState         string           `json:"submission_state,omitempty"`
+	WaitReason              string           `json:"wait_reason,omitempty"`
+	LastError               string           `json:"last_error,omitempty"`
+	NextRetry               time.Time        `json:"next_retry,omitempty"`
 }
 
 type CurrentWork struct {

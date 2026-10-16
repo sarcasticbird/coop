@@ -80,6 +80,9 @@ func sameServerConfig(a, b hostcontrol.Config) bool {
 	b.VerifierFile = ""
 	return reflect.DeepEqual(a, b)
 }
+
+var runMCPEngine = func(ctx context.Context, e *hostcontrol.Engine) error { return e.Run(ctx) }
+
 func serveMCP(parent context.Context, path string) error {
 	cfg, err := hostcontrol.LoadConfig(path)
 	if err != nil {
@@ -128,16 +131,19 @@ func serveMCP(parent context.Context, path string) error {
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
 	engineDone := make(chan error, 1)
-	go func() { engineDone <- engine.Run(ctx) }()
+	go func() { engineDone <- runMCPEngine(ctx, engine) }()
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 16 << 10}
 	httpDone := make(chan error, 1)
 	go func() { httpDone <- httpServer.Serve(listener) }()
 	slog.Info("Coop MCP listening", "host_id", host.ID, "address", listener.Addr().String())
-	var serveErr error
+	var serveErr, engineErr error
 running:
 	for {
 		select {
 		case <-ctx.Done():
+			break running
+		case engineErr = <-engineDone:
+			engineDone = nil
 			break running
 		case err := <-httpDone:
 			if !errors.Is(err, http.ErrServerClosed) {
@@ -165,6 +171,8 @@ running:
 	if err := httpServer.Shutdown(shutdown); err != nil {
 		_ = httpServer.Close()
 	}
-	engineErr := <-engineDone
+	if engineDone != nil {
+		engineErr = <-engineDone
+	}
 	return errors.Join(serveErr, engineErr)
 }

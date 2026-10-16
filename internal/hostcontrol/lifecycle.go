@@ -261,6 +261,19 @@ func (e *Engine) reconcileLifecycle(ctx context.Context, r OperationRecord) {
 	if err != nil || !b.Workspace.Owned || b.Spec.Fingerprint != r.Fingerprint || recordIdentity(r) == "" || runtimeIdentity(b) != recordIdentity(r) {
 		return
 	}
+	if r.Phase == "stop_pending" && b.Workspace.State == "stopped" {
+		if err = e.change(r.ID, func(v *OperationRecord) {
+			if v.State == "indeterminate" && v.Phase == "stop_pending" {
+				v.Phase = "stopped"
+			}
+		}); err != nil {
+			return
+		}
+		r, err = e.ledger.Lookup(caller, r.ID)
+		if err != nil {
+			return
+		}
+	}
 	switch {
 	case r.Phase == "started" && r.PhaseIncarnation != "" && b.Incarnation == r.PhaseIncarnation && b.Workspace.State == "running" && b.Workspace.Fingerprint == r.Fingerprint:
 		e.finish(r.ID, Outcome{Completed: true})

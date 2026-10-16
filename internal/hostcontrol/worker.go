@@ -13,16 +13,18 @@ import (
 )
 
 type WorkerStatus struct {
-	Enabled       bool      `json:"enabled"`
-	State         string    `json:"state"`
-	Paused        bool      `json:"paused"`
-	Heartbeat     time.Time `json:"heartbeat"`
-	WakeEnabled   bool      `json:"wake_enabled"`
-	ActivityKnown bool      `json:"activity_known"`
-	Active        bool      `json:"active"`
-	Recovery      bool      `json:"recovery"`
-	CurrentTask   string    `json:"current_task,omitempty"`
-	CurrentPhase  string    `json:"current_phase,omitempty"`
+	Enabled                 bool      `json:"enabled"`
+	State                   string    `json:"state"`
+	Paused                  bool      `json:"paused"`
+	AdmissionPauseSupported bool      `json:"admission_pause_supported"`
+	AdmissionPaused         bool      `json:"admission_paused"`
+	Heartbeat               time.Time `json:"heartbeat"`
+	WakeEnabled             bool      `json:"wake_enabled"`
+	ActivityKnown           bool      `json:"activity_known"`
+	Active                  bool      `json:"active"`
+	Recovery                bool      `json:"recovery"`
+	CurrentTask             string    `json:"current_task,omitempty"`
+	CurrentPhase            string    `json:"current_phase,omitempty"`
 }
 type WakeSummary struct {
 	ID     string `json:"id"`
@@ -73,6 +75,8 @@ func (c *Control) WorkerStatus(ctx context.Context, ref string) (WorkerStatus, e
 	}
 	fresh := !status.Heartbeat.IsZero() && time.Since(status.Heartbeat) <= 2*time.Minute && !status.Heartbeat.After(time.Now().Add(time.Minute)) && status.State != "stale" && status.State != "not_running"
 	out := WorkerStatus{Enabled: status.Enabled, State: safeReason(status.State), Paused: status.Paused, Heartbeat: status.Heartbeat, WakeEnabled: status.WakeEnabled, ActivityKnown: fresh, Recovery: status.RecoveryIntent != nil}
+	out.AdmissionPauseSupported = status.AdmissionPauseSupported
+	out.AdmissionPaused = status.AdmissionPaused
 	out.Active = status.ActiveTask != "" || status.SessionID != "" || status.SubmissionState != "" || out.Recovery
 	if status.Current != nil {
 		out.CurrentTask = status.Current.TaskURL
@@ -130,6 +134,12 @@ func (e *Engine) registerWorker() {
 			if err = e.policy.Authorize(caller, b.Selector, capability(r.Input.Action)); err != nil {
 				return Outcome{Completed: true, Category: "forbidden"}, err
 			}
+			if r.Input.Action == "pause" || r.Input.Action == "resume" {
+				status, err := e.control.WorkerStatus(ctx, r.Input.Workspace)
+				if err != nil || !status.ActivityKnown || !status.AdmissionPauseSupported {
+					return Outcome{Completed: true, Category: "noninterrupting_pause_unsupported"}, fail("noninterrupting_pause_unsupported")
+				}
+			}
 			var input io.Reader
 			if r.Input.Action == "ping" {
 				status, err := e.control.WorkerStatus(ctx, r.Input.Workspace)
@@ -168,13 +178,13 @@ func (e *Engine) registerWorker() {
 				return Outcome{Completed: true}, nil
 			}
 			var result struct {
-				Paused bool   `json:"paused"`
-				State  string `json:"state"`
+				AdmissionPaused bool   `json:"admission_paused"`
+				State           string `json:"state"`
 			}
-			err = workerJSON(ctx, b, workerArgs(r.Input.Action), nil, &result)
-			if err != nil {
+			err = workerJSON(ctx, b, append(workerArgs(r.Input.Action), "--admission-only"), nil, &result)
+			if err != nil || result.AdmissionPaused != (r.Input.Action == "pause") {
 				status, statusErr := e.control.WorkerStatus(ctx, r.Input.Workspace)
-				if statusErr != nil || !status.ActivityKnown || status.Paused != (r.Input.Action == "pause") {
+				if statusErr != nil || !status.ActivityKnown || !status.AdmissionPauseSupported || status.AdmissionPaused != (r.Input.Action == "pause") {
 					return Outcome{Category: "worker_control_outcome_unknown"}, err
 				}
 			}
@@ -203,7 +213,7 @@ func (e *Engine) reconcileWorker(ctx context.Context, r OperationRecord) {
 		}
 	} else if r.Input.Action == "pause" || r.Input.Action == "resume" {
 		s, err := e.control.WorkerStatus(ctx, r.Input.Workspace)
-		if err == nil && s.ActivityKnown && s.Paused == (r.Input.Action == "pause") {
+		if err == nil && s.ActivityKnown && s.AdmissionPauseSupported && s.AdmissionPaused == (r.Input.Action == "pause") {
 			e.finish(r.ID, Outcome{Completed: true})
 		}
 	}

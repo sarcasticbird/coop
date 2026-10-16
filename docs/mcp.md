@@ -81,7 +81,7 @@ All successful tool results include `host_id`, `host_label` and `data`. Workspac
 | `coop_host_info`, `coop_list`, `coop_status` | `read` | Host health, caller-visible inventory and current/desired configuration |
 | `coop_worker_status`, `coop_worker_requests` | `read` | Safe worker status and wake summaries, with private prompts omitted |
 | `coop_ping` | `ping` | Queue an optional literal prompt for a running worker |
-| `coop_worker_control` | `worker_control` | Request pause/resume; never abort a native turn or clear recovery |
+| `coop_worker_control` | `worker_control` | Request admission-only pause/resume; never abort a native turn or clear recovery |
 | `coop_lifecycle` | `lifecycle` | Start, stop or restart through existing lifecycle behavior |
 | `coop_exec` | `exec` | Run exact argv/cwd/stdin in a running guest, without a PTY |
 | `coop_operation_status` | `read` plus original caller | Read state and bounded output pages |
@@ -108,6 +108,8 @@ Requests older than seven days or over five minutes in the future are rejected. 
 
 `coop_lifecycle` accepts `action` of `start`, `stop` or `restart` and an explicit `interrupt_active` boolean. Stop/restart refuses known active or unknown worker activity without that flag. Explicit start retains normal configured preparation. Restart saves its stop/start phases and rechecks authorization and ownership before each side effect.
 
+Worker pause/resume requires a fresh running worker advertising `admission_pause_supported`. MCP uses `--admission-only`: active task and wake turns continue, and new submissions stop. Older workers return `noninterrupting_pause_unsupported`; no legacy interrupting pause is sent. Admission resume does not clear an existing legacy pause or recovery state. Install compatible worker source through the separate reviewed rollout workflow before relying on this tool.
+
 `coop_ping` accepts an optional `prompt`. Its response returns a durable host operation and deterministic guest wake ID. `host_pending` means the host accepted work; `queued` means the guest queue accepted it. Neither means the agent replied. Use `coop_worker_requests` with `wake_id` to observe delivery/reporting. Lost acknowledgements are reconciled by the exact wake ID, without another queue write.
 
 Operation states are `accepted`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled` and `indeterminate`. Only an observed guest completion sets an exit code. A nonzero guest exit is a failed command with its real code. Losing the Container connection does not invent a guest exit or prove termination. Killing the Mac-side CLI is not proof that a guest process died.
@@ -120,7 +122,7 @@ After a service restart, dispatched exec is never replayed. Saved lifecycle/wake
 
 Defaults are four active operations, one conflicting operation per workspace, a ten-minute ceiling, 64 KiB each for argv/stdin, 256 KiB retained per output stream and 64 KiB maximum output pages. Output continues draining after its retention cap. UTF-8 paging preserves code point boundaries; binary output uses base64 and byte offsets. `total_bytes`, `dropped_bytes` and `truncated` report retention loss. An offset inside a UTF-8 code point is rejected.
 
-Retain at most 256 terminal outputs for seven days, 256 unresolved operations and 4,096 total operation/idempotency records. New work is rejected at capacity rather than discarding unresolved work or unexpired retry evidence. Private state can contain sensitive argv/stdin/prompts/output. Audit metadata excludes those fields and credentials.
+Retain at most 256 terminal outputs for seven days, 256 unresolved operations and 4,096 total operation/idempotency records. New work is rejected at capacity rather than discarding unresolved work or unexpired retry evidence. One total-record slot is reserved for cancellation of each uncancelled unresolved target; cancellation does not consume the ordinary unresolved-work quota. The total record limit must be at least two. Private state can contain sensitive argv/stdin/prompts/output. Audit metadata excludes those fields and credentials.
 
 The host owner can inspect safe local operation metadata without an MCP caller credential:
 

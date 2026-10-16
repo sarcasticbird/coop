@@ -26,6 +26,7 @@ type Engine struct {
 	running           bool
 	notify            chan struct{}
 	retentionInterval time.Duration
+	reconcileCursor   int
 }
 
 func NewEngine(host Host, ledger *Ledger, policy *Policy, control *Control) (*Engine, error) {

@@ -21,7 +21,7 @@ func (c *Control) HostInfo(ctx context.Context) (HostInfo, error) {
 	i.RuntimeAvailable = true
 	return i, nil
 }
-func (c *Control) List(ctx context.Context) ([]Workspace, error) {
+func (c *Control) List(ctx context.Context, allow ...func(string) bool) ([]Workspace, error) {
 	cfg, e := config.Load("")
 	if e != nil {
 		return nil, fail("profiles_unavailable")
@@ -46,6 +46,9 @@ func (c *Control) List(ctx context.Context) ([]Workspace, error) {
 	sort.Strings(sorted)
 	rows := []Workspace{}
 	for _, k := range sorted {
+		if len(allow) > 0 && !allow[0](k) {
+			continue
+		}
 		b, e := c.resolveSelector(ctx, k)
 		if e != nil {
 			return nil, e

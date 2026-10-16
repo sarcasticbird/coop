@@ -39,13 +39,15 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return qaSourceDigest(args[1:], out)
 	}
 	switch command {
-	case "run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state":
+	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
 	flags := flag.NewFlagSet("coop-worker", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	admissionOnly := flags.Bool("admission-only", false, "pause new admissions without aborting active work")
 	path := flags.String("config", "", "private worker configuration")
+	previous := flags.String("previous-config", "", "installed private configuration for check-install")
 	task := flags.String("task", "", "task issue URL")
 	goal := flags.String("goal", "", "goal URL")
 	requestID := flags.String("request-id", "", "exact wake request ID")
@@ -66,6 +68,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if command != "migrate-state" && (*from != 0 || *to != 0 || *expected != "") {
 		return errors.New("migration flags require migrate-state")
+	}
+	if *previous != "" && command != "check-install" {
+		return errors.New("previous-config requires check-install")
+	}
+	if *admissionOnly && command != "pause" && command != "resume" {
+		return errors.New("admission-only requires pause or resume")
 	}
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
@@ -88,6 +96,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if *jobID != "" || *sessionID != "" || *messageID != "" {
 		return errors.New("intent flags require recover")
+	}
+	if command == "check-install" {
+		if err := worker.CheckInstall(c, *previous); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]bool{"compatible": true})
 	}
 	store := worker.NewVersionedFileStore(c.StateDir, c.Version)
 	if command != "validate" && command != "status" {
@@ -134,6 +148,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return encode(status)
 	case "pause", "resume":
 		paused := command == "pause"
+		if *admissionOnly {
+			if err := store.SetAdmissionPaused(paused); err != nil {
+				return err
+			}
+			return encode(map[string]any{"admission_paused": paused, "state": command + "_requested"})
+		}
 		if err := store.SetPaused(paused); err != nil {
 			return err
 		}

@@ -205,6 +205,9 @@ func (c *Control) resolveSelector(ctx context.Context, selector string) (Binding
 	}
 	r, e := c.store.Load(b.Spec.Mode, b.Spec.Identity)
 	if e == nil {
+		if _, appliedWorker := r.Applied.Services["worker"]; appliedWorker {
+			b.Workspace.WorkerConfigured = true
+		}
 		b.Workspace.Owned = r.RuntimeName == b.RuntimeName && r.Mode == b.Spec.Mode && (b.Spec.Mode != workspace.Interactive || r.Applied.Project == b.Spec.Project)
 	} else if !os.IsNotExist(e) {
 		return b, fail("ownership_unavailable")

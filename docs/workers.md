@@ -36,6 +36,10 @@ Build `cmd/coop-worker` for Linux arm64 through the repository's Flox environmen
 Keep each worker JSON configuration in the private machine branch of dotfiles,
 alongside its Coop profile. Do not put credentials or private goal text in this
 public repository. The example in `examples/worker.json` contains placeholders.
+The neutral v2 example is [worker-team.json](../examples/worker-team.json).
+See [scheduler artifact preparation](scheduler-artifacts.md) for the v1/v2
+compatibility table, offline validation, build/digest evidence and maintenance
+recovery boundaries. That guide does not authorize live activation.
 GitHub App signing keys remain on the host; guest operations use the existing
 renewable installation-token helper. Provider logins remain in native OpenCode
 storage. The server generates its password in the guest, mode 0600.

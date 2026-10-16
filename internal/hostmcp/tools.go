@@ -86,7 +86,7 @@ func NewServer(control *hostcontrol.Control, engine *hostcontrol.Engine, policy 
 		if err != nil {
 			return nil, err
 		}
-		rows, err := control.List(ctx)
+		rows, err := control.List(ctx, func(selector string) bool { return policy.Authorize(caller, selector, "read") == nil })
 		if err != nil {
 			return nil, err
 		}
