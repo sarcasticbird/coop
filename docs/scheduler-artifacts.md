@@ -3,9 +3,13 @@
 This public guide covers source and offline artifact preparation only. It does
 not authorize installation, state conversion, profile changes, service reloads,
 live bot handoffs, permission changes or external acceptance fixtures. V2 worker
-startup remains fenced before state loading. A valid example, successful build
+engine initialization/dispatch remains fenced before the engine's state load
+(the CLI can read state and acquire locks first). A valid example, successful build
 or verified artifact manifest does not remove that fence or approve live work.
 The separately controlled private rollout packet is not reproduced here.
+
+Use the neutral [controlled acceptance checklist](scheduler-acceptance.md) to
+review that private packet's inputs, exercises, execution gates and stop criteria.
 
 ## Configuration and compatibility
 
@@ -124,7 +128,10 @@ The [worker installer contract](workers.md#runtime-and-private-configuration)
 requires an already-running unshared VM, even though worker/server services must
 stay stopped. A cold backup therefore precedes any separately authorized
 maintenance-only VM start. Ensure profiles cannot restart services inadvertently.
-The installer stages artifacts; it does not stop/start services or change profiles.
+The installer publishes artifacts and the candidate worker JSON configuration;
+it does not stop/start services or change host Coop profiles. Keep the external
+service fence intact while a v2 worker config is installed over pre-conversion
+v1 state. Neither the config publication nor compatibility check converts state.
 
 The candidate worker's offline `check-install` command checks the proposed and
 installed configuration identity, immutable actor, state directory and version,
