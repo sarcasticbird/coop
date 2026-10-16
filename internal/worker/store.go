@@ -164,6 +164,22 @@ func validateOwnershipBinding(b *JobBinding, kind string) error {
 	return nil
 }
 func validateState(s State) error {
+	if s.Schedule != nil {
+		c := s.Schedule.Counters
+		if s.Version != 2 || c.Handoffs < 0 || c.Handoffs > 2 || c.Foreground < 0 || c.Foreground > 3 {
+			return errors.New("invalid scheduling counters")
+		}
+		for id, age := range s.Schedule.Eligible {
+			if !hexSHA.MatchString(id) || age.IsZero() {
+				return errors.New("invalid scheduling age")
+			}
+		}
+		for id, counted := range s.Schedule.CompletedWakes {
+			if !hexSHA.MatchString(id) || !counted {
+				return errors.New("invalid scheduling wake receipt")
+			}
+		}
+	}
 	if (s.Version != 1 && s.Version != 2) || !hexSHA.MatchString(s.InstanceID) || s.Jobs == nil || s.Sessions == nil || s.Seen == nil || s.Cursor == nil || s.ReviewCycles == nil {
 		return errors.New("invalid worker state")
 	}

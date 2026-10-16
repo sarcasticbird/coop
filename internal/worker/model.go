@@ -124,6 +124,9 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	FirstEligibleAt                                                              time.Time        `json:",omitzero"`
+	SchedulePriority                                                             int              `json:",omitempty"`
+	ScheduleOrdinal                                                              int              `json:",omitempty"`
 	QAArtifact                                                                   *QAArtifact      `json:",omitempty"`
 	PRScopeRevision                                                              string           `json:",omitempty"`
 	Binding                                                                      *JobBinding      `json:",omitempty"`
@@ -150,6 +153,7 @@ type SessionBinding struct {
 	TaskURL, GoalURL, Role, Kind, Checkout, Branch, SessionID string
 }
 type State struct {
+	Schedule       *TeamScheduleState `json:",omitempty"`
 	Attempts       map[string]int
 	Version        int
 	InstanceID     string
