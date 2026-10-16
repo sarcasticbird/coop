@@ -1,5 +1,6 @@
 """Local packaging checks. No VMs, GitHub calls or provider credentials."""
 import importlib.util
+import io
 import json
 import hashlib
 import os
@@ -8,6 +9,7 @@ import stat
 import sys
 import subprocess
 import tempfile
+import tarfile
 import unittest
 from unittest import mock
 
@@ -115,6 +117,59 @@ class Installer(unittest.TestCase):
             with mock.patch.object(self.module, "invoke") as call:
                 with self.assertRaises(ValueError): self.module.install("robin", binary, config)
                 call.assert_not_called()
+
+    def test_adoption_metadata_is_bound_to_v2_candidate_and_explicit_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary, config = root / 'worker', root / 'config.json'
+            data = bytearray(64)
+            data[:6], data[18:20] = b'\x7fELF\x02\x01', b'\xb7\x00'
+            binary.write_bytes(data)
+            config.write_text(json.dumps(dict(version=2, name='robin', state_dir='/private/unused-state')))
+            config.chmod(0o600)
+            with mock.patch.object(self.module, 'running_child', return_value='test-child'), mock.patch.object(self.module, 'invoke') as call:
+                self.module.install('robin', binary, config, adopt_matching_launchers=True)
+                argv, payload = call.call_args.args
+                self.assertEqual(argv[-1], 'adopt')
+                with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+                    self.assertEqual(archive.extractfile('adoption-state').read(), b'/private/unused-state')
+            for changes in (dict(version=1), dict(state_dir='relative'), dict(state_dir='/a/../b'), dict(state_dir='/a\nother'), dict(state_dir='/')):
+                candidate = dict(version=2, name='robin', state_dir='/private/unused-state')
+                candidate.update(changes)
+                config.write_text(json.dumps(candidate))
+                with mock.patch.object(self.module, 'invoke') as call:
+                    with self.assertRaises(ValueError):
+                        self.module.install('robin', binary, config, adopt_matching_launchers=True)
+                    call.assert_not_called()
+
+    def test_adoption_state_cannot_overlap_installation_namespace(self):
+        root = '/var/lib/coop/worker'
+        reserved = ('config.json', 'install.sha256', 'install.lock', 'install-pending',
+                    'install-before', 'install-history.saved', '.install.stage',
+                    '.manifest.next', '.worker.next')
+        rejected = [root, '/usr/local/libexec', '/usr/local/libexec/coop-worker',
+                    '/usr/local/libexec/new-data/child']
+        rejected += [root + '/' + name + suffix for name in reserved for suffix in ('', '/child')]
+        allowed = [root + '/state', root + '/data/child', '/var/lib/coop/worker-data',
+                   '/separate/unused-state', '/usr/local/libexec-data']
+        with tempfile.TemporaryDirectory() as directory:
+            binary, config = Path(directory) / 'worker', Path(directory) / 'config.json'
+            data = bytearray(64)
+            data[:6], data[18:20] = b'\x7fELF\x02\x01', b'\xb7\x00'
+            binary.write_bytes(data)
+            for path in rejected + allowed:
+                with self.subTest(state_dir=path):
+                    config.write_text(json.dumps(dict(version=2, name='robin', state_dir=path)))
+                    config.chmod(0o600)
+                    with mock.patch.object(self.module, 'running_child', return_value='test-child'), mock.patch.object(self.module, 'invoke') as call:
+                        if path in rejected:
+                            with self.assertRaises(ValueError):
+                                self.module.install('robin', binary, config, adopt_matching_launchers=True)
+                            call.assert_not_called()
+                        else:
+                            self.module.install('robin', binary, config, adopt_matching_launchers=True)
+                            with tarfile.open(fileobj=io.BytesIO(call.call_args.args[1])) as archive:
+                                self.assertEqual(archive.extractfile('adoption-state').read(), path.encode())
 
 
 class FloxUpgrade(unittest.TestCase):
