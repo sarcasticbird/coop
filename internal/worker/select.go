@@ -67,6 +67,9 @@ func taskAdmitted(c Config, t Task, g Goal, s Snapshot) bool {
 	return true
 }
 func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
+	if c.Version != 1 {
+		return false, "v2 workflow not supported"
+	}
 	if !s.Complete {
 		return false, "incomplete GitHub snapshot"
 	}

@@ -167,7 +167,49 @@ func LoadConfig(path string) (Config, error) {
 	if len(raw) > MaxConfig {
 		return c, errors.New("worker config too large")
 	}
-	if err := strictJSON(raw, &c); err != nil {
+	// Inspect the envelope before decoding shared fields. A trailing version
+	// must not select a weaker decoder, and null must not hide a v2-only field.
+	d := json.NewDecoder(bytes.NewReader(raw))
+	token, err := d.Token()
+	if err != nil || token != json.Delim('{') {
+		return c, errors.New("invalid worker configuration envelope")
+	}
+	version, seenVersion, seenTeam := 0, false, false
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		name, ok := key.(string)
+		if !ok {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		var value json.RawMessage
+		if err := d.Decode(&value); err != nil {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		if strings.EqualFold(name, "version") {
+			if seenVersion || json.Unmarshal(value, &version) != nil {
+				return c, errors.New("ambiguous worker configuration version")
+			}
+			seenVersion = true
+		}
+		seenTeam = seenTeam || strings.EqualFold(name, "team")
+	}
+	if _, err := d.Token(); err != nil {
+		return c, errors.New("invalid worker configuration envelope")
+	}
+	if !seenVersion || (version != 1 && version != 2) {
+		return c, errors.New("unsupported worker configuration version")
+	}
+	if version == 1 && seenTeam {
+		return c, errors.New("v1 configuration forbids team policy")
+	}
+	if version == 2 {
+		if err := strictTeamJSON(raw, &c); err != nil {
+			return c, err
+		}
+	} else if err := strictJSON(raw, &c); err != nil {
 		return c, err
 	}
 	c = Defaults(c)
@@ -196,17 +238,32 @@ func ValidateConfig(c Config) error {
 	if err := validateWakeConfig(c); err != nil {
 		return err
 	}
-	if c.Version != 1 || !slug.MatchString(c.Name) || (c.Role != "implementer" && c.Role != "planner") || len(strings.Split(c.Model, "/")) != 2 || strings.ContainsAny(c.Model, "\x00\r\n ") {
+	if (c.Version != 1 && c.Version != 2) || !slug.MatchString(c.Name) || len(strings.Split(c.Model, "/")) != 2 || strings.ContainsAny(c.Model, "\x00\r\n ") {
 		return errors.New("invalid worker version, identity, role or model")
 	}
 	if !cleanPrivatePath(c.StateDir) || !cleanPrivatePath(c.WorkRoot) || c.StateDir == c.WorkRoot || strings.HasPrefix(c.WorkRoot, c.StateDir+"/") || strings.HasPrefix(c.StateDir, c.WorkRoot+"/") {
 		return errors.New("worker state and work roots must be separate absolute directories")
 	}
-	if !validActor(c.Owner, "User") || !validActor(c.Self, "Bot") || !validActor(c.Implementer, "Bot") || !validActor(c.Reviewer, "Bot") || sameActor(c.Implementer, c.Reviewer) {
+	if !validActor(c.Owner, "User") || !validActor(c.Self, "Bot") {
 		return errors.New("invalid distinct owner and bot identities")
 	}
-	if (c.Role == "implementer" && !sameActor(c.Self, c.Implementer)) || (c.Role == "planner" && !sameActor(c.Self, c.Reviewer)) {
-		return errors.New("worker role does not match bot identity")
+	if c.Version == 1 {
+		if c.Team != nil || (c.Role != "implementer" && c.Role != "planner") || !validActor(c.Implementer, "Bot") || !validActor(c.Reviewer, "Bot") || sameActor(c.Implementer, c.Reviewer) {
+			return errors.New("invalid v1 worker authority")
+		}
+		if (c.Role == "implementer" && !sameActor(c.Self, c.Implementer)) || (c.Role == "planner" && !sameActor(c.Self, c.Reviewer)) {
+			return errors.New("worker role does not match bot identity")
+		}
+	} else {
+		if c.Team == nil || c.Role != "" || c.Implementer != (Actor{}) || c.Reviewer != (Actor{}) {
+			return errors.New("v2 requires team policy and forbids legacy authority fields")
+		}
+		if err := ValidateTeamPolicy(*c.Team); err != nil {
+			return err
+		}
+		if member, ok := TeamMemberForActor(*c.Team, c.Self); !ok || member.Name != c.Name {
+			return errors.New("v2 self must match exactly one named roster actor")
+		}
 	}
 	if len(c.CodeOwners) == 0 || len(c.CodeOwners) > 64 || len(c.ProjectOwners) > 64 || len(c.DiscussionRepositories) > 64 {
 		return errors.New("invalid owner scope")

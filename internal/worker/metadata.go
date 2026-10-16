@@ -66,6 +66,9 @@ func commentTime(c Comment) time.Time {
 	return c.CreatedAt
 }
 func ApplyTaskMetadata(cfg Config, t *Task, comments []Comment) error {
+	if cfg.Version == 2 {
+		return applyTeamTaskMetadata(cfg, t, comments)
+	}
 	t.MetadataAuthor = Actor{}
 	t.GoalURL = ""
 	t.MetadataScopeSHA = ""
