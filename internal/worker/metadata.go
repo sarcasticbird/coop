@@ -133,6 +133,16 @@ func claimFromComment(c Comment) *Claim {
 	var data struct {
 		Instance string `json:"instance"`
 	}
+	if strings.Contains(c.Body, "<!-- coop-claim:v2 ") {
+		var v2 struct {
+			Instance string     `json:"instance"`
+			Binding  JobBinding `json:"binding"`
+		}
+		if teamMetadata(c.Body, "claim", &v2) != nil || !hexSHA.MatchString(v2.Instance) || v2.Binding.Version != 2 || !hexSHA.MatchString(v2.Binding.AssignmentSHA) || v2.Binding.ExecutorID != c.Author.ID || (v2.Binding.Role != "implementer" && v2.Binding.Role != "engineering-review") {
+			return nil
+		}
+		return &Claim{ID: c.ID, Marker: m[0], InstanceID: v2.Instance, Author: c.Author, Binding: &v2.Binding}
+	}
 	if metadata(c.Body, "claim", &data) != nil || !hexSHA.MatchString(data.Instance) {
 		return nil
 	}

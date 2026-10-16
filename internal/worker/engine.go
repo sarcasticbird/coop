@@ -220,6 +220,9 @@ func (e *Engine) refreshSynchronous(ctx context.Context) error {
 }
 func (e *Engine) continuationAllowed(j Job) (bool, string) {
 	s := e.state.SnapshotCache
+	if !e.savedBindingAllowed(j) {
+		return false, "saved assignment, executor or scope changed"
+	}
 	if j.Kind == "plan" {
 		return Admit(e.Config, j, s, e.Clock.Now())
 	}
@@ -251,6 +254,9 @@ func (e *Engine) continuationAllowed(j Job) (bool, string) {
 	if !taskAdmitted(e.Config, check, g, s) {
 		return false, "scope"
 	}
+	if e.Config.Version == 2 && j.Binding.Role == "implementer" && t.Claim != nil && t.Claim.InstanceID != e.state.InstanceID {
+		return false, "claim"
+	}
 	if j.Kind == "implement" {
 		if t.Claim == nil || t.Claim.InstanceID != e.state.InstanceID {
 			return false, "claim"
@@ -261,7 +267,7 @@ func (e *Engine) continuationAllowed(j Job) (bool, string) {
 	if !ok {
 		return false, "PR unavailable"
 	}
-	if p.HeadSHA != j.HeadSHA && !artifactCompletes(e.Config, j, Artifacts{PR: &p}) {
+	if p.HeadSHA != j.HeadSHA && !artifactCompletes(e.Config, j, snapshotArtifacts(e.Config, j, s)) {
 		return false, "head changed"
 	}
 	if artifactCompletes(e.Config, j, snapshotArtifacts(e.Config, j, s)) {
@@ -269,7 +275,59 @@ func (e *Engine) continuationAllowed(j Job) (bool, string) {
 	}
 	return Admit(e.Config, j, s, e.Clock.Now())
 }
+
+// Completion may relax task/head admission, but never saved assignment ownership.
+func (e *Engine) savedBindingAllowed(j Job) bool {
+	if e.Config.Version != 2 {
+		return true
+	}
+	if !e.state.SnapshotCache.Complete || e.Config.Team == nil || j.Binding == nil {
+		return false
+	}
+	bound, err := bindTeamJob(e.Config, j, e.state.SnapshotCache, e.Clock.Now())
+	return err == nil && *bound.Binding == *j.Binding && bound.ID == j.ID &&
+		j.Binding.ExecutorID == e.Config.Self.ID && bound.ScopeSHA == j.ScopeSHA &&
+		bound.PRScopeRevision == j.PRScopeRevision
+}
+
 func artifactCompletes(c Config, j Job, a Artifacts) bool {
+	if c.Version == 2 {
+		if c.Team == nil || j.Binding == nil || j.Binding.Version != 2 || j.Binding.ExecutorID != c.Self.ID || j.ID != V2JobKey(j, j.Binding.AssignmentSHA, j.Binding.ExecutorID) {
+			return false
+		}
+		if j.Kind == "plan" {
+			sha, err := TeamPolicySHA(*c.Team)
+			return err == nil && j.Binding.AssignmentSHA == sha && j.Binding.Role == "planner" && isPlanner(c) && a.PlanResponded
+		}
+		if a.Task == nil || a.PR == nil {
+			return false
+		}
+		t, p := *a.Task, *a.PR
+		if t.URL != j.TaskURL || t.GoalURL != j.GoalURL || t.Assignment == nil || t.BodySHA != j.ScopeSHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.MetadataScopeSHA != t.BodySHA || t.Assignment.TaskBodySHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, teamPlanner(c))) {
+			return false
+		}
+		sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, QAPolicy{})
+		if err != nil || p.BaseBranch != t.Assignment.BaseBranch || sha != j.Binding.AssignmentSHA || p.AssignmentSHA != sha || !teamTaskAuthor(c, t, p.Author) || p.TaskURL != j.TaskURL || p.GoalURL != j.GoalURL || !referenceInRepo(p.URL, t.Repo, "pull") || (j.PRURL != "" && p.URL != j.PRURL) || (j.PRScopeRevision != "" && p.ScopeRevision != j.PRScopeRevision) {
+			return false
+		}
+		if j.Kind == "review" {
+			peer, ok := teamIndependentPeer(c, t, p)
+			r := teamLatestReview(c, t, p)
+			return ok && sameActor(c.Self, peer) && j.Binding.Role == "engineering-review" && p.HeadSHA == j.HeadSHA && (r.State == "APPROVED" || r.State == "CHANGES_REQUESTED")
+		}
+		if j.Binding.Role != "implementer" || !teamTaskAuthor(c, t, c.Self) {
+			return false
+		}
+		switch j.Kind {
+		case "implement":
+			return !p.Closed && p.Branch == j.Branch
+		case "fix":
+			return p.HeadSHA != j.HeadSHA && !p.Closed
+		case "deliver":
+			return p.HeadSHA == j.HeadSHA && p.Merged && a.IssueCompleted
+		}
+		return false
+	}
 	if j.Kind == "plan" {
 		return a.PlanResponded
 	}
@@ -440,25 +498,48 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 		e.status.ServerVersion = health.Version
 		e.nextDispatch = time.Time{}
 	}
-	if t, ok := taskFor(e.state.SnapshotCache, j.TaskURL); ok {
+	if t, ok := taskFor(e.state.SnapshotCache, j.TaskURL); ok && e.Config.Version != 2 {
 		j.ScopeSHA = t.BodySHA
 	}
 	j.Phase = "preparing"
 	if err := e.saveJob(j); err != nil {
 		return err
 	}
-	if j.Kind == "implement" {
+	if j.Kind == "implement" || e.Config.Version == 2 && j.Kind == "review" {
+		// Claims are mutations too: do not publish one against stale scope.
+		if reader, ok := e.GitHub.(interface {
+			Revalidate(context.Context, Job, Snapshot) (Snapshot, error)
+		}); ok {
+			checkCtx, cancel := context.WithTimeout(ctx, githubRevalidationTimeout)
+			snapshot, err := reader.Revalidate(checkCtx, j, e.state.SnapshotCache)
+			cancel()
+			if err != nil {
+				return e.failed(ctx, j, errorCategory(err))
+			}
+			e.state.SnapshotCache = snapshot
+			if allowed, reason := Admit(e.Config, j, snapshot, e.Clock.Now()); !allowed {
+				j.Phase, j.WaitReason = "paused", reason
+				return e.saveJob(j)
+			}
+		} else if e.Config.Version == 2 {
+			return e.failed(ctx, j, "scope_revalidation_unavailable")
+		}
 		t, _ := taskFor(e.state.SnapshotCache, j.TaskURL)
-		if t.Claim == nil {
+		if j.Kind == "review" || t.Claim == nil {
 			claimCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			claim, err := e.GitHub.Claim(claimCtx, j, e.state.InstanceID)
 			cancel()
 			if err != nil {
 				return e.failed(ctx, j, "execution")
 			}
-			for i := range e.state.SnapshotCache.Tasks {
-				if e.state.SnapshotCache.Tasks[i].URL == j.TaskURL {
-					e.state.SnapshotCache.Tasks[i].Claim = &claim
+			if e.Config.Version == 2 && (claim.Binding == nil || *claim.Binding != *j.Binding || !sameActor(claim.Author, e.Config.Self) || claim.InstanceID != e.state.InstanceID) {
+				return e.failed(ctx, j, "claim_binding_changed")
+			}
+			if j.Kind == "implement" {
+				for i := range e.state.SnapshotCache.Tasks {
+					if e.state.SnapshotCache.Tasks[i].URL == j.TaskURL {
+						e.state.SnapshotCache.Tasks[i].Claim = &claim
+					}
 				}
 			}
 		} else if t.Claim.InstanceID != e.state.InstanceID {
@@ -470,6 +551,10 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	if j.Kind == "fix" {
 		p, _ := prFor(e.state.SnapshotCache, j.PRURL)
 		review := latestReview(e.Config, p)
+		if e.Config.Version == 2 {
+			t, _ := taskFor(e.state.SnapshotCache, j.TaskURL)
+			review = teamLatestReview(e.Config, t, p)
+		}
 		seenKey := "review:" + review.ID
 		if e.state.Seen[seenKey] == "" {
 			e.state.ReviewCycles[j.TaskURL]++
@@ -486,6 +571,10 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	}
 	key := BindingKey(e.Config, j)
 	if binding, ok := e.state.Sessions[key]; ok {
+		if e.Config.Version == 2 && (j.Binding == nil || binding.Binding == nil || *binding.Binding != *j.Binding || binding.Role != j.Binding.Role) {
+			j.Phase, j.WaitReason = "paused", "session_binding_changed"
+			return e.saveJob(j)
+		}
 		j.Checkout = binding.Checkout
 		j.Branch = binding.Branch
 		j.SessionID = binding.SessionID
@@ -519,7 +608,11 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 		return e.failed(ctx, j, "execution")
 	}
 	j = prepared
-	e.state.Sessions[key] = SessionBinding{TaskURL: j.TaskURL, GoalURL: j.GoalURL, Role: e.Config.Role, Kind: j.Kind, Checkout: j.Checkout, Branch: j.Branch, SessionID: j.SessionID}
+	role := e.Config.Role
+	if j.Binding != nil {
+		role = j.Binding.Role
+	}
+	e.state.Sessions[key] = SessionBinding{TaskURL: j.TaskURL, GoalURL: j.GoalURL, Role: role, Kind: j.Kind, Checkout: j.Checkout, Branch: j.Branch, SessionID: j.SessionID, Binding: j.Binding}
 	// Checkout/session preparation can take time. Re-read the selected inputs,
 	// then the local control, immediately before creating submission intent.
 	if reader, ok := e.GitHub.(interface {
@@ -536,6 +629,8 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 			j.Phase, j.WaitReason = "paused", reason
 			return e.saveJob(j)
 		}
+	} else if e.Config.Version == 2 {
+		return e.failed(ctx, j, "scope_revalidation_unavailable")
 	}
 	paused, err := e.paused()
 	if err != nil {
@@ -593,20 +688,25 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	return e.saveJob(j)
 }
 func (e *Engine) syncBoard(ctx context.Context) error {
-	if e.Config.Role != "planner" {
+	if !isPlanner(e.Config) {
 		return nil
 	}
 	for i, t := range e.state.SnapshotCache.Tasks {
-		if t.ProjectID == "" || t.Claim == nil || !sameActor(t.Claim.Author, e.Config.Implementer) {
+		if t.ProjectID == "" || t.Claim == nil || !teamTaskAuthor(e.Config, t, t.Claim.Author) {
 			continue
 		}
 		g, ok := goalFor(e.state.SnapshotCache, t.GoalURL)
 		if !ok || !goalInScope(e.Config, g) {
 			continue
 		}
+		if e.Config.Version == 2 {
+			if _, err := resolveTeamAssignment(e.Config, t, g, e.Clock.Now()); err != nil {
+				continue
+			}
+		}
 		state := "in_progress"
 		for _, p := range e.state.SnapshotCache.PRs {
-			if p.TaskURL == t.URL && p.Merged && t.Completed && sameActor(p.Author, e.Config.Implementer) {
+			if p.TaskURL == t.URL && p.Merged && t.Completed && teamTaskAuthor(e.Config, t, p.Author) && (e.Config.Version != 2 || p.BaseBranch == t.Assignment.BaseBranch && p.GoalURL == t.GoalURL && t.Claim.Binding != nil && p.AssignmentSHA == t.Claim.Binding.AssignmentSHA) {
 				state = "done"
 			}
 		}
@@ -886,6 +986,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 				return err
 			}
 			fresh = true
+		}
+		if !e.savedBindingAllowed(j) {
+			continue
 		}
 		a, err := e.reconcile(ctx, j)
 		if err != nil {

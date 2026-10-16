@@ -9,8 +9,9 @@ import (
 )
 
 type TeamGoalMetadata struct {
-	Repositories []string `json:"repositories"`
-	QA           QAPolicy `json:"qa"`
+	BaseBranches map[string]string `json:"base_branches"`
+	Repositories []string          `json:"repositories"`
+	QA           QAPolicy          `json:"qa"`
 }
 
 type TeamTaskMetadata struct {
@@ -106,6 +107,14 @@ func ParseTeamGoalMetadata(body string) (TeamGoalMetadata, error) {
 		}
 		seen[key] = true
 	}
+	if len(m.BaseBranches) != len(seen) {
+		return m, errors.New("goal requires an explicit base branch for every repository")
+	}
+	for repo, branch := range m.BaseBranches {
+		if repo != strings.ToLower(repo) || !seen[repo] || !validBaseBranch(branch) {
+			return m, errors.New("invalid goal base branch scope")
+		}
+	}
 	if m.QA.Required {
 		return m, errors.New("qa_not_supported")
 	}
@@ -178,14 +187,14 @@ func applyTeamTaskMetadata(c Config, t *Task, comments []Comment) error {
 // ValidateTeamScope binds a fresh task snapshot to the coherent, owner-approved
 // goal body. Board fields never participate in this authority decision.
 func ValidateTeamScope(c Config, t Task, g Goal, now time.Time) (string, error) {
+	if t.ClaimConflict {
+		return "", errors.New("conflicting task claims")
+	}
 	if c.Version != 2 || c.Team == nil || t.Assignment == nil {
 		return "", errors.New("missing v2 assignment")
 	}
 	if !validTeamGoalURL(g.URL) || !validRepo(t.Repo) || !containsFold(c.CodeOwners, strings.Split(t.Repo, "/")[0]) || (len(c.Repositories) > 0 && !containsFold(c.Repositories, t.Repo)) {
 		return "", errors.New("assignment outside configured repository scope")
-	}
-	if t.Claim != nil {
-		return "", errors.New("v2 claims not supported: cannot adopt an existing assignment")
 	}
 	if EvaluateGoal(c, g, now).State != "approved" {
 		return "", errors.New("current goal is not approved")
@@ -197,6 +206,9 @@ func ValidateTeamScope(c Config, t Task, g Goal, now time.Time) (string, error) 
 	if !sameRepositories(m.Repositories, g.Repositories) || !containsFold(m.Repositories, t.Repo) || t.GoalURL != g.URL || t.Assignment.GoalBodySHA != g.BodySHA || t.Assignment.TaskBodySHA != t.BodySHA || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) {
 		return "", errors.New("assignment scope changed")
 	}
+	if t.Assignment.BaseBranch != m.BaseBranches[strings.ToLower(t.Repo)] {
+		return "", errors.New("assignment base branch outside approved goal")
+	}
 	planner := Actor{}
 	for _, member := range c.Team.Members {
 		if member.Name == c.Team.Planner {
@@ -206,7 +218,22 @@ func ValidateTeamScope(c Config, t Task, g Goal, now time.Time) (string, error) 
 	if !sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, planner) {
 		return "", errors.New("untrusted assignment author")
 	}
-	return AssignmentSHA(*c.Team, t.Repo, t.URL, g.URL, *t.Assignment, m.QA)
+	sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, g.URL, *t.Assignment, m.QA)
+	if err != nil {
+		return "", err
+	}
+	if t.Claim != nil {
+		var author Actor
+		for _, member := range c.Team.Members {
+			if member.Name == t.Assignment.Author {
+				author = member.Actor
+			}
+		}
+		if t.Claim.Binding == nil || *t.Claim.Binding != (JobBinding{Version: 2, AssignmentSHA: sha, ExecutorID: author.ID, Role: "implementer"}) || !sameActor(t.Claim.Author, author) || t.Claim.Marker == "" || !hexSHA.MatchString(t.Claim.InstanceID) {
+			return "", errors.New("conflicting or unbound v2 claim")
+		}
+	}
+	return sha, nil
 }
 
 func ParseTeamPRMetadata(body, repo, taskURL, goalURL, assignmentSHA string) (TeamPRMetadata, error) {

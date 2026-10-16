@@ -143,6 +143,24 @@ func atomicPrivate(path string, raw []byte) error {
 func newState() State {
 	return State{Version: 1, InstanceID: randomID(), Sessions: map[string]SessionBinding{}, Jobs: map[string]Job{}, Seen: map[string]string{}, Cursor: map[string]string{}, ReviewCycles: map[string]int{}}
 }
+func validateOwnershipBinding(b *JobBinding, kind string) error {
+	if b == nil || b.Version != 2 || !hexSHA.MatchString(b.AssignmentSHA) || b.ExecutorID <= 0 {
+		return errors.New("invalid worker ownership binding")
+	}
+	role := ""
+	switch kind {
+	case "plan":
+		role = "planner"
+	case "implement", "fix", "deliver":
+		role = "implementer"
+	case "review":
+		role = "engineering-review"
+	}
+	if role == "" || b.Role != role {
+		return errors.New("worker ownership role mismatch")
+	}
+	return nil
+}
 func validateState(s State) error {
 	if (s.Version != 1 && s.Version != 2) || !hexSHA.MatchString(s.InstanceID) || s.Jobs == nil || s.Sessions == nil || s.Seen == nil || s.Cursor == nil || s.ReviewCycles == nil {
 		return errors.New("invalid worker state")
@@ -153,6 +171,42 @@ func validateState(s State) error {
 		}
 		if err := validateJobPromptFailure(j); err != nil {
 			return err
+		}
+		if j.Binding != nil {
+			if s.Version != 2 || validateOwnershipBinding(j.Binding, j.Kind) != nil || j.ID != V2JobKey(j, j.Binding.AssignmentSHA, j.Binding.ExecutorID) {
+				return errors.New("invalid bound worker job identity")
+			}
+			if j.SessionID != "" {
+				b, ok := s.Sessions[BindingKey(Config{}, j)]
+				if !ok || b.Binding == nil || *b.Binding != *j.Binding || b.TaskURL != j.TaskURL || b.GoalURL != j.GoalURL || b.SessionID != j.SessionID || b.Checkout != j.Checkout || b.Branch != j.Branch {
+					return errors.New("worker job/session ownership mismatch")
+				}
+			}
+		} else if s.Version == 2 {
+			// Migration preserves drained v1 evidence, never promotes it to a v2 assignment.
+			if err := migrationJob(j, false); err != nil {
+				return err
+			}
+		}
+	}
+	sessionOwners, checkoutOwners := map[string]SessionBinding{}, map[string]SessionBinding{}
+	for key, b := range s.Sessions {
+		if b.Binding != nil {
+			j := Job{Kind: b.Kind, TaskURL: b.TaskURL, GoalURL: b.GoalURL, Binding: b.Binding}
+			if s.Version != 2 || validateOwnershipBinding(b.Binding, b.Kind) != nil || b.Role != b.Binding.Role || key != BindingKey(Config{}, j) || !validSession(b.SessionID) || !cleanPrivatePath(b.Checkout) {
+				return errors.New("invalid bound worker session")
+			}
+		} else if s.Version == 2 && (!validSession(b.SessionID) || !cleanPrivatePath(b.Checkout)) {
+			return errors.New("invalid historical worker session")
+		}
+		if s.Version == 2 {
+			if owner, ok := sessionOwners[b.SessionID]; ok && (owner.Binding != nil || b.Binding != nil) {
+				return errors.New("worker session shared across ownership bindings")
+			}
+			if owner, ok := checkoutOwners[b.Checkout]; ok && (owner.Binding != nil || b.Binding != nil) {
+				return errors.New("worker checkout shared across ownership bindings")
+			}
+			sessionOwners[b.SessionID], checkoutOwners[b.Checkout] = b, b
 		}
 	}
 	return nil

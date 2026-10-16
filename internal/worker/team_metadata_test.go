@@ -22,7 +22,7 @@ func teamScopeFixture(t *testing.T) (Config, Task, Goal, Comment, time.Time) {
 	c.Name, c.Self = p.Members[0].Name, p.Members[0].Actor
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	g := Goal{URL: "https://github.com/planning/board/discussions/1", Readable: true, CreatedAt: now.Add(-time.Hour), Repositories: []string{"code/repo"}}
-	g.Body = teamMarker("goal", TeamGoalMetadata{Repositories: g.Repositories})
+	g.Body = teamMarker("goal", TeamGoalMetadata{Repositories: g.Repositories, BaseBranches: map[string]string{"code/repo": "feature/integration"}})
 	g.BodySHA = BodyHash(g.Body)
 	g.Decisions = []Decision{{ID: "1", Author: c.Owner, Command: "/coop approve", CreatedAt: now}}
 	task := Task{URL: "https://github.com/code/repo/issues/1", Repo: "code/repo", Title: "Implement scope", Body: "Do the scoped work", Ready: true}
@@ -90,7 +90,7 @@ func TestTeamMetadataStrict(t *testing.T) {
 	if validTeamGoalURL("https://github.com/issues/repo/pull/1") || validTeamGoalURL("https://github.com/code/discussions/pull/1") {
 		t.Fatal("PR accepted as goal")
 	}
-	valid := `<!-- coop-goal:v2 {"repositories":["code/repo"],"qa":{"required":false}} -->`
+	valid := `<!-- coop-goal:v2 {"repositories":["code/repo"],"base_branches":{"code/repo":"feature/integration"},"qa":{"required":false}} -->`
 	for _, body := range []string{
 		strings.Replace(valid, `"qa":`, `"extra":true,"qa":`, 1),
 		strings.Replace(valid, `"required":false`, `"required":true,"required":false`, 1),
@@ -156,13 +156,13 @@ func TestTeamMetadataFreshAssignmentReads(t *testing.T) {
 
 func TestTeamMetadataBotCannotRelaxQA(t *testing.T) {
 	c, task, goal, comment, now := teamScopeFixture(t)
-	goal.Body = teamMarker("goal", TeamGoalMetadata{Repositories: goal.Repositories, QA: QAPolicy{Required: true, Reviewer: "qa", AcceptanceSHA: BodyHash("acceptance"), Environment: "fixture", EnvironmentRevision: "1"}})
+	goal.Body = teamMarker("goal", TeamGoalMetadata{Repositories: goal.Repositories, BaseBranches: map[string]string{"code/repo": "feature/integration"}, QA: QAPolicy{Required: true, Reviewer: "qa", AcceptanceSHA: BodyHash("acceptance"), Environment: "fixture", EnvironmentRevision: "1"}})
 	goal.BodySHA = BodyHash(goal.Body)
 	if a := EvaluateGoal(c, goal, now); a.State != "blocked" || a.Reason != "qa_not_supported" {
 		t.Fatal(a)
 	}
 	// A bot edits the body to remove QA but cannot approve the new scope.
-	goal.Body = teamMarker("goal", TeamGoalMetadata{Repositories: goal.Repositories})
+	goal.Body = teamMarker("goal", TeamGoalMetadata{Repositories: goal.Repositories, BaseBranches: map[string]string{"code/repo": "feature/integration"}})
 	goal.BodySHA, goal.LastEditedAt = BodyHash(goal.Body), now.Add(time.Second)
 	goal.Decisions = append(goal.Decisions, Decision{ID: "2", Author: comment.Author, Command: "/coop approve", CreatedAt: now.Add(2 * time.Second)})
 	if a := EvaluateGoal(c, goal, now.Add(3*time.Second)); a.State == "approved" {

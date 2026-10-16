@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,9 +28,19 @@ func NewCheckouts(c Config, r CommandRunner) *TaskCheckouts {
 	return &TaskCheckouts{config: c, runner: r, origin: func(repo string) string { return "https://github.com/" + repo + ".git" }}
 }
 
-type checkoutOwner struct{ TaskURL, GoalURL, Repo, Branch, Origin, Mode string }
+type checkoutOwner struct {
+	TaskURL, GoalURL, Repo, Branch, Origin, Mode string
+	Version                                      int    `json:",omitempty"`
+	AssignmentSHA                                string `json:",omitempty"`
+	ExecutorID                                   int64  `json:",omitempty"`
+	Role                                         string `json:",omitempty"`
+}
 
 func BindingKey(c Config, j Job) string {
+	if j.Binding != nil {
+		b := j.Binding
+		return BodyHash(strings.Join([]string{"v2", b.AssignmentSHA, strconv.FormatInt(b.ExecutorID, 10), b.Role, j.TaskURL, j.GoalURL}, "\x00"))
+	}
 	if j.Kind == "wake" {
 		return BodyHash(c.Name + ":wake:" + j.GoalURL + ":" + j.TaskURL)
 	}
@@ -56,10 +67,20 @@ func (c *TaskCheckouts) run(ctx context.Context, dir string, args ...string) ([]
 	return result.Stdout, nil
 }
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
+	if j.Binding != nil {
+		if c.config.Version != 2 || validateOwnershipBinding(j.Binding, j.Kind) != nil {
+			return j, errors.New("invalid checkout ownership binding")
+		}
+	} else if c.config.Version == 2 {
+		return j, errors.New("v2 checkout requires explicit ownership binding")
+	}
 	key := BindingKey(c.config, j)
 	root := filepath.Join(c.config.WorkRoot, key[:32])
 	checkout := filepath.Join(root, "repo")
 	owner := checkoutOwner{TaskURL: j.TaskURL, GoalURL: j.GoalURL, Mode: "clone"}
+	if b := j.Binding; b != nil {
+		owner.Version, owner.AssignmentSHA, owner.ExecutorID, owner.Role = b.Version, b.AssignmentSHA, b.ExecutorID, b.Role
+	}
 	if j.Kind == "plan" {
 		owner.TaskURL = ""
 		owner.Mode = "planning"
@@ -151,7 +172,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if err != nil || strings.TrimSpace(string(branch)) != owner.Branch {
 			return j, errors.New("checkout branch changed")
 		}
-		if c.config.Role == "planner" && j.PRURL != "" {
+		if j.Kind == "review" {
 			repo, n, err := parseRef(j.PRURL)
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")
