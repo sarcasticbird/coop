@@ -10,6 +10,9 @@ import (
 //go:embed prompts/wake.txt
 var wakePrompt string
 
+//go:embed prompts/team-wake.txt
+var teamWakePrompt string
+
 type wakeMarker struct {
 	Request string `json:"request"`
 	Chain   string `json:"chain"`
@@ -35,6 +38,32 @@ func BuildWakePrompt(c Config, r WakeRequest, source ConversationSource, snapsho
 		Name, Role                         string
 		Self, Implementer, Reviewer, Owner Actor
 	}{c.Name, c.Role, c.Self, c.Implementer, c.Reviewer, c.Owner})
+	instructions := wakePrompt
+	if c.Version == 2 {
+		if c.Team == nil {
+			return "", errors.New("missing wake team roster")
+		}
+		member, ok := TeamMemberForActor(*c.Team, c.Self)
+		if !ok || member.Name != c.Name {
+			return "", errors.New("wake self does not match roster")
+		}
+		role := "team conversation"
+		if member.Name == c.Team.Planner {
+			role = "planner conversation"
+		}
+		identity, _ = json.Marshal(struct {
+			Name, Role   string
+			Self, Owner  Actor
+			Capabilities []string
+			Team         *TeamPolicy
+		}{member.Name, role, c.Self, c.Owner, member.Capabilities, c.Team})
+		instructions = teamWakePrompt
+		if member.Name == c.Team.Planner {
+			instructions += "\nYou are the configured planner for this conversation. Perform permitted planning and administrative repairs now within verified goal scope; leave coding, engineering review, QA and delivery to their dedicated assigned jobs.\n"
+		} else {
+			instructions += "\nYou are not the configured planner. Answer as Self, report evidence or blockers, and coordinate planning changes with Team.Planner. Do not generate trusted task assignments or administer another author's tracking.\n"
+		}
+	}
 	input := struct {
 		RequestID, Kind, Prompt string
 		Source                  promptSource
@@ -59,7 +88,7 @@ func BuildWakePrompt(c Config, r WakeRequest, source ConversationSource, snapsho
 	}
 	sections := []promptSection{
 		{"identity", "Trusted runtime identity:\n" + string(identity) + "\n"},
-		{"instructions", wakePrompt + "\nBodyRef resolves to the complete supplied Goal.Body at the exact URL and body hash; it is not an excerpt.\n"},
+		{"instructions", instructions + "\nBodyRef resolves to the complete supplied Goal.Body at the exact URL and body hash; it is not an excerpt.\n"},
 		{"ResultMarker", "Required result marker:\n" + WakeResultMarker(r) + "\n"},
 		{"framing", "Quoted wake input:\n"},
 	}

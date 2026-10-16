@@ -94,7 +94,15 @@ func TestOpenCodeAbortReconcilesTurnOwnership(t *testing.T) {
 }
 
 func ownershipMessage(j Job, id, role, parent string) map[string]any {
-	return map[string]any{"info": map[string]any{"id": id, "sessionID": j.SessionID, "role": role, "parentID": parent}}
+	info := map[string]any{"id": id, "sessionID": j.SessionID, "role": role, "parentID": parent}
+	if m := j.SubmittedModel; m != nil {
+		if role == "user" {
+			info["model"] = m
+		} else {
+			info["providerID"], info["modelID"], info["variant"] = m.ProviderID, m.ModelID, m.Variant
+		}
+	}
+	return map[string]any{"info": info}
 }
 
 func TestOpenCodeAbortLongOwnedToolLoop(t *testing.T) {

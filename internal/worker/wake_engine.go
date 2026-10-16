@@ -248,6 +248,7 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 			r.Source = v.Source
 		}
 		turn, observeErr := w.OpenCode.Observe(ctx, v.Job)
+		v.Job = observedModel(v.Job, turn)
 		if observeErr != nil {
 			return w.reconciliationFailure(v, observeErr)
 		}
@@ -429,6 +430,11 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 	job.MessageID = "msg_" + randomID()
 	job.SubmittedAt = w.Clock.Now()
 	job.Deadline = w.Clock.Now().Add(w.Config.Limits.TurnLimit)
+	job.SubmittedModel, err = configuredModel(w.Config)
+	if err != nil {
+		return err
+	}
+	job.ExecutedModel = nil
 	v.Job = job
 	v.Phase = "running"
 	v.Reason = ""
@@ -436,6 +442,7 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 		return err
 	}
 	turn, err := w.OpenCode.Submit(ctx, w.Config, job, prompt)
+	v.Job = observedModel(v.Job, turn)
 	if err != nil {
 		if errorCategory(err) == "session_busy" {
 			v.Phase = "queued"
@@ -443,6 +450,12 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 			v.Job.Phase = "waiting"
 			v.Job.MessageID = ""
 			v.Job.NextAttemptAt = w.Clock.Now().Add(w.Config.OpenCode.ReconcileInterval)
+		} else if turn.State == "not_submitted" {
+			v.Phase, v.Reason = "blocked", errorCategory(err)
+			v.Job.Phase = "blocked"
+			v.Job.MessageID, v.Job.SubmissionState = "", ""
+			v.Job.Deadline, v.Job.SubmittedAt = time.Time{}, time.Time{}
+			v.Job.SubmittedModel, v.Job.ExecutedModel = nil, nil
 		} else {
 			v.Job.SubmissionState = "unknown"
 			v.Reason = "submission_unknown"

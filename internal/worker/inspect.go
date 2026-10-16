@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -16,6 +17,8 @@ type WorkReason struct {
 type WorkInspection struct {
 	Jobs    []Job        `json:"jobs"`
 	Blocked []WorkReason `json:"blocked"`
+	Current []Job        `json:"current,omitempty"`
+	History []Job        `json:"history,omitempty"`
 }
 
 func InspectWork(c Config, s Snapshot, state State, now time.Time) WorkInspection {
@@ -23,8 +26,20 @@ func InspectWork(c Config, s Snapshot, state State, now time.Time) WorkInspectio
 	if result.Jobs == nil {
 		result.Jobs = []Job{}
 	}
+	for _, j := range state.Jobs {
+		if currentSavedJob(c, s, state, j, now) {
+			result.Current = append(result.Current, j)
+			if j.Phase == "blocked" {
+				result.Blocked = append(result.Blocked, WorkReason{TaskURL: j.TaskURL, Reason: j.WaitReason})
+			}
+		} else {
+			result.History = append(result.History, j)
+		}
+	}
+	sort.Slice(result.History, func(i, j int) bool { return result.History[i].ID < result.History[j].ID })
+	sort.Slice(result.Current, func(i, j int) bool { return result.Current[i].ID < result.Current[j].ID })
 	for _, task := range s.Tasks {
-		if task.Completed {
+		if task.Completed || task.Closed || !task.Ready {
 			continue
 		}
 		j := Job{Kind: "implement", GoalURL: task.GoalURL, TaskURL: task.URL}
@@ -154,6 +169,8 @@ func (c *OpenCodeClient) Preflight(ctx context.Context, cfg Config) error {
 	if !available {
 		return &OpenCodeError{Category: "configured_model_unavailable"}
 	}
-	_, err = c.agentRules(ctx, cfg.WorkRoot)
-	return err
+	if _, err = c.agentRules(ctx, cfg.WorkRoot); err != nil {
+		return err
+	}
+	return c.preflightModelVariant(ctx, cfg)
 }

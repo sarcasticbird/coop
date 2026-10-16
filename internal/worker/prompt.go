@@ -78,7 +78,8 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 			Name, Role         string
 			Self, Author, Peer Actor
 			QA                 *Actor `json:",omitempty"`
-		}{c.Name, j.Binding.Role, c.Self, author, peer, qa})
+			Owner              Actor
+		}{c.Name, j.Binding.Role, c.Self, author, peer, qa, c.Owner})
 		if err != nil {
 			return "", errors.New("cannot build worker identity")
 		}
@@ -161,6 +162,7 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 			common = strings.Replace(common, "post it once in the existing task or goal thread and return.", "record safe blocker metadata and evidence links in your formal QA review, keep private details in the authorized goal repository, and return.", 1)
 		}
 		role = strings.NewReplacer("Hawk", "the assigned peer", "Robin", "the assigned author").Replace(role)
+		common += "\nRole is the current bound job role, not a permanent title or planner privilege. Goal and Approval supply the selected goal's authority. Target only Job.TaskURL, Job.PRURL and Job.HeadSHA where present; preserve Job.Binding, PRScopeRevision and Task.Assignment.BaseBranch. Author owns code changes, Peer owns independent exact-head engineering review, and QA owns separate customer acceptance evidence. Never substitute one actor's clearance for another's.\n"
 		switch j.Kind {
 		case "implement", "fix", "deliver":
 			role = strings.Replace(role, `<!-- coop-pr:v1 {"task":"https://github.com/OWNER/REPO/issues/NUMBER","goal":"CANONICAL_GOAL_URL"} -->`, `<!-- coop-pr:v2 {"task":"https://github.com/OWNER/REPO/issues/NUMBER","goal":"CANONICAL_GOAL_URL","assignment_sha256":"CURRENT_ASSIGNMENT_SHA"} -->`, 1)

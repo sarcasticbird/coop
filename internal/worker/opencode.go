@@ -222,6 +222,9 @@ func (c *OpenCodeClient) EnsureSession(ctx context.Context, cfg Config, j Job) (
 			return j, &OpenCodeError{Category: "invalid_model"}
 		}
 		body := map[string]any{"title": title, "agent": "build", "model": map[string]string{"id": parts[1], "providerID": parts[0]}, "permission": rules}
+		if cfg.ModelVariant != "" {
+			body["model"].(map[string]string)["variant"] = cfg.ModelVariant
+		}
 		if err := c.request(ctx, "POST", "/session", j.Checkout, body, &session); err != nil {
 			return j, err
 		}
@@ -237,18 +240,32 @@ func (c *OpenCodeClient) EnsureSession(ctx context.Context, cfg Config, j Job) (
 	return j, nil
 }
 func (c *OpenCodeClient) Submit(ctx context.Context, cfg Config, j Job, prompt string) (Turn, error) {
-	turn := Turn{SessionID: j.SessionID, MessageID: j.MessageID, State: "unknown"}
+	turn := Turn{SessionID: j.SessionID, MessageID: j.MessageID, State: "not_submitted"}
 	if !validSession(j.SessionID) || !validMessage(j.MessageID) || j.Deadline.IsZero() || len(prompt) > 32<<10 || len(prompt) == 0 {
 		return turn, &OpenCodeError{Category: "invalid_submission_intent"}
 	}
-	model := strings.SplitN(cfg.Model, "/", 2)
-	if len(model) != 2 || model[0] == "" || model[1] == "" {
-		return turn, &OpenCodeError{Category: "invalid_model"}
+	model, err := configuredModel(cfg)
+	if err != nil {
+		return turn, err
 	}
 	if err := c.CheckIdle(ctx, j); err != nil {
 		return turn, err
 	}
-	body := map[string]any{"messageID": j.MessageID, "agent": "build", "model": map[string]string{"providerID": model[0], "modelID": model[1]}, "system": "This is an automated Coop worker message, not a new instruction or goal approval from the human owner.", "parts": []map[string]string{{"type": "text", "text": prompt}}}
+	if err := c.preflightModelVariantInDirectory(ctx, cfg, j.Checkout); err != nil {
+		return turn, err
+	}
+	body := modelPrompt(model)
+	body["messageID"] = j.MessageID
+	body["system"] = "This is an automated Coop worker message, not a new instruction or goal approval from the human owner."
+	body["parts"] = []map[string]string{{"type": "text", "text": prompt}}
+	if cfg.ModelVariant != "" {
+		// The directory-specific probe may outlive an idle manual session.
+		if err := c.CheckIdle(ctx, j); err != nil {
+			return turn, err
+		}
+	}
+	turn.SubmittedModel = model
+	turn.State = "unknown"
 	if err := c.request(ctx, "POST", "/session/"+j.SessionID+"/prompt_async", j.Checkout, body, nil); err != nil {
 		return turn, err
 	}
@@ -297,6 +314,8 @@ func (c *OpenCodeClient) status(ctx context.Context, j Job) (string, error) {
 type messageEnvelope struct {
 	Info struct {
 		ID, SessionID, Role, ParentID, Finish string
+		Model                                 *ModelIdentity
+		ProviderID, ModelID, Variant          string
 		Summary                               compactionSummary
 		Time                                  struct{ Created, Completed int64 }
 		Error                                 *struct{ Name string }
@@ -346,6 +365,7 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 		return turn, "", &OpenCodeError{Category: "foreign_message"}
 	}
 	turn.Accepted = true
+	turn.SubmittedModel = message.Info.Model
 	var messages []messageEnvelope
 	// Most observations need only the tail. Compaction can move the saved
 	// parent further back, so expand within a fixed request and response budget.
@@ -382,9 +402,11 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 			case m.autoCompaction() && latestUser == ownedUser && latestUser != "":
 				compaction, summary = m.Info.ID, ""
 				last, compacted = nil, true
+				turn.ExecutedModel = nil
 			case m.compactionContinuation() && compaction != "" && latestUser == compaction && summary != "" && i > 0 && messages[i-1].Info.ID == summary:
 				ownedUser, compaction, summary = m.Info.ID, "", ""
 				last = nil
+				turn.ExecutedModel = nil
 			default:
 				compaction, summary = "", ""
 			}
@@ -403,6 +425,7 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 			summary = m.Info.ID
 		}
 		if m.Info.Role == "assistant" && compaction == "" && m.Info.ParentID == ownedUser && !m.summary() && (last == nil || m.Info.Time.Created >= last.Info.Time.Created) {
+			turn.ExecutedModel = &ModelIdentity{ProviderID: m.Info.ProviderID, ModelID: m.Info.ModelID, Variant: m.Info.Variant}
 			last = m
 		}
 	}
@@ -428,11 +451,29 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 
 func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
 	turn, latestUser, err := c.readTurn(ctx, j)
-	if err != nil || turn.Terminal {
+	persistedModel := turn.SubmittedModel
+	if j.SubmittedModel != nil {
+		// Keep the durable submission intent authoritative on subsequent polls.
+		turn.SubmittedModel = j.SubmittedModel
+	}
+	if err != nil {
 		return turn, err
 	}
-	if latestUser != j.MessageID {
+	if !turn.Terminal && latestUser != j.MessageID {
 		return turn, &OpenCodeError{Category: "turn_ownership_unknown"}
+	}
+	// Ownership reconciliation must finish before enforcing model policy. Abort
+	// uses the same history scan and must still be able to stop an owned mismatch.
+	if j.SubmittedModel != nil && (persistedModel == nil || *persistedModel != *j.SubmittedModel) {
+		turn.State, turn.Terminal = "unknown", false
+		return turn, &OpenCodeError{Category: "submitted_model_mismatch"}
+	}
+	if turn.SubmittedModel != nil && turn.SubmittedModel.Variant != "" && turn.ExecutedModel != nil && *turn.ExecutedModel != *turn.SubmittedModel {
+		turn.State, turn.Terminal = "unknown", false
+		return turn, &OpenCodeError{Category: "executed_model_mismatch"}
+	}
+	if turn.Terminal {
+		return turn, nil
 	}
 	status, err := c.status(ctx, j)
 	if err != nil {
