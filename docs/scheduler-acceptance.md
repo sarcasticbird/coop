@@ -21,6 +21,7 @@ executor, exact commands, exit status and redacted evidence links for each actio
 | Record | Required contents |
 | --- | --- |
 | Authority | Approved goal/body version, task/dependencies, concrete fixture/permission/maintenance authorization and expiry/window |
+| Permissions | Explicit before/after grants per actor and owner installation; preserve existing planner Project write access while limiting any proposed repository permission delta to its authorized scope |
 | Source | Full integration and reviewed heads, required repairs, clean diff, independent exact-head approval and checks |
 | Artifacts | CLI/worker/helper targets, SHA256 of every binary/launcher/installer/example, manifest digest, tool versions/build flags and retained byte locations |
 | Profiles | Private before/after host and worker profiles, hashes, immutable actors/capabilities, assignment/policy digests, unchanged instance/state/work roots, service/autostart fence and credential references only |
