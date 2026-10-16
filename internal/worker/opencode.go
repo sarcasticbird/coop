@@ -34,6 +34,11 @@ type OpenCodeClient struct {
 	http   *http.Client
 }
 
+// Native messages include diff summaries and tool output even when callers
+// only need ownership metadata. Keep their wire budget separate from catalogs
+// and GitHub pages; ancestry is still limited to three bounded history reads.
+const maxNativeMessagePage = 16 << 20
+
 func NewOpenCodeClient(c OpenCodeConfig, client *http.Client) (*OpenCodeClient, error) {
 	c = Defaults(Config{OpenCode: c}).OpenCode
 	if c.BaseURL != "http://127.0.0.1:4096" || !cleanPrivatePath(c.PasswordFile) || c.RequestTimeout <= 0 || c.RequestTimeout > 30*time.Second {
@@ -48,6 +53,10 @@ func NewOpenCodeClient(c OpenCodeConfig, client *http.Client) (*OpenCodeClient, 
 	return &OpenCodeClient{config: c, http: &copy}, nil
 }
 func (c *OpenCodeClient) request(ctx context.Context, method, path, dir string, body any, output any) error {
+	return c.requestBounded(ctx, method, path, dir, body, output, MaxAPIPage)
+}
+
+func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir string, body any, output any, responseLimit int) error {
 	var input io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -83,8 +92,8 @@ func (c *OpenCodeClient) request(ctx context.Context, method, path, dir string, 
 		return &OpenCodeError{Category: "transport_failed"}
 	}
 	defer func() { _ = res.Body.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, MaxAPIPage+1))
-	if err != nil || len(raw) > MaxAPIPage {
+	raw, err := io.ReadAll(io.LimitReader(res.Body, int64(responseLimit)+1))
+	if err != nil || len(raw) > responseLimit {
 		return &OpenCodeError{Category: "response_too_large"}
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
@@ -288,7 +297,7 @@ func (c *OpenCodeClient) status(ctx context.Context, j Job) (string, error) {
 type messageEnvelope struct {
 	Info struct {
 		ID, SessionID, Role, ParentID, Finish string
-		Summary                               json.RawMessage
+		Summary                               compactionSummary
 		Time                                  struct{ Created, Completed int64 }
 		Error                                 *struct{ Name string }
 	}
@@ -301,6 +310,15 @@ type messageEnvelope struct {
 	}
 }
 
+// User-message summaries contain arbitrary diff data. Only the literal native
+// boolean true marks a compaction assistant, so do not retain summary objects.
+type compactionSummary bool
+
+func (s *compactionSummary) UnmarshalJSON(raw []byte) error {
+	*s = compactionSummary(bytes.Equal(raw, []byte("true")))
+	return nil
+}
+
 func (m messageEnvelope) autoCompaction() bool {
 	return len(m.Parts) == 1 && m.Parts[0].Type == "compaction" && m.Parts[0].Auto && !m.Parts[0].Overflow
 }
@@ -311,7 +329,7 @@ func (m messageEnvelope) compactionContinuation() bool {
 	return len(m.Parts) == 1 && m.Parts[0].Type == "text" && m.Parts[0].Synthetic && m.Parts[0].Metadata.CompactionContinue
 }
 
-func (m messageEnvelope) summary() bool { return bytes.Equal(m.Info.Summary, []byte("true")) }
+func (m messageEnvelope) summary() bool { return bool(m.Info.Summary) }
 
 // readTurn reconciles the exact worker message even when a later manual turn
 // makes the session busy. Session status alone does not establish turn ownership.
@@ -321,7 +339,7 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 		return turn, "", &OpenCodeError{Category: "invalid_submission_intent"}
 	}
 	var message messageEnvelope
-	if err := c.request(ctx, "GET", "/session/"+j.SessionID+"/message/"+j.MessageID, j.Checkout, nil, &message); err != nil {
+	if err := c.requestBounded(ctx, "GET", "/session/"+j.SessionID+"/message/"+j.MessageID, j.Checkout, nil, &message, maxNativeMessagePage); err != nil {
 		return turn, "", err
 	}
 	if message.Info.ID != j.MessageID || message.Info.SessionID != j.SessionID || message.Info.Role != "user" {
@@ -335,7 +353,7 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 		// json.Unmarshal reuses slice entries and leaves omitted fields intact.
 		// Each native response must supply its own complete observation.
 		messages = nil
-		if err := c.request(ctx, "GET", fmt.Sprintf("/session/%s/message?limit=%d", j.SessionID, limit), j.Checkout, nil, &messages); err != nil {
+		if err := c.requestBounded(ctx, "GET", fmt.Sprintf("/session/%s/message?limit=%d", j.SessionID, limit), j.Checkout, nil, &messages, maxNativeMessagePage); err != nil {
 			return turn, "", err
 		}
 		anchored := slices.ContainsFunc(messages, func(m messageEnvelope) bool {

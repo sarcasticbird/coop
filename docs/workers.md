@@ -493,7 +493,13 @@ artifacts are still reconciled normally. Genuine later user input remains
 protected from worker aborts.
 
 History reads expand from 20 to at most 320 messages in three bounded requests
-when the saved parent is outside the initial tail. Missing or ambiguous lineage,
+when the saved parent is outside the initial tail. Native saved-message and
+history responses have a separate 16 MiB wire limit because OpenCode includes
+diff summaries and tool output. The worker retains only ownership metadata and
+the boolean compaction-summary marker, discarding diff-summary contents. Other
+OpenCode responses and GitHub pages retain their 2 MiB limits. Responses above
+the native limit still enter bounded recovery without replaying a prompt.
+Missing or ambiguous lineage,
 unmarked continuations, and media-overflow replay remain explicit reconciliation
 failures rather than permission to replay input or clear ownership.
 
