@@ -448,7 +448,9 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 			v.Phase = "queued"
 			v.Reason = "session_busy"
 			v.Job.Phase = "waiting"
-			v.Job.MessageID = ""
+			v.Job.MessageID, v.Job.SubmissionState = "", ""
+			v.Job.Deadline, v.Job.SubmittedAt, v.Job.TerminalAt = time.Time{}, time.Time{}, time.Time{}
+			v.Job.SubmittedModel, v.Job.ExecutedModel = nil, nil
 			v.Job.NextAttemptAt = w.Clock.Now().Add(w.Config.OpenCode.ReconcileInterval)
 		} else if turn.State == "not_submitted" {
 			v.Phase, v.Reason = "blocked", errorCategory(err)
