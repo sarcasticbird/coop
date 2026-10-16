@@ -39,6 +39,14 @@ chmod 0755 "$stage/coop-worker" "$stage/coop-opencode-server" "$stage/coop-openc
 chmod 0600 "$stage/config.json"
 "$stage/coop-worker" validate --config "$stage/config.json" >/dev/null
 test "$(cat "$stage/identity")" = "$agent" || exit 1
+check_compatibility() {
+  if test -e /var/lib/coop/worker/config.json || test -L /var/lib/coop/worker/config.json; then
+    "$stage/coop-worker" check-install --config "$stage/config.json" --previous-config /var/lib/coop/worker/config.json >/dev/null
+  else
+    "$stage/coop-worker" check-install --config "$stage/config.json" >/dev/null
+  fi
+}
+check_compatibility || { echo 'worker/state compatibility refused; keep services stopped and inspect' >&2; exit 1; }
 manifest=/var/lib/coop/worker/install.sha256
 pending=/var/lib/coop/worker/install-pending
 files='coop-worker coop-opencode-server coop-opencode-attach coop-opencode-launch config.json'
@@ -113,6 +121,7 @@ recover() {
   sync -f /var/lib/coop/worker
 }
 if test -e "$pending" || test -L "$pending"; then recover; fi
+check_compatibility || exit 1
 if test -e "$manifest" || test -L "$manifest"; then
   test ! -L "$manifest" && test "$(stat -c %a "$manifest")" = 600 || exit 1
   test "$(stat -c %u:%g "$manifest")" = "$owner" || exit 1

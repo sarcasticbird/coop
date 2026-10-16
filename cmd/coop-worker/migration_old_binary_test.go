@@ -46,6 +46,25 @@ func TestMigrationSavedOldBinaryRefusesV2(t *testing.T) {
 					release()
 					t.Fatal(err)
 				}
+				// Model the saved generation's status writer, not a new status
+				// field rejection that would hide whether the inbox fence works.
+				statusPath := filepath.Join(c.StateDir, "status.json")
+				raw, err := os.ReadFile(statusPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var status map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &status); err != nil {
+					t.Fatal(err)
+				}
+				delete(status, "actor")
+				raw, err = json.Marshal(status)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(statusPath, raw, 0600); err != nil {
+					t.Fatal(err)
+				}
 				if err := worker.WorkerAcceptingWake(c.StateDir, time.Now().UTC()); err != nil {
 					release()
 					t.Fatal(err)
