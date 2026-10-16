@@ -29,6 +29,17 @@ func CheckInstall(c Config, previous string) error {
 		return err
 	}
 	defer release()
+	// The immutable backup is published before the inspection hold. Its
+	// presence alone is an interrupted migration, not an unused v1 store.
+	if _, err := os.Lstat(filepath.Join(c.StateDir, "migration-backup.json")); err == nil {
+		if _, err := os.Lstat(filepath.Join(c.StateDir, "migration.json")); os.IsNotExist(err) {
+			return errors.New("migration backup requires inspection; no automatic retry or rollback")
+		} else if err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	// A fresh ledger is allowed. Existing/malformed migration evidence still
 	// must pass the versioned reader even when state.json is absent.
 	state, err := s.Load()

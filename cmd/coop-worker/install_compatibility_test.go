@@ -335,6 +335,56 @@ func TestWorkerCheckInstallMigrationHoldWithoutNewState(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckInstallRejectsBackupOnlyMigration(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		for _, missingState := range []bool{false, true} {
+			for _, missingWake := range []bool{false, true} {
+				name := strings.Join([]string{map[int]string{1: "v1", 2: "v2"}[version], map[bool]string{false: "saved ledger", true: "missing ledger"}[missingState], map[bool]string{false: "saved wakes", true: "missing wakes"}[missingWake]}, "/")
+				t.Run(name, func(t *testing.T) {
+					path, c, state := cliMigrationFixture(t, version)
+					statePath := filepath.Join(c.StateDir, "state.json")
+					before, err := os.ReadFile(statePath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					migrationConfig := c
+					migrationConfig.Version = 2
+					if err := worker.MigrateState(migrationConfig, 1, 2, state.InstanceID); err != nil {
+						t.Fatal(err)
+					}
+					// Reconstruct the backup-first interruption: original ledger,
+					// immutable backup, no published hold or producer fence.
+					if err := os.WriteFile(statePath, before, 0600); err != nil {
+						t.Fatal(err)
+					}
+					for _, rel := range []string{"migration.json", "wake/v1/inbox/version.json"} {
+						if err := os.Remove(filepath.Join(c.StateDir, rel)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if missingState {
+						if err := os.Remove(statePath); err != nil {
+							t.Fatal(err)
+						}
+					}
+					wake := filepath.Join(c.StateDir, "wake")
+					if missingWake {
+						if err := os.RemoveAll(wake); err != nil {
+							t.Fatal(err)
+						}
+					}
+					checkInstallOffline(t, path, "", "migration backup requires inspection")
+					if missingWake {
+						if _, err := os.Lstat(wake); !os.IsNotExist(err) {
+							t.Errorf("refusal recreated wake storage: %v", err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestWorkerCheckInstallCLIArgumentIsolation(t *testing.T) {
 	path, c, state := cliMigrationFixture(t, 1)
 	before := installLedgerBytes(t, c.StateDir)
