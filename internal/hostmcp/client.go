@@ -64,7 +64,7 @@ func (t bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header.Set("Authorization", "Bearer "+t.token)
 	resp, err := t.base.RoundTrip(clone)
 	if err == nil {
-		resp.Body = &boundedBody{ReadCloser: resp.Body, remaining: maxResponseBytes + 1}
+		resp.Body = &boundedBody{ReadCloser: resp.Body, remaining: maxResponseBytes}
 	}
 	return resp, err
 }
@@ -75,8 +75,16 @@ type boundedBody struct {
 }
 
 func (b *boundedBody) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if b.remaining <= 0 {
-		return 0, fmt.Errorf("MCP response exceeds limit")
+		var probe [1]byte
+		n, err := b.ReadCloser.Read(probe[:])
+		if n > 0 {
+			return 0, fmt.Errorf("MCP response exceeds limit")
+		}
+		return 0, err
 	}
 	if int64(len(p)) > b.remaining {
 		p = p[:b.remaining]

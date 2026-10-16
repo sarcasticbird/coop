@@ -36,6 +36,18 @@ file in tmpfs. No signing key is copied into a VM. Generic command credentials
 do not report expiration metadata; the helper validates expiration itself.
 Do not set `require_expiration` for this source.
 
+For a selected-repository installation, set `repositories` to `selected` and
+provide `repository_ids`, a nonempty list of at most 500 distinct positive GitHub
+repository IDs. The native installation must also use selected repositories.
+The helper explicitly requests those IDs and refuses a token unless GitHub
+reports that exact repository set under the expected owner. Missing repositories,
+extra repositories, duplicates and an all-repositories response fail closed.
+An `all` registration cannot also specify IDs; existing `all` registrations retain
+their behavior. Keep each owner's permissions explicit, including any existing
+`organization_projects: write` planning grant. Scope changes require separate
+installation acceptance and host credential refresh; editing registration does
+not change the GitHub App or its installation.
+
 ```toml
 [credentials.example-github]
 source = { type = "command", argv = ["/Users/me/.local/libexec/coop-github", "mint", "--registration", "/Users/me/.config/coop/agents/example/github-app.json"] }

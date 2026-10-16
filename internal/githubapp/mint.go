@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -107,9 +108,18 @@ func (c Client) Mint(ctx context.Context, r Registration) (Bundle, error) {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return fmt.Errorf("GitHub App API %s failed with HTTP %d", method, resp.StatusCode)
 		}
-		raw, e := readBounded(resp.Body)
+		// A scoped token response includes up to 500 full repository objects.
+		// Registration and the compact credential bundle retain their 1 MiB cap.
+		limit := int64(MaxDocument)
+		if strings.HasSuffix(path, "/access_tokens") {
+			limit = 16 << 20
+		}
+		raw, e := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 		if e != nil {
-			return e
+			return errors.New("cannot read GitHub App API response")
+		}
+		if int64(len(raw)) > limit {
+			return errors.New("GitHub App API response exceeds limit")
 		}
 		if json.Unmarshal(raw, out) != nil {
 			return errors.New("invalid GitHub App API response")
@@ -168,19 +178,45 @@ func (c Client) Mint(ctx context.Context, r Registration) (Bundle, error) {
 	for _, owner := range owners {
 		expected := r.Installations[owner]
 		actual, ok := installations[expected.ID]
-		if !ok || actual.AppID != r.AppID || !strings.EqualFold(actual.Account.Login, owner) || actual.Selection != "all" || actual.SuspendedAt != nil || !permissionsCover(actual.Permissions, expected.Permissions) {
+		if !ok || actual.AppID != r.AppID || !strings.EqualFold(actual.Account.Login, owner) || actual.Selection != expected.Repositories || actual.SuspendedAt != nil || !permissionsCover(actual.Permissions, expected.Permissions) {
 			return Bundle{}, errors.New("GitHub App installation identity or permissions mismatch")
 		}
 		var response struct {
-			Token       string            `json:"token"`
-			ExpiresAt   time.Time         `json:"expires_at"`
-			Permissions map[string]string `json:"permissions"`
+			Token        string            `json:"token"`
+			ExpiresAt    time.Time         `json:"expires_at"`
+			Permissions  map[string]string `json:"permissions"`
+			Selection    string            `json:"repository_selection"`
+			Repositories []struct {
+				ID    int64 `json:"id"`
+				Owner struct {
+					Login string `json:"login"`
+				} `json:"owner"`
+			} `json:"repositories"`
 		}
-		if err := request("POST", fmt.Sprintf("/app/installations/%d/access_tokens", expected.ID), map[string]any{"permissions": expected.Permissions}, &response); err != nil {
+		body := map[string]any{"permissions": expected.Permissions}
+		if expected.Repositories == "selected" {
+			body["repository_ids"] = expected.RepositoryIDs
+		}
+		if err := request("POST", fmt.Sprintf("/app/installations/%d/access_tokens", expected.ID), body, &response); err != nil {
 			return Bundle{}, err
 		}
 		if !permissionsCover(response.Permissions, expected.Permissions) {
 			return Bundle{}, errors.New("GitHub App token has insufficient permissions")
+		}
+		if expected.Repositories == "selected" {
+			if response.Selection != "selected" || len(response.Repositories) != len(expected.RepositoryIDs) {
+				return Bundle{}, errors.New("GitHub App token repository scope mismatch")
+			}
+			remaining := map[int64]bool{}
+			for _, id := range expected.RepositoryIDs {
+				remaining[id] = true
+			}
+			for _, repo := range response.Repositories {
+				if !remaining[repo.ID] || !strings.EqualFold(repo.Owner.Login, owner) {
+					return Bundle{}, errors.New("GitHub App token repository scope mismatch")
+				}
+				delete(remaining, repo.ID)
+			}
 		}
 		d.Installations[strings.ToLower(owner)] = token{InstallationID: expected.ID, Value: response.Token, ExpiresAt: response.ExpiresAt, Permissions: response.Permissions}
 	}
