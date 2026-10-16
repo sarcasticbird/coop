@@ -108,6 +108,25 @@ class Recovery(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_generation('new')
 
+    def test_compatibility_refusal_preserves_generation_and_pending_evidence(self):
+        self.assertEqual(self.run_install('old').returncode, 0)
+        refused = self.script.replace('check_compatibility() {',
+                                      'check_compatibility() {\n  return 71')
+        self.assertNotEqual(self.run_install(script=refused).returncode, 0)
+        self.assert_generation('old')
+        self.assertNotEqual(self.run_install(script=self.fault(
+            'mv -f "$next" "$destination"', 2, 'exit 73')).returncode, 0)
+        pending = self.state / 'install-pending'
+        before = {str(p.relative_to(pending)): p.read_bytes()
+                  for p in pending.rglob('*') if p.is_file()}
+        result = self.run_install('later', script=refused)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'compatibility refused', result.stderr)
+        self.assertEqual(before, {str(p.relative_to(pending)): p.read_bytes()
+                                  for p in pending.rglob('*') if p.is_file()})
+        self.assertEqual(self.run_install().returncode, 0)
+        self.assert_generation('new')
+
     def test_failed_copy_rename_and_sync_can_be_retried(self):
         commands = ['cp -p "$pending/after/$file" "$next"',
                     'sync -f "$next"',
