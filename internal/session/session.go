@@ -290,13 +290,27 @@ func (s *Session) Up() error {
 }
 
 // UpContext ensures the container is ready and cancels seed transports with ctx.
-func (s *Session) UpContext(ctx context.Context) error {
+func (s *Session) UpContext(ctx context.Context) error { return s.UpChecked(ctx, nil) }
+func (s *Session) UpChecked(ctx context.Context, check func() error, completed ...func() error) error {
 	release, err := lock.AcquireContext(ctx, s.Name, 30*time.Second)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return s.up(ctx)
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
+	}
+	if err := s.up(ctx); err != nil {
+		return err
+	}
+	for _, fn := range completed {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Session) up(ctx context.Context) error {
@@ -392,15 +406,8 @@ func (s *Session) entryArgv(cwd string, argv []string) (string, []string) {
 	if len(argv) == 0 {
 		command = []string{"zsh", "-l"}
 	}
-	wrapper := []string{
-		"flox", "activate", "--dir", "/opt/coop-core", "--",
-		"/usr/local/bin/coop-user-env",
-	}
-	if dir := s.floxDir(cwd); dir != "" {
-		wrapper = append(wrapper, "--project-flox", dir)
-	}
-	wrapper = append(wrapper, "--")
-	return cwd, append(wrapper, command...)
+	workdir, command, _ := s.GuestCommand(cwd, command)
+	return workdir, command
 }
 
 // floxDir finds the manifest governing cwd, walking up to the project
@@ -426,12 +433,18 @@ func withinProject(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func (s *Session) Down() error {
-	release, err := lock.Acquire(s.Name, 30*time.Second)
+func (s *Session) Down() error { return s.DownChecked(context.Background(), nil) }
+func (s *Session) DownChecked(ctx context.Context, check func() error, completed ...func() error) error {
+	release, err := lock.AcquireContext(ctx, s.Name, 30*time.Second)
 	if err != nil {
 		return err
 	}
 	defer release()
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
+	}
 	state, err := s.RT.State(s.Name)
 	if err != nil {
 		return fmt.Errorf("state of %s: %w", s.Name, err)
@@ -439,7 +452,15 @@ func (s *Session) Down() error {
 	if state == runtime.StateAbsent {
 		return fmt.Errorf("%s does not exist", s.Name)
 	}
-	return s.RT.Stop(s.Name)
+	if err := s.RT.Stop(s.Name); err != nil {
+		return err
+	}
+	for _, fn := range completed {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Destroy removes the container and its state volumes. Volumes are

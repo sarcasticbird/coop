@@ -10,13 +10,11 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/sarcasticbird/coop/image"
 	"github.com/sarcasticbird/coop/internal/config"
 	"github.com/sarcasticbird/coop/internal/core"
 	"github.com/sarcasticbird/coop/internal/credential"
-	"github.com/sarcasticbird/coop/internal/lock"
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/repository"
 	"github.com/sarcasticbird/coop/internal/runtime"
@@ -91,6 +89,10 @@ func (e executor) GuestFileExists(name, path string) (bool, error) {
 }
 
 func (s *Session) prepare(ctx context.Context, requested []string, provision, ensure bool) error {
+	return s.prepareChecked(ctx, requested, provision, ensure, nil)
+}
+func (s *Session) prepareChecked(ctx context.Context, requested []string, provision, ensure bool, check func() error, completed ...func() error) error {
+
 	selected, err := credential.Resolve(s.Spec.Config, requested)
 	if err != nil {
 		return err
@@ -103,75 +105,84 @@ func (s *Session) prepare(ctx context.Context, requested []string, provision, en
 	if err != nil {
 		return err
 	}
-	if err := s.Controller.Ensure(ctx, s.Spec); err != nil {
-		return fmt.Errorf("ensure agent machine: %w", err)
-	}
-	release, err := lock.AcquireContext(ctx, s.Spec.RuntimeName, 30*time.Second)
-	if err != nil {
-		return err
-	}
-	defer release()
-	info, err := s.Controller.Backend.Inspect(ctx, s.Spec)
-	if err != nil {
-		return err
-	}
-	if info.State != runtime.StateRunning {
-		return fmt.Errorf("machine stopped during preparation; retry entry")
-	}
-	if err := workspace.CheckSpecification(info.State, info.Fingerprint, s.Spec.Fingerprint); err != nil {
-		return err
-	}
-	exec := executor{runner: s.Runner}
-	if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "prepare"}, nil); err != nil {
-		return fmt.Errorf("prepare guest: %w", err)
-	}
-	if _, err := (credential.PersistentManager{Executor: exec}).Stage(ctx, s.Spec.RuntimeName, acquired); err != nil {
-		return fmt.Errorf("stage machine credentials: %w", err)
-	}
-	bootstrapped, err := exec.GuestFileExists(s.Spec.RuntimeName, "/var/lib/coop/bootstrapped")
-	if err != nil {
-		return err
-	}
-	if !bootstrapped {
-		if err := seed.ApplyContext(ctx, exec, s.Spec.RuntimeName, home, s.Spec.Home, s.Spec.Config.Seeds); err != nil {
-			return err
-		}
-		if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{"touch", "/var/lib/coop/bootstrapped"}, nil); err != nil {
-			return err
-		}
-	}
-	command, err := json.Marshal(struct {
-		Command  []string `json:"command"`
-		Restart  string   `json:"restart"`
-		Services any      `json:"services"`
-	}{s.Spec.Profile.Command, s.Spec.Profile.Restart, s.Spec.Profile.Services})
-	if err != nil {
-		return err
-	}
-	if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "command"}, bytes.NewReader(command)); err != nil {
-		return err
-	}
-	if provision {
-		opts := repository.Options{}
-		for _, grant := range selected {
-			for _, expose := range config.Exposures(grant.Spec) {
-				if expose.Type == "file" && expose.PathEnv == "COOP_GITHUB_APP_BUNDLE_FILE" {
-					opts.GitHubApp = true
-				}
+	return s.Controller.WithExclusive(ctx, s.Spec, func(g workspace.Locked) error {
+		if check != nil {
+			if err := check(); err != nil {
+				return err
 			}
 		}
-		result, err := repository.ProvisionWithOptions(ctx, s.Runner, s.Spec.RuntimeName, s.Spec.Profile.Orgs, opts)
-		if _, writeErr := fmt.Fprintf(s.output(), "repositories: %d cloned, %d existing, %d failed\n", len(result.Cloned), len(result.Existing), len(result.Failed)); writeErr != nil {
-			return writeErr
+		if err := g.Ensure(); err != nil {
+			return fmt.Errorf("ensure agent machine: %w", err)
 		}
+		info, err := s.Controller.Backend.Inspect(ctx, s.Spec)
 		if err != nil {
 			return err
 		}
-	}
-	if ensure {
-		return exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "ensure"}, nil)
-	}
-	return nil
+		if info.State != runtime.StateRunning {
+			return fmt.Errorf("machine stopped during preparation; retry entry")
+		}
+		if err := workspace.CheckSpecification(info.State, info.Fingerprint, s.Spec.Fingerprint); err != nil {
+			return err
+		}
+		exec := executor{runner: s.Runner}
+		if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "prepare"}, nil); err != nil {
+			return fmt.Errorf("prepare guest: %w", err)
+		}
+		if _, err := (credential.PersistentManager{Executor: exec}).Stage(ctx, s.Spec.RuntimeName, acquired); err != nil {
+			return fmt.Errorf("stage machine credentials: %w", err)
+		}
+		bootstrapped, err := exec.GuestFileExists(s.Spec.RuntimeName, "/var/lib/coop/bootstrapped")
+		if err != nil {
+			return err
+		}
+		if !bootstrapped {
+			if err := seed.ApplyContext(ctx, exec, s.Spec.RuntimeName, home, s.Spec.Home, s.Spec.Config.Seeds); err != nil {
+				return err
+			}
+			if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{"touch", "/var/lib/coop/bootstrapped"}, nil); err != nil {
+				return err
+			}
+		}
+		command, err := json.Marshal(struct {
+			Command  []string `json:"command"`
+			Restart  string   `json:"restart"`
+			Services any      `json:"services"`
+		}{s.Spec.Profile.Command, s.Spec.Profile.Restart, s.Spec.Profile.Services})
+		if err != nil {
+			return err
+		}
+		if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "command"}, bytes.NewReader(command)); err != nil {
+			return err
+		}
+		if provision {
+			opts := repository.Options{}
+			for _, grant := range selected {
+				for _, expose := range config.Exposures(grant.Spec) {
+					if expose.Type == "file" && expose.PathEnv == "COOP_GITHUB_APP_BUNDLE_FILE" {
+						opts.GitHubApp = true
+					}
+				}
+			}
+			result, err := repository.ProvisionWithOptions(ctx, s.Runner, s.Spec.RuntimeName, s.Spec.Profile.Orgs, opts)
+			if _, writeErr := fmt.Fprintf(s.output(), "repositories: %d cloned, %d existing, %d failed\n", len(result.Cloned), len(result.Existing), len(result.Failed)); writeErr != nil {
+				return writeErr
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if ensure {
+			if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "ensure"}, nil); err != nil {
+				return err
+			}
+		}
+		for _, fn := range completed {
+			if err := fn(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 func (s *Session) Up(ctx context.Context, grants []string) error {
 	return s.prepare(ctx, grants, true, true)
@@ -196,16 +207,7 @@ func (s *Session) Shell(ctx context.Context, grants []string) error {
 	return s.Command(ctx, []string{"zsh", "-l"})
 }
 func (s *Session) Command(ctx context.Context, args []string) error {
-	argv := append([]string{"/usr/local/libexec/coop-env"}, args...)
-	for _, name := range s.Spec.Config.IncludeCredentials {
-		for _, expose := range config.Exposures(s.Spec.Config.Credentials[name]) {
-			if expose.Type == "file" && expose.PathEnv == "COOP_GITHUB_APP_BUNDLE_FILE" {
-				argv = append([]string{"/usr/local/libexec/coop-env", "/usr/local/libexec/coop-github", "env", "--"}, args...)
-				return s.Runner.Attach(ctx, s.Spec.RuntimeName, s.Spec.Workdir, argv)
-			}
-		}
-	}
-	return s.Runner.Attach(ctx, s.Spec.RuntimeName, s.Spec.Workdir, argv)
+	return s.Runner.Attach(ctx, s.Spec.RuntimeName, s.Spec.Workdir, s.GuestArgv(args))
 }
 func (s *Session) PrepareCommand(ctx context.Context, grants []string) error {
 	return s.prepare(ctx, grants, false, false)
@@ -242,4 +244,25 @@ func (s *Session) Status(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// UpChecked preserves ordinary configured preparation with checks inside its lock.
+func (s *Session) UpChecked(ctx context.Context, grants []string, check func() error, completed ...func() error) error {
+	return s.prepareChecked(ctx, grants, true, true, check, completed...)
+}
+func (s *Session) DownChecked(ctx context.Context, check func() error, completed ...func() error) error {
+	return s.Controller.WithExclusive(ctx, s.Spec, func(g workspace.Locked) error {
+		if err := check(); err != nil {
+			return err
+		}
+		if err := g.Down(); err != nil {
+			return err
+		}
+		for _, fn := range completed {
+			if err := fn(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

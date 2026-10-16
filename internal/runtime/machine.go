@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,9 +20,11 @@ type AppleMachine struct {
 	Command MachineCommand
 }
 type MachineInfo struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Image  struct {
+	ID          string `json:"id"`
+	CreatedDate string `json:"createdDate"`
+	StartedDate string `json:"startedDate"`
+	Status      string `json:"status"`
+	Image       struct {
 		Reference string `json:"reference"`
 	} `json:"image"`
 	CPUs        int    `json:"cpus"`
@@ -41,11 +42,13 @@ func (m AppleMachine) bin() string {
 }
 func (m AppleMachine) command(ctx context.Context, args []string, input io.Reader, stdout, stderr io.Writer) error {
 	if m.Command != nil {
-		return m.Command(ctx, args, input, stdout, stderr)
+		diagnostic := NewBoundedCapture(64 << 10)
+		return m.Command(ctx, args, input, stdout, io.MultiWriter(stderr, diagnostic))
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.bin(), args...)
+	cmd.WaitDelay = 2 * time.Second
 	// Native machines enable SSH forwarding by default. Agent credentials must
 	// come only from the explicitly selected host profile.
 	for _, entry := range os.Environ() {
@@ -55,8 +58,8 @@ func (m AppleMachine) command(ctx context.Context, args []string, input io.Reade
 	}
 	cmd.Stdin = input
 	cmd.Stdout = stdout
-	var diagnostic bytes.Buffer
-	cmd.Stderr = io.MultiWriter(stderr, &diagnostic)
+	diagnostic := NewBoundedCapture(64 << 10)
+	cmd.Stderr = io.MultiWriter(stderr, diagnostic)
 	if err := cmd.Run(); err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			return cause
@@ -70,8 +73,11 @@ func (m AppleMachine) command(ctx context.Context, args []string, input io.Reade
 	return nil
 }
 func (m AppleMachine) Output(ctx context.Context, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	err := m.command(ctx, args, nil, &out, io.Discard)
+	out := NewBoundedCapture(1 << 20)
+	err := m.command(ctx, args, nil, out, io.Discard)
+	if out.Dropped() > 0 {
+		return nil, fmt.Errorf("runtime metadata exceeds limit")
+	}
 	return out.Bytes(), err
 }
 

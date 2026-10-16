@@ -20,6 +20,12 @@ type MachineBackend struct {
 func (b MachineBackend) Inspect(ctx context.Context, s Spec) (Info, error) {
 	i, state, err := b.Runtime.Inspect(ctx, s.RuntimeName)
 	info := Info{Name: s.RuntimeName, Mode: Agent, State: state, Image: i.Image.Reference, ChildContainerID: i.ContainerID}
+	if i.CreatedDate != "" {
+		info.RuntimeInstance = i.ID + "/" + i.CreatedDate
+	}
+	if i.StartedDate != "" && i.ContainerID != "" {
+		info.BootIdentity = i.ContainerID + "/" + i.StartedDate
+	}
 	if err != nil || state == runtime.StateAbsent {
 		return info, err
 	}

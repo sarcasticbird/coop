@@ -85,7 +85,7 @@ func (e *Engine) initialize() error {
 		if e.Wakes == nil {
 			e.Wakes = NewWakeCoordinator(e.Config, NewWakeStore(filepath.Join(e.Config.StateDir, "wake", "v1")), e.GitHub, e.OpenCode, e.Clock)
 		}
-		e.Wakes.Paused = e.paused
+		e.Wakes.Paused = e.admissionsPaused
 		routing, err := e.Wakes.Store.Routing()
 		if err != nil {
 			return err
@@ -149,6 +149,19 @@ func (e *Engine) active() (Job, bool) {
 		return e.state.Jobs[ids[0]], true
 	}
 	return Job{}, false
+}
+func (e *Engine) admissionPaused() (bool, error) {
+	if c, ok := e.Store.(interface{ AdmissionPaused() (bool, error) }); ok {
+		return c.AdmissionPaused()
+	}
+	return false, nil
+}
+func (e *Engine) admissionsPaused() (bool, error) {
+	hard, err := e.paused()
+	if err != nil || hard {
+		return hard, err
+	}
+	return e.admissionPaused()
 }
 func (e *Engine) paused() (bool, error) {
 	if control, ok := e.Store.(interface{ Paused() (bool, error) }); ok {
@@ -655,7 +668,7 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	} else if e.Config.Version == 2 {
 		return e.failed(ctx, j, "scope_revalidation_unavailable")
 	}
-	paused, err := e.paused()
+	paused, err := e.admissionsPaused()
 	if err != nil {
 		return err
 	}
@@ -858,7 +871,13 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 	if err != nil {
 		return err
 	}
-	e.status.Paused = paused
+	admissionPaused, err := e.admissionPaused()
+	if err != nil {
+		return err
+	}
+	e.status.AdmissionPauseSupported = true
+	e.status.AdmissionPaused = admissionPaused
+	e.status.Paused = paused || admissionPaused
 	for _, j := range e.state.Jobs {
 		if j.Phase == "recovery" {
 			e.status.State, e.status.WaitReason = "blocked", "reconciliation_required"
@@ -1000,6 +1019,10 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 		if !e.Clock.Now().Before(e.nextObserve) {
 			return e.observe(ctx, j)
 		}
+		return nil
+	}
+	if admissionPaused {
+		e.status.State = "paused"
 		return nil
 	}
 	if pending {

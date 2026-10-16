@@ -344,3 +344,35 @@ func (s *FileStore) Paused() (bool, error) {
 	}
 	return c.Paused, nil
 }
+
+// Admission pause is separate from the legacy interrupting pause control.
+func (s *FileStore) SetAdmissionPaused(paused bool) error {
+	if _, err := s.Load(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(control{Paused: paused})
+	if err != nil {
+		return err
+	}
+	return atomicPrivate(filepath.Join(s.Dir, "admission-control.json"), raw)
+}
+func (s *FileStore) AdmissionPaused() (bool, error) {
+	if err := ensurePrivateDir(s.Dir, false); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	raw, err := readPrivate(filepath.Join(s.Dir, "admission-control.json"), 1024)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var c control
+	if err = strictJSON(raw, &c); err != nil {
+		return false, err
+	}
+	return c.Paused, nil
+}

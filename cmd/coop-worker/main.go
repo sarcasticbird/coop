@@ -45,6 +45,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("coop-worker", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	admissionOnly := flags.Bool("admission-only", false, "pause new admissions without aborting active work")
 	path := flags.String("config", "", "private worker configuration")
 	previous := flags.String("previous-config", "", "installed private configuration for check-install")
 	task := flags.String("task", "", "task issue URL")
@@ -70,6 +71,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if *previous != "" && command != "check-install" {
 		return errors.New("previous-config requires check-install")
+	}
+	if *admissionOnly && command != "pause" && command != "resume" {
+		return errors.New("admission-only requires pause or resume")
 	}
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
@@ -144,6 +148,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return encode(status)
 	case "pause", "resume":
 		paused := command == "pause"
+		if *admissionOnly {
+			if err := store.SetAdmissionPaused(paused); err != nil {
+				return err
+			}
+			return encode(map[string]any{"admission_paused": paused, "state": command + "_requested"})
+		}
 		if err := store.SetPaused(paused); err != nil {
 			return err
 		}

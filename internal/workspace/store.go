@@ -204,28 +204,43 @@ func (s FileStore) Remove(mode Mode, name string) error {
 func (s FileStore) List() ([]Record, error) {
 	var records []Record
 	for _, mode := range []Mode{Interactive, Agent} {
-		dir, err := s.dir(mode, false)
-		if os.IsNotExist(err) {
+		rows, err := s.ListMode(mode, nil)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, rows...)
+	}
+	return records, nil
+}
+
+// ListMode filters ownership identities before opening record contents.
+func (s FileStore) ListMode(mode Mode, allow func(string) bool) ([]Record, error) {
+	dir, err := s.dir(mode, false)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+	var records []Record
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		name := strings.TrimSuffix(e.Name(), ".json")
+		if allow != nil && !allow(name) {
+			continue
+		}
+		r, err := s.Load(mode, name)
 		if err != nil {
 			return nil, err
 		}
-		entries, err := dir.ReadDir(-1)
-		_ = dir.Close()
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".json") {
-				continue
-			}
-			r, err := s.Load(mode, strings.TrimSuffix(e.Name(), ".json"))
-			if err != nil {
-				return nil, err
-			}
-			records = append(records, r)
-		}
+		records = append(records, r)
 	}
 	return records, nil
 }
