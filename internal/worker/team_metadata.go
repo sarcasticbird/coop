@@ -128,6 +128,7 @@ func ParseTeamGoalMetadata(body string) (TeamGoalMetadata, error) {
 }
 
 func applyTeamTaskMetadata(c Config, t *Task, comments []Comment) error {
+	t.TrustedMetadataPresent = false
 	t.Assignment = nil
 	t.QA = QAPolicy{}
 	t.MetadataAuthor, t.GoalURL, t.MetadataScopeSHA = Actor{}, "", ""
@@ -158,6 +159,7 @@ func applyTeamTaskMetadata(c Config, t *Task, comments []Comment) error {
 			continue
 		}
 		candidate = comment
+		t.TrustedMetadataPresent = true
 	}
 	// Only the latest trusted record supplies authority. Historical assignments
 	// may reference an older roster; an invalid latest record never falls back.

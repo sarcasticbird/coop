@@ -92,6 +92,46 @@ func TaskMetadataComment(c Config, s Snapshot, taskURL, goalURL string, now time
 	return encodeMetadata("task", taskMetadata{Goal: goalURL, ScopeSHA: TaskScopeHash(t.Title, t.Body), DependsOn: deps}), nil
 }
 
+// TaskMetadataWithAssignment generates first publication from explicit private
+// input. Existing trusted assignments must use the preserving repair path.
+func TaskMetadataWithAssignment(c Config, s Snapshot, taskURL, goalURL, path string, now time.Time) (string, error) {
+	if c.Version != 2 || !isPlanner(c) || !s.Complete {
+		return "", errors.New("initial assignment requires v2 planner and complete snapshot")
+	}
+	t, ok := taskFor(s, taskURL)
+	if !ok || t.TrustedMetadataPresent || t.Assignment != nil || t.Claim != nil || t.ClaimConflict || t.Closed || t.Completed || !referenceInRepo(t.URL, t.Repo, "issues") {
+		return "", errors.New("initial assignment requires an unassigned, unclaimed open task")
+	}
+	g, ok := goalFor(s, goalURL)
+	if !ok {
+		return "", errors.New("goal is not readable")
+	}
+	raw, err := readPrivate(path, 32<<10)
+	if err != nil {
+		return "", err
+	}
+	var assignment TaskAssignment
+	if err = strictTeamJSON(raw, &assignment); err != nil {
+		return "", err
+	}
+	m, err := ParseTeamGoalMetadata(g.Body)
+	if err != nil {
+		return "", err
+	}
+	t.Assignment, t.QA, t.GoalURL, t.MetadataScopeSHA, t.MetadataAuthor = &assignment, m.QA, goalURL, t.BodySHA, c.Self
+	if _, err = ValidateTeamScope(c, t, g, now); err != nil {
+		return "", err
+	}
+	for i := range s.Tasks {
+		if s.Tasks[i].URL == taskURL {
+			s.Tasks = append([]Task(nil), s.Tasks...)
+			s.Tasks[i] = t
+			break
+		}
+	}
+	return TaskMetadataComment(c, s, taskURL, goalURL, now)
+}
+
 // PRMetadataComment repairs tracking only. It neither assigns work nor changes
 // the owner-approved goal or the task's reviewable scope.
 func PRMetadataComment(c Config, s Snapshot, prURL, taskURL, goalURL string, now time.Time) (string, error) {

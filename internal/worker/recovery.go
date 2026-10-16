@@ -91,7 +91,7 @@ func RecoveryIntent(c Config, id, session, message string) error {
 	if !hexSHA.MatchString(id) || !validSession(session) || !validMessage(message) {
 		return errors.New("recovery requires exact job, session and message IDs")
 	}
-	s := NewFileStore(c.StateDir)
+	s := NewVersionedFileStore(c.StateDir, c.Version)
 	unlock, err := s.Lock()
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func RecoveryIntent(c Config, id, session, message string) error {
 		state.Jobs[id] = j
 		return s.Save(state)
 	}
-	w := NewWakeStore(filepath.Join(c.StateDir, "wake", "v1"))
+	w := NewVersionedWakeStore(filepath.Join(c.StateDir, "wake", "v1"), c.Version)
 	v, err := w.Receipt(id)
 	if err != nil {
 		return err

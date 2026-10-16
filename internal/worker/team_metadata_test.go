@@ -199,8 +199,8 @@ func TestTeamConfigVersionDispatch(t *testing.T) {
 	if ok, _ := Admit(c, Job{}, Snapshot{Complete: true}, time.Now()); ok {
 		t.Fatal("incomplete v2 runtime admitted a job")
 	}
-	e := Engine{Config: c}
-	if err := e.initialize(); err == nil || !strings.Contains(err.Error(), "v2 runtime unavailable") {
+	e := Engine{Config: c, Store: &memoryStore{}}
+	if err := e.initialize(); err == nil || !strings.Contains(err.Error(), "version mismatch") {
 		t.Fatal("v2 runtime did not stop before loading v1 state", err)
 	}
 }

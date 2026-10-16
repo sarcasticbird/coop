@@ -76,6 +76,7 @@ type Claim struct {
 	Author                 Actor
 }
 type Task struct {
+	TrustedMetadataPresent                                                                bool            `json:",omitempty"`
 	QA                                                                                    QAPolicy        `json:",omitzero"`
 	ClaimConflict                                                                         bool            `json:",omitempty"`
 	Assignment                                                                            *TaskAssignment `json:",omitempty"`

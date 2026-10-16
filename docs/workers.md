@@ -80,12 +80,11 @@ An owner-approved goal body is still required; planner assignment cannot approve
 or relax a goal. Required customer QA binds acceptance and authorized environment
 revisions to the independent assigned QA actor and tested artifact.
 
-This is not an available live v2 runtime. Worker startup still refuses version 2
-before loading state, pending the remaining scheduler and rollout packages.
-Policy, assignment-bound engineering/QA admission and explicit offline state
-conversion have fixture coverage; they do not authorize live cutover. Do not
-switch a live profile to v2 or reinterpret v1 state, claims or completed jobs
-using a new roster.
+Version 2 explicitly selects the team runtime. Startup requires compatible saved
+state and its matching wake fence, even when wakes are disabled. It never converts
+or initializes storage automatically. Source coverage does not authorize live
+cutover; follow the controlled acceptance packet and preserve historical v1
+state, claims and completed jobs without assigning them new roster authority.
 
 Guest paths:
 
@@ -615,9 +614,27 @@ irrecoverable native history remains escalated for operator investigation.
 
 Worker ledger versions are explicit. A v1 configuration reads and writes only
 v1 state; a v2 configuration reads and writes only v2 state. Loading state never
-upgrades it. V2 runtime execution remains unavailable until the dependent
-workflow packages are complete; this command does not enable it. Isolated v2
-engineering admission and discovery fixtures are supported, not live activation.
+upgrades it. Runtime startup requires initialized, fenced storage. Conversion
+does not start a worker or authorize live activation.
+
+For a first v2 worker with unused storage, run the explicit offline command:
+
+```sh
+coop-worker init-state --config /absolute/private/worker-team.json
+```
+
+This creates one stable instance through the same immutable backup, producer
+fence and verified migration journal as existing-worker conversion. It requires
+unused storage under the worker lock. Any existing history, queued input or
+partial initialization refuses unchanged; inspect evidence instead of retrying
+or deleting files. Keep service and producer startup fenced during this operation.
+
+The configured v2 planner can generate first task metadata with
+`task-metadata --config PATH --task URL --goal URL --assignment PRIVATE_JSON`.
+The mode-0600 assignment file contains the complete version-2 assignment described
+above, bound to current task, approved goal and team-policy hashes. Output is a
+comment for explicit publication, not a GitHub write or owner approval. Existing
+assigned work must omit `--assignment` and use the preserving repair path.
 
 The supported conversion is one-way, offline, and bound to the exact saved
 `InstanceID`. With separately authorized stopped/drained workers and fenced
@@ -835,4 +852,4 @@ Selection does not interrupt active jobs or wakes, take over manual turns, waive
 assignment validation or reset uncertain submission evidence. The selected job
 is freshly revalidated, and preparation still ends with scope/assignment and
 local-pause checks immediately before submission. V1 scheduling is unchanged.
-V2 startup remains gated; these source changes do not authorize live activation.
+Live activation still requires the separately reviewed acceptance packet.

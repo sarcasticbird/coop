@@ -7,8 +7,8 @@ state snapshots or native history in this public document or PR prose.
 
 Source acceptance, fixture authorization, permission changes, activation, live
 state conversion, deployment and release are separate decisions. The current
-engine refuses v2 initialization; successful offline validation does not remove
-that fence. An authorized, independently reviewed activation change and a newly
+engine requires explicitly initialized or converted v2 storage and a matching
+wake fence. An authorized, independently reviewed activation change and a newly
 pinned artifact set are prerequisites for any real v2 exercise. Do not patch a
 binary locally, select v1 to bypass v2 policy, or use fixture tests as a live pass.
 
@@ -135,9 +135,10 @@ commands and authorizations before execution. Stop at the first failed gate.
    existing evidence or uncertain publication requires inspection, not a retry.
 7. Before start, require the separately reviewed activation change, refreshed
    artifact evidence and explicit permission/service authorization. Current
-   fenced binaries cannot perform this step. Accept one actor before advancing
-   to the next; never run two workers as the same identity. A first QA worker
-   remains a distinct separately authorized step.
+   pre-activation binaries cannot perform this step. Accept one actor before
+   advancing to the next; never run two workers as the same identity. A first QA
+   worker requires separately authorized `init-state` on unused storage before
+   startup; it must not reuse or reinterpret another actor's ledger.
 8. Execute the real acceptance matrix, compare history/queue/receipts, verify
    renewal and actual models, collect independent conclusions and cleanup proof.
    Do not call a source merge live acceptance or a fixture merge production release.
