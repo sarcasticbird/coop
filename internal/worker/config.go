@@ -167,13 +167,50 @@ func LoadConfig(path string) (Config, error) {
 	if len(raw) > MaxConfig {
 		return c, errors.New("worker config too large")
 	}
-	if err := strictJSON(raw, &c); err != nil {
-		return c, err
+	// Inspect the envelope before decoding shared fields. A trailing version
+	// must not select a weaker decoder, and null must not hide a v2-only field.
+	d := json.NewDecoder(bytes.NewReader(raw))
+	token, err := d.Token()
+	if err != nil || token != json.Delim('{') {
+		return c, errors.New("invalid worker configuration envelope")
 	}
-	if c.Version == 2 {
+	version, seenVersion, seenTeam := 0, false, false
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		name, ok := key.(string)
+		if !ok {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		var value json.RawMessage
+		if err := d.Decode(&value); err != nil {
+			return c, errors.New("invalid worker configuration envelope")
+		}
+		if strings.EqualFold(name, "version") {
+			if seenVersion || json.Unmarshal(value, &version) != nil {
+				return c, errors.New("ambiguous worker configuration version")
+			}
+			seenVersion = true
+		}
+		seenTeam = seenTeam || strings.EqualFold(name, "team")
+	}
+	if _, err := d.Token(); err != nil {
+		return c, errors.New("invalid worker configuration envelope")
+	}
+	if !seenVersion || (version != 1 && version != 2) {
+		return c, errors.New("unsupported worker configuration version")
+	}
+	if version == 1 && seenTeam {
+		return c, errors.New("v1 configuration forbids team policy")
+	}
+	if version == 2 {
 		if err := strictTeamJSON(raw, &c); err != nil {
 			return c, err
 		}
+	} else if err := strictJSON(raw, &c); err != nil {
+		return c, err
 	}
 	c = Defaults(c)
 	return c, ValidateConfig(c)
