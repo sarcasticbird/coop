@@ -174,6 +174,35 @@ instance-bound `wake/v1/inbox/version.json` fence, then verifies the result. Inp
 is bounded to 128 MiB and the encoded backup to 256 MiB. Conversion preserves old
 records and queued input; it does not grant old jobs v2 assignments or clearances.
 
+Offline conversion accepts the specific legacy wake completion format that saved
+both phases as `completed`, retained a `running` submission observation and left
+`TerminalAt` zero. It requires matching request, receipt and job identities,
+the configured target, valid saved session/message IDs, a job route matching the
+saved Discussion and thread, a canonical absolute checkout, ordered request,
+submission and receipt timestamps, a coherent saved Discussion source and a
+canonical reply node/URL in that Discussion. A ping uses its resolved receipt
+source; its original inbox source is intentionally minimal. Conversion preserves
+every request and receipt byte in place and in the immutable backup. Generic task
+jobs and all other uncertain wake formats retain their existing refusal rules.
+Historical checkout validation does not require the path to exist or remain
+under the current configured work root.
+
+This compatibility check validates stored structure. Before migrating a live
+store with these legacy receipts, separately verify an actual terminal assistant
+record for each owned native turn and the exact recorded GitHub reply's bot,
+thread and wake marker. Bind that proof to the stopped request/receipt hashes.
+Idle status, elapsed time, a completed receipt label or a GitHub reply alone does
+not prove native completion. Missing or conflicting proof blocks migration of
+that store until explicit operator reconciliation. Do not rewrite timestamps,
+reset attempts, change phases or replay prompts to obtain clearance.
+
+GitHub node IDs are opaque and case-sensitive. Migration and v2 state decoding
+preserve distinct IDs that differ only by case in routing and snapshot maps.
+Duplicate JSON schema fields still cause refusal regardless of case, and exact
+duplicate map keys remain invalid. Repository and team authority maps retain
+their separate canonical-key validation. This fixes the older duplicate scanner
+that incorrectly folded every object key, including saved GitHub IDs.
+
 There is no automatic migration retry, reverse conversion or backup restore.
 Existing migration evidence causes refusal, including a backup left before hold
 publication. A failure after verified publication can be ambiguous success:

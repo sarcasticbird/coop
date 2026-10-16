@@ -116,6 +116,19 @@ directories. Existing `install-before/` material is not removed. Do not delete
 the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
+For a first v2 worker in an existing manual OpenCode Coop, use
+`scripts/install-agent-worker.sh --adopt-matching-launchers NAME BINARY CONFIG`
+only after a verified cold backup and with services/producers fenced. This mode
+requires exactly the three existing launchers to match the incoming reviewed
+bytes, root ownership and mode 0755. Worker binary, configuration, manifest and
+state must be absent. Prior installation evidence, unsafe links and state paths
+that overlap installation files or transaction storage refuse unchanged.
+The transaction preserves and hashes the original launchers before publishing
+the complete managed generation. A pending adoption requires the explicit flag
+and the same package; a completed installation uses the normal upgrade path.
+It does not initialize state or start services. Never delete working launchers
+or manufacture a manifest to make the default installer accept them.
+
 The guest uses file/filesystem syncs before and after publication renames, but
 the files span destination directories and are not exposed as one atomic set.
 Keep services stopped during installation and do not start them after a failed
@@ -670,6 +683,15 @@ cached evidence and scope remain intact. Historical wake records stay in `wake/v
 with their original record schema; access is gated by the parent ledger/config
 version. No old job
 receives an assignment, engineering clearance, or QA clearance by conversion.
+
+The converter also recognizes the narrow historical completed-wake format that
+retained a `running` observation without setting `TerminalAt`. It requires
+coherent saved request, intent, source and reply evidence, and preserves the raw
+records without inventing timestamps. Before converting such a store, verify
+each exact native terminal turn and recorded bot reply while services and
+producers are fenced. Structural compatibility does not perform those external
+checks or authorize replay. Opaque GitHub IDs in map keys remain case-sensitive;
+duplicate schema fields, unknown fields and exact duplicate map keys refuse.
 
 There is no automatic retry, reverse migration, or backup restore. Any existing
 migration evidence makes a repeated conversion refuse rather than overwrite the

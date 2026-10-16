@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const migrationLimit = 256 << 20
@@ -37,6 +38,10 @@ func (s *FileStore) compatible() error {
 }
 
 func migrationJob(j Job, wake bool) error {
+	return migrationJobEvidence(j, wake, false)
+}
+
+func migrationJobEvidence(j Job, wake, legacyCompletedWake bool) error {
 	if wake && j.ID == "" {
 		if j != (Job{}) {
 			return errors.New("wake has job evidence without identity")
@@ -70,7 +75,7 @@ func migrationJob(j Job, wake bool) error {
 	case "submitting", "unknown", "accepted", "running", "compacting", "blocked":
 		// V1 wake completion records TerminalAt without replacing the last
 		// submission observation. Preserve that evidence rather than normalizing it.
-		if j.Phase != "completed" || j.TerminalAt.IsZero() {
+		if j.Phase != "completed" || (j.TerminalAt.IsZero() && (!wake || !legacyCompletedWake)) {
 			return errors.New("migration refuses uncertain submission evidence")
 		}
 	default:
@@ -79,10 +84,55 @@ func migrationJob(j Job, wake bool) error {
 	if j.SessionID != "" && !validSession(j.SessionID) {
 		return errors.New("invalid saved session")
 	}
-	if j.MessageID != "" && (!validMessage(j.MessageID) || j.SessionID == "" || (j.TerminalAt.IsZero() && j.SubmissionState != "interrupted")) {
+	if j.MessageID != "" && (!validMessage(j.MessageID) || j.SessionID == "" || (j.TerminalAt.IsZero() && j.SubmissionState != "interrupted" && (!wake || !legacyCompletedWake))) {
 		return errors.New("migration refuses unresolved message evidence")
 	}
 	return nil
+}
+
+// Old wake completion saved a resolved source and reply without replacing the
+// running observation or setting TerminalAt. This is structural compatibility
+// only; operators must separately reconcile the actual native turn and reply.
+func migrationWakeReceipt(c Config, r WakeRequest, v WakeReceipt) error {
+	j := v.Job
+	if j.SubmissionState != "running" || !j.TerminalAt.IsZero() {
+		return migrationJob(j, true)
+	}
+	if validateWakeRequest(r) != nil || r.Target != c.Name || v.Version != 1 || v.RequestID != r.ID || j.ID != r.ID || v.Phase != "completed" || j.Phase != "completed" || j.Kind != "wake" || !validSession(j.SessionID) || !validMessage(j.MessageID) || j.SubmittedAt.IsZero() || j.SubmittedAt.Before(r.CreatedAt) || v.UpdatedAt.IsZero() || v.UpdatedAt.Before(j.SubmittedAt) {
+		return errors.New("invalid legacy completed wake evidence")
+	}
+	s := v.Source
+	if j.GoalURL != s.DiscussionURL || j.TaskURL != s.RootID || !cleanPrivatePath(j.Checkout) {
+		return errors.New("invalid legacy completed wake job route")
+	}
+	for _, id := range []string{s.NodeID, s.DiscussionID, s.RootID, v.ReplyNodeID} {
+		if id == "" || len(id) > 256 || strings.ContainsAny(id, "\x00\r\n\t ") {
+			return errors.New("invalid legacy completed wake node identity")
+		}
+	}
+	if s.NodeID == "" || s.DiscussionID == "" || s.RootID == "" || s.Revision != ConversationRevision(s) || !validWakeText(s.Body, MaxWakeReceipt) || (!validActor(s.Author, "User") && !validActor(s.Author, "Bot")) || s.CreatedAt.IsZero() || sourceTime(s).After(j.SubmittedAt) || s.DiscussionURL != r.Source.DiscussionURL || !strings.Contains(s.DiscussionURL, "/discussions/") || !goalInScope(c, Goal{URL: s.DiscussionURL}) {
+		return errors.New("invalid legacy completed wake source")
+	}
+	base, fragment, comment := strings.Cut(s.URL, "#discussioncomment-")
+	if s.NodeID == s.DiscussionID {
+		if s.RootID != s.DiscussionID || s.ParentID != "" || s.URL != s.DiscussionURL {
+			return errors.New("invalid legacy completed wake root")
+		}
+	} else if !comment || base != s.DiscussionURL || !numericID.MatchString(fragment) {
+		return errors.New("invalid legacy completed wake comment")
+	}
+	if r.Kind == "discussion" {
+		if canonicalConversation(r.Source) != canonicalConversation(s) || r.Source.Revision != s.Revision {
+			return errors.New("legacy completed wake source mismatch")
+		}
+	} else if s.NodeID != s.DiscussionID {
+		return errors.New("legacy completed ping requires resolved Discussion root")
+	}
+	base, fragment, comment = strings.Cut(v.ReplyURL, "#discussioncomment-")
+	if !comment || base != s.DiscussionURL || !numericID.MatchString(fragment) {
+		return errors.New("invalid legacy completed wake reply")
+	}
+	return migrationJobEvidence(j, true, true)
 }
 
 // MigrateState is deliberately one-way and offline. All wake bytes retain their
@@ -177,7 +227,7 @@ func migrateStateLocked(c Config, s *FileStore, expected string, write func(stri
 		if receipt.Job.ID != "" && receipt.Job.ID != r.ID {
 			return errors.New("wake job/request identity mismatch")
 		}
-		if err := migrationJob(receipt.Job, true); err != nil {
+		if err := migrationWakeReceipt(c, r, receipt); err != nil {
 			return err
 		}
 	}
@@ -229,8 +279,26 @@ func migrateStateLocked(c Config, s *FileStore, expected string, write func(stri
 		if err != nil {
 			return err
 		}
+		// Decode known records with their schema so opaque map keys, including
+		// case-distinct GitHub node IDs, are not mistaken for duplicate fields.
 		var doc any
-		if err := strictTeamJSON(raw, &doc); err != nil {
+		switch filepath.ToSlash(rel) {
+		case "state.json":
+			doc = new(State)
+		case "control.json":
+			doc = new(control)
+		case "status.json":
+			doc = new(Status)
+		case "wake/v1/routing.json":
+			doc = new(WakeRoutingState)
+		default:
+			if filepath.Dir(rel) == filepath.Join("wake", "v1", "inbox") {
+				doc = new(WakeRequest)
+			} else {
+				doc = new(WakeReceipt)
+			}
+		}
+		if err := strictTeamJSON(raw, doc); err != nil {
 			return err
 		}
 		if rel == "status.json" {

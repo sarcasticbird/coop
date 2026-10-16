@@ -3,9 +3,11 @@ package worker
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type TeamGoalMetadata struct {
@@ -37,12 +39,29 @@ func validTeamGoalURL(ref string) bool {
 	return kind == "issues" || kind == "discussions"
 }
 
-// V2 rejects duplicate object keys as well as unknown fields. The v1 decoder
-// remains unchanged, including its historical wire semantics.
+// Match encoding/json's Unicode simple-fold equivalence, including long-s and
+// Kelvin aliases that strings.ToLower does not consistently canonicalize.
+func teamJSONFieldIdentity(name string) string {
+	return strings.Map(func(r rune) rune {
+		identity := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < identity {
+				identity = next
+			}
+		}
+		return identity
+	}, name)
+}
+
+// V2 rejects duplicate schema fields case-insensitively, matching encoding/json,
+// while map data keys retain their exact identity. The v1 decoder is unchanged.
 func strictTeamJSON(raw []byte, value any) error {
 	d := json.NewDecoder(strings.NewReader(string(raw)))
-	var scan func() error
-	scan = func() error {
+	var scan func(reflect.Type) error
+	scan = func(expected reflect.Type) error {
+		for expected != nil && expected.Kind() == reflect.Pointer {
+			expected = expected.Elem()
+		}
 		token, err := d.Token()
 		if err != nil {
 			return err
@@ -53,26 +72,45 @@ func strictTeamJSON(raw []byte, value any) error {
 		}
 		seen := map[string]bool{}
 		for d.More() {
+			var child reflect.Type
+			if delim == '[' && expected != nil && (expected.Kind() == reflect.Slice || expected.Kind() == reflect.Array) {
+				child = expected.Elem()
+			}
 			if delim == '{' {
 				key, err := d.Token()
 				if err != nil {
 					return err
 				}
 				name, ok := key.(string)
-				name = strings.ToLower(name)
-				if !ok || seen[name] {
+				identity := teamJSONFieldIdentity(name)
+				if expected != nil && expected.Kind() == reflect.Map {
+					identity, child = name, expected.Elem()
+				} else if expected != nil && expected.Kind() == reflect.Struct {
+					for i := range expected.NumField() {
+						field := expected.Field(i)
+						fieldName := strings.Split(field.Tag.Get("json"), ",")[0]
+						if fieldName == "" {
+							fieldName = field.Name
+						}
+						if field.PkgPath == "" && fieldName != "-" && strings.EqualFold(fieldName, name) {
+							child = field.Type
+							break
+						}
+					}
+				}
+				if !ok || seen[identity] {
 					return errors.New("duplicate JSON field")
 				}
-				seen[name] = true
+				seen[identity] = true
 			}
-			if err := scan(); err != nil {
+			if err := scan(child); err != nil {
 				return err
 			}
 		}
 		_, err = d.Token()
 		return err
 	}
-	if err := scan(); err != nil {
+	if err := scan(reflect.TypeOf(value)); err != nil {
 		return errors.New("invalid v2 JSON document")
 	}
 	return strictJSON(raw, value)
