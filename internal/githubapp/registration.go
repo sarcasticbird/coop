@@ -17,9 +17,10 @@ var ownerName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9]
 var slugName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
 
 type Installation struct {
-	ID           int64             `json:"id"`
-	Repositories string            `json:"repositories"`
-	Permissions  map[string]string `json:"permissions"`
+	ID            int64             `json:"id"`
+	Repositories  string            `json:"repositories"`
+	RepositoryIDs []int64           `json:"repository_ids,omitempty"`
+	Permissions   map[string]string `json:"permissions"`
 }
 type Registration struct {
 	AppID          int64                   `json:"app_id"`
@@ -39,7 +40,7 @@ func (r Registration) Validate() error {
 	owners := map[string]bool{}
 	for owner, i := range r.Installations {
 		lower := strings.ToLower(owner)
-		if !ownerName.MatchString(owner) || owners[lower] || i.ID <= 0 || seen[i.ID] || i.Repositories != "all" || len(i.Permissions) == 0 {
+		if !ownerName.MatchString(owner) || owners[lower] || i.ID <= 0 || seen[i.ID] || !i.validRepositories() || len(i.Permissions) == 0 {
 			return errors.New("invalid GitHub App installation scope")
 		}
 		owners[lower] = true
@@ -51,6 +52,23 @@ func (r Registration) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (i Installation) validRepositories() bool {
+	if i.Repositories == "all" {
+		return len(i.RepositoryIDs) == 0
+	}
+	if i.Repositories != "selected" || len(i.RepositoryIDs) == 0 || len(i.RepositoryIDs) > 500 {
+		return false
+	}
+	seen := map[int64]bool{}
+	for _, id := range i.RepositoryIDs {
+		if id <= 0 || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
 }
 
 func LoadRegistration(path string) (Registration, error) {
