@@ -63,6 +63,9 @@ func (e *Engine) initialize() error {
 	if err := ValidateConfig(e.Config); err != nil {
 		return err
 	}
+	if e.Config.Version == 2 {
+		return errors.New("v2 runtime unavailable: explicit state conversion and workflow support required")
+	}
 	if e.Clock == nil {
 		e.Clock = RealClock{}
 	}

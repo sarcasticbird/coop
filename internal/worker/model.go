@@ -35,6 +35,7 @@ type OpenCodeConfig struct {
 	ReconcileInterval time.Duration `json:"-"`
 }
 type Config struct {
+	Team                   *TeamPolicy       `json:"team,omitempty"`
 	Wake                   *WakeConfig       `json:"wake,omitempty"`
 	Version                int               `json:"version"`
 	Name                   string            `json:"name"`
@@ -73,6 +74,7 @@ type Claim struct {
 	Author                 Actor
 }
 type Task struct {
+	Assignment                                                                            *TaskAssignment `json:",omitempty"`
 	MetadataUpdatedAt                                                                     time.Time
 	URL, Repo, GoalURL, Title, Body, BodySHA, MetadataScopeSHA, Revision                  string
 	ProjectID, ProjectOwner, ItemID, StatusFieldID, InProgressID, DoneID, CurrentStatusID string

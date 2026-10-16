@@ -317,6 +317,13 @@ func (g *GitHubClient) taskByURL(ctx context.Context, ref string) (Task, error) 
 	return g.readTask(ctx, repo, issue)
 }
 func (g *GitHubClient) goalRepositories(ref, body string) []string {
+	if g.config.Version == 2 {
+		m, err := ParseTeamGoalMetadata(body)
+		if err != nil {
+			return nil
+		}
+		return m.Repositories
+	}
 	repos, err := ParseGoalMetadata(body)
 	if err == nil {
 		return repos

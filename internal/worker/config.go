@@ -170,6 +170,11 @@ func LoadConfig(path string) (Config, error) {
 	if err := strictJSON(raw, &c); err != nil {
 		return c, err
 	}
+	if c.Version == 2 {
+		if err := strictTeamJSON(raw, &c); err != nil {
+			return c, err
+		}
+	}
 	c = Defaults(c)
 	return c, ValidateConfig(c)
 }
@@ -196,17 +201,32 @@ func ValidateConfig(c Config) error {
 	if err := validateWakeConfig(c); err != nil {
 		return err
 	}
-	if c.Version != 1 || !slug.MatchString(c.Name) || (c.Role != "implementer" && c.Role != "planner") || len(strings.Split(c.Model, "/")) != 2 || strings.ContainsAny(c.Model, "\x00\r\n ") {
+	if (c.Version != 1 && c.Version != 2) || !slug.MatchString(c.Name) || len(strings.Split(c.Model, "/")) != 2 || strings.ContainsAny(c.Model, "\x00\r\n ") {
 		return errors.New("invalid worker version, identity, role or model")
 	}
 	if !cleanPrivatePath(c.StateDir) || !cleanPrivatePath(c.WorkRoot) || c.StateDir == c.WorkRoot || strings.HasPrefix(c.WorkRoot, c.StateDir+"/") || strings.HasPrefix(c.StateDir, c.WorkRoot+"/") {
 		return errors.New("worker state and work roots must be separate absolute directories")
 	}
-	if !validActor(c.Owner, "User") || !validActor(c.Self, "Bot") || !validActor(c.Implementer, "Bot") || !validActor(c.Reviewer, "Bot") || sameActor(c.Implementer, c.Reviewer) {
+	if !validActor(c.Owner, "User") || !validActor(c.Self, "Bot") {
 		return errors.New("invalid distinct owner and bot identities")
 	}
-	if (c.Role == "implementer" && !sameActor(c.Self, c.Implementer)) || (c.Role == "planner" && !sameActor(c.Self, c.Reviewer)) {
-		return errors.New("worker role does not match bot identity")
+	if c.Version == 1 {
+		if c.Team != nil || (c.Role != "implementer" && c.Role != "planner") || !validActor(c.Implementer, "Bot") || !validActor(c.Reviewer, "Bot") || sameActor(c.Implementer, c.Reviewer) {
+			return errors.New("invalid v1 worker authority")
+		}
+		if (c.Role == "implementer" && !sameActor(c.Self, c.Implementer)) || (c.Role == "planner" && !sameActor(c.Self, c.Reviewer)) {
+			return errors.New("worker role does not match bot identity")
+		}
+	} else {
+		if c.Team == nil || c.Role != "" || c.Implementer != (Actor{}) || c.Reviewer != (Actor{}) {
+			return errors.New("v2 requires team policy and forbids legacy authority fields")
+		}
+		if err := ValidateTeamPolicy(*c.Team); err != nil {
+			return err
+		}
+		if member, ok := TeamMemberForActor(*c.Team, c.Self); !ok || member.Name != c.Name {
+			return errors.New("v2 self must match exactly one named roster actor")
+		}
 	}
 	if len(c.CodeOwners) == 0 || len(c.CodeOwners) > 64 || len(c.ProjectOwners) > 64 || len(c.DiscussionRepositories) > 64 {
 		return errors.New("invalid owner scope")

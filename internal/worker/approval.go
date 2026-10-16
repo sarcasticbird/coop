@@ -78,6 +78,15 @@ func sameRepositories(a, b []string) bool {
 
 func EvaluateGoal(c Config, g Goal, now time.Time) Approval {
 	result := Approval{State: "unapproved", BodySHA: BodyHash(g.Body), Reason: "owner approval required"}
+	if c.Version == 2 {
+		m, err := ParseTeamGoalMetadata(g.Body)
+		if err != nil {
+			return Approval{State: "blocked", BodySHA: result.BodySHA, Reason: err.Error()}
+		}
+		if !sameRepositories(m.Repositories, g.Repositories) {
+			return Approval{State: "blocked", BodySHA: result.BodySHA, Reason: "v2 goal repository scope mismatch"}
+		}
+	}
 	if !g.Readable || !goalInScope(c, g) || g.BodySHA != result.BodySHA {
 		return Approval{State: "blocked", Reason: "goal unreadable or outside verified scope"}
 	}

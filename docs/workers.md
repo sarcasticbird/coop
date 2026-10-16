@@ -26,6 +26,38 @@ otherwise repository and Project catalogs refresh automatically. Robin's role is
 only needs read access. A repository's `checkout_modes` value can be `wt` when it
 uses the shared bare-repo workflow. Install `wt` before selecting that mode.
 
+### Versioned team policy foundation
+
+Existing deployments use configuration version 1. Its fixed roles, metadata,
+approval rules and state format are unchanged. Version 1 rejects a `team` field.
+
+Configuration version 2 validates a required `team` policy (also version 2),
+with stable lowercase member names, immutable bot IDs, capabilities, a qualified
+planner and explicit independent engineering peers. Capabilities are exactly
+`plan`, `implement`, `engineering-review` and `customer-qa`. The configured
+`name` and `self` must identify the same roster member. Legacy `role`,
+`implementer` and `reviewer` authority must be absent or empty, not a second
+source of assignment. Adding another qualified engineer requires configuration,
+not source identity changes.
+
+The v2 metadata validators use `coop-goal:v2`, `coop-task:v2` and `coop-pr:v2`.
+Goal metadata includes repository scope and `qa`. Trusted owner/planner task
+metadata includes `goal`, `scope_sha256`, `depends_on` and a version-2
+`assignment`. Assignment fields are `author`, `peer`, optional `qa`,
+`goal_body_sha256`, `task_body_sha256` and `policy_sha256`. PR metadata includes
+canonical `task`/`goal` URLs and `assignment_sha256`. Digests bind current body
+hashes, policy, canonical references and resolved immutable actor IDs; mutable
+logins and Project card fields cannot grant authority. Unknown JSON fields,
+duplicate keys/set entries, mixed metadata versions and stale hashes fail closed.
+An owner-approved goal body is still required; planner assignment cannot approve
+or relax a goal. Requested customer QA currently fails with `qa_not_supported`.
+
+This is a validation foundation, not an available v2 runtime. Worker startup
+refuses version 2 before loading state, and admission refuses v2 jobs. Reciprocal
+workflow, claim/session binding, QA execution and explicit state conversion are
+separate prerequisites. Do not switch a live profile to v2 or reinterpret v1
+state, claims or completed jobs using a new roster.
+
 Guest paths:
 
 | Path | Purpose |
