@@ -127,9 +127,11 @@ func TestCompactedWakeReconcilesAfterRestartWithoutReplay(t *testing.T) {
 		case "/global/health":
 			writeJSON(w, ServerHealth{Healthy: true, Version: "1.18.18"})
 		case "/session/" + j.SessionID + "/message/" + j.MessageID:
-			writeJSON(w, ownershipMessage(j, j.MessageID, "user", ""))
+			writeJSON(w, nativeDiffSummary(ownershipMessage(j, j.MessageID, "user", ""), 3<<20))
 		case "/session/" + j.SessionID + "/message":
-			writeJSON(w, compactionMessages(j, 1))
+			rows := compactionMessages(j, 1)
+			nativeDiffSummary(rows[0].(map[string]any), 3<<20)
+			writeJSON(w, rows)
 		default:
 			t.Errorf("unexpected request %s", r.URL.Path)
 			w.WriteHeader(404)
