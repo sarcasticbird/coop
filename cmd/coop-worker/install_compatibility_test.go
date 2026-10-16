@@ -96,7 +96,7 @@ func checkInstallOffline(t *testing.T, path, previous, want string) {
 }
 
 func TestWorkerCheckInstallCompatibleOffline(t *testing.T) {
-	for _, scenario := range []string{"v1", "proposed v2", "migrated v2", "fresh v1", "fresh v2"} {
+	for _, scenario := range []string{"v1", "proposed v2", "migrated v2", "fresh v1", "fresh v2", "empty directory v2"} {
 		t.Run(scenario, func(t *testing.T) {
 			version := 1
 			if strings.Contains(scenario, "v2") {
@@ -106,6 +106,10 @@ func TestWorkerCheckInstallCompatibleOffline(t *testing.T) {
 			previous := ""
 			if strings.HasPrefix(scenario, "fresh") {
 				if err := os.RemoveAll(c.StateDir); err != nil {
+					t.Fatal(err)
+				}
+			} else if scenario == "empty directory v2" {
+				if err := os.Remove(filepath.Join(c.StateDir, "state.json")); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -130,6 +134,30 @@ func TestWorkerCheckInstallCompatibleOffline(t *testing.T) {
 				if _, err := os.Stat(c.StateDir); !os.IsNotExist(err) {
 					t.Fatalf("fresh install check created state directory: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestWorkerCheckInstallRejectsMissingMigratedWakeTree(t *testing.T) {
+	for _, missingState := range []bool{false, true} {
+		t.Run(map[bool]string{false: "saved ledger", true: "missing ledger"}[missingState], func(t *testing.T) {
+			path, c, state := cliMigrationFixture(t, 2)
+			if err := worker.MigrateState(c, 1, 2, state.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			wake := filepath.Join(c.StateDir, "wake")
+			if err := os.RemoveAll(wake); err != nil {
+				t.Fatal(err)
+			}
+			if missingState {
+				if err := os.Remove(filepath.Join(c.StateDir, "state.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checkInstallOffline(t, path, "", "requires complete fenced wake storage")
+			if _, err := os.Lstat(wake); !os.IsNotExist(err) {
+				t.Errorf("refused check recreated missing wake tree: %v", err)
 			}
 		})
 	}

@@ -131,7 +131,11 @@ installed configuration identity, immutable actor, state directory and version,
 and the existing ledger/wake readers under nonblocking locks. It allows staging
 a v2 profile over intact v1 state before explicit conversion, but rejects a v1
 profile over v2 state, version downgrade, partial wake storage and pending
-migration evidence. It never migrates or saves a ledger. These locks are released
+migration evidence. Persisted v2 ledger or migration evidence requires the whole
+fenced wake tree, even if a partial restore lost its top-level `wake/` directory.
+Refusal does not recreate the fence: keep all producers fenced externally, since
+an old binary cannot protect itself when its on-disk inbox fence is missing.
+It never migrates or saves a ledger. These locks are released
 before file replacement: this point-in-time check does not fence a later start
 or establish that manual sessions are drained. The operator's stopped-state
 prerequisites remain mandatory. An older candidate lacking this command is

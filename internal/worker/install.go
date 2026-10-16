@@ -43,6 +43,16 @@ func CheckInstall(c Config, previous string) error {
 	}
 	w := NewVersionedWakeStore(filepath.Join(c.StateDir, "wake", "v1"), state.Version)
 	if _, err := os.Lstat(filepath.Join(c.StateDir, "wake")); os.IsNotExist(err) {
+		if state.Version == 2 {
+			// Load also returns a new in-memory state for an unused directory.
+			// Only that case may lack the v2 old-producer fence; persisted
+			// ledger or migration evidence means this is a partial restore.
+			for _, name := range []string{"state.json", "migration.json"} {
+				if _, err := os.Lstat(filepath.Join(c.StateDir, name)); !os.IsNotExist(err) {
+					return errors.New("v2 installation requires complete fenced wake storage")
+				}
+			}
+		}
 		return nil
 	} else if err != nil {
 		return err
