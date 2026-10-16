@@ -13,12 +13,49 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type FileWakeStore struct{ Dir string }
+type FileWakeStore struct {
+	Dir     string
+	Version int
+}
 
 var wakeDirectorySync = syncWakeDir
 
-func NewWakeStore(dir string) *FileWakeStore { return &FileWakeStore{Dir: dir} }
+const wakeFenceName = "version.json"
+
+type wakeVersionFence struct {
+	Version    int
+	InstanceID string
+}
+
+func NewWakeStore(dir string) *FileWakeStore { return NewVersionedWakeStore(dir, 1) }
+func NewVersionedWakeStore(dir string, version int) *FileWakeStore {
+	return &FileWakeStore{Dir: dir, Version: version}
+}
+func (s *FileWakeStore) compatible() error {
+	// Standalone wake fixtures have no parent ledger. Managed inboxes always live
+	// under wake/v1, whose record format stays v1 across the ledger conversion.
+	if filepath.Base(s.Dir) == "v1" && filepath.Base(filepath.Dir(s.Dir)) == "wake" {
+		state, err := NewVersionedFileStore(filepath.Dir(filepath.Dir(s.Dir)), s.Version).Load()
+		if err != nil {
+			return err
+		}
+		if state.Version == 2 {
+			raw, err := readPrivate(filepath.Join(s.Dir, "inbox", wakeFenceName), 4096)
+			if err != nil {
+				return errors.New("missing or unreadable wake version fence")
+			}
+			var fence wakeVersionFence
+			if strictTeamJSON(raw, &fence) != nil || fence.Version != 2 || fence.InstanceID != state.InstanceID {
+				return errors.New("invalid wake version fence")
+			}
+		}
+	}
+	return nil
+}
 func (s *FileWakeStore) ensure(create bool) error {
+	if err := s.compatible(); err != nil {
+		return err
+	}
 	if err := ensurePrivateDir(s.Dir, create); err != nil {
 		return err
 	}
@@ -30,6 +67,9 @@ func (s *FileWakeStore) ensure(create bool) error {
 	return nil
 }
 func (s *FileWakeStore) producerLock() (func(), error) {
+	return s.producerLockMode(false)
+}
+func (s *FileWakeStore) producerLockMode(nonblocking bool) (func(), error) {
 	if err := s.ensure(true); err != nil {
 		return nil, err
 	}
@@ -47,9 +87,18 @@ func (s *FileWakeStore) producerLock() (func(), error) {
 		_ = f.Close() // Preserve the primary lock error.
 		return nil, errors.New("unsafe wake producer lock")
 	}
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+	mode := unix.LOCK_EX
+	if nonblocking {
+		mode |= unix.LOCK_NB
+	}
+	if err := unix.Flock(fd, mode); err != nil {
 		_ = f.Close() // Preserve the primary lock error.
 		return nil, errors.New("cannot acquire wake producer lock")
+	}
+	if err := s.compatible(); err != nil {
+		_ = unix.Flock(fd, unix.LOCK_UN)
+		_ = f.Close()
+		return nil, err
 	}
 	return func() { _ = unix.Flock(fd, unix.LOCK_UN); _ = f.Close() }, nil
 }
@@ -92,6 +141,11 @@ func (s *FileWakeStore) Requests() ([]WakeRequest, error) {
 	}
 	var result []WakeRequest
 	for _, entry := range entries {
+		// This non-request name deliberately makes legacy Requests/Enqueue fail
+		// closed. V2 readers validated its instance binding in ensure above.
+		if s.Version == 2 && entry.Name() == wakeFenceName {
+			continue
+		}
 		if strings.HasPrefix(entry.Name(), ".request-") {
 			continue
 		}

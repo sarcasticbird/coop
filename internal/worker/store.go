@@ -19,9 +19,21 @@ type Store interface {
 	Save(State) error
 	Lock() (func(), error)
 }
-type FileStore struct{ Dir string }
+type FileStore struct {
+	Dir     string
+	Version int
+}
 
-func NewFileStore(dir string) *FileStore { return &FileStore{Dir: dir} }
+func NewFileStore(dir string) *FileStore { return NewVersionedFileStore(dir, 1) }
+func NewVersionedFileStore(dir string, version int) *FileStore {
+	return &FileStore{Dir: dir, Version: version}
+}
+func (s *FileStore) version() int {
+	if s.Version == 0 {
+		return 1
+	}
+	return s.Version
+}
 func randomID() string {
 	var bytes [32]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -132,7 +144,7 @@ func newState() State {
 	return State{Version: 1, InstanceID: randomID(), Sessions: map[string]SessionBinding{}, Jobs: map[string]Job{}, Seen: map[string]string{}, Cursor: map[string]string{}, ReviewCycles: map[string]int{}}
 }
 func validateState(s State) error {
-	if s.Version != 1 || !hexSHA.MatchString(s.InstanceID) || s.Jobs == nil || s.Sessions == nil || s.Seen == nil || s.Cursor == nil || s.ReviewCycles == nil {
+	if (s.Version != 1 && s.Version != 2) || !hexSHA.MatchString(s.InstanceID) || s.Jobs == nil || s.Sessions == nil || s.Seen == nil || s.Cursor == nil || s.ReviewCycles == nil {
 		return errors.New("invalid worker state")
 	}
 	for key, j := range s.Jobs {
@@ -146,26 +158,54 @@ func validateState(s State) error {
 	return nil
 }
 func (s *FileStore) Load() (State, error) {
+	if err := s.compatible(); err != nil {
+		return State{}, err
+	}
 	if err := ensurePrivateDir(s.Dir, false); err != nil {
 		if os.IsNotExist(err) {
-			return newState(), nil
+			state := newState()
+			state.Version = s.version()
+			return state, nil
 		}
 		return State{}, err
 	}
 	raw, err := readPrivate(filepath.Join(s.Dir, "state.json"), MaxSnapshot+(4<<20))
 	if os.IsNotExist(err) {
-		return newState(), nil
+		state := newState()
+		state.Version = s.version()
+		return state, nil
 	}
 	if err != nil {
 		return State{}, err
 	}
 	var state State
-	if err := strictJSON(raw, &state); err != nil {
+	decode := strictJSON
+	if s.version() == 2 {
+		decode = strictTeamJSON
+	}
+	if err := decode(raw, &state); err != nil {
 		return state, err
+	}
+	if state.Version != s.version() {
+		return State{}, errors.New("worker state/config version mismatch; explicit migration required")
 	}
 	return state, validateState(state)
 }
 func (s *FileStore) Save(state State) error {
+	if err := s.compatible(); err != nil {
+		return err
+	}
+	if state.Version != s.version() {
+		return errors.New("worker state/config version mismatch")
+	}
+	if raw, err := readPrivate(filepath.Join(s.Dir, "state.json"), MaxSnapshot+(4<<20)); err == nil {
+		var current State
+		if strictJSON(raw, &current) != nil || current.Version != s.version() {
+			return errors.New("cannot overwrite incompatible worker state")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	if err := validateState(state); err != nil {
 		return err
 	}
@@ -206,6 +246,9 @@ type control struct {
 }
 
 func (s *FileStore) SetPaused(paused bool) error {
+	if _, err := s.Load(); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(control{Paused: paused})
 	return atomicPrivate(filepath.Join(s.Dir, "control.json"), raw)
 }

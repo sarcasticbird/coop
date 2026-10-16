@@ -73,6 +73,9 @@ func (e *Engine) initialize() error {
 	if err != nil {
 		return err
 	}
+	if state.Version != e.Config.Version {
+		return errors.New("worker state/config version mismatch")
+	}
 	e.state = state
 	if e.state.Attempts == nil {
 		e.state.Attempts = map[string]int{}
