@@ -275,7 +275,7 @@ func goalReferences(c Config, tasks map[string]Task, goals []Goal) []string {
 	}
 	var refs []string
 	add := func(ref string) {
-		if ref != "" && !seen[ref] {
+		if ref != "" && !seen[ref] && discussionIntakeAllows(c, ref) {
 			refs = append(refs, ref)
 			seen[ref] = true
 		}
@@ -394,6 +394,10 @@ func (g *GitHubClient) goalFromDiscussion(d graphDiscussion, comments []Comment)
 	return goal, events
 }
 func (g *GitHubClient) discussions(ctx context.Context, repo string) ([]Goal, []Event, []ConversationSource, error) {
+	selected := selectedDiscussions(g.config, repo)
+	if len(g.config.DiscussionURLs) > 0 && len(selected) == 0 {
+		return nil, nil, nil, nil
+	}
 	p := strings.Split(repo, "/")
 	query := `query WorkerDiscussions($owner:String!,$repo:String!,$after:String){repository(owner:$owner,name:$repo){discussions(first:100,after:$after){nodes{id url body createdAt lastEditedAt updatedAt author{` + actorFields + `}} pageInfo{hasNextPage endCursor}}}}`
 	nodes, err := g.connection(ctx, p[0], query, map[string]any{"owner": p[0], "repo": p[1]}, []string{"repository", "discussions"})
@@ -403,20 +407,30 @@ func (g *GitHubClient) discussions(ctx context.Context, repo string) ([]Goal, []
 	var goals []Goal
 	var events []Event
 	var sources []ConversationSource
+	found := map[string]bool{}
 	for _, raw := range nodes {
 		d, err := decode[graphDiscussion](raw)
 		if err != nil || d.ID == "" || !validGitHubURL(d.URL) {
 			return nil, nil, nil, ghError("invalid_discussion")
+		}
+		if !discussionIntakeAllows(g.config, d.URL) {
+			continue
 		}
 		comments, err := g.goalComments(ctx, p[0], d)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		goal, e := g.goalFromDiscussion(d, comments)
+		found[strings.ToLower(d.URL)] = true
 		goals = append(goals, goal)
 		events = append(events, e...)
 		if wakeEnabled(g.config) {
 			sources = append(sources, discussionSources(d, comments)...)
+		}
+	}
+	for _, ref := range selected {
+		if !found[strings.ToLower(ref)] {
+			return nil, nil, nil, ghError("goal_discussion_not_discovered")
 		}
 	}
 	return goals, events, sources, nil

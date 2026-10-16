@@ -379,6 +379,36 @@ The coordination Discussion must be in the configured Discussion scope. Missing
 or disabled wake configuration preserves v1 behavior. The default peer limit is
 two; supported limits are 1 through 8.
 
+To restrict new Discussion work to specific threads, add `discussion_urls` to
+the private worker configuration:
+
+```json
+"discussion_repositories": ["YOUR_ORG/coordination"],
+"discussion_urls": ["https://github.com/YOUR_ORG/coordination/discussions/1"]
+```
+
+Omitting `discussion_urls` or using an empty list keeps board-wide intake. A
+nonempty list applies to planning, tasks linked to Discussion goals, mentions,
+replies and queued pings. Each URL must name a repository Discussion on a
+configured board. The list accepts at most 64 entries and rejects duplicates,
+organization aliases, query strings, fragments and wildcards. A configured
+`wake.coordination_url` must also be selected. Boards without a selected URL
+are skipped; an unreadable or missing selected thread fails the poll.
+
+Pause new admissions and let active work drain before changing this setting.
+Excluded queued requests and pending block reports, including task, planning
+and prompt-size reports, remain held with their saved records intact until
+intake includes their Discussions. Widening intake makes unprocessed input
+eligible through the usual approval, assignment and review gates. Completed
+history and migration evidence remain readable. Changing only `discussion_urls`
+preserves the wake history baseline. Issue goals keep their existing behavior.
+
+Changing `wake.coordination_url` or other existing wake policy settings creates
+a new baseline. This includes replacing an organization-style Discussion alias
+with the repository URL for the same thread. The next complete poll treats
+then-current comments as history, so comments that have not yet been queued may
+not generate wakes. Existing queued requests and receipts remain intact.
+
 ```sh
 coop --agent robin ping
 coop --agent hawk ping --prompt 'Please explain the current review queue.'

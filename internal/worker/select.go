@@ -85,6 +85,9 @@ func taskAdmitted(c Config, t Task, g Goal, s Snapshot) bool {
 	return true
 }
 func Admit(c Config, j Job, s Snapshot, now time.Time) (bool, string) {
+	if !discussionIntakeAllows(c, j.GoalURL) {
+		return false, "goal outside Discussion intake"
+	}
 	if c.Version == 2 {
 		return admitTeam(c, j, s, now)
 	}

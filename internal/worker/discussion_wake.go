@@ -174,6 +174,13 @@ func IngestDiscussionWakes(c Config, snapshot Snapshot, store WakeStore, now tim
 		}
 		s.Revision = ConversationRevision(*s)
 	}
+	allowed := sources[:0]
+	for _, source := range sources {
+		if discussionIntakeAllows(c, source.DiscussionURL) {
+			allowed = append(allowed, source)
+		}
+	}
+	sources = allowed
 	sort.Slice(sources, func(i, j int) bool {
 		a, b := sourceTime(sources[i]), sourceTime(sources[j])
 		if a.Equal(b) {
