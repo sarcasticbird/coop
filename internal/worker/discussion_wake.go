@@ -41,8 +41,33 @@ func mentionText(body string) string {
 	}
 	return result.String()
 }
+func wakeParticipants(c Config) []Actor {
+	if c.Version == 2 {
+		var actors []Actor
+		if c.Team != nil {
+			for _, member := range c.Team.Members {
+				actors = append(actors, member.Actor)
+			}
+		}
+		return actors
+	}
+	return []Actor{c.Implementer, c.Reviewer}
+}
+
+func trustedWakeAuthor(c Config, author Actor) bool {
+	if sameActor(author, c.Owner) {
+		return true
+	}
+	for _, actor := range wakeParticipants(c) {
+		if sameActor(author, actor) {
+			return true
+		}
+	}
+	return false
+}
+
 func ConversationTargets(c Config, s ConversationSource) []Actor {
-	if !sameActor(s.Author, c.Owner) && !sameActor(s.Author, c.Implementer) && !sameActor(s.Author, c.Reviewer) {
+	if !trustedWakeAuthor(c, s.Author) {
 		return nil
 	}
 	if !sameActor(s.Author, c.Owner) && !substantiveWakeText(s.Body) {
@@ -50,7 +75,7 @@ func ConversationTargets(c Config, s ConversationSource) []Actor {
 	}
 	body := " " + mentionText(s.Body) + " "
 	var targets []Actor
-	for _, a := range []Actor{c.Implementer, c.Reviewer} {
+	for _, a := range wakeParticipants(c) {
 		name := strings.TrimSuffix(strings.ToLower(a.Login), "[bot]")
 		// Test each configured name independently so adjacent mentions can share a delimiter.
 		rx := regexp.MustCompile(`(?i)(^|[^a-z0-9_@.\-])@` + regexp.QuoteMeta(name) + `(\[bot\])?($|[^a-z0-9_.\[\]-])`)
@@ -59,7 +84,7 @@ func ConversationTargets(c Config, s ConversationSource) []Actor {
 		}
 	}
 	if len(targets) == 0 && s.ParentID != "" {
-		for _, a := range []Actor{c.Implementer, c.Reviewer} {
+		for _, a := range wakeParticipants(c) {
 			if sameActor(s.ParentAuthor, a) {
 				targets = append(targets, a)
 			}
@@ -116,7 +141,8 @@ func wakeScope(c Config) string {
 		Owner, Self, Implementer, Reviewer Actor
 		Repositories                       []string
 		Wake                               *WakeConfig
-	}{c.Name, c.Owner, c.Self, c.Implementer, c.Reviewer, c.DiscussionRepositories, c.Wake})
+		Team                               *TeamPolicy `json:",omitempty"`
+	}{c.Name, c.Owner, c.Self, c.Implementer, c.Reviewer, c.DiscussionRepositories, c.Wake, c.Team})
 	return BodyHash(string(raw))
 }
 func sourceTime(s ConversationSource) time.Time {
@@ -177,7 +203,7 @@ intakeLoop:
 		targets := ConversationTargets(c, s)
 		key := s.DiscussionID + ":" + s.RootID
 		chain := routing.Chains[key]
-		trusted := sameActor(s.Author, c.Owner) || sameActor(s.Author, c.Implementer) || sameActor(s.Author, c.Reviewer)
+		trusted := trustedWakeAuthor(c, s.Author)
 		if trusted {
 			if sameActor(s.Author, c.Owner) {
 				chain = WakeChain{ID: BodyHash(s.NodeID + ":" + s.Revision), RootID: s.RootID, OwnerRevision: s.Revision}

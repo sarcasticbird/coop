@@ -41,6 +41,7 @@ type Config struct {
 	Name                   string            `json:"name"`
 	Role                   string            `json:"role"`
 	Model                  string            `json:"model"`
+	ModelVariant           string            `json:"model_variant,omitempty"`
 	StateDir               string            `json:"state_dir"`
 	WorkRoot               string            `json:"work_root"`
 	OpenCode               OpenCodeConfig    `json:"opencode"`
@@ -124,6 +125,8 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	SubmittedModel                                                               *ModelIdentity   `json:",omitempty"`
+	ExecutedModel                                                                *ModelIdentity   `json:",omitempty"`
 	FirstEligibleAt                                                              time.Time        `json:",omitzero"`
 	SchedulePriority                                                             int              `json:",omitempty"`
 	ScheduleOrdinal                                                              int              `json:",omitempty"`
@@ -175,10 +178,22 @@ type Artifacts struct {
 	ProgressHash   string
 }
 type Turn struct {
+	SubmittedModel                             *ModelIdentity `json:",omitempty"`
+	ExecutedModel                              *ModelIdentity `json:",omitempty"`
 	SessionID, MessageID, State, ErrorCategory string
 	Accepted, Terminal                         bool
 }
 type ServerHealth struct {
 	Healthy bool
 	Version string
+}
+
+func observedModel(j Job, turn Turn) Job {
+	if turn.SubmittedModel != nil {
+		j.SubmittedModel = turn.SubmittedModel
+	}
+	if turn.ExecutedModel != nil {
+		j.ExecutedModel = turn.ExecutedModel
+	}
+	return j
 }

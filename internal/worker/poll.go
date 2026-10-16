@@ -96,6 +96,7 @@ func (e *Engine) refresh(ctx context.Context) error {
 func (e *Engine) holdBusy(j Job) error {
 	j.Phase, j.WaitReason = "waiting", "session_busy"
 	j.MessageID, j.SubmissionState = "", ""
+	j.SubmittedModel, j.ExecutedModel = nil, nil
 	j.Deadline, j.SubmittedAt, j.TerminalAt = time.Time{}, time.Time{}, time.Time{}
 	j.NextAttemptAt = e.Clock.Now().Add(e.Config.OpenCode.ReconcileInterval)
 	return e.saveJob(j)

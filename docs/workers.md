@@ -300,6 +300,21 @@ Safe status reports heartbeat, server
 health, active task, submission state and reasons such as owner approval, review,
 retry or unknown submission. A heartbeat older than two minutes is stale.
 
+`actor` identifies the configured immutable worker actor. `current` separates the
+assigned role, workflow stage (such as fix or deliver), execution phase, exact
+task/goal/PR/head, author, engineering peer and required QA actor. Model selection
+is saved with message intent before submission; native assistant identity is
+reported separately only after observation. Participant fields are omitted if a
+saved assignment no longer matches current authoritative metadata.
+
+Idle blockers are derived from current scope and admission, not every failed job
+in the ledger. `historical_jobs` counts superseded/completed records; `dry-run`
+keeps full saved records under `current` and `history`, apart from new admitted
+`jobs` and current `blocked` reasons. History is never deleted to clear status.
+`last_error` is the last diagnostic event, not proof of a current blocker. An old
+claim cannot move a completed card back to In Progress; cancelled cards are not
+treated as successful delivery.
+
 The worker polls GitHub, normally every minute with jitter. Catalog scans run
 independently of active-turn observation and local pause. GitHub rate limits and
 server outages back off visibly. Unchanged idle polls do not invoke a model.
@@ -409,6 +424,45 @@ Use guest `coop-worker validate`, `preflight` and `dry-run` before activation.
 Preflight checks server/API/model compatibility without a model call; dry-run
 reads GitHub and prints admitted jobs/reasons without claims or model dispatch.
 Keep reports private because dry-run includes repository/task identifiers.
+
+## Model Variants
+
+`model` remains an explicit `provider/model` selection. Optional
+`model_variant` selects an exact runtime variant name, for example `high`;
+omitting it preserves existing v1/v2 behavior and OpenCode's default selection.
+Do not encode the variant in the model name or assume that a reasoning label
+is supported by every model.
+
+Explicit variants require the verified OpenCode 1.18.18 contract:
+[API schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/openapi.json)
+and [prompt implementation](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/opencode/src/session/prompt.ts).
+The prompt field is top-level `variant`; persisted user messages use
+`model.variant`, while assistant messages use top-level `variant` alongside
+`providerID` and `modelID`. Session creation uses `model.variant` with `id`
+rather than the prompt's `modelID`.
+
+Variant preflight verifies the deployed schema and `/config/providers` catalog,
+then creates a disposable `coop-model-preflight` session in the checked directory,
+sends an async `noReply: true` message, and reads its exact persisted message ID.
+The verified implementation saves the user message and returns before entering
+the model loop. Missing, changed,
+or silently dropped selections block preflight and real prompt submission;
+the disposable session is deleted even on failure. A cleanup failure also
+blocks a successful preflight. No worker or manual session is used for probing.
+Unlike default preflight, explicit-variant preflight therefore writes temporary
+native session/message records, but makes no paid model call. Startup preflight
+checks the work root. Each actual submission repeats catalog and probe checks in
+the execution checkout, whose project configuration may expose different variants.
+
+Submission reports the requested model separately from the executed identity
+read from owned, non-summary assistant metadata. An accepted async HTTP request
+does not prove execution. Missing or mismatched assistant metadata for an
+explicit persisted variant fails reconciliation rather than claiming success.
+This model policy does not prevent aborting a proven-owned running turn; a later
+manual turn still prevents the session-wide abort.
+Manual replies and compaction summaries do not establish the worker's executed
+identity. Native metadata is not independent verification of the upstream
+provider's effective reasoning effort or billing behavior.
 
 ## Existing guest Flox migration
 

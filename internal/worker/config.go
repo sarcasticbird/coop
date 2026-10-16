@@ -21,6 +21,11 @@ var slug = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
 var repoSlug = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 var hexSHA = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var numericID = regexp.MustCompile(`^[1-9][0-9]*$`)
+var modelVariantName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+func validModelVariant(s string) bool {
+	return s == "" || (len(s) <= 128 && modelVariantName.MatchString(s))
+}
 
 func strictJSON(raw []byte, value any) error {
 	d := json.NewDecoder(bytes.NewReader(raw))
@@ -240,6 +245,9 @@ func ValidateConfig(c Config) error {
 	}
 	if (c.Version != 1 && c.Version != 2) || !slug.MatchString(c.Name) || len(strings.Split(c.Model, "/")) != 2 || strings.ContainsAny(c.Model, "\x00\r\n ") {
 		return errors.New("invalid worker version, identity, role or model")
+	}
+	if !validModelVariant(c.ModelVariant) {
+		return errors.New("invalid model variant: use a bounded explicit variant name")
 	}
 	if !cleanPrivatePath(c.StateDir) || !cleanPrivatePath(c.WorkRoot) || c.StateDir == c.WorkRoot || strings.HasPrefix(c.WorkRoot, c.StateDir+"/") || strings.HasPrefix(c.StateDir, c.WorkRoot+"/") {
 		return errors.New("worker state and work roots must be separate absolute directories")

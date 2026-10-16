@@ -418,6 +418,7 @@ func (e *Engine) failed(ctx context.Context, j Job, category string) error {
 }
 func (e *Engine) observe(ctx context.Context, j Job) error {
 	turn, err := e.OpenCode.Observe(ctx, j)
+	j = observedModel(j, turn)
 	e.nextObserve = e.Clock.Now().Add(e.Config.OpenCode.ReconcileInterval)
 	if err != nil {
 		e.status.LastError = errorCategory(err)
@@ -692,13 +693,29 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	j.Phase = "active"
 	j.SubmissionState = "submitting"
 	j.WaitReason = ""
+	j.SubmittedModel, err = configuredModel(e.Config)
+	if err != nil {
+		return err
+	}
+	j.ExecutedModel = nil
 	if err := e.saveJob(j); err != nil {
 		return err
 	}
 	turn, err := e.OpenCode.Submit(ctx, e.Config, j, prompt)
+	j = observedModel(j, turn)
 	if err != nil {
 		if errorCategory(err) == "session_busy" {
 			return e.holdBusy(j)
+		}
+		if turn.State == "not_submitted" {
+			j.Phase, j.WaitReason = "blocked", errorCategory(err)
+			j.MessageID, j.SubmissionState = "", ""
+			j.Deadline, j.SubmittedAt = time.Time{}, time.Time{}
+			j.SubmittedModel, j.ExecutedModel = nil, nil
+			if err := e.saveJob(j); err != nil {
+				return err
+			}
+			return e.reportBlock(ctx, j, j.WaitReason)
 		}
 		j.SubmissionState = "unknown"
 		j.WaitReason = "submission_unknown"
@@ -714,6 +731,9 @@ func (e *Engine) syncBoard(ctx context.Context) error {
 		return nil
 	}
 	for i, t := range e.state.SnapshotCache.Tasks {
+		if t.Closed && !t.Completed {
+			continue // Cancellation is not delivery, nor a reason to reopen a card.
+		}
 		if t.ProjectID == "" || t.Claim == nil || !teamTaskAuthor(e.Config, t, t.Claim.Author) {
 			continue
 		}
@@ -727,10 +747,8 @@ func (e *Engine) syncBoard(ctx context.Context) error {
 			}
 		}
 		state := "in_progress"
-		for _, p := range e.state.SnapshotCache.PRs {
-			if p.TaskURL == t.URL && p.Merged && t.Completed && teamTaskAuthor(e.Config, t, p.Author) && (e.Config.Version != 2 || p.BaseBranch == t.Assignment.BaseBranch && p.GoalURL == t.GoalURL && t.Claim.Binding != nil && p.AssignmentSHA == t.Claim.Binding.AssignmentSHA) {
-				state = "done"
-			}
+		if t.Completed {
+			state = "done"
 		}
 		option := t.InProgressID
 		if state == "done" {
@@ -789,9 +807,18 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 			e.status.LastError = errorCategory(result)
 		}
 		e.status.ActiveTask = ""
+		e.status.Actor = e.Config.Self
+		e.status.Current = nil
+		e.status.HistoricalJobs = 0
+		for _, j := range e.state.Jobs {
+			if !currentSavedJob(e.Config, e.state.SnapshotCache, e.state, j, e.Clock.Now()) {
+				e.status.HistoricalJobs++
+			}
+		}
 		e.status.SessionID = ""
 		e.status.SubmissionState = ""
 		if j, ok := e.active(); ok {
+			e.status.Current = currentWork(e.Config, e.state.SnapshotCache, j, e.Clock.Now())
 			e.status.ActiveTask = j.TaskURL
 			e.status.SessionID = j.SessionID
 			e.status.SubmissionState = j.SubmissionState
@@ -802,6 +829,7 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 					result = err
 				}
 			} else if active {
+				e.status.Current = currentWork(e.Config, e.state.SnapshotCache, v.Job, e.Clock.Now())
 				e.status.SessionID = v.Job.SessionID
 				e.status.SubmissionState = v.Job.SubmissionState
 				e.status.WaitReason = v.Reason
@@ -810,6 +838,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 			}
 		} else if result == nil {
 			e.idleStatus()
+		}
+		if e.status.Current == nil && e.status.RecoveryIntent != nil {
+			e.status.Current = currentWork(e.Config, e.state.SnapshotCache, *e.status.RecoveryIntent, e.Clock.Now())
 		}
 		if e.checkpointErr != nil {
 			if !errors.Is(result, errCheckpoint) {
