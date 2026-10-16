@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
+var requestKeySequence atomic.Uint64
+
 func testKey(now time.Time) RequestKey {
-	return RequestKey{ID: fmt.Sprintf("r1.%013d.%s", now.UnixMilli(), strings.Repeat("a", 32)), CreatedAt: time.UnixMilli(now.UnixMilli()).UTC()}
+	return RequestKey{ID: fmt.Sprintf("r1.%013d.%032x", now.UnixMilli(), requestKeySequence.Add(1)), CreatedAt: time.UnixMilli(now.UnixMilli()).UTC()}
 }
 func testLedger(t *testing.T, limits Limits) *Ledger {
 	t.Helper()
@@ -61,7 +64,7 @@ func TestLedgerDurableIdempotencyAndTimestamp(t *testing.T) {
 	}
 }
 func TestLedgerRevisionAndCapacity(t *testing.T) {
-	l := testLedger(t, Limits{Unresolved: 1, Records: 2, Terminal: 1})
+	l := testLedger(t, Limits{Unresolved: 1, Records: 4, Terminal: 1})
 	now := time.Now().UTC()
 	in := Mutation{Key: testKey(now), Workspace: "w1.test", Action: "exec"}
 	r, _, e := l.Accept(Caller{ID: "chief"}, in, "fp", "vm", now)

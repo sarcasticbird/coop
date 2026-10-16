@@ -3,6 +3,7 @@ package hostcontrol
 import (
 	"bytes"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,19 @@ func TestExecReceiptBoundariesAndForgery(t *testing.T) {
 	w := receiptWriter{dst: io.Discard}
 	if _, e := w.Write([]byte(strings.Repeat("x", 3<<20))); e != nil || len(w.tail) > 128 {
 		t.Fatal("large receipt write unbounded")
+	}
+}
+
+func TestReceiptProgramSupportsPOSIXShell(t *testing.T) {
+	dash, err := exec.LookPath("dash")
+	if err != nil {
+		t.Skip("dash unavailable")
+	}
+	var out, errout bytes.Buffer
+	cmd := exec.Command(dash, "-c", guestReceiptProgram, "coop-exec", strings.Repeat("a", 32), "/usr/bin/printf", "%s", "two words")
+	cmd.Stdout = &out
+	cmd.Stderr = &errout
+	if err = cmd.Run(); err != nil || out.String() != "two words" || !strings.HasSuffix(errout.String(), "COOP_EXEC_"+strings.Repeat("a", 32)+":0\n") {
+		t.Fatalf("POSIX external dispatch: %v stdout=%q stderr=%q", err, out.String(), errout.String())
 	}
 }

@@ -16,7 +16,7 @@ import (
 
 func TestCancellationHasReservedLedgerCapacity(t *testing.T) {
 	e, c, _ := fixtureEngine(t)
-	e.ledger.limits = Limits{Unresolved: 1, Records: 2, Terminal: 1, OutputBytes: 8}
+	e.ledger.limits = Limits{Unresolved: 1, Records: 4, Terminal: 1, OutputBytes: 8}
 	a, err := e.Submit(context.Background(), c, Mutation{Key: testKey(time.Now()), Workspace: e.control.reference("agent:robin"), Action: "exec", Argv: []string{"true"}, Timeout: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestCancellationHasReservedLedgerCapacity(t *testing.T) {
 	if target.State != "cancelled" {
 		t.Fatal("target not cancelled")
 	}
-	if len(e.ledger.all()) > 2 {
+	if len(e.ledger.all()) > 4 {
 		t.Fatal("cancellation exceeded total record bound")
 	}
 }

@@ -26,7 +26,9 @@ func (c *Control) activity(ctx context.Context, b Binding) (bool, bool) {
 		return false, false
 	}
 	active := status.ActiveTask != "" || status.SessionID != "" || status.RecoveryIntent != nil || status.SubmissionState != "" || status.Current != nil && (status.Current.Phase == "active" || status.Current.Phase == "recovery")
-	return true, active
+	// Cached idle status cannot synchronize with guest admission. Until a guest
+	// quiescence handshake exists, require explicit interruption consent.
+	return active, active
 }
 
 // runtimeIdentity survives an ordinary stop/start. The fallback supports runtime

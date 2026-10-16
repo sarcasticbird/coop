@@ -9,10 +9,42 @@ import (
 
 type receiptKey struct{}
 
+// Resolve an external path explicitly: command -v may return a shell builtin,
+// and POSIX exec does not support -- consistently. No caller text becomes code.
 const guestReceiptProgram = `coop_receipt_nonce=$1
 shift
-"$@"
-coop_guest_exit=$?
+coop_exec_program=$1
+shift
+coop_exec_ready=1
+coop_guest_exit=127
+case "$coop_exec_program" in
+ /*) ;;
+ */*) coop_exec_program=./$coop_exec_program ;;
+ *)
+  coop_exec_path=${PATH-}
+  while :; do
+   coop_exec_dir=${coop_exec_path%%:*}
+   case "$coop_exec_path" in
+    *:*) coop_exec_path=${coop_exec_path#*:}; coop_exec_more=1 ;;
+    *) coop_exec_more=0 ;;
+   esac
+   coop_exec_candidate=${coop_exec_dir:-.}/$coop_exec_program
+   case "$coop_exec_candidate" in /*) ;; *) coop_exec_candidate=./$coop_exec_candidate ;; esac
+   if [ -f "$coop_exec_candidate" ] && [ -x "$coop_exec_candidate" ]; then
+    coop_exec_program=$coop_exec_candidate
+    break
+   fi
+   if [ -e "$coop_exec_candidate" ]; then coop_guest_exit=126; fi
+   if [ "$coop_exec_more" -eq 0 ]; then coop_exec_ready=0; break; fi
+  done
+ ;;
+esac
+if [ "$coop_exec_ready" -eq 1 ]; then
+ ( exec "$coop_exec_program" "$@" )
+ coop_guest_exit=$?
+else
+ printf 'coop: executable unavailable\n' >&2
+fi
 printf '\nCOOP_EXEC_%s:%d\n' "$coop_receipt_nonce" "$coop_guest_exit" >&2
 exit 0`
 

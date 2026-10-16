@@ -28,35 +28,36 @@ type streamRecord struct {
 	Retained int   `json:"retained"`
 }
 type OperationRecord struct {
-	Version          int          `json:"version"`
-	Revision         uint64       `json:"revision"`
-	ID               string       `json:"id"`
-	HostID           string       `json:"host_id"`
-	CallerID         string       `json:"caller_id"`
-	Verifier         string       `json:"verifier"`
-	RequestHash      string       `json:"request_hash"`
-	Input            Mutation     `json:"input"`
-	Selector         string       `json:"selector,omitempty"`
-	Fingerprint      string       `json:"fingerprint"`
-	Incarnation      string       `json:"incarnation"`
-	RuntimeInstance  string       `json:"runtime_instance,omitempty"`
-	PhaseIncarnation string       `json:"phase_incarnation,omitempty"`
-	State            string       `json:"state"`
-	Phase            string       `json:"phase,omitempty"`
-	CancelIntent     bool         `json:"cancel_intent"`
-	Dispatched       bool         `json:"dispatched"`
-	HoldResolved     bool         `json:"hold_resolved"`
-	CreatedAt        time.Time    `json:"created_at"`
-	AcceptedAt       time.Time    `json:"accepted_at"`
-	UpdatedAt        time.Time    `json:"updated_at"`
-	CompletedAt      time.Time    `json:"completed_at,omitempty"`
-	Outcome          Outcome      `json:"outcome"`
-	WakeID           string       `json:"wake_id,omitempty"`
-	WakePhase        string       `json:"wake_phase,omitempty"`
-	Nonce            string       `json:"nonce,omitempty"`
-	Pruned           bool         `json:"pruned"`
-	Stdout           streamRecord `json:"stdout"`
-	Stderr           streamRecord `json:"stderr"`
+	ResolvesOperation string       `json:"resolves_operation,omitempty"`
+	Version           int          `json:"version"`
+	Revision          uint64       `json:"revision"`
+	ID                string       `json:"id"`
+	HostID            string       `json:"host_id"`
+	CallerID          string       `json:"caller_id"`
+	Verifier          string       `json:"verifier"`
+	RequestHash       string       `json:"request_hash"`
+	Input             Mutation     `json:"input"`
+	Selector          string       `json:"selector,omitempty"`
+	Fingerprint       string       `json:"fingerprint"`
+	Incarnation       string       `json:"incarnation"`
+	RuntimeInstance   string       `json:"runtime_instance,omitempty"`
+	PhaseIncarnation  string       `json:"phase_incarnation,omitempty"`
+	State             string       `json:"state"`
+	Phase             string       `json:"phase,omitempty"`
+	CancelIntent      bool         `json:"cancel_intent"`
+	Dispatched        bool         `json:"dispatched"`
+	HoldResolved      bool         `json:"hold_resolved"`
+	CreatedAt         time.Time    `json:"created_at"`
+	AcceptedAt        time.Time    `json:"accepted_at"`
+	UpdatedAt         time.Time    `json:"updated_at"`
+	CompletedAt       time.Time    `json:"completed_at,omitempty"`
+	Outcome           Outcome      `json:"outcome"`
+	WakeID            string       `json:"wake_id,omitempty"`
+	WakePhase         string       `json:"wake_phase,omitempty"`
+	Nonce             string       `json:"nonce,omitempty"`
+	Pruned            bool         `json:"pruned"`
+	Stdout            streamRecord `json:"stdout"`
+	Stderr            streamRecord `json:"stderr"`
 }
 type Ledger struct {
 	mu      sync.Mutex
@@ -146,6 +147,12 @@ func (l *Ledger) persist(r OperationRecord) error {
 	return writeAt(l.dir, r.ID+".json", raw)
 }
 func (l *Ledger) Accept(caller Caller, input Mutation, fingerprint, incarnation string, now time.Time, instance ...string) (OperationRecord, bool, error) {
+	return l.accept(caller, input, fingerprint, incarnation, now, "", instance...)
+}
+func (l *Ledger) AcceptRecovery(caller Caller, input Mutation, fingerprint, incarnation string, now time.Time, instance, target string) (OperationRecord, bool, error) {
+	return l.accept(caller, input, fingerprint, incarnation, now, target, instance)
+}
+func (l *Ledger) accept(caller Caller, input Mutation, fingerprint, incarnation string, now time.Time, resolves string, instance ...string) (OperationRecord, bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if e := validateKey(input.Key, now); e != nil {
@@ -176,30 +183,62 @@ func (l *Ledger) Accept(caller Caller, input Mutation, fingerprint, incarnation 
 	if e = l.prune(now); e != nil {
 		return OperationRecord{}, false, e
 	}
-	unresolved := 0
-	// Reserve one total-record slot for every uncancelled nonterminal target.
-	// A durable cancellation consumes its target's reservation, not work capacity.
-	reserved := map[string]bool{}
-	for _, r := range l.records {
-		if !terminal(r.State) && r.Input.Action != "cancel" {
-			unresolved++
-			if !r.CancelIntent {
-				reserved[r.ID] = true
+	if resolves != "" {
+		target, ok := l.records[resolves]
+		if !ok || target.Input.Action != "exec" || terminal(target.State) || target.HoldResolved || target.Input.Workspace != input.Workspace || !input.InterruptActive || input.Action != "stop" && input.Action != "restart" || target.Incarnation != incarnation {
+			return OperationRecord{}, false, fail("invalid_recovery_target")
+		}
+		for _, r := range l.records {
+			if r.ResolvesOperation == resolves && !terminal(r.State) {
+				return OperationRecord{}, false, fail("workspace_busy")
 			}
 		}
 	}
+	unresolved := 0
+	cancellations := map[string]bool{}
+	recovery := map[string]bool{}
 	for _, r := range l.records {
-		if r.Input.Action == "cancel" && !terminal(r.State) {
-			delete(reserved, r.Input.TargetOperation)
+		if terminal(r.State) || r.HoldResolved || r.Input.Action == "cancel" {
+			continue
+		}
+		if r.ResolvesOperation == "" {
+			unresolved++
+		}
+		if !r.CancelIntent {
+			cancellations[r.ID] = true
+		}
+		if r.Input.Action == "exec" {
+			recovery[r.ID] = true
 		}
 	}
-	needed := len(reserved) + 1 // the new ordinary operation needs its own cancellation slot
-	if input.Action == "cancel" {
-		delete(reserved, input.TargetOperation)
-		needed = len(reserved)
-	} else if unresolved >= l.limits.Unresolved {
-		return OperationRecord{}, false, fail("ledger_capacity")
+	for _, r := range l.records {
+		if !terminal(r.State) {
+			if r.Input.Action == "cancel" {
+				delete(cancellations, r.Input.TargetOperation)
+			}
+		}
+		// A completed/cancelled resolver has consumed this retry-window budget.
+		// Re-reserving it must not steal the original command's cancellation slot.
+		if r.ResolvesOperation != "" {
+			delete(recovery, r.ResolvesOperation)
+		}
 	}
+	extra := 1 // cancellation slot for a newly admitted work operation
+	switch {
+	case input.Action == "cancel":
+		delete(cancellations, input.TargetOperation)
+		extra = 0
+	case resolves != "":
+		delete(recovery, resolves)
+	default:
+		if unresolved >= l.limits.Unresolved {
+			return OperationRecord{}, false, fail("ledger_capacity")
+		}
+		if input.Action == "exec" {
+			extra += 2
+		} // resolving lifecycle operation and its cancellation
+	}
+	needed := len(cancellations) + 2*len(recovery) + extra
 	if len(l.records)+1+needed > l.limits.Records {
 		return OperationRecord{}, false, fail("ledger_capacity")
 	}
@@ -207,7 +246,7 @@ func (l *Ledger) Accept(caller Caller, input Mutation, fingerprint, incarnation 
 	if e != nil {
 		return OperationRecord{}, false, e
 	}
-	r := OperationRecord{Version: 1, Revision: 1, ID: "o1." + l.host.ID + "." + id, HostID: l.host.ID, CallerID: caller.ID, Verifier: hex.EncodeToString(caller.digest[:]), RequestHash: hash, Input: input, Fingerprint: fingerprint, Incarnation: incarnation, State: "accepted", CreatedAt: input.Key.CreatedAt, AcceptedAt: now.UTC(), UpdatedAt: now.UTC()}
+	r := OperationRecord{ResolvesOperation: resolves, Version: 1, Revision: 1, ID: "o1." + l.host.ID + "." + id, HostID: l.host.ID, CallerID: caller.ID, Verifier: hex.EncodeToString(caller.digest[:]), RequestHash: hash, Input: input, Fingerprint: fingerprint, Incarnation: incarnation, State: "accepted", CreatedAt: input.Key.CreatedAt, AcceptedAt: now.UTC(), UpdatedAt: now.UTC()}
 	if len(instance) > 0 {
 		r.RuntimeInstance = instance[0]
 	}
@@ -257,7 +296,7 @@ func (l *Ledger) Update(r OperationRecord) error {
 	if !ok || r.Revision != old.Revision {
 		return fail("operation_revision_conflict")
 	}
-	if r.CallerID != old.CallerID || r.RequestHash != old.RequestHash || r.HostID != old.HostID || r.Input.Key != old.Input.Key || !validState(r.State) {
+	if r.ResolvesOperation != old.ResolvesOperation || r.CallerID != old.CallerID || r.RequestHash != old.RequestHash || r.HostID != old.HostID || r.Input.Key != old.Input.Key || !validState(r.State) {
 		return fail("invalid_operation_update")
 	}
 	if terminal(old.State) && r.State != old.State {

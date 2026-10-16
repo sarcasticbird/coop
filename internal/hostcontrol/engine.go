@@ -138,6 +138,7 @@ func (e *Engine) Submit(ctx context.Context, caller Caller, in Mutation) (Accept
 	if in.Action == "exec" && b.Workspace.Fingerprint != b.Spec.Fingerprint {
 		return Accepted{}, fail("maintenance_required")
 	}
+	recoveryTarget := ""
 	for _, r := range e.ledger.all() {
 		if r.Input.Workspace != in.Workspace || terminal(r.State) || r.HoldResolved || r.Input.Action == "cancel" {
 			continue
@@ -146,8 +147,14 @@ func (e *Engine) Submit(ctx context.Context, caller Caller, in Mutation) (Accept
 		if !resolving {
 			return Accepted{}, fail("workspace_busy")
 		}
+		recoveryTarget = r.ID
 	}
-	r, _, err := e.ledger.Accept(caller, in, b.Spec.Fingerprint, b.Incarnation, time.Now().UTC(), runtimeIdentity(b))
+	var r OperationRecord
+	if recoveryTarget != "" {
+		r, _, err = e.ledger.AcceptRecovery(caller, in, b.Spec.Fingerprint, b.Incarnation, time.Now().UTC(), runtimeIdentity(b), recoveryTarget)
+	} else {
+		r, _, err = e.ledger.Accept(caller, in, b.Spec.Fingerprint, b.Incarnation, time.Now().UTC(), runtimeIdentity(b))
+	}
 	if err != nil {
 		return Accepted{}, err
 	}

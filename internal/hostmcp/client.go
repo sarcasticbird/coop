@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// Two maximum output pages can expand through JSON escaping and the duplicate
+// text/structured envelope. Keep the response bounded above that worst case.
+const maxResponseBytes = 4 << 20
+
 type ClientConfig struct {
 	Endpoint       string `toml:"endpoint"`
 	TokenEnv       string `toml:"token_env"`
@@ -60,7 +64,7 @@ func (t bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header.Set("Authorization", "Bearer "+t.token)
 	resp, err := t.base.RoundTrip(clone)
 	if err == nil {
-		resp.Body = &boundedBody{ReadCloser: resp.Body, remaining: (1 << 20) + 1}
+		resp.Body = &boundedBody{ReadCloser: resp.Body, remaining: maxResponseBytes + 1}
 	}
 	return resp, err
 }
@@ -100,7 +104,7 @@ func connect(ctx context.Context, cfg ClientConfig) (*mcp.ClientSession, error) 
 		return nil, &hostcontrol.Error{Code: "invalid_client_credential"}
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "coop-stdio", Version: "1"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: cfg.Endpoint, HTTPClient: newHTTPClient(token), MaxEventSize: 1 << 20}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: cfg.Endpoint, HTTPClient: newHTTPClient(token), MaxEventSize: maxResponseBytes}, nil)
 	if err != nil {
 		return nil, &hostcontrol.Error{Code: "host_unavailable"}
 	}

@@ -30,7 +30,13 @@ func (c *Control) List(ctx context.Context, allow ...func(string) bool) ([]Works
 	for name := range cfg.Profiles {
 		keys["agent:"+name] = true
 	}
-	records, e := c.store.List()
+	scoped, ok := c.store.(interface {
+		ListMode(workspace.Mode, func(string) bool) ([]workspace.Record, error)
+	})
+	if !ok {
+		return nil, fail("ownership_unavailable")
+	}
+	records, e := scoped.ListMode(workspace.Interactive, func(name string) bool { return len(allow) == 0 || allow[0]("interactive:"+name) })
 	if e != nil {
 		return nil, fail("ownership_unavailable")
 	}
