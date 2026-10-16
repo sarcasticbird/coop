@@ -122,15 +122,15 @@ func TestTaskAssignmentInvalid(t *testing.T) {
 	}
 }
 
-func TestTaskAssignmentQAUnsupported(t *testing.T) {
+func TestTaskAssignmentRequiredQA(t *testing.T) {
 	p := teamPolicyFixture()
 	a := assignmentFixture(t, p)
 	a.QA = "qa"
 	q := QAPolicy{Required: true, Reviewer: "qa", AcceptanceSHA: BodyHash("acceptance"), Environment: "staging", EnvironmentRevision: "v1"}
-	if err := ValidateTaskAssignment(p, a, q); err == nil || err.Error() != "qa_not_supported" {
+	if err := ValidateTaskAssignment(p, a, q); err != nil {
 		t.Fatalf("QA error = %v", err)
 	}
-	if sha, err := AssignmentSHA(p, "owner/repo", "https://github.com/owner/repo/issues/1", "https://github.com/orgs/owner/discussions/2", a, q); err == nil || err.Error() != "qa_not_supported" || sha != "" {
+	if sha, err := AssignmentSHA(p, "owner/repo", "https://github.com/owner/repo/issues/1", "https://github.com/orgs/owner/discussions/2", a, q); err != nil || !hexSHA.MatchString(sha) {
 		t.Fatalf("QA digest = %q, %v", sha, err)
 	}
 	for name, mutate := range map[string]func(*TaskAssignment, *QAPolicy){
@@ -145,8 +145,8 @@ func TestTaskAssignmentQAUnsupported(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			a, q := a, q
 			mutate(&a, &q)
-			if err := ValidateTaskAssignment(p, a, q); err == nil || err.Error() == "qa_not_supported" {
-				t.Fatalf("expected validation before unsupported QA, got %v", err)
+			if err := ValidateTaskAssignment(p, a, q); err == nil {
+				t.Fatal("accepted invalid QA assignment")
 			}
 		})
 	}

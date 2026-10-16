@@ -97,6 +97,12 @@ func (g *GitHubClient) Revalidate(ctx context.Context, j Job, old Snapshot) (Sna
 		if readErr != nil {
 			return Snapshot{}, readErr
 		}
+		if g.config.Version == 2 {
+			t.QA = QAPolicy{}
+			if m, err := ParseTeamGoalMetadata(goal.Body); err == nil && t.Assignment != nil && t.Assignment.GoalBodySHA == goal.BodySHA && t.GoalURL == goal.URL {
+				t.QA = m.QA
+			}
+		}
 		for i, previous := range s.Tasks {
 			if previous.URL == t.URL {
 				// Board values are not authorization; keep their last observed values.
@@ -104,6 +110,7 @@ func (g *GitHubClient) Revalidate(ctx context.Context, j Job, old Snapshot) (Sna
 				previous.MetadataScopeSHA, previous.MetadataAuthor = t.MetadataScopeSHA, t.MetadataAuthor
 				previous.MetadataUpdatedAt = t.MetadataUpdatedAt
 				previous.Assignment = t.Assignment
+				previous.QA = t.QA
 				previous.ClaimConflict = t.ClaimConflict
 				previous.GoalURL, previous.DependsOn, previous.Claim = t.GoalURL, t.DependsOn, t.Claim
 				previous.Completed, previous.Revision = t.Completed, t.Revision
@@ -141,6 +148,7 @@ func (g *GitHubClient) Revalidate(ctx context.Context, j Job, old Snapshot) (Sna
 		}
 		if task, ok := taskFor(s, pr.TaskURL); ok {
 			bindReviewScope(&pr, task)
+			g.readQAArtifact(ctx, task, &pr)
 		}
 		for i := range s.PRs {
 			if s.PRs[i].URL == pr.URL {

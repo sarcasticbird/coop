@@ -138,7 +138,7 @@ func claimFromComment(c Comment) *Claim {
 			Instance string     `json:"instance"`
 			Binding  JobBinding `json:"binding"`
 		}
-		if teamMetadata(c.Body, "claim", &v2) != nil || !hexSHA.MatchString(v2.Instance) || v2.Binding.Version != 2 || !hexSHA.MatchString(v2.Binding.AssignmentSHA) || v2.Binding.ExecutorID != c.Author.ID || (v2.Binding.Role != "implementer" && v2.Binding.Role != "engineering-review") {
+		if teamMetadata(c.Body, "claim", &v2) != nil || !hexSHA.MatchString(v2.Instance) || v2.Binding.Version != 2 || !hexSHA.MatchString(v2.Binding.AssignmentSHA) || v2.Binding.ExecutorID != c.Author.ID || (v2.Binding.Role != "implementer" && v2.Binding.Role != "engineering-review" && v2.Binding.Role != "customer-qa") {
 			return nil
 		}
 		return &Claim{ID: c.ID, Marker: m[0], InstanceID: v2.Instance, Author: c.Author, Binding: &v2.Binding}

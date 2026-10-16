@@ -22,9 +22,10 @@ type TeamTaskMetadata struct {
 }
 
 type TeamPRMetadata struct {
-	Task          string `json:"task"`
-	Goal          string `json:"goal"`
-	AssignmentSHA string `json:"assignment_sha256"`
+	Artifact      *QAArtifact `json:"artifact,omitempty"`
+	Task          string      `json:"task"`
+	Goal          string      `json:"goal"`
+	AssignmentSHA string      `json:"assignment_sha256"`
 }
 
 func validTeamGoalURL(ref string) bool {
@@ -96,6 +97,11 @@ func ParseTeamGoalMetadata(body string) (TeamGoalMetadata, error) {
 	if err := teamMetadata(body, "goal", &m); err != nil {
 		return m, err
 	}
+	var wire map[string]json.RawMessage
+	var qaFields map[string]json.RawMessage
+	if teamMetadata(body, "goal", &wire) != nil || json.Unmarshal(wire["qa"], &qaFields) != nil || (strings.TrimSpace(string(qaFields["required"])) != "true" && strings.TrimSpace(string(qaFields["required"])) != "false") {
+		return m, errors.New("goal requires an explicit QA policy")
+	}
 	if len(m.Repositories) == 0 || len(m.Repositories) > 64 {
 		return m, errors.New("invalid goal repository scope")
 	}
@@ -115,17 +121,15 @@ func ParseTeamGoalMetadata(body string) (TeamGoalMetadata, error) {
 			return m, errors.New("invalid goal base branch scope")
 		}
 	}
-	if m.QA.Required {
-		return m, errors.New("qa_not_supported")
-	}
-	if m.QA != (QAPolicy{}) {
-		return m, errors.New("nonrequired QA must have no extra fields")
+	if err := validateQAPolicy(m.QA); err != nil {
+		return m, err
 	}
 	return m, nil
 }
 
 func applyTeamTaskMetadata(c Config, t *Task, comments []Comment) error {
 	t.Assignment = nil
+	t.QA = QAPolicy{}
 	t.MetadataAuthor, t.GoalURL, t.MetadataScopeSHA = Actor{}, "", ""
 	t.DependsOn, t.MetadataUpdatedAt = nil, time.Time{}
 	if c.Team == nil {
@@ -172,7 +176,7 @@ func applyTeamTaskMetadata(c Config, t *Task, comments []Comment) error {
 		}
 		seen[key] = true
 	}
-	if err := ValidateTaskAssignment(*c.Team, latest.Assignment, QAPolicy{}); err != nil {
+	if err := validateTaskAssignmentStructure(*c.Team, latest.Assignment); err != nil {
 		return err
 	}
 	if candidate.Author.ID == 0 || latest.ScopeSHA != t.BodySHA || latest.Assignment.TaskBodySHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || !referenceInRepo(t.URL, t.Repo, "issues") {
@@ -202,6 +206,9 @@ func ValidateTeamScope(c Config, t Task, g Goal, now time.Time) (string, error) 
 	m, err := ParseTeamGoalMetadata(g.Body)
 	if err != nil {
 		return "", err
+	}
+	if t.QA != m.QA {
+		return "", errors.New("task QA does not match approved goal")
 	}
 	if !sameRepositories(m.Repositories, g.Repositories) || !containsFold(m.Repositories, t.Repo) || t.GoalURL != g.URL || t.Assignment.GoalBodySHA != g.BodySHA || t.Assignment.TaskBodySHA != t.BodySHA || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) {
 		return "", errors.New("assignment scope changed")

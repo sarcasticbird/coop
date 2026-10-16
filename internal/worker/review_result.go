@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -8,8 +9,8 @@ import (
 )
 
 type ResolvedAssignment struct {
-	SHA          string
-	Author, Peer Actor
+	SHA              string
+	Author, Peer, QA Actor
 }
 
 func teamPlanner(c Config) Actor {
@@ -57,6 +58,9 @@ func resolveTeamAssignment(c Config, t Task, g Goal, now time.Time) (ResolvedAss
 		if m.Name == t.Assignment.Peer {
 			r.Peer = m.Actor
 		}
+		if m.Name == t.Assignment.QA {
+			r.QA = m.Actor
+		}
 	}
 	return r, nil
 }
@@ -78,7 +82,7 @@ func teamIndependentPeer(c Config, t Task, p PR) (Actor, bool) {
 	if p.BaseBranch != t.Assignment.BaseBranch || !referenceInRepo(p.URL, t.Repo, "pull") || p.TaskURL != t.URL || p.GoalURL != t.GoalURL || t.MetadataScopeSHA != t.BodySHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.Assignment.TaskBodySHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, teamPlanner(c))) {
 		return Actor{}, false
 	}
-	sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, QAPolicy{})
+	sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, t.QA)
 	if err != nil || sha != p.AssignmentSHA {
 		return Actor{}, false
 	}
@@ -141,7 +145,12 @@ func V2JobKey(j Job, assignmentSHA string, executorID int64) string {
 	if j.Binding != nil {
 		role = j.Binding.Role
 	}
-	return BodyHash(strings.Join([]string{"v2", j.Kind, j.GoalURL, j.TaskURL, j.PRURL, j.HeadSHA, j.InputRevision, j.PRScopeRevision, assignmentSHA, strconv.FormatInt(executorID, 10), role}, "\x00"))
+	parts := []string{"v2", j.Kind, j.GoalURL, j.TaskURL, j.PRURL, j.HeadSHA, j.InputRevision, j.PRScopeRevision, assignmentSHA, strconv.FormatInt(executorID, 10), role}
+	if j.QAArtifact != nil {
+		raw, _ := json.Marshal(j.QAArtifact)
+		parts = append(parts, string(raw))
+	}
+	return BodyHash(strings.Join(parts, "\x00"))
 }
 
 func bindTeamJob(c Config, j Job, s Snapshot, now time.Time) (Job, error) {
@@ -172,6 +181,12 @@ func bindTeamJob(c Config, j Job, s Snapshot, now time.Time) (Job, error) {
 		sha, role, executor = a.SHA, "implementer", a.Author
 		if j.Kind == "review" {
 			role, executor = "engineering-review", a.Peer
+		}
+		if j.Kind == "qa" {
+			if !t.QA.Required || a.QA.ID == 0 {
+				return j, errors.New("missing required QA assignment")
+			}
+			role, executor = "customer-qa", a.QA
 		}
 		if j.PRURL != "" {
 			p, ok := prFor(s, j.PRURL)

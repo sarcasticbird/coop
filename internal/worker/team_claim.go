@@ -28,11 +28,11 @@ func (g *GitHubClient) claimTeam(ctx context.Context, j Job, instance string) (C
 	if ok, _ := Admit(g.config, j, s, time.Now()); !ok {
 		return Claim{}, ghError("claim_scope_changed")
 	}
-	if j.Kind != "implement" && j.Kind != "review" {
+	if j.Kind != "implement" && j.Kind != "review" && j.Kind != "qa" {
 		return Claim{}, ghError("invalid_claim_role")
 	}
 	ref := j.TaskURL
-	if j.Kind == "review" {
+	if j.Kind == "review" || j.Kind == "qa" {
 		ref = j.PRURL
 	}
 	repo, n, err := parseRef(ref)
@@ -55,7 +55,7 @@ func (g *GitHubClient) claimTeam(ctx context.Context, j Job, instance string) (C
 			}
 			continue
 		}
-		if j.Kind == "review" && !strings.Contains(claim.Marker, "job="+j.ID+" ") {
+		if (j.Kind == "review" || j.Kind == "qa") && claim.Marker != marker(j, "claim") {
 			continue
 		}
 		if claim.Binding == nil || *claim.Binding != *j.Binding || !sameActor(claim.Author, g.config.Self) || claim.InstanceID != instance {

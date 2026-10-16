@@ -7,6 +7,29 @@ the terminal leaves the server and worker running inside the VM.
 This is an opt-in backend for named agents. Interactive Coops and profiles with
 an ordinary terminal command keep their existing behavior and mounts.
 
+## QA source helper
+
+`coop-worker qa-source-digest --archive /absolute/source.tar.gz` is an offline
+helper: it needs no worker configuration, credentials or network access. Download
+the head-pinned source archive from `Job.QAArtifact.URL`, then run:
+
+```sh
+coop-worker qa-source-digest --archive /absolute/source.tar.gz
+```
+
+The command prints one lowercase SHA256 digest followed by a newline. Compare it
+exactly with `Job.QAArtifact.SHA256` before testing that source bundle. This is the
+`source-bundle-v1` canonical digest used by artifact binding, not the raw archive's
+`sha256sum`: generated archive roots and volatile tar headers are excluded, while
+sorted paths, modes, link targets and file bytes are included. The archive must
+be a regular file, not a symlink; compressed input is limited to `MaxAPIPage`
+(2 MiB), with the same archive validation and expanded limits as artifact binding.
+Invalid, oversized or unreadable input fails without printing a digest.
+
+This helper is for source artifacts only. For binary/workflow artifacts, download
+the exact immutable artifact archive, verify its native archive SHA256 against
+`Job.QAArtifact.SHA256`, and test those bytes. Never substitute a local rebuild.
+
 ## Runtime and private configuration
 
 Build `cmd/coop-worker` for Linux arm64 through the repository's Flox environment.
@@ -50,13 +73,15 @@ hashes, policy, canonical references and resolved immutable actor IDs; mutable
 logins and Project card fields cannot grant authority. Unknown JSON fields,
 duplicate keys/set entries, mixed metadata versions and stale hashes fail closed.
 An owner-approved goal body is still required; planner assignment cannot approve
-or relax a goal. Requested customer QA currently fails with `qa_not_supported`.
+or relax a goal. Required customer QA binds acceptance and authorized environment
+revisions to the independent assigned QA actor and tested artifact.
 
-This is a validation foundation, not an available v2 runtime. Worker startup
-refuses version 2 before loading state, and admission refuses v2 jobs. Reciprocal
-workflow, claim/session binding, QA execution and explicit state conversion are
-separate prerequisites. Do not switch a live profile to v2 or reinterpret v1
-state, claims or completed jobs using a new roster.
+This is not an available live v2 runtime. Worker startup still refuses version 2
+before loading state, pending the remaining scheduler and rollout packages.
+Policy, assignment-bound engineering/QA admission and explicit offline state
+conversion have fixture coverage; they do not authorize live cutover. Do not
+switch a live profile to v2 or reinterpret v1 state, claims or completed jobs
+using a new roster.
 
 Guest paths:
 
@@ -598,8 +623,8 @@ V2 engineering uses the current trusted task assignment, not the global planner
 role or Project Agent field. The assigned author owns implementation, fixes and
 delivery; only the assigned independent peer receives engineering-review work.
 The host roster can configure either direction or add engineers without source
-identity changes. Required customer QA still fails as unsupported in this stage,
-and the v2 runtime startup fence remains in place.
+identity changes. Required customer QA uses the separate gate below, and the v2
+runtime startup fence remains in place.
 
 V2 goal metadata requires `base_branches`, a map from each canonical lowercase
 repository to its explicitly authorized target branch. The trusted task
@@ -648,3 +673,72 @@ and reject concurrent title/body/state/assignment/claim mutations. Native review
 records are completely reread after contributor evidence collection and compared
 by review identity, state, head, author and submission time. A dismissal or newer
 decision during that interval blocks clearance rather than mixing observations.
+
+## Independent customer QA
+
+The owner-approved v2 goal's `qa` policy is authoritative. With `required: true`,
+it must name a qualified `reviewer`, a lowercase SHA256 `acceptance_sha256`, and
+nonempty `environment` and `environment_revision`. The trusted task assignment
+must select that same independent QA member. Internal delivery may omit QA only
+when the approved policy explicitly has `required: false` with no extra fields.
+Neither labels, Project edits nor bot comments can waive the gate.
+
+The assigned QA worker gets a dedicated `qa` job only after current engineering
+clearance and successful or explicitly absent checks. Merge eligibility is not a
+prerequisite to QA: its approval may be the outstanding branch protection. Only
+delivery requires `CLEAN`, both independent clearances, current checks and
+expected-head merge protection. QA defects produce an author-owned fix; a new
+head requires engineering review followed by QA again. Valid `blocked` results
+finish the QA turn without clearing delivery or silently retrying it. An explicit
+new native result or changed head/scope is needed to advance; missing reviewers,
+tools, test data, environment or permissions never mean pass.
+
+QA has its own assignment/executor/role-bound checkout, claim and native session.
+The clean checkout is fetched to the admitted PR head. Its origin push URL is
+disabled and checked on reuse. This local guardrail is not a sandbox or permission
+boundary: the QA App must lack contents-write permission. QA may inspect/test but
+must not edit feature code, push, merge or impersonate another actor.
+
+For source-only acceptance, discovery hashes the exact head's native source
+archive using the canonical bundle algorithm described above. For binary or
+workflow acceptance, the PR's `coop-pr:v2` metadata adds an `artifact` object:
+
+```json
+{
+  "Kind": "workflow",
+  "HeadSHA": "FULL_LOWERCASE_HEAD_SHA",
+  "SHA256": "FULL_LOWERCASE_SHA256",
+  "URL": "https://api.github.com/repos/owner/repo/actions/artifacts/123",
+  "Revision": "456"
+}
+```
+
+The native artifact ID, workflow run ID (`Revision`), commit and SHA256 digest
+must match GitHub's current artifact record; expired/deleted/unreadable artifacts
+block the gate. Test the downloaded immutable archive, not a local rebuild.
+Artifact identity is part of QA/fix/delivery job IDs and prompt bindings. Refresh
+it immediately before dispatch/delivery; replacement or loss invalidates the
+affected running job without discarding fresh owner authorization reads. Already
+merged issue completion does not depend on retaining the artifact download.
+Source input is limited to 2 MiB compressed, 64 MiB decompressed and 10,000 archive
+entries. Exceeding a limit blocks verification rather than accepting partial data.
+
+QA transport is a native formal PR review by the assigned immutable QA actor at
+the exact head. Its body is exactly one `coop-qa:v1` marker with a strict
+version-1 result: conclusion, canonical repo/PR/task/goal, head/assignment/acceptance
+digests, environment and revision, artifact SHA256, evidence links and limitations.
+Pass requires `APPROVED`, changes-needed requires `CHANGES_REQUESTED`, and blocked
+requires `COMMENTED`. An engineering approval cannot satisfy QA or vice versa.
+QA must be submitted after the current engineering approval. Edited, malformed,
+stale or dismissed latest records cannot revive an older pass. Complete native
+review reads include body/edit provenance and are compared across rereads.
+
+Encoded results are at most 32 KiB, with at most 32 evidence links and 32
+limitations of at most 2 KiB each. Every field is required, with no unknown,
+duplicate or null fields. Evidence must link into the authorized goal repository;
+keep customer details and logs there, not in public PR prose. Automated validation
+establishes identity/binding, not the truth of an acceptance claim: the independent
+QA actor remains responsible for actually exercising the approved acceptance in
+the authorized environment. Linux fixtures do not establish native platform or
+live bot acceptance. This implementation grants no permissions, creates no
+external fixtures, and starts no QA service.

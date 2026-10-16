@@ -284,6 +284,12 @@ func (e *Engine) savedBindingAllowed(j Job) bool {
 	if !e.state.SnapshotCache.Complete || e.Config.Team == nil || j.Binding == nil {
 		return false
 	}
+	if j.Kind == "qa" {
+		p, ok := prFor(e.state.SnapshotCache, j.PRURL)
+		if !ok || !qaArtifactEqual(j.QAArtifact, p.QAArtifact) {
+			return false
+		}
+	}
 	bound, err := bindTeamJob(e.Config, j, e.state.SnapshotCache, e.Clock.Now())
 	return err == nil && *bound.Binding == *j.Binding && bound.ID == j.ID &&
 		j.Binding.ExecutorID == e.Config.Self.ID && bound.ScopeSHA == j.ScopeSHA &&
@@ -306,7 +312,7 @@ func artifactCompletes(c Config, j Job, a Artifacts) bool {
 		if t.URL != j.TaskURL || t.GoalURL != j.GoalURL || t.Assignment == nil || t.BodySHA != j.ScopeSHA || t.BodySHA != TaskScopeHash(t.Title, t.Body) || t.MetadataScopeSHA != t.BodySHA || t.Assignment.TaskBodySHA != t.BodySHA || (!sameActor(t.MetadataAuthor, c.Owner) && !sameActor(t.MetadataAuthor, teamPlanner(c))) {
 			return false
 		}
-		sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, QAPolicy{})
+		sha, err := AssignmentSHA(*c.Team, t.Repo, t.URL, t.GoalURL, *t.Assignment, t.QA)
 		if err != nil || p.BaseBranch != t.Assignment.BaseBranch || sha != j.Binding.AssignmentSHA || p.AssignmentSHA != sha || !teamTaskAuthor(c, t, p.Author) || p.TaskURL != j.TaskURL || p.GoalURL != j.GoalURL || !referenceInRepo(p.URL, t.Repo, "pull") || (j.PRURL != "" && p.URL != j.PRURL) || (j.PRScopeRevision != "" && p.ScopeRevision != j.PRScopeRevision) {
 			return false
 		}
@@ -314,6 +320,13 @@ func artifactCompletes(c Config, j Job, a Artifacts) bool {
 			peer, ok := teamIndependentPeer(c, t, p)
 			r := teamLatestReview(c, t, p)
 			return ok && sameActor(c.Self, peer) && j.Binding.Role == "engineering-review" && p.HeadSHA == j.HeadSHA && (r.State == "APPROVED" || r.State == "CHANGES_REQUESTED")
+		}
+		if j.Kind == "qa" {
+			if !qaArtifactEqual(j.QAArtifact, p.QAArtifact) || p.HeadSHA != j.HeadSHA || j.Binding.Role != "customer-qa" {
+				return false
+			}
+			r, _, ok := latestTeamQA(c, t, p, t.QA, j.QAArtifact.SHA256)
+			return ok && sameActor(r.Author, c.Self)
 		}
 		if j.Binding.Role != "implementer" || !teamTaskAuthor(c, t, c.Self) {
 			return false
@@ -505,7 +518,7 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 	if err := e.saveJob(j); err != nil {
 		return err
 	}
-	if j.Kind == "implement" || e.Config.Version == 2 && j.Kind == "review" {
+	if j.Kind == "implement" || e.Config.Version == 2 && (j.Kind == "review" || j.Kind == "qa") {
 		// Claims are mutations too: do not publish one against stale scope.
 		if reader, ok := e.GitHub.(interface {
 			Revalidate(context.Context, Job, Snapshot) (Snapshot, error)
@@ -525,7 +538,7 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 			return e.failed(ctx, j, "scope_revalidation_unavailable")
 		}
 		t, _ := taskFor(e.state.SnapshotCache, j.TaskURL)
-		if j.Kind == "review" || t.Claim == nil {
+		if j.Kind == "review" || j.Kind == "qa" || t.Claim == nil {
 			claimCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			claim, err := e.GitHub.Claim(claimCtx, j, e.state.InstanceID)
 			cancel()

@@ -416,7 +416,7 @@ func (g *GitHubClient) Reconcile(ctx context.Context, j Job) (Artifacts, error) 
 		a.IssueCompleted = task.Completed
 	}
 	for _, p := range s.PRs {
-		if p.URL == j.PRURL || p.TaskURL == j.TaskURL {
+		if p.URL == j.PRURL || j.PRURL == "" && p.TaskURL == j.TaskURL {
 			copy := p
 			a.PR = &copy
 			break

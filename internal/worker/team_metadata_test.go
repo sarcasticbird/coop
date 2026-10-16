@@ -158,7 +158,7 @@ func TestTeamMetadataBotCannotRelaxQA(t *testing.T) {
 	c, task, goal, comment, now := teamScopeFixture(t)
 	goal.Body = teamMarker("goal", TeamGoalMetadata{Repositories: goal.Repositories, BaseBranches: map[string]string{"code/repo": "feature/integration"}, QA: QAPolicy{Required: true, Reviewer: "qa", AcceptanceSHA: BodyHash("acceptance"), Environment: "fixture", EnvironmentRevision: "1"}})
 	goal.BodySHA = BodyHash(goal.Body)
-	if a := EvaluateGoal(c, goal, now); a.State != "blocked" || a.Reason != "qa_not_supported" {
+	if a := EvaluateGoal(c, goal, now); a.State != "approved" {
 		t.Fatal(a)
 	}
 	// A bot edits the body to remove QA but cannot approve the new scope.

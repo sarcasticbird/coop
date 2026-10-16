@@ -136,6 +136,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		return j, err
 	}
 	_, checkoutErr := os.Lstat(checkout)
+	created := os.IsNotExist(checkoutErr)
 	if os.IsNotExist(checkoutErr) {
 		switch owner.Mode {
 		case "planning":
@@ -172,7 +173,24 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if err != nil || strings.TrimSpace(string(branch)) != owner.Branch {
 			return j, errors.New("checkout branch changed")
 		}
-		if j.Kind == "review" {
+		if j.Kind == "qa" {
+			// This is a local guardrail; the QA App must also lack contents write.
+			const disabledPushURL = "/dev/null/coop-qa-push-disabled"
+			if created {
+				if _, err := c.run(ctx, checkout, "git", "config", "--local", "--replace-all", "remote.origin.pushurl", disabledPushURL); err != nil {
+					return j, err
+				}
+			}
+			push, err := c.run(ctx, checkout, "git", "config", "--local", "--get-all", "remote.origin.pushurl")
+			if err != nil || strings.TrimSpace(string(push)) != disabledPushURL {
+				return j, errors.New("QA checkout push protection changed")
+			}
+			push, err = c.run(ctx, checkout, "git", "remote", "get-url", "--push", "--all", "origin")
+			if err != nil || strings.TrimSpace(string(push)) != disabledPushURL {
+				return j, errors.New("QA checkout effective push URL changed")
+			}
+		}
+		if j.Kind == "review" || j.Kind == "qa" {
 			repo, n, err := parseRef(j.PRURL)
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")

@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import stat
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -23,7 +24,7 @@ class Launchers(unittest.TestCase):
         self.state = self.root / "opencode"
         self.log = self.root / "commands"
         self.env = dict(os.environ, PATH=str(self.bin) + ":" + os.environ["PATH"], TEST_LOG=str(self.log))
-        self.executable("stat", '#!/usr/bin/python3\nimport os, sys, stat\np=sys.argv[-1]\nprint(oct(stat.S_IMODE(os.stat(p).st_mode))[2:] if sys.argv[-2] == "%a" else "0")\n')
+        self.executable("stat", f'#!{sys.executable}\nimport os, sys, stat\np=sys.argv[-1]\nprint(oct(stat.S_IMODE(os.stat(p).st_mode))[2:] if sys.argv[-2] == "%a" else "0")\n')
         self.executable("sleep", "#!/bin/sh\nexit 0\n")
         self.executable("curl", '#!/bin/sh\ncat > /dev/null\ntest "${TEST_READY:-yes}" = yes\n')
         self.executable("opencode", '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_LOG"\ntest "${#OPENCODE_SERVER_PASSWORD}" = 64\n')
@@ -136,8 +137,8 @@ class FloxUpgrade(unittest.TestCase):
         for name, text in {
             "id": "#!/bin/sh\necho 0\n",
             "uname": "#!/bin/sh\necho aarch64\n",
-            "stat": '#!/usr/bin/python3\nimport os,sys,stat\nprint(oct(stat.S_IMODE(os.stat(sys.argv[-1]).st_mode))[2:])\n',
-            "sha256sum": '#!/usr/bin/python3\nimport hashlib,sys\np=sys.argv[-1]\nprint(hashlib.sha256(open(p,"rb").read()).hexdigest()+"  "+p)\n',
+            "stat": f'#!{sys.executable}\nimport os,sys,stat\nprint(oct(stat.S_IMODE(os.stat(sys.argv[-1]).st_mode))[2:])\n',
+            "sha256sum": f'#!{sys.executable}\nimport hashlib,sys\np=sys.argv[-1]\nprint(hashlib.sha256(open(p,"rb").read()).hexdigest()+"  "+p)\n',
             "git": '#!/bin/bash\nif [[ "$1" == clone ]]; then mkdir -p "${@: -1}"; fi\nexit 0\n',
             "go": '#!/bin/bash\n[[ "$(basename "$PWD")" == to ]]\n',
             "opencode": "#!/bin/sh\nexit 0\n",
