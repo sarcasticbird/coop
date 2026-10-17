@@ -568,7 +568,7 @@ func (e *Engine) dispatch(ctx context.Context, j Job) error {
 		}
 		t, _ := taskFor(e.state.SnapshotCache, j.TaskURL)
 		if j.Kind == "review" || j.Kind == "qa" || t.Claim == nil {
-			claimCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			claimCtx, cancel := context.WithTimeout(ctx, githubRevalidationTimeout)
 			claim, err := e.GitHub.Claim(claimCtx, j, e.state.InstanceID)
 			cancel()
 			if err != nil {
