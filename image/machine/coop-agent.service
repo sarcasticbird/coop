@@ -1,0 +1,12 @@
+[Unit]
+Description=Coop reconnectable agent terminal
+After=network.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+Environment=PATH=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/coop-core/.flox/run/aarch64-linux.coop-core-run/bin/tmux -S /run/coop/tmux.sock -D
+KillMode=control-group
+Restart=on-failure
+RestartSec=2

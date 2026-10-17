@@ -155,7 +155,11 @@ func TestUpUsesSessionLifecycleForSelectedProject(t *testing.T) {
 	}
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", stateRoot)
 	src := filepath.Join(t.TempDir(), "settings.json")
 	if err := os.WriteFile(src, []byte("seeded"), 0o644); err != nil {
 		t.Fatal(err)
@@ -175,7 +179,8 @@ func TestUpUsesSessionLifecycleForSelectedProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt.Images = map[string]bool{session.EffectiveImageName(s.Cfg): true}
-	rt.Existing[s.Name] = true // unlabeled: Session.Up must reconcile it
+	rt.Existing[s.Name] = true
+	rt.ContainerLabels = map[string]map[string]string{s.Name: {session.SpecLabel: s.SpecFingerprint()}}
 	m := model{rt: rt, result: &Result{}, infos: []runtime.ContainerInfo{{
 		Name: s.Name, State: "stopped", Mounts: []runtime.MountInfo{{
 			Source: projectPath, Destination: projectPath, Bind: true,
@@ -190,7 +195,7 @@ func TestUpUsesSessionLifecycleForSelectedProject(t *testing.T) {
 	if !ok || done.err != nil {
 		t.Fatalf("u action failed: %#v", msg)
 	}
-	if len(rt.Removed) != 1 || len(rt.Run_) != 1 {
+	if len(rt.Removed) != 0 || len(rt.Run_) != 0 || len(rt.Started) != 1 {
 		t.Fatalf("u bypassed spec reconciliation: removed=%v runs=%d starts=%v", rt.Removed, len(rt.Run_), rt.Started)
 	}
 	home, err := os.UserHomeDir()
@@ -221,7 +226,11 @@ func TestDestroyUsesCurrentSessionIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", stateRoot)
 
 	rt := runtime.NewMock()
 	s, err := session.New(rt, projectPath)
@@ -262,7 +271,11 @@ func TestDestroyRefusesLegacyContainerIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", stateRoot)
 
 	rt := runtime.NewMock()
 	rt.Existing["coop-legacy"] = true

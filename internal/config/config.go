@@ -124,6 +124,7 @@ type Agent struct {
 
 // Config is the merged coop configuration.
 type Config struct {
+	Profiles           map[string]Profile    `toml:"profiles"`
 	Image              Image                 `toml:"image"`
 	Tools              Tools                 `toml:"tools"`
 	Resources          Resources             `toml:"resources"`
@@ -307,6 +308,14 @@ func mergeFile(cfg *Config, path string, project bool) error {
 	if !project && (len(layer.Volumes) > 0 || len(layer.Publishes) > 0) {
 		return fmt.Errorf("%s: volume and publish are only supported in project config", path)
 	}
+	if project && len(layer.Profiles) > 0 {
+		return fmt.Errorf("%s: profiles are only supported in machine-wide configuration", path)
+	}
+	for name, p := range layer.Profiles {
+		if err := validateLayer(&Config{Resources: p.Resources}, md.IsDefined("profiles", name, "resources", "cpus"), md.IsDefined("profiles", name, "resources", "memory")); err != nil {
+			return fmt.Errorf("%s: profile %s: %w", path, name, err)
+		}
+	}
 	if err := validateLayer(&layer,
 		md.IsDefined("resources", "cpus"), md.IsDefined("resources", "memory")); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -349,6 +358,12 @@ func mergeFile(cfg *Config, path string, project bool) error {
 	cfg.Mounts = append(cfg.Mounts, layer.Mounts...)
 	cfg.Volumes = append(cfg.Volumes, layer.Volumes...)
 	cfg.Publishes = append(cfg.Publishes, layer.Publishes...)
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]Profile)
+	}
+	for name, profile := range layer.Profiles {
+		cfg.Profiles[name] = profile
+	}
 	return nil
 }
 
@@ -532,6 +547,9 @@ func ReleaseSpecFingerprint(tools []GitHubReleaseTool) string {
 // at one guest path, while an overlapping bind mount could hide agent state or
 // make container creation depend on runtime mount precedence.
 func validateMerged(cfg *Config) error {
+	if err := validateProfiles(cfg); err != nil {
+		return err
+	}
 	if len(cfg.Credentials) > MaxCredentialGrants {
 		return fmt.Errorf("configured credential grant count %d exceeds maximum %d", len(cfg.Credentials), MaxCredentialGrants)
 	}

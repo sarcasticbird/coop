@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,7 +25,11 @@ import (
 
 func testSession(t *testing.T, m *runtime.Mock) *Session {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir()) // isolate per-project locks
+	stateRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", stateRoot) // isolate per-project locks
 	s := &Session{
 		RT:      m,
 		Project: "/Users/u/Projects/proj",
@@ -820,7 +823,7 @@ func TestUpProjectVolumeRuntimeFailureIdentifiesAuthoredPath(t *testing.T) {
 	}
 }
 
-func TestUpProjectVolumeNamesSurviveRecreation(t *testing.T) {
+func TestUpProjectVolumesSurvivePendingMaintenance(t *testing.T) {
 	m := runtime.NewMock()
 	s := testSession(t, m)
 	s.Project = t.TempDir()
@@ -837,16 +840,11 @@ func TestUpProjectVolumeNamesSurviveRecreation(t *testing.T) {
 	}
 
 	s.Cfg.Publishes = []config.Publish{{HostPort: 5173, GuestPort: 5173}}
-	if err := s.Up(); err != nil {
-		t.Fatal(err)
+	if err := s.Up(); err == nil {
+		t.Fatal("changed configuration entered without maintenance")
 	}
-	if len(m.Run_) != 2 || !m.Volumes[name] {
-		t.Fatalf("recreation lost project volume: runs=%d volumes=%+v", len(m.Run_), m.Volumes)
-	}
-	for _, spec := range m.Run_ {
-		if !slices.Contains(spec.Volumes, runtime.Volume{Name: name, Target: filepath.Join(s.Project, "web/node_modules")}) {
-			t.Fatalf("run did not reuse stable project volume: %+v", spec.Volumes)
-		}
+	if len(m.Run_) != 1 || !m.Volumes[name] || len(m.Removed) != 0 {
+		t.Fatalf("maintenance changed persistent state: runs=%d volumes=%+v", len(m.Run_), m.Volumes)
 	}
 }
 
@@ -913,45 +911,6 @@ func TestUpStartsExistingStoppedContainer(t *testing.T) {
 	}
 	if !m.Running("coop-proj") {
 		t.Errorf("container should have been started")
-	}
-}
-
-func TestUpRecreatesWhenSSHRevoked(t *testing.T) {
-	m := runtime.NewMock()
-	m.Existing["coop-proj"] = true
-	s := testSession(t, m)
-	// container was created when ssh was on; config has since revoked it
-	sshOn := *s
-	sshOn.Cfg.SSH = true
-	m.ContainerLabels = map[string]map[string]string{
-		s.Name: {SpecLabel: sshOn.SpecFingerprint()},
-	}
-
-	if err := s.Up(); err != nil {
-		t.Fatal(err)
-	}
-	if len(m.Removed) != 1 || len(m.Run_) != 1 {
-		t.Fatalf("ssh revocation must recreate: removed=%v runs=%d", m.Removed, len(m.Run_))
-	}
-	if m.Run_[0].SSH {
-		t.Errorf("recreated container still has ssh")
-	}
-}
-
-func TestUpRecreatesLegacyUnlabeledContainer(t *testing.T) {
-	m := runtime.NewMock()
-	m.Existing["coop-proj"] = true
-	s := testSession(t, m)
-	// no labels at all — pre-hardening container
-
-	if err := s.Up(); err != nil {
-		t.Fatal(err)
-	}
-	if len(m.Removed) != 1 || len(m.Run_) != 1 {
-		t.Fatalf("legacy container must be recreated once: removed=%v", m.Removed)
-	}
-	if m.Run_[0].Labels[SpecLabel] != s.SpecFingerprint() {
-		t.Errorf("recreated container not labeled")
 	}
 }
 
@@ -1184,73 +1143,6 @@ func TestConfiguredPackagesNeverReuseStaleStockImage(t *testing.T) {
 	err := s.EnsureImage()
 	if err == nil || !strings.Contains(err.Error(), "coop rebuild") {
 		t.Errorf("stale stock image silently reused: %v", err)
-	}
-}
-
-func TestUpRecreatesContainerOnImageChange(t *testing.T) {
-	m := runtime.NewMock()
-	s := testSession(t, m)
-	// container exists, labeled with the stock-config fingerprint
-	m.Existing["coop-proj"] = true
-	labelCurrent(m, s)
-	// config now wants extra packages; derived image already built
-	s.Cfg.Tools.Packages = []string{"gemini-cli"}
-	derived := EffectiveImageName(s.Cfg)
-	m.Images[derived] = true
-
-	if err := s.Up(); err != nil {
-		t.Fatal(err)
-	}
-	if len(m.Removed) != 1 {
-		t.Fatalf("stale container not recreated")
-	}
-	if len(m.Run_) != 1 || m.Run_[0].Image != derived {
-		t.Errorf("recreated with wrong image: %+v", m.Run_)
-	}
-	if len(m.RemovedVol) != 0 {
-		t.Errorf("recreation must preserve state volumes: %v", m.RemovedVol)
-	}
-}
-
-func TestUpRecreationWarnsAboutUndeclaredRootfsChanges(t *testing.T) {
-	m := runtime.NewMock()
-	s := testSession(t, m)
-	m.Existing[s.Name] = true
-	labelCurrent(m, s)
-	s.Cfg.Tools.Packages = []string{"shellcheck"}
-	m.Images[EffectiveImageName(s.Cfg)] = true
-	var output bytes.Buffer
-	s.Output = &output
-
-	if err := s.Up(); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"state volumes preserved", "root-filesystem changes will be discarded"} {
-		if !strings.Contains(output.String(), want) {
-			t.Fatalf("recreation warning missing %q: %s", want, output.String())
-		}
-	}
-}
-
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("sink failed") }
-
-func TestUpRecreationNoticeWriteFailureAbortsBeforeTeardown(t *testing.T) {
-	m := runtime.NewMock()
-	s := testSession(t, m)
-	m.Existing[s.Name] = true
-	labelCurrent(m, s)
-	s.Cfg.Tools.Packages = []string{"shellcheck"}
-	m.Images[EffectiveImageName(s.Cfg)] = true
-	s.Output = failingWriter{}
-
-	err := s.Up()
-	if err == nil || !strings.Contains(err.Error(), "write recreation notice") {
-		t.Fatalf("recreation notice write failure not propagated: %v", err)
-	}
-	if len(m.Removed) != 0 {
-		t.Fatalf("container torn down despite failed notice: %v", m.Removed)
 	}
 }
 

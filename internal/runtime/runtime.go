@@ -4,7 +4,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -130,10 +129,21 @@ type Runtime interface {
 //     mounts — never use it; all writes go through `exec` stdin.
 //   - single-file bind mounts are unsupported (directories only).
 type Apple struct {
+	Context context.Context // optional operation context; never mutated per request
+
 	Bin string // defaults to "container"
 }
 
 func NewApple() *Apple { return &Apple{Bin: "container"} }
+
+// WithContext returns a request-local copy, preserving the normal CLI default.
+func (a *Apple) WithContext(ctx context.Context) *Apple { b := *a; b.Context = ctx; return &b }
+func (a *Apple) operationContext() context.Context {
+	if a.Context != nil {
+		return a.Context
+	}
+	return context.Background()
+}
 
 // Every non-interactive runtime command carries a deadline so a wedged
 // apiserver cannot hang coop indefinitely. Interactive exec follows the guest
@@ -145,11 +155,12 @@ const (
 )
 
 func (a *Apple) run(args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(), opTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, a.Bin, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd.WaitDelay = 2 * time.Second
+	stderr := NewBoundedCapture(64 << 10)
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w: %s", a.Bin, strings.Join(args, " "), err, stderr.String())
 	}
@@ -157,13 +168,17 @@ func (a *Apple) run(args ...string) error {
 }
 
 func (a *Apple) output(args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(), opTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, a.Bin, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.WaitDelay = 2 * time.Second
+	stdout, stderr := NewBoundedCapture(1<<20), NewBoundedCapture(64<<10)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("%s %s: %w: %s", a.Bin, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	if stdout.Dropped() > 0 {
+		return nil, fmt.Errorf("runtime metadata exceeds limit")
 	}
 	return stdout.Bytes(), nil
 }
@@ -297,6 +312,22 @@ func (a *Apple) Run(spec RunSpec) error {
 	return nil
 }
 
+// CreateStopped registers a guest without executing its entrypoint.
+func (a *Apple) CreateStopped(spec RunSpec) error {
+	args, err := runArgs(spec)
+	if err != nil {
+		return err
+	}
+	args[0] = "create"
+	for i, arg := range args {
+		if arg == "-d" {
+			args = append(args[:i], args[i+1:]...)
+			break
+		}
+	}
+	return a.run(args...)
+}
+
 func runArgs(spec RunSpec) ([]string, error) {
 	for _, m := range spec.Mounts {
 		if err := ValidateMountField(m.Source); err != nil {
@@ -365,8 +396,8 @@ func (a *Apple) ExecContext(parent context.Context, name string, argv []string, 
 	args = append(args, argv...)
 	cmd := exec.CommandContext(ctx, a.Bin, args...)
 	cmd.Stdin = stdin
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := NewBoundedCapture(64 << 10)
+	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Cancel = func() error {
@@ -387,16 +418,19 @@ func (a *Apple) ExecContext(parent context.Context, name string, argv []string, 
 	return nil
 }
 
-func (a *Apple) ExecInteractive(ctx context.Context, name, workdir string, argv []string) (retErr error) {
+func (a *Apple) ExecInteractive(ctx context.Context, name, workdir string, argv []string) error {
+	args := append([]string{"exec", "-it", "-w", workdir, name}, argv...)
+	return runInteractive(ctx, a.Bin, args)
+}
+
+func runInteractive(ctx context.Context, binary string, args []string) (retErr error) {
 	if cause := context.Cause(ctx); cause != nil {
 		return cause
 	}
-	bin, err := exec.LookPath(a.Bin)
+	bin, err := exec.LookPath(binary)
 	if err != nil {
 		return fmt.Errorf("find container runtime: %w", err)
 	}
-	args := []string{"exec", "-it", "-w", workdir, name}
-	args = append(args, argv...)
 	cmd := exec.Command(bin, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

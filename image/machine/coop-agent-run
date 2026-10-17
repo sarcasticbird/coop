@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+root=${COOP_RUNTIME_DIR:-/run/coop}
+state=${COOP_STATE_DIR:-/var/lib/coop}
+workspace=${COOP_WORKSPACE_DIR:-/workspace}
+mapfile -d '' -t command < <(jq -j '.command[] | . + "\u0000"' "$state/profile.json")
+(( ${#command[@]} > 0 )) || { echo 'empty agent command' >&2; exit 1; }
+cd "$workspace"
+restart=$(jq -r '.restart // "no"' "$state/profile.json")
+while true; do
+  set +e
+  /usr/local/libexec/coop-env "${command[@]}"
+  status=$?
+  set -e
+  printf '%s\n' "$status" > "$root/agent-exit-status"
+  if [[ "$restart" == always || ( "$restart" == on-failure && "$status" != 0 ) ]]; then
+    sleep 2
+  else exit "$status"; fi
+done

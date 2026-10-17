@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+state=${COOP_STATE_DIR:-/var/lib/coop}
+name=$1
+[[ "$name" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || exit 64
+mapfile -d '' -t command < <(jq -j --arg name "$name" '.services[$name].Command[] | . + "\u0000"' "$state/profile.json")
+(( ${#command[@]} > 0 )) || { echo 'empty helper command' >&2; exit 1; }
+exec /usr/local/libexec/coop-env "${command[@]}"

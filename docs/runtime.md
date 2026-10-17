@@ -8,6 +8,8 @@ project-specific named volumes.
 Use this page for operational details. See [Configuration](configuration.md)
 for settings and [Security](security-model.md) for trust boundaries.
 
+For self-contained machines selected with `--agent`, see [Persistent agents](agents.md).
+
 ## Project selection
 
 Starting from the current directory, Coop selects a project root in this order:
@@ -44,19 +46,20 @@ to read-only.
 ## Container lifecycle
 
 `coop up` compares the desired project specification with the existing
-container, then creates, starts, or recreates it as needed. The specification
+container, then creates or starts it. Configuration drift requires explicit maintenance. The specification
 includes the image, resources, project path, agent state, mounts, project
 volumes, port publications, and SSH setting.
 
 | Command | Container | Named volumes |
 | --- | --- | --- |
-| `coop up` | Create, start, or reconcile | Preserve |
-| `coop` / `coop <command>` | Reconcile, seed, then enter | Preserve |
+| `coop up` | Create or start; reject pending maintenance | Preserve |
+| `coop` / `coop <command>` | Verify specification, seed, then enter | Preserve |
 | `coop down` | Stop | Preserve |
 | `coop destroy` | Stop and remove | Delete all volumes owned by the project |
 
-Container recreation discards changes made only to its root filesystem. Agent
-and project volumes survive. `coop destroy` also removes volumes left behind by
+Ordinary entry and stop/start preserve the root filesystem. Same-image `apply`
+backs up the cold guest before changing runtime configuration. Image replacement
+is currently unsupported. Agent and project volumes survive maintenance. `coop destroy` also removes volumes left behind by
 older local configuration.
 
 Coop serializes lifecycle changes per project and treats runtime inspection
@@ -96,7 +99,7 @@ and status do not update them.
 `coop upgrade` updates the user-local locked core toolset. It does not build
 project images or stop, recreate, or destroy existing containers.
 
-Adopt a changed core one project at a time:
+Build the changed core image and inspect the selected workspace:
 
 ```sh
 coop upgrade
@@ -105,8 +108,10 @@ coop status
 coop rebuild
 ```
 
-The existing container remains available until the replacement image has been
-built.
+New workspaces use the rebuilt image. Existing disks stay intact and report
+pending maintenance. Base-image replacement is currently unsupported; migrating
+an existing guest's installed software and native state requires a separate
+workspace. Save a cold backup before that migration.
 
 ## Command entry and Flox
 
@@ -134,7 +139,7 @@ builds. See [Seeds](configuration.md#seeds).
 
 Each configured agent state directory is a named volume. State such as native
 agent logins and transcripts therefore persists per project across stop/start
-and recreation.
+and explicit maintenance.
 
 Selected credentials are acquired for an interactive entry, exposed through a
 temporary guest lease, and cleaned up after that command exits. This is not a
@@ -143,26 +148,57 @@ and [Session credentials](security-model.md#session-credentials).
 
 ## Recovery without deleting state
 
-If only the container root filesystem is damaged, note its name from
-`coop status`, remove that container with Apple's CLI, and let Coop recreate
-it:
+Stop the workspace and create a cold backup before maintenance:
 
 ```sh
-coop status
-container stop <name>
-container rm <name>
+coop down
+coop backup /private/path/workspace.zip
+coop apply
 coop up
 ```
 
-Do not use `coop destroy` for this recovery path because it also deletes agent
-and project volumes.
+Same-image maintenance preserves rootfs and owned volumes, and retains a
+recovery archive. Restore into an absent destination with `coop restore`.
+Host mounts are outside backup ownership. Native guest auth and other secrets
+saved to disk may be included in the private archive. See
+[Persistent agents](agents.md#maintenance-and-recovery) for details.
 
-When the desired image is missing after an upgrade or tool change:
+If `coop apply` is interrupted, keep the workspace stopped and the destination
+configuration unchanged, then rerun `coop apply` to resume the pending maintenance.
+Alternatively, run `coop restore /path/to/original-recovery.zip` with the original
+recovery archive. The durable maintenance journal rejects foreign disks and
+changes to the destination configuration or recovery archive. Preserve the
+original recovery archive until maintenance succeeds; retries reuse it without
+creating a fresh backup. Coop refuses normal workspace entry and backup while
+maintenance is incomplete. Disk writes retain their journaled file identities,
+so partial writes and ownership-record save failures can be replayed safely.
+Do not delete the journal, replace its disks, or start the runtime through
+external `container` commands. Coop's workspace lock does not serialize those
+external operations.
 
-```sh
-coop rebuild
-coop up
-```
+Newly configured agent and project volumes are checkpointed too, before runtime
+bootstrap can attach them. If volume creation succeeds but its identity cannot
+be checkpointed, retry refuses the unverified same-name volume. Keep the Coop
+stopped, preserve that volume separately, and free its runtime name only after
+checking its ownership. Keep the original archive and journal; a retry may create
+a new volume only after a successful runtime listing proves that name absent.
+Coop never automatically deletes or adopts an uncheckpointed volume.
+
+Backup rechecks the stopped runtime after copying and rejects changes to the
+payload set, names, sizes, file identities, modification times, ownership record,
+runtime version, or archived runtime metadata before publishing an archive.
+Payload enumeration and JSON object-key order do not affect this comparison.
+Each disk also retains size and modification-time checks during its own copy.
+These checks are not a runtime or filesystem lock: keep the workspace and all
+users of its owned volumes stopped for the entire backup, and avoid concurrent
+maintenance or host writes. A start-and-stop cycle between inspections, a change
+reverted before inspection, or same-size content writes that preserve modification
+times can escape detection. Archive checksums verify the bytes copied, not that
+concurrent writes formed a consistent point-in-time disk image.
+
+`coop rebuild` prepares an image; it never changes an existing guest. An
+existing guest whose desired image changes returns maintenance-required.
+Image replacement is currently unsupported to preserve arbitrary disk changes.
 
 ## Platform limits
 

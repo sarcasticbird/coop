@@ -18,6 +18,15 @@ to the VCS revision (see `resolvedVersion` in `cmd/coop/main.go`), so
 
 ## Cutting a Release
 
+Build and validate with Go 1.26.9 or newer, as required by `go.mod`.
+In a checkout, use `flox activate -- go ...` for the commands below.
+The Flox catalog currently supplies Go 1.26.8 as a bootstrap; the default
+`GOTOOLCHAIN=auto` selects and downloads the patched toolchain required by
+`go.mod`. First use therefore needs network access. Do not build with the
+bootstrap alone or lower the module requirement to avoid that download.
+CI and release workflows select their Go version from `go.mod` too.
+See [the advisory review](go-toolchain-security.md) for the upgrade rationale.
+
 Hosted CI runs the mocked runtime only — it cannot exercise Apple's
 `container` runtime. Steps 1–5 are the real-hardware validation that CI
 cannot provide.
@@ -158,3 +167,82 @@ and macOS may refuse to run the ad-hoc-signed, non-notarized binary;
 downloads via `gh` or `curl` do not normally receive quarantine metadata.
 Developer ID signing and notarization remain prerequisites for any channel
 that distributes the prebuilt binary to trusted-macOS users.
+
+## Matching named-agent helper installation
+
+The release archive contains the Darwin arm64 Coop CLI. Named agents using the
+optional GitHub worker also need Linux arm64 `coop-worker`, the GitHub App guest
+helper when configured, and the checked launcher/installer scripts. Use a Git
+checkout of the same release tag, not scripts from a moving branch. The source
+tarball lacks the Git provenance required by the artifact manifest helper.
+
+On the development Mac, choose the exact published tag and prepare artifacts:
+
+```sh
+git clone https://github.com/sarcasticbird/coop.git coop-release-source
+cd coop-release-source
+version=vX.Y.Z-beta.N # replace with the exact published release tag
+git fetch origin tag "$version"
+git checkout --detach "$version"
+mkdir -p bin/agent-install/artifacts bin/agent-install/host
+COOP_BUILD_VERSION="$version" flox activate -c '
+  set -eu
+  GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-X main.version=$COOP_BUILD_VERSION" \
+    -o bin/agent-install/artifacts/coop ./cmd/coop
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+    -o bin/agent-install/artifacts/coop-worker ./cmd/coop-worker
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+    -o bin/agent-install/artifacts/coop-github ./cmd/coop-github
+  GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+    -o bin/agent-install/host/coop-github ./cmd/coop-github
+'
+```
+
+Build with the toolchain selected by `go.mod`. Keep `bin/` Git-ignored and verify
+the checkout remains clean. Record the full tag commit and build provenance,
+then create and verify the offline manifest from that source:
+
+```sh
+source_head=$(git rev-parse HEAD)
+artifacts="$PWD/bin/agent-install/artifacts"
+evidence_dir=$(mktemp -d "${TMPDIR:-/tmp}/coop-agent-install.XXXXXX")
+manifest="$evidence_dir/manifest.json"
+flox activate -- python3 scripts/scheduler_artifacts.py create \
+  --source-head "$source_head" --artifacts "$artifacts" --manifest "$manifest"
+flox activate -- python3 scripts/scheduler_artifacts.py verify \
+  --source-head "$source_head" --artifacts "$artifacts" --manifest "$manifest"
+shasum -a 256 "$manifest" bin/agent-install/host/coop-github
+```
+
+The manifest binds the supplied binaries, examples and launchers to this exact
+checkout. It does not prove that compilation produced those bytes; retain the
+build log and toolchain/target settings too. Use the matching built host CLI and
+host GitHub helper outside the checkout, as described in
+[GitHub App setup](github-apps.md). Keep registration, signing keys, worker
+configuration and profiles in private storage. The public examples contain
+placeholders and are not usable credentials or a deployment.
+
+After the separately approved backup, drain and service/producer fence, stage
+the exact binaries and launchers through the supported installers:
+
+```sh
+flox activate -- bash scripts/install-github-auth.sh \
+  AGENT_NAME /absolute/agent-install/artifacts/coop-github APP_ID
+flox activate -- bash scripts/install-agent-worker.sh \
+  AGENT_NAME /absolute/agent-install/artifacts/coop-worker \
+  /absolute/private/worker.json
+```
+
+These commands require the selected unshared VM to be running for staging and
+do not start its services. Keep it fenced. Existing managed installations use
+the normal worker installer; a manual OpenCode Coop may need the explicit
+matching-launcher adoption mode. Follow [worker installation](workers.md#runtime-and-private-configuration)
+and [state compatibility](workers.md#offline-state-compatibility) for first v2
+initialization or one-way conversion. Profile application, initialization,
+service startup and new admissions remain explicit rollout steps. Source
+build/install commands do not authorize them or replace native acceptance.
+
+V2 routing continuity additionally requires one successful unchanged-config
+poll before changing the default ping destination. Preserve matching readers
+and recovery evidence; older readers reject the new continuity field.

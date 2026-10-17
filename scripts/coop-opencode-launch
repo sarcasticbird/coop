@@ -1,0 +1,53 @@
+#!/bin/bash
+# Invoked inside coop-env; native OpenCode configuration and data stay in /root.
+set -euo pipefail
+umask 077
+mode=${1:-}
+shift
+case "$mode" in serve|attach) ;; *) echo 'invalid OpenCode launcher mode' >&2; exit 64;; esac
+directory=/var/lib/coop/opencode
+password_file=$directory/server-password
+deadline=$((SECONDS + 30))
+[[ ! -L /var/lib/coop && ! -L "$directory" ]] || { echo 'unsafe OpenCode directory' >&2; exit 1; }
+mkdir -p "$directory"
+[[ $(stat -c %a "$directory") == 700 && $(stat -c %u "$directory") == 0 ]] || { echo 'OpenCode directory must be root-owned mode 0700' >&2; exit 1; }
+if [[ "$mode" == attach ]]; then
+  # Helpers and the terminal may start in either order. Only the server creates
+  # this file; attach waits without generating or replacing authentication.
+  for (( attempt=0; attempt<30 && SECONDS<deadline; attempt++ )); do
+    [[ -e "$password_file" || -L "$password_file" ]] && break
+    sleep 1
+  done
+fi
+if [[ ! -e "$password_file" && ! -L "$password_file" && "$mode" == serve ]]; then
+  # A single creation winner, including concurrent supervised startups.
+  temporary=$(mktemp "$directory/.password.XXXXXXXX")
+  trap 'rm -f -- "$temporary"' EXIT
+  od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$temporary"
+  chmod 0600 "$temporary"
+  if ! ln "$temporary" "$password_file" 2>/dev/null; then
+    [[ -f "$password_file" && ! -L "$password_file" ]] || exit 1
+  fi
+  rm -f -- "$temporary"
+  trap - EXIT
+fi
+[[ -f "$password_file" && ! -L "$password_file" && $(stat -c %a "$password_file") == 600 && $(stat -c %u "$password_file") == 0 ]] || { echo 'OpenCode authentication unavailable or insecure' >&2; exit 1; }
+OPENCODE_SERVER_PASSWORD=$(cat "$password_file")
+[[ "$OPENCODE_SERVER_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || { echo 'invalid OpenCode authentication file' >&2; exit 1; }
+export OPENCODE_SERVER_PASSWORD
+export OPENCODE_SERVER_USERNAME=opencode
+if [[ "$mode" == serve ]]; then
+  [[ $# == 0 ]] || exit 64
+  exec /usr/local/libexec/coop-github env -- opencode serve --hostname 127.0.0.1 --port 4096
+fi
+# Use curl config stdin so credentials are absent from process arguments.
+ready=false
+for (( attempt=0; attempt<30 && SECONDS<deadline; attempt++ )); do
+  if printf 'user = "opencode:%s"\n' "$OPENCODE_SERVER_PASSWORD" | curl --config - --silent --fail --max-time 1 --output /dev/null http://127.0.0.1:4096/global/health 2>/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "$ready" == true ]] || { echo 'OpenCode server is not ready; helper service may still be starting' >&2; exit 1; }
+exec /usr/local/libexec/coop-github env -- opencode attach http://127.0.0.1:4096 "$@"

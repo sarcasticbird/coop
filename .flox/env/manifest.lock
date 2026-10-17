@@ -5,7 +5,11 @@
     "install": {
       "go": {
         "pkg-path": "go",
-        "version": "^1.26.5"
+        "version": "^1.26.8"
+      },
+      "python3": {
+        "pkg-path": "python3",
+        "version": "=3.14.7"
       }
     },
     "options": {
@@ -19,27 +23,27 @@
     {
       "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/l4h5brja9krijg49rjgqqwl41gallzyk-go-1.26.5.drv",
+      "derivation": "/nix/store/hw9s3y4ggwn2mnr4dpnlr3pzlq6pfc3d-go-1.26.8.drv",
       "description": "Go Programming language",
       "install_id": "go",
       "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=0e251e24a4f24e036a084b6b4b2d2491af4167f4",
-      "name": "go-1.26.5",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "name": "go-1.26.8",
       "pname": "go",
-      "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
-      "rev_count": 1053317,
-      "rev_date": "2026-08-13T05:33:33Z",
-      "scrape_date": "2026-08-14T04:59:51.719464Z",
+      "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "rev_count": 1090327,
+      "rev_date": "2026-10-11T15:54:36Z",
+      "scrape_date": "2026-10-13T05:00:30.318753Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "1.26.5",
+      "version": "1.26.8",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/4im44k446822ixjai0mdaizqskc90qxr-go-1.26.5"
+        "out": "/nix/store/isqxa82c7f65sbhi51npr0547yz87bh5-go-1.26.8"
       },
       "system": "aarch64-darwin",
       "group": "toplevel",
@@ -48,27 +52,91 @@
     {
       "attr_path": "go",
       "broken": false,
-      "derivation": "/nix/store/0gbv4dwd20dvc1ld7v7vmbym3wh5lvkp-go-1.26.5.drv",
+      "derivation": "/nix/store/mvzy81jgrz380qa717xzvl3k8a978shb-go-1.26.8.drv",
       "description": "Go Programming language",
       "install_id": "go",
       "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=0e251e24a4f24e036a084b6b4b2d2491af4167f4",
-      "name": "go-1.26.5",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "name": "go-1.26.8",
       "pname": "go",
-      "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
-      "rev_count": 1053317,
-      "rev_date": "2026-08-13T05:33:33Z",
-      "scrape_date": "2026-08-14T05:34:05.793571Z",
+      "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "rev_count": 1090327,
+      "rev_date": "2026-10-11T15:54:36Z",
+      "scrape_date": "2026-10-13T05:33:19.564559Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "1.26.5",
+      "version": "1.26.8",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/yjifjy7qjzm9jli8xhzwy3y6fzw84405-go-1.26.5"
+        "out": "/nix/store/3677bfwiaibp0fs0dxijmn8bsmkx31vx-go-1.26.8"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3",
+      "broken": false,
+      "derivation": "/nix/store/p745p2wn875yp2k6nf6rvpbmc6w6qcw9-python3-3.14.7.drv",
+      "description": "High-level dynamically-typed programming language",
+      "install_id": "python3",
+      "license": "Python-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "name": "python3-3.14.7",
+      "pname": "python3",
+      "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "rev_count": 1090327,
+      "rev_date": "2026-10-11T15:54:36Z",
+      "scrape_date": "2026-10-13T05:01:09.995657Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.14.7",
+      "outputs_to_install": [
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/0kcws5blwbdyxqxjd1w8hjipz61xny3k-python3-3.14.7"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "python3",
+      "broken": false,
+      "derivation": "/nix/store/nc0s5zggmm8vpkl48hg82hj96hvqcpcv-python3-3.14.7.drv",
+      "description": "High-level dynamically-typed programming language",
+      "install_id": "python3",
+      "license": "Python-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "name": "python3-3.14.7",
+      "pname": "python3",
+      "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+      "rev_count": 1090327,
+      "rev_date": "2026-10-11T15:54:36Z",
+      "scrape_date": "2026-10-13T05:34:16.586585Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.14.7",
+      "outputs_to_install": [
+        "out",
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/srgw0rb4aiyycf9xw3dv3y89q627lkzy-python3-3.14.7-debug",
+        "out": "/nix/store/81ag9nxz1flw3xjkv1vvqg8y2ipx2ins-python3-3.14.7"
       },
       "system": "aarch64-linux",
       "group": "toplevel",

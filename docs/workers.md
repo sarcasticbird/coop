@@ -1,0 +1,969 @@
+# GitHub workers
+
+An agent Coop can run an authenticated OpenCode server and a small GitHub worker
+as independent helper services. The terminal attaches to that server. Detaching
+the terminal leaves the server and worker running inside the VM.
+
+This is an opt-in backend for named agents. Interactive Coops and profiles with
+an ordinary terminal command keep their existing behavior and mounts.
+
+## QA source helper
+
+`coop-worker qa-source-digest --archive /absolute/source.tar.gz` is an offline
+helper: it needs no worker configuration, credentials or network access. Download
+the head-pinned source archive from `Job.QAArtifact.URL`, then run:
+
+```sh
+coop-worker qa-source-digest --archive /absolute/source.tar.gz
+```
+
+The command prints one lowercase SHA256 digest followed by a newline. Compare it
+exactly with `Job.QAArtifact.SHA256` before testing that source bundle. This is the
+`source-bundle-v1` canonical digest used by artifact binding, not the raw archive's
+`sha256sum`: generated archive roots and volatile tar headers are excluded, while
+sorted paths, modes, link targets and file bytes are included. The archive must
+be a regular file, not a symlink; compressed input is limited to `MaxAPIPage`
+(2 MiB), with the same archive validation and expanded limits as artifact binding.
+Invalid, oversized or unreadable input fails without printing a digest.
+
+This helper is for source artifacts only. For binary/workflow artifacts, download
+the exact immutable artifact archive, verify its native archive SHA256 against
+`Job.QAArtifact.SHA256`, and test those bytes. Never substitute a local rebuild.
+
+## Runtime and private configuration
+
+Build `cmd/coop-worker` for Linux arm64 through the repository's Flox environment.
+Keep each worker JSON configuration in the private machine branch of dotfiles,
+alongside its Coop profile. Do not put credentials or private goal text in this
+public repository. The example in `examples/worker.json` contains placeholders.
+The neutral v2 example is [worker-team.json](../examples/worker-team.json).
+See [scheduler artifact preparation](scheduler-artifacts.md) for the v1/v2
+compatibility table, offline validation, build/digest evidence and maintenance
+recovery boundaries. That guide does not authorize live activation.
+GitHub App signing keys remain on the host; guest operations use the existing
+renewable installation-token helper. Provider logins remain in native OpenCode
+storage. The server generates its password in the guest, mode 0600.
+
+The worker configuration names immutable human/bot account IDs, code owners,
+Discussion backing repositories, Project owners or explicit Project selectors,
+an explicit provider/model, private state and checkout roots, and bounded limits.
+Use `repositories` and explicit `projects` for isolated acceptance fixtures;
+otherwise repository and Project catalogs refresh automatically. Robin's role is
+`implementer`; Hawk's is `planner`. Hawk needs Project write access, while Robin
+only needs read access. A repository's `checkout_modes` value can be `wt` when it
+uses the shared bare-repo workflow. Install `wt` before selecting that mode.
+
+### Versioned team policy foundation
+
+Existing deployments use configuration version 1. Its fixed roles, metadata,
+approval rules and state format are unchanged. Version 1 rejects a `team` field.
+
+Configuration version 2 validates a required `team` policy (also version 2),
+with stable lowercase member names, immutable bot IDs, capabilities, a qualified
+planner and explicit independent engineering peers. Capabilities are exactly
+`plan`, `implement`, `engineering-review` and `customer-qa`. The configured
+`name` and `self` must identify the same roster member. Legacy `role`,
+`implementer` and `reviewer` authority must be absent or empty, not a second
+source of assignment. Adding another qualified engineer requires configuration,
+not source identity changes.
+
+The v2 metadata validators use `coop-goal:v2`, `coop-task:v2` and `coop-pr:v2`.
+Goal metadata includes repository scope and `qa`. Trusted owner/planner task
+metadata includes `goal`, `scope_sha256`, `depends_on` and a version-2
+`assignment`. Assignment fields are `author`, `peer`, optional `qa`,
+`goal_body_sha256`, `task_body_sha256` and `policy_sha256`. PR metadata includes
+canonical `task`/`goal` URLs and `assignment_sha256`. Digests bind current body
+hashes, policy, canonical references and resolved immutable actor IDs; mutable
+logins and Project card fields cannot grant authority. Unknown JSON fields,
+duplicate keys/set entries, mixed metadata versions and stale hashes fail closed.
+An owner-approved goal body is still required; planner assignment cannot approve
+or relax a goal. Required customer QA binds acceptance and authorized environment
+revisions to the independent assigned QA actor and tested artifact.
+
+Version 2 explicitly selects the team runtime. Startup requires compatible saved
+state and its matching wake fence, even when wakes are disabled. It never converts
+or initializes storage automatically. Source coverage does not authorize live
+cutover; follow the controlled acceptance packet and preserve historical v1
+state, claims and completed jobs without assigning them new roster authority.
+
+Guest paths:
+
+| Path | Purpose |
+| --- | --- |
+| `/usr/local/libexec/coop-worker` | Worker binary |
+| `/usr/local/libexec/coop-opencode-{server,attach,launch}` | Checked launchers |
+| `/var/lib/coop/worker/config.json` | Private configuration |
+| `/var/lib/coop/worker/state/` | Checkpoints, lock, pause control and safe status |
+| `/var/lib/coop/opencode/server-password` | Guest-local server authentication |
+| `/workspace/worker/` | Owned task checkouts, separate from manual work |
+
+Stage artifacts with `scripts/install-agent-worker.sh NAME /absolute/linux-binary
+/absolute/private-worker.json`. The installer requires an already-running,
+unshared VM, verifies architecture/checksums/configuration and preserves original
+managed artifacts before replacing them. It refuses independent guest changes.
+It does not start services or change profiles. Keep a cold VM backup before a
+cutover. Apply profile changes through Coop's supported down/apply/up lifecycle.
+
+Installation is serialized with a guest-local lock. Before replacing any live
+file, the installer durably publishes `worker/install-pending/` with verified
+before/after files, identity and manifests. A retry first verifies that every
+live file is an expected member of those two generations, then finishes that
+saved transaction before staging the requested package. It rejects independent
+content, mode, ownership or symlink changes rather than overwriting them.
+Failures leave the transaction and its prior-generation files intact; successful
+transactions are retained in private `worker/install-history.*/generation/`
+directories. Existing `install-before/` material is not removed. Do not delete
+the manifest or recovery directories to bypass a refusal; preserve the evidence
+and investigate the conflicting artifact.
+
+For a first v2 worker in an existing manual OpenCode Coop, use
+`scripts/install-agent-worker.sh --adopt-matching-launchers NAME BINARY CONFIG`
+only after a verified cold backup and with services/producers fenced. This mode
+requires exactly the three existing launchers to match the incoming reviewed
+bytes, root ownership and mode 0755. Worker binary, configuration, manifest and
+state must be absent. Prior installation evidence, unsafe links and state paths
+that overlap installation files or transaction storage refuse unchanged.
+The transaction preserves and hashes the original launchers before publishing
+the complete managed generation. A pending adoption requires the explicit flag
+and the same package; a completed installation uses the normal upgrade path.
+It does not initialize state or start services. Never delete working launchers
+or manufacture a manifest to make the default installer accept them.
+
+The guest uses file/filesystem syncs before and after publication renames, but
+the files span destination directories and are not exposed as one atomic set.
+Keep services stopped during installation and do not start them after a failed
+attempt until retry succeeds. The installer does not stop or restart live
+services itself. Local regression tests exercise SIGKILL and command failures
+against isolated filesystem fixtures; they do not simulate loss of kernel caches
+or prove the native VM/storage stack's power-loss behavior.
+
+Example profile commands, retaining existing resources, credentials and seeds:
+
+```toml
+[profiles.example]
+command = ["/usr/local/libexec/coop-opencode-attach"]
+restart = "always"
+
+[profiles.example.services.opencode]
+command = ["/usr/local/libexec/coop-opencode-server"]
+
+[profiles.example.services.worker]
+command = ["/usr/local/libexec/coop-github", "env", "--", "/usr/local/libexec/coop-worker", "run", "--config", "/var/lib/coop/worker/config.json"]
+```
+
+The server binds to `127.0.0.1:4096` and requires Basic authentication. Helper
+startup order is unspecified. The worker waits for readiness, and the attach
+client waits up to 30 attempts. With `restart = "always"`, exiting the client
+reopens it after two seconds; this does not restart the server. Press `Ctrl-b`,
+release, then `d` to detach tmux. Copy uses terminal selection or tmux copy mode;
+OSC 52 clipboard integration needs a compatible host terminal and explicit tmux
+configuration during onboarding.
+
+## Goals and work admission
+
+A Discussion or private issue describing a goal includes repository scope:
+
+```html
+<!-- coop-goal:v1 {"repositories":["example/project"]} -->
+```
+
+The configured human owner approves in the goal Discussion with a standalone
+`/coop approve` comment or a clear unconditional statement such as `approved`,
+`I approve this goal`, or `this looks good to me`. Quoted, conditional and
+ambiguous comments do not approve work. Agents use the worker's verified approval
+decision, not their own interpretation of a conversation.
+`/coop pause`, `/coop resume`, `/coop reject` and `/coop complete` control that
+goal. Approval is bound to the current goal body and edit timestamp. Editing the
+body requires renewed approval. Host bootstrap approvals are a separate explicit
+owner-confirmed configuration, not a bot's claim that a goal is approved.
+
+Catalog admission and fresh revalidation require two matching full comment scans
+bracketed by matching goal body/edit versions. A body edit or changed decision
+during those reads fails closed until a later poll obtains a coherent version.
+These are optimistic GitHub reads, not a lock on subsequent owner activity;
+revalidation still runs immediately before a selected job is submitted.
+
+You can also approve from your Mac through Coop:
+
+```sh
+coop --agent hawk approve https://github.com/example/coordination/discussions/3
+# Old threads without repository scope need an explicit scope once:
+coop --agent hawk approve https://github.com/example/coordination/discussions/3 --repo example/project
+```
+
+This uses your existing host `gh` login and verifies that it matches the configured
+human owner. It records approval on the Discussion, bound to its exact body and
+repository scope. It never sends your credentials into a VM or starts a stopped
+VM. Both agents see the same decision on their next poll. Ping remains a way to
+send a prompt; a ping alone does not approve a new goal.
+
+Hawk includes repository scope in each new proposal before asking for approval.
+For an approved goal, Hawk can repair task/PR links and maintain Project state
+from a planning or conversation turn. Robin can repair her own PR's tracking
+metadata. These administrative changes let the scheduler dispatch review or
+delivery; they do not permit code changes or merges in conversation sessions.
+Metadata changes that invalidate a prior review require a fresh Hawk review.
+
+Hawk can propose goals and plan within approved goals. A task needs trusted
+metadata from Hawk or the owner, matching its current title/body hash and linking
+its goal/dependencies. The helper prints correctly escaped metadata:
+
+```sh
+/usr/local/libexec/coop-worker task-metadata --config /var/lib/coop/worker/config.json \
+  --task https://github.com/example/project/issues/4 \
+  --goal https://github.com/orgs/example/discussions/1
+```
+
+Publish the comment, then mark its Project item Ready. Dependencies must already
+be completed. Title/body changes invalidate task metadata. Work claimed manually
+is not silently adopted. Worker-created claims identify the worker instance.
+
+Robin opens PRs with `coop-pr:v1` metadata linking `task` and `goal`. Hawk reviews
+the exact head SHA in an independent checkout and submits a formal review.
+Review freshness also binds the canonical PR/task/goal links and trusted task
+metadata. Catalog reads and fresh revalidation scan GitHub's durable PR body-edit
+history before and after reading reviews, comparing complete history including
+edit IDs and order, then verify the body version/head again. Whole-second body
+timestamps alone cannot rule out same-second changes that restore the old links.
+Settled histories may contain equal timestamps in their durable newest-first
+order; a review in that same second remains unproven and requires a later verdict.
+Changing either link, including restoring old links or repairing missing/invalid
+metadata, requires a review strictly after the latest scope transition. Restarts
+and edits made entirely between polls do not reset this boundary. The scope
+revision also distinguishes dedicated review jobs at the same head.
+
+Comments, check updates and other unrelated PR activity do not invalidate reviews.
+Body prose edits or JSON formatting changes preserve the continuous canonical
+scope visible in edit history. GitHub does not expose the original pre-edit body:
+for edited PRs, reviews before the oldest known matching body version cannot be
+proven in scope and require re-review. Unedited PRs use their creation time.
+Unavailable, deleted, inconsistent or ambiguous history fails closed; no poll-local
+cache or current-link hash substitutes for that evidence. This is optimistic
+read validation, not a lock against subsequent GitHub edits or review changes.
+Already-merged PR issue finalization still checks current tracking and repository
+identity without requiring a new review or historical review-scope evidence.
+
+Every automated turn receives its configured agent name, bot identity and role
+separately from quoted GitHub input. A planning input that links a PR also carries
+a review handoff for its current head. Posting "Hawk will review next" does not
+complete that handoff. Completion needs a verified current-head formal review,
+a closed PR, or a reply acknowledging the current admission blocker with the
+supplied `BlockerMarker` and planning `ResultMarker`. Blocker markers bind the
+job, PR, head and reason; a stale marker cannot excuse a newly available review.
+Ordinary planning messages without PR links retain their existing reply flow.
+Reviewable handoffs dispatch through the dedicated review checkout and session
+before planning resumes. A planning turn that discovers a newly available review
+yields its slot without consuming a retry as a failed attempt.
+
+An implementer PR without task/goal metadata remains visible for diagnostics.
+Status reports `pr_metadata` and dry-run names the affected PR. Observation does
+not admit the PR or silently adopt manual work. Its goal approval and task/PR
+metadata still need to be established before automatic review/fix/delivery.
+
+Changes requested return to Robin; a new head returns to Hawk. Delivery requires
+Hawk's current-head approval, successful checks and GitHub's CLEAN merge state.
+An explicitly absent check rollup also permits delivery when GitHub reports
+CLEAN. Unknown, pending or failed checks still block delivery. An approved goal
+does not need additional owner approval for routine merges within its scope.
+After a merge, Robin reconciles the issue as completed before Hawk marks the
+Project item Done. Cancelled issues stop implementation. A busy saved session
+holds automation for manual takeover without changing its checkout or aborting it.
+Verified completed deliveries also schedule one Hawk planning handoff to reconcile
+the Project and advance eligible dependent work. The normal job ledger suppresses
+repeat turns. This uses merged-PR/completed-task evidence within an approved goal;
+it does not reset conversation reply limits or grant new goal approval. A status
+promise alone cannot complete the handoff: board Done and eligible dependent
+queue progress must be observed.
+New goals/projects wait for owner approval. Agents coordinate through GitHub;
+terminal messages are not needed for routine handoffs.
+
+## Controls and recovery
+
+```sh
+coop --agent robin status
+coop --agent robin worker status
+coop --agent robin worker pause
+coop --agent robin worker resume
+```
+
+These controls require a running VM and never acquire credentials or start one.
+Inside the guest, inspect the worker's safe status with:
+
+```sh
+/usr/local/libexec/coop-worker status --config /var/lib/coop/worker/config.json
+systemctl status coop-helper@worker.service --no-pager
+systemctl status coop-helper@opencode.service --no-pager
+```
+
+The helper units use Coop's `coop-helper@.service` template. There is no
+`coop-worker.service` unit. Unit status proves the process is running; worker
+status also reports the last GitHub poll, server health and admission wait reason.
+
+Pause reconciles the worker's exact message before attempting a session abort.
+The same guard covers deadlines, permission blocks, revoked approval and wake
+interruptions. A terminal worker reply is reconciled even if a later manual turn
+has made the session busy; no abort is sent in that case. Missing messages (including
+404), unreadable history, a foreign session, or a newer user message without a
+terminal worker reply leave ownership uncertain and retain the active slot with
+retry backoff, rather than cancelling manual work or replaying the worker prompt.
+The bounded history window may require operator reconciliation for old messages.
+These are optimistic reads: OpenCode 1.18.18 exposes session-wide abort, not an
+atomic message-conditional abort. A takeover concurrent with the final ownership
+read and abort request is not protected by a server-side lock; pause automation
+and let its active turn settle before starting manual work in the same session.
+Resume clears local pause; it cannot override a goal paused on GitHub.
+Safe status reports heartbeat, server
+health, active task, submission state and reasons such as owner approval, review,
+retry or unknown submission. A heartbeat older than two minutes is stale.
+
+`actor` identifies the configured immutable worker actor. `current` separates the
+assigned role, workflow stage (such as fix or deliver), execution phase, exact
+task/goal/PR/head, author, engineering peer and required QA actor. Model selection
+is saved with message intent before submission; native assistant identity is
+reported separately only after observation. Participant fields are omitted if a
+saved assignment no longer matches current authoritative metadata.
+
+Idle blockers are derived from current scope and admission, not every failed job
+in the ledger. `historical_jobs` counts superseded/completed records; `dry-run`
+keeps full saved records under `current` and `history`, apart from new admitted
+`jobs` and current `blocked` reasons. History is never deleted to clear status.
+`last_error` is the last diagnostic event, not proof of a current blocker. An old
+claim cannot move a completed card back to In Progress; cancelled cards are not
+treated as successful delivery.
+
+The worker polls GitHub, normally every minute with jitter. Catalog scans run
+independently of active-turn observation and local pause. GitHub rate limits and
+server outages back off visibly. Unchanged idle polls do not invoke a model.
+Each task retains its checkout and session across review heads and worker
+restarts. Persisted message intent prevents blind replay after a lost response.
+An uncertain submission or abort holds the active slot until reconciliation.
+Model prose alone never proves completion; later GitHub artifacts do.
+
+A failed task checkpoint stops the worker with `checkpoint_failed`. The worker
+reloads the stored ledger for inspection when possible and exits rather than
+continuing with uncommitted jobs, counters, or session bindings. Correct the
+storage problem before restarting; do not delete or reset the ledger. A save can
+report failure after replacing its file, so restart reconciles any saved message
+intent without blindly submitting it again. This fail-safe does not abort the
+OpenCode turn: it may already have been accepted and must retain its identity.
+Wake receipts and routing are read afresh from storage on each operation; failed
+writes likewise never authorize replay of a persisted running intent.
+
+Only worker-owned sessions receive unattended permissions. Existing explicit
+deny rules are preserved, interactive questions and credential-dump operations
+are denied, and unresolved tool permission requests block visibly. The VM still
+grants the agent root authority; these rules reduce accidental disclosure.
+
+Stopping the VM or sleeping/offlining the host stops monitoring. Restart rejoins
+the saved task/session and refreshes GitHub before dispatch. No launchd timer or
+remote host wake is installed.
+
+## Queued pings and Discussion replies
+
+Worker v2 is opt-in. The implementation and local artifacts are available in
+this feature checkout; installed guests keep their current behavior until the
+private configuration and worker binary are applied and the worker is reloaded.
+The OpenCode server and terminal attachment are unchanged.
+
+Add this to each agent's private worker.json in your private dotfiles repo:
+
+```json
+"wake": {
+  "enabled": true,
+  "coordination_url": "https://github.com/orgs/YOUR_ORG/discussions/1",
+  "peer_hop_limit": 2
+}
+```
+
+The coordination Discussion must be in the configured Discussion scope. Missing
+or disabled wake configuration preserves v1 behavior. The default peer limit is
+two; supported limits are 1 through 8.
+
+To restrict new Discussion work to specific threads, add `discussion_urls` to
+the private worker configuration:
+
+```json
+"discussion_repositories": ["YOUR_ORG/coordination"],
+"discussion_urls": ["https://github.com/YOUR_ORG/coordination/discussions/1"]
+```
+
+Omitting `discussion_urls` or using an empty list keeps board-wide intake. A
+nonempty list applies to planning, tasks linked to Discussion goals, mentions,
+replies and queued pings. Each URL must name a repository Discussion on a
+configured board. The list accepts at most 64 entries and rejects duplicates,
+organization aliases, query strings, fragments and wildcards. A configured
+`wake.coordination_url` must also be selected. Boards without a selected URL
+are skipped; an unreadable or missing selected thread fails the poll.
+
+Pause new admissions and let active work drain before changing this setting.
+Excluded queued requests and pending block reports, including task, planning
+and prompt-size reports, remain held with their saved records intact until
+intake includes their Discussions. Widening intake makes unprocessed input
+eligible through the usual approval, assignment and review gates. Completed
+history and migration evidence remain readable. Changing only `discussion_urls`
+preserves the wake history baseline. Issue goals keep their existing behavior.
+
+Changing `wake.coordination_url` or other existing wake policy settings creates
+a new baseline. This includes replacing an organization-style Discussion alias
+with the repository URL for the same thread. The next complete poll treats
+then-current comments as history, so comments that have not yet been queued may
+not generate wakes. Existing queued requests and receipts remain intact.
+
+```sh
+coop --agent robin ping
+coop --agent hawk ping --prompt 'Please explain the current review queue.'
+coop --agent robin worker requests
+coop --agent hawk worker status
+```
+
+Ping requires a running VM and a fresh, running, wake-enabled worker. It queues
+behind active work and respects local pause and GitHub backoff. It never starts a
+VM or resumes a worker. Prompt text travels to the guest as structured stdin;
+ordinary status and request summaries omit it. An optional `--request-id` takes
+a 64-character lowercase hex idempotency key for retries. Reusing that key with
+different input fails. Without a key, identical prompts coalesce while queued;
+a new ping after completion remains new work. For shell metacharacters, use
+normal single-quote shell quoting, as above.
+
+Each complete GitHub poll finds mentions of the exact configured bot handles,
+case-insensitively, with or without `[bot]`. It also finds replies whose actual
+GitHub parent is one of those bots. An explicit mention takes precedence over
+an implicit parent recipient. Quoted examples and code do not address an agent.
+Only the configured owner and agent identities can trigger a wake, verified by
+immutable GitHub ID and type. An agent's own message cannot wake itself.
+
+The first complete poll records a history baseline without answering old
+messages. Later restarts catch up on unread revisions. Meaningful edits create
+new requests; outer whitespace and CRLF changes do not. Directed messages do not
+also start Hawk's general planning turn. GitHub flattens replies under a root
+comment; agents reply within that verified root thread and reference the source
+permalink when needed.
+
+Conversation can answer questions, propose work and report approval or metadata
+blockers. It does not approve new goals or authorize implementation, formal
+review or merging. Those actions use the existing admitted task jobs. One worker
+turn runs at a time. At idle, one eligible fix/review/delivery job may precede the
+oldest queued wake; that allowance survives restart. Further work waits for the
+wake. Worker-owned coordination sessions are separate from task checkouts.
+
+A wake completes only after the native turn ends and a substantive Self reply
+with its request marker is found in the intended GitHub thread. Unknown submits
+retain their exact native message ID and active slot. The worker reconciles
+before retrying. Marker-only comments and planned actions are not completion.
+Peer messages inherit a durable per-thread budget, even without a marker. Only
+new owner input starts a fresh chain. No automatic enqueue/completion reply is
+posted. Suppressed peer messages are recorded privately without another reply.
+
+Requests, receipts and routing live under `STATE_DIR/wake/v1` with private file
+modes. V1 state.json/control.json retain their schemas. Rolling back the worker
+binary/config leaves accepted wake inputs and native conversation history in
+place; do not restore an entire old native history directory. The queue holds
+at most 128 nonterminal requests and 10,000 retained requests; reaching either
+limit fails visibly. Ordinary summaries show at most the latest 20 requests.
+Inside the guest, an exact redacted lookup is available:
+
+```sh
+/usr/local/libexec/coop-worker requests --config /var/lib/coop/worker/config.json --request-id HEX_ID
+```
+
+Use guest `coop-worker validate`, `preflight` and `dry-run` before activation.
+Preflight checks server/API/model compatibility without a model call; dry-run
+reads GitHub and prints admitted jobs/reasons without claims or model dispatch.
+Keep reports private because dry-run includes repository/task identifiers.
+
+## Model Variants
+
+`model` remains an explicit `provider/model` selection. Optional
+`model_variant` selects an exact runtime variant name, for example `high`;
+omitting it preserves existing v1/v2 behavior and OpenCode's default selection.
+Do not encode the variant in the model name or assume that a reasoning label
+is supported by every model.
+
+Explicit variants require the verified OpenCode 1.18.18 contract:
+[API schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/openapi.json)
+and [prompt implementation](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/opencode/src/session/prompt.ts).
+The prompt field is top-level `variant`; persisted user messages use
+`model.variant`, while assistant messages use top-level `variant` alongside
+`providerID` and `modelID`. Session creation uses `model.variant` with `id`
+rather than the prompt's `modelID`.
+
+Variant preflight verifies the deployed schema and `/config/providers` catalog,
+then creates a disposable `coop-model-preflight` session in the checked directory,
+sends an async `noReply: true` message, and reads its exact persisted message ID.
+The verified implementation saves the user message and returns before entering
+the model loop. Missing, changed,
+or silently dropped selections block preflight and real prompt submission;
+the disposable session is deleted even on failure. A cleanup failure also
+blocks a successful preflight. No worker or manual session is used for probing.
+Unlike default preflight, explicit-variant preflight therefore writes temporary
+native session/message records, but makes no paid model call. Startup preflight
+checks the work root. Each actual submission repeats catalog and probe checks in
+the execution checkout, whose project configuration may expose different variants.
+
+Submission reports the requested model separately from the executed identity
+read from owned, non-summary assistant metadata. An accepted async HTTP request
+does not prove execution. Missing or mismatched assistant metadata for an
+explicit persisted variant fails reconciliation rather than claiming success.
+This model policy does not prevent aborting a proven-owned running turn; a later
+manual turn still prevents the session-wide abort.
+Manual replies and compaction summaries do not establish the worker's executed
+identity. Native metadata is not independent verification of the upstream
+provider's effective reasoning effort or billing behavior.
+
+## Existing guest Flox migration
+
+Existing VMs can retain an older Flox that cannot parse current project manifests.
+`scripts/upgrade-agent-flox.sh NAME stage|apply|rollback` stages pinned Flox 1.18.1
+in `/opt/coop-flox-upgrade` using its official immutable Nix flake. Stage checks
+core tools in a separate environment copy and runs the real `to` test/build
+commands in an isolated validation checkout. The pinned source reports version
+`1.18.1-gf264cf2`. These root guest images use single-user Nix without a `nixbld`
+group; the migration scopes that setting to its invocations and guest bootstrap.
+Apply preserves the verified guest bootstrap, prepends the candidate
+to its PATH, verifies effective resolution and restores the prior bootstrap on
+failure. Rollback restores the before-copy after checking both revisions.
+Apply requires a maintenance window with the old core activations stopped;
+Flox refuses mixed-version activation of the same environment. Stage leaves
+those activations running and never applies the new bootstrap implicitly.
+
+The script leaves the default Nix profile, Nix daemon and repository image assets
+unchanged. It requires explicit operation on a running named VM. Keep the staged
+closure, checksum/version evidence and cold backup until live acceptance passes.
+For future VMs, perform this onboarding before enabling worker services; this
+delivery deliberately preserves the existing image fingerprint.
+
+## Prompt size failures
+
+Worker and wake prompts have a 32,768-byte UTF-8 limit. The worker measures the
+complete outgoing prompt after JSON escaping, framing and the daily-proposal
+restriction. Required identity, approval, current goal/task, source message and
+exact-head review facts are never truncated to fit.
+
+Planning includes the selected full goal once and a compact index of other goals.
+The index preserves URLs, repositories, versions and evaluated approval; it does
+not authorize administration of those other goals in this turn. A `BodyRef` points
+to the complete supplied goal body when a source repeats that exact text.
+There are no optional background excerpts in this format. All included sections
+share the final byte budget; excessive required context fails closed.
+
+An oversized prompt is blocked as `prompt_size` before model submission, without
+consuming an execution attempt or retrying unchanged input. `worker status` shows
+`prompt_failure` for a blocked task. `worker requests --request-id ID` shows the
+same diagnostic for a wake. Diagnostics contain the actual byte count, limit,
+job/request ID, source Discussion/goal URL and per-section byte counts, without
+quoted bodies or credential information. A marked report in the existing source
+thread explains the failure once. Wake report retries have bounded backoff and
+the configured attempt limit, independently of model execution attempts. Fresh
+eligible requests take precedence over stale reports. Terminal size failures do
+not consume pending queue capacity. Retrying a report does not retry the model.
+
+Use the section counts to identify required context that needs to be split into
+separate scoped inputs. Preserve the blocked job/receipt and its claims and
+session evidence. Do not clear the ledger, replay an uncertain turn, weaken the
+approved goal, or request redundant approval. A new eligible source revision or
+distinct supported ping can derive normal new work. Authorization failures still
+have their own scope/approval reasons; `prompt_build` identifies a different
+prompt-construction failure.
+
+The new reader accepts existing state and receipts. The optional `PromptFailure`
+and `PromptReportAttempts` job fields are emitted only for size failures and
+their wake report attempts. Previous strict readers
+reject records containing it, so a rollback must retain a compatible reader or
+reconcile/archive newer records explicitly. Never delete records to make an old
+binary start. Wake receipts use the existing 16 MiB snapshot ceiling for lossless revalidated
+sources, session identity and diagnostics, including JSON escape expansion; inbox requests remain limited to 32 KiB. Older readers
+also reject receipts above their former limit. Deploy the worker and matching
+status/request CLI together during an authorized maintenance window.
+
+## Validation timeouts
+
+Fresh pre-dispatch GitHub validation has a one-minute total budget for the
+coherent goal, task, dependency and PR reads. Individual API calls retain their
+30-second limit, and shorter caller deadlines still apply. Expired or incomplete
+validation prevents model submission. This budget does not relax scope, approval
+or exact-head checks.
+
+## Automatic conversation compaction
+
+With OpenCode 1.18.18, the worker recognizes a native automatic compaction,
+its completed summary, and the explicitly marked synthetic continuation as
+part of the saved turn. Only the continuation's actual terminal response can
+complete that turn; a summary or idle session alone cannot. Required GitHub
+artifacts are still reconciled normally. Genuine later user input remains
+protected from worker aborts.
+
+History reads expand from 20 to at most 320 messages in three bounded requests
+when the saved parent is outside the initial tail. Native saved-message and
+history responses have a separate 16 MiB wire limit because OpenCode includes
+diff summaries and tool output. The worker retains only ownership metadata and
+the boolean compaction-summary marker, discarding diff-summary contents. Other
+OpenCode responses and GitHub pages retain their 2 MiB limits. Responses above
+the native limit still enter bounded recovery without replaying a prompt.
+Missing or ambiguous lineage,
+unmarked continuations, and media-overflow replay remain explicit reconciliation
+failures rather than permission to replay input or clear ownership.
+
+## Reconciliation Recovery
+
+Task and wake intents enter durable `recovery` after `limits.max_attempts`
+consecutive failed native observations, ownership-safe aborts, or terminal
+artifact reconciliation attempts. In production asynchronous mode, failed snapshot
+polls count when the exact active task or wake is known to be terminal (or native
+observation itself fails). The terminal marker and failure budget survive restarts,
+including when the first failed poll arrives before terminal observation. Pre-turn catalog
+outages and catalog outages during a confirmed running turn remain degraded
+without consuming this recovery budget. Pending polls are not failed attempts.
+Successful reconciliation resets this separate failure counter; model execution
+attempts are not charged. Failed attempts wait
+`limits.retry_base` before another reconciliation, including across restarts.
+A native HTTP 404 is
+reported as `native_record_missing`, separately from transport/API outages. Both
+are retried within the same bound: a missing message may be temporary, and it
+never proves that the original POST or its external effects did not happen.
+
+Recovery is an explicit operator escalation, not an execution retry. It removes
+the intent from the active-turn loop, preserves its original session, message,
+checkout, branch, submission state, deadline, claim and external artifacts, and
+holds **all new task and wake dispatch**. This conservative global hold is
+intentional: the lost record may describe an executing turn, so freeing capacity
+for another turn is not safe merely because observation failed. `status` exposes
+`wait_reason: reconciliation_required` and the exact `recovery_intent`, including
+the last categorized failure and durable count. No repeated abort, model POST,
+or GitHub blocker-comment loop runs in this state, including after restart.
+
+To retry reconciliation after repairing connectivity or recovering native server
+records, stop the worker service and inspect the saved intent, native session,
+checkout, PR/review/merge and Discussion artifacts. Do not delete the ledger,
+reset a claim, or create replacement input to escape a missing-message error.
+Then use the exact IDs shown by status:
+
+```sh
+coop-worker recover --config /absolute/private/worker.json \
+  --job-id EXACT_JOB_OR_WAKE_ID --session-id ses_EXACT --message-id msg_EXACT
+```
+
+The command requires the worker's exclusive lock and exact saved recovery
+identity. Pause alone does not release the lock. It resets only reconciliation
+failure diagnostics and resumes the **same** intent, never resubmitting it.
+Restarting the service then uses normal observation and artifact reconciliation;
+expired or revoked work uses the existing ownership-checked abort, never a blind
+session-wide cancellation. Later manual turns remain protected by that ownership
+check and its documented native API concurrency limitation. If records remain
+unavailable, bounded attempts return to recovery. This command is not a force
+clear, artifact-completion override, or permission to replay uncertain work;
+irrecoverable native history remains escalated for operator investigation.
+
+## Offline state compatibility
+
+Worker ledger versions are explicit. A v1 configuration reads and writes only
+v1 state; a v2 configuration reads and writes only v2 state. Loading state never
+upgrades it. Runtime startup requires initialized, fenced storage. Conversion
+does not start a worker or authorize live activation.
+
+For a first v2 worker with unused storage, run the explicit offline command:
+
+```sh
+coop-worker init-state --config /absolute/private/worker-team.json
+```
+
+This creates one stable instance through the same immutable backup, producer
+fence and verified migration journal as existing-worker conversion. It requires
+unused storage under the worker lock. Any existing history, queued input or
+partial initialization refuses unchanged; inspect evidence instead of retrying
+or deleting files. Keep service and producer startup fenced during this operation.
+
+The configured v2 planner can generate first task metadata with
+`task-metadata --config PATH --task URL --goal URL --author MEMBER_NAME`:
+
+```sh
+/usr/local/libexec/coop-env /usr/local/libexec/coop-worker task-metadata \
+  --config /var/lib/coop/worker/config.json \
+  --task https://github.com/OWNER/REPO/issues/2 \
+  --goal https://github.com/PLANNING/BOARD/discussions/1 \
+  --author builder --depends-on https://github.com/OWNER/REPO/issues/1
+```
+
+`--depends-on` is repeatable and optional for this first-assignment form. The
+helper derives the configured independent engineering peer, goal-required QA,
+approved base branch and current hashes. It requires a fresh complete snapshot,
+an approved in-scope goal, an open task with explicitly verified empty native
+assignees, and no existing trusted assignment, claim or bound PR. The first-author
+helper separately reads a stable, bounded all-state PR history for this task's
+repository, including closed and merged PRs. Incomplete, changing or ambiguous
+history refuses; routine polling keeps its existing open-PR catalog. Dependencies
+must be distinct readable issue URLs in the same repository with no cycle.
+An unfinished prerequisite is allowed in metadata; it still blocks admission.
+Native GitHub assignees signal conflicting ownership and never grant authority.
+
+The output is one separate issue comment, not an issue-body edit or a GitHub
+write. Finish the issue title/body first, generate metadata, check for an
+existing matching trusted comment, publish once with the planner identity and
+read back the actual comment and unchanged scope. Reconcile an uncertain write
+before retrying. Once prerequisites are complete, select the configured
+Project `ready_value` and verify the board. Do not set `in_progress_value`
+before the worker owns its claim. These option names may differ by Project.
+
+The previous private-file form remains supported:
+`task-metadata --config PATH --task URL --goal URL --assignment PRIVATE_JSON`.
+The mode-0600 assignment file contains the complete version-2 assignment described
+above, bound to current task, approved goal and team-policy hashes. Output is a
+comment for explicit publication, not a GitHub write or owner approval. Existing
+assigned work must omit both `--assignment` and `--author` and use the preserving
+repair path. `--author` cannot be combined with `--assignment`; dependency flags
+cannot modify existing assignments. Neither helper form approves a goal.
+
+### Default ping destination continuity
+
+V2 routing records include optional `ContinuitySHA` evidence that excludes only
+the default ping destination from the existing wake-scope digest. Owner, worker,
+roster, aliases, Discussion repositories and peer-hop policy still participate.
+Task/goal/assignment authority digests are unchanged.
+
+Upgrade matching host and guest readers first with the exact installed private
+configuration. Let a successful poll seed continuity while the saved legacy
+scope still matches. Verify that seeding completed before changing
+`wake.coordination_url`. A destination-only change then preserves unread
+sources, seen revisions, suppressed peer replies, chain budgets and session
+bindings. Queued pings keep their original destinations; only new pings use the
+new default. Keep old destinations in intake while requests still reference them.
+
+A legacy routing record with no continuity evidence and a mismatching scope
+refuses unchanged. Restore the exact previous configuration to seed it; never
+clear the ledger or manufacture continuity evidence. Real identity or policy
+changes retain their existing fresh-baseline behavior. Invalid stored evidence
+refuses. V1 behavior and writes remain unchanged. Older strict readers reject
+the new routing field; this is not a supported downgrade. Preserve backups and
+distribute compatible readers together through the controlled rollout process.
+
+The supported conversion is one-way, offline, and bound to the exact saved
+`InstanceID`. With separately authorized stopped/drained workers and fenced
+producers, use a private, validated v2 configuration pointing at the existing
+state directory:
+
+```sh
+coop-worker migrate-state --config /absolute/private/worker-v2.json \
+  --from 1 --to 2 --expected-instance EXACT_SAVED_INSTANCE_SHA256
+```
+
+This task does not authorize running that command on live state. The command
+does not stop/start services, contact GitHub/OpenCode, change credentials, or
+inspect/modify native session history or checkouts. The operator must establish
+that manual sessions are drained too; local ledger validation cannot prove that.
+
+Conversion acquires the worker and wake-producer locks without waiting. It
+validates the entire managed store, rejects foreign instances/targets, unknown
+records, invalid sessions, active/preparing/recovery turns and uncertain message
+evidence, and preserves queued input. The private `migration-backup.json` is an
+immutable JSON map of relative paths to base64-encoded original bytes, including
+state, control, diagnostic status when present, and every wake record. Input is
+bounded to 128 MiB and the encoded backup to 256 MiB. The command rereads the
+backup before publishing a durable `migration.json` inspection hold. Under both
+locks it publishes an instance-bound `wake/v1/inbox/version.json` compatibility
+fence before atomically replacing `state.json`. It verifies the fence, all
+retained files and backup bytes, then marks the migration verified. Files are
+mode 0600 inside mode-0700 directories.
+
+Conversion also clears an existing v1 routing baseline acknowledgement under
+the migration inspection hold. The first complete v2 poll establishes a fresh
+team baseline without replaying historical mentions. The backup retains the
+original routing bytes; queued requests, receipts and session bindings remain
+unchanged. Failed routing publication leaves the migration held for inspection.
+
+The ledger version changes. Instance ID, job IDs,
+completed history, receipts, queued wakes, native session references, counters,
+cached evidence and scope remain intact. Historical wake records stay in `wake/v1`
+with their original record schema; access is gated by the parent ledger/config
+version. No old job
+receives an assignment, engineering clearance, or QA clearance by conversion.
+
+The converter also recognizes the narrow historical completed-wake format that
+retained a `running` observation without setting `TerminalAt`. It requires
+coherent saved request, intent, source and reply evidence, and preserves the raw
+records without inventing timestamps. Before converting such a store, verify
+each exact native terminal turn and recorded bot reply while services and
+producers are fenced. Structural compatibility does not perform those external
+checks or authorize replay. Opaque GitHub IDs in map keys remain case-sensitive;
+duplicate schema fields, unknown fields and exact duplicate map keys refuse.
+
+There is no automatic retry, reverse migration, or backup restore. Any existing
+migration evidence makes a repeated conversion refuse rather than overwrite the
+backup. A failed/ambiguous replacement leaves the backup and hold inspectable;
+new readers refuse a pending hold. If failure happened before the hold was
+published, original v1 state remains usable, but the backup still prevents a
+blind conversion retry. A failure after the verified marker was actually
+published can be an ambiguous success: inspect the marker and resulting state,
+never replay work to resolve it.
+
+The saved pre-conversion binary rejects a v2 ledger as invalid worker state.
+Its legacy wake reader rejects the non-request `version.json` filename before
+enqueueing, even with a healthy status and held worker lock. V2 wake readers
+validate the fence against the ledger instance before excluding it from request
+enumeration; missing, malformed or foreign fences block reads and writes. The
+fence is new compatibility metadata, not a synthetic wake request or clearance.
+Never remove it to make an old producer run. Keep older binaries and producers
+fenced; older diagnostic/control commands do not necessarily read the ledger.
+Rolling back requires a separately reviewed offline reconciliation that
+preserves any newer ledger and remote effects, not
+copying an old backup over v2 evidence. Keep compatible CLI, worker and reader
+artifacts together.
+
+The isolated compatibility test lane accepts a saved pre-change binary via
+`COOP_TEST_OLD_WORKER`; run `flox activate -- env COOP_TEST_OLD_WORKER=/absolute/saved/coop-worker go test ./cmd/coop-worker -run TestMigrationSavedOldBinaryRefusesV2 -count=1`.
+It proves old `dry-run` and `ping` refusal with both v1 and v2 configurations,
+including a live lock/status and byte-identical inbox after the refused ping.
+
+## Assignment-bound engineering
+
+V2 engineering uses the current trusted task assignment, not the global planner
+role or Project Agent field. The assigned author owns implementation, fixes and
+delivery; only the assigned independent peer receives engineering-review work.
+The host roster can configure either direction or add engineers without source
+identity changes. Required customer QA uses the separate gate below, and the v2
+runtime startup fence remains in place.
+
+V2 goal metadata requires `base_branches`, a map from each canonical lowercase
+repository to its explicitly authorized target branch. The trusted task
+assignment repeats that repository's target as `base_branch`; it must match the
+current owner-approved goal. Missing target scope fails closed, without a default
+to `main` or a guess from prose. Changing a goal target requires renewed owner
+approval and a new matching assignment. This does not edit or migrate any live
+goal or metadata, and v1 metadata semantics remain unchanged.
+
+Engineering clearance records the native review ID and immutable actor ID,
+canonical repository/PR/task/goal, exact head, assignment digest and durable PR
+scope revision, including the target branch and complete native base-retargeting
+timeline. Retargeting away and back cannot resurrect an earlier review; changes
+during collection block the read. Branch-tip advancement alone is not a scope
+retarget: current-head checks, CLEAN eligibility and expected-head merge
+protection remain required, rather than pinning the target branch tip forever.
+All native review, commit and commit-author/coauthor pages must be complete.
+Committer identities count as contributors too. Unresolved identities,
+self-review, joint authorship involving the
+assigned peer, stale assignments and changed scope cannot clear delivery.
+Unrelated actors' approvals never substitute for the assigned engineering peer.
+Delivery still requires successful or explicitly absent checks, CLEAN merge
+eligibility, fresh revalidation and expected-head protection. A merged PR keeps
+its scope history so final issue completion can reconcile the saved delivery.
+
+V2 job IDs, session bindings and private checkout-owner records include the
+assignment digest, executor ID and job role. Author implementation/fix/delivery
+share their own binding; peer review uses a separate clean checkout and native
+session at the fetched exact head. Historical migrated v1 records remain
+inspectable but are never adopted as bound v2 work.
+
+Claims carry the same binding and worker instance. Review claims are published
+on the PR without replacing its author's issue claim. A conflicting trusted
+claim blocks the affected task rather than poisoning the entire catalog; an
+outsider's pasted claim does not create authority. Claim publication is not an
+atomic distributed lock. Exactly one live worker per immutable actor remains a
+deployment requirement. Unknown native submissions and remote artifacts retain
+their saved intent and existing recovery rules, never blind replay.
+
+Live reciprocal bot handoffs, App permission changes, external fixtures, state
+conversion and service cutover require the separately authorized rollout packet.
+Unit/API fixtures do not establish live workflow acceptance.
+
+V2 task reads bracket the complete comment set with exact issue-version checks
+and reject concurrent title/body/state/assignment/claim mutations. Native review
+records are completely reread after contributor evidence collection and compared
+by review identity, state, head, author and submission time. A dismissal or newer
+decision during that interval blocks clearance rather than mixing observations.
+
+## Independent customer QA
+
+The owner-approved v2 goal's `qa` policy is authoritative. With `required: true`,
+it must name a qualified `reviewer`, a lowercase SHA256 `acceptance_sha256`, and
+nonempty `environment` and `environment_revision`. The trusted task assignment
+must select that same independent QA member. Internal delivery may omit QA only
+when the approved policy explicitly has `required: false` with no extra fields.
+Neither labels, Project edits nor bot comments can waive the gate.
+
+The assigned QA worker gets a dedicated `qa` job only after current engineering
+clearance and successful or explicitly absent checks. Merge eligibility is not a
+prerequisite to QA: its approval may be the outstanding branch protection. Only
+delivery requires `CLEAN`, both independent clearances, current checks and
+expected-head merge protection. QA defects produce an author-owned fix; a new
+head requires engineering review followed by QA again. Valid `blocked` results
+finish the QA turn without clearing delivery or silently retrying it. An explicit
+new native result or changed head/scope is needed to advance; missing reviewers,
+tools, test data, environment or permissions never mean pass.
+
+QA has its own assignment/executor/role-bound checkout, claim and native session.
+The clean checkout is fetched to the admitted PR head. Its origin push URL is
+disabled and checked on reuse. This local guardrail is not a sandbox or permission
+boundary: the QA App must lack contents-write permission. QA may inspect/test but
+must not edit feature code, push, merge or impersonate another actor.
+
+For source-only acceptance, discovery hashes the exact head's native source
+archive using the canonical bundle algorithm described above. For binary or
+workflow acceptance, the PR's `coop-pr:v2` metadata adds an `artifact` object:
+
+```json
+{
+  "Kind": "workflow",
+  "HeadSHA": "FULL_LOWERCASE_HEAD_SHA",
+  "SHA256": "FULL_LOWERCASE_SHA256",
+  "URL": "https://api.github.com/repos/owner/repo/actions/artifacts/123",
+  "Revision": "456"
+}
+```
+
+The native artifact ID, workflow run ID (`Revision`), commit and SHA256 digest
+must match GitHub's current artifact record; expired/deleted/unreadable artifacts
+block the gate. Test the downloaded immutable archive, not a local rebuild.
+Artifact identity is part of QA/fix/delivery job IDs and prompt bindings. Refresh
+it immediately before dispatch/delivery; replacement or loss invalidates the
+affected running job without discarding fresh owner authorization reads. Already
+merged issue completion does not depend on retaining the artifact download.
+Source input is limited to 2 MiB compressed, 64 MiB decompressed and 10,000 archive
+entries. Exceeding a limit blocks verification rather than accepting partial data.
+
+QA transport is a native formal PR review by the assigned immutable QA actor at
+the exact head. Its body is exactly one `coop-qa:v1` marker with a strict
+version-1 result: conclusion, canonical repo/PR/task/goal, head/assignment/acceptance
+digests, environment and revision, artifact SHA256, evidence links and limitations.
+Pass requires `APPROVED`, changes-needed requires `CHANGES_REQUESTED`, and blocked
+requires `COMMENTED`. An engineering approval cannot satisfy QA or vice versa.
+QA must be submitted after the current engineering approval. Edited, malformed,
+stale or dismissed latest records cannot revive an older pass. Complete native
+review reads include body/edit provenance and are compared across rereads.
+
+Encoded results are at most 32 KiB, with at most 32 evidence links and 32
+limitations of at most 2 KiB each. Every field is required, with no unknown,
+duplicate or null fields. Evidence must link into the authorized goal repository;
+keep customer details and logs there, not in public PR prose. Automated validation
+establishes identity/binding, not the truth of an acceptance claim: the independent
+QA actor remains responsible for actually exercising the approved acceptance in
+the authorized environment. Linux fixtures do not establish native platform or
+live bot acceptance. This implementation grants no permissions, creates no
+external fixtures, and starts no QA service.
+
+## Bounded team scheduling
+
+The v2 scheduler shares one selection path for admitted new jobs, runnable saved
+jobs and queued conversation wakes. Review, fix, QA and delivery are handoffs and
+normally take precedence. After two consecutive completed handoffs, the oldest
+eligible planning job or wake gets service. After three completed foreground
+jobs (handoffs, planning or wakes), eligible implementation gets service first.
+The implementation bound wins if both allowances are exhausted. If a class has
+no runnable candidates, it does not hold the worker idle.
+
+Within a class, first eligibility time orders work, followed by task priority,
+Project ordinal and job ID. Job ages are checkpointed even when another job wins;
+wakes retain their durable creation time. Saved, owned implementations can
+continue after their Project card leaves Ready. Blocked, stale, unassigned and
+backoff-delayed jobs are not runnable candidates.
+
+Service counters change only on durable completed jobs that were submitted, not
+on selection, submission, retries or blocked admission. Job completion and its
+counter update share one ledger write. Completed wake receipts are accounted once
+before the next selection, with the consumed receipt IDs checkpointed in that
+ledger. Restart between receipt and ledger writes retries only local accounting,
+never a conversation turn or external effect. Historical v1 receipts do not
+consume v2 service. Counters saturate at their bounds and survive restart.
+
+Selection does not interrupt active jobs or wakes, take over manual turns, waive
+assignment validation or reset uncertain submission evidence. The selected job
+is freshly revalidated, and preparation still ends with scope/assignment and
+local-pause checks immediately before submission. V1 scheduling is unchanged.
+Live activation still requires the separately reviewed acceptance packet.

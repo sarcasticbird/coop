@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 // Resolve determines the project root for a coop, walking up from dir.
@@ -190,12 +191,12 @@ func trackedByFileIdentity(top, configPath string) (bool, error) {
 	for {
 		path, readErr := reader.ReadString(0)
 		path = strings.TrimSuffix(path, "\x00")
-		if path != "" && strings.EqualFold(filepath.Base(path), ".coop.toml") {
+		if path != "" {
 			candidate, statErr := os.Stat(filepath.Join(top, filepath.FromSlash(path)))
 			switch {
 			case statErr == nil && os.SameFile(target, candidate):
 				tracked = true
-			case statErr != nil && !os.IsNotExist(statErr):
+			case statErr != nil && !os.IsNotExist(statErr) && !errors.Is(statErr, syscall.ELOOP):
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				return false, statErr

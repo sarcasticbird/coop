@@ -30,16 +30,17 @@ The main exceptions are:
 
 | Setting | What to do |
 | --- | --- |
-| `tools`, `image` | Run `coop rebuild`, then enter or run `coop up` |
-| `resources`, `agents`, `ssh`, `mount`, `volume`, `publish` | Enter or run `coop up`; Coop recreates the container when needed |
+| `tools`, `image` | Run `coop rebuild`; existing guests require explicit maintenance |
+| `resources`, `agents`, `ssh`, `mount`, `volume`, `publish` | Stop, then run `coop apply` for supported same-image changes |
 | `seed` | Enter or run `coop up` |
 | `credentials`, `include_credentials` | Start the next interactive entry |
 | `projects` | Enter or run `coop up`; scoped credentials apply on the next interactive entry |
 | Project `.flox` | Start the next entry from a directory it governs |
 
-`coop status` shows whether an image rebuild or container recreation is
-pending. Recreation preserves Coop-owned named volumes and discards undeclared
-changes to the container root filesystem.
+`coop status` shows whether an image rebuild or maintenance is pending. Entry
+never replaces an existing root filesystem. Image replacement is currently
+unsupported. See [Persistent agents](agents.md) for host-only `[profiles]`,
+server commands, resource settings, and helper services.
 
 ## Tools
 
@@ -246,7 +247,7 @@ Install dependencies once on each platform.
 
 Paths must be normalized, confined beneath the project, and free of symlinks or
 overlap with another project volume. The final directory may be absent when its
-parent exists. Volumes survive `down`, `up`, and container recreation. Removing
+parent exists. Volumes survive `down`, `up`, and explicit maintenance. Removing
 the declaration detaches a volume; `coop destroy` deletes it. At most 64 may be
 declared.
 

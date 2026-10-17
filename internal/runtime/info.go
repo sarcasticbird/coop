@@ -8,12 +8,15 @@ import (
 
 // ContainerInfo is the parsed state of one container.
 type ContainerInfo struct {
+	Mode    string
+	Profile string
 	Name    string
 	State   string
 	IP      string
 	CPUs    int
 	Memory  int64 // bytes
 	Started time.Time
+	Created time.Time
 	Mounts  []MountInfo
 	Labels  map[string]string
 }
@@ -56,9 +59,10 @@ func (c ContainerInfo) ProjectMount() string {
 // schema is Apple's, not ours.
 type listEntry struct {
 	Configuration struct {
-		ID        string            `json:"id"`
-		Labels    map[string]string `json:"labels"`
-		Resources struct {
+		ID           string            `json:"id"`
+		CreationDate string            `json:"creationDate"`
+		Labels       map[string]string `json:"labels"`
+		Resources    struct {
 			CPUs          int   `json:"cpus"`
 			MemoryInBytes int64 `json:"memoryInBytes"`
 		} `json:"resources"`
@@ -108,7 +112,10 @@ func parseList(data []byte) ([]ContainerInfo, error) {
 		if len(e.Status.Networks) > 0 {
 			info.IP = strings.Split(e.Status.Networks[0].IPv4Address, "/")[0]
 		}
-		if t, err := time.Parse(time.RFC3339, e.Status.StartedDate); err == nil {
+		if t, err := time.Parse(time.RFC3339Nano, e.Configuration.CreationDate); err == nil {
+			info.Created = t
+		}
+		if t, err := time.Parse(time.RFC3339Nano, e.Status.StartedDate); err == nil {
 			info.Started = t
 		}
 		for _, m := range e.Configuration.Mounts {
