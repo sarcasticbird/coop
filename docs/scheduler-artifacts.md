@@ -29,7 +29,7 @@ public files.
 | Ledger | Reads/writes v1 only | Reads/writes v2 only; loading never converts v1 |
 | Historical wake records | V1 record schema | Retained v1 record schema under `wake/v1`, gated by parent ledger/config version and instance fence |
 | Conversion | Source for explicit offline conversion | One-way v1-to-v2 conversion only; no reverse migration or automatic restore |
-| Runtime | Existing supported startup | Startup refused; offline validation and isolated fixtures are not live acceptance |
+| Runtime | Existing supported startup | Requires explicitly initialized/converted v2 state and its matching wake fence; startup never migrates storage |
 
 The example has a qualified planner, reciprocal independent engineering peers,
 and a separate QA-capable member. Every implementing member needs an explicit

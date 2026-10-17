@@ -77,6 +77,9 @@ type Claim struct {
 	Author                 Actor
 }
 type Task struct {
+	PRHistoryComplete                                                                     bool            `json:",omitempty"`
+	AssigneesComplete                                                                     bool            `json:",omitempty"`
+	Assignees                                                                             []Actor         `json:",omitempty"`
 	TrustedMetadataPresent                                                                bool            `json:",omitempty"`
 	QA                                                                                    QAPolicy        `json:",omitzero"`
 	ClaimConflict                                                                         bool            `json:",omitempty"`

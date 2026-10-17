@@ -673,11 +673,67 @@ partial initialization refuses unchanged; inspect evidence instead of retrying
 or deleting files. Keep service and producer startup fenced during this operation.
 
 The configured v2 planner can generate first task metadata with
+`task-metadata --config PATH --task URL --goal URL --author MEMBER_NAME`:
+
+```sh
+/usr/local/libexec/coop-env /usr/local/libexec/coop-worker task-metadata \
+  --config /var/lib/coop/worker/config.json \
+  --task https://github.com/OWNER/REPO/issues/2 \
+  --goal https://github.com/PLANNING/BOARD/discussions/1 \
+  --author builder --depends-on https://github.com/OWNER/REPO/issues/1
+```
+
+`--depends-on` is repeatable and optional for this first-assignment form. The
+helper derives the configured independent engineering peer, goal-required QA,
+approved base branch and current hashes. It requires a fresh complete snapshot,
+an approved in-scope goal, an open task with explicitly verified empty native
+assignees, and no existing trusted assignment, claim or bound PR. The first-author
+helper separately reads a stable, bounded all-state PR history for this task's
+repository, including closed and merged PRs. Incomplete, changing or ambiguous
+history refuses; routine polling keeps its existing open-PR catalog. Dependencies
+must be distinct readable issue URLs in the same repository with no cycle.
+An unfinished prerequisite is allowed in metadata; it still blocks admission.
+Native GitHub assignees signal conflicting ownership and never grant authority.
+
+The output is one separate issue comment, not an issue-body edit or a GitHub
+write. Finish the issue title/body first, generate metadata, check for an
+existing matching trusted comment, publish once with the planner identity and
+read back the actual comment and unchanged scope. Reconcile an uncertain write
+before retrying. Once prerequisites are complete, select the configured
+Project `ready_value` and verify the board. Do not set `in_progress_value`
+before the worker owns its claim. These option names may differ by Project.
+
+The previous private-file form remains supported:
 `task-metadata --config PATH --task URL --goal URL --assignment PRIVATE_JSON`.
 The mode-0600 assignment file contains the complete version-2 assignment described
 above, bound to current task, approved goal and team-policy hashes. Output is a
 comment for explicit publication, not a GitHub write or owner approval. Existing
-assigned work must omit `--assignment` and use the preserving repair path.
+assigned work must omit both `--assignment` and `--author` and use the preserving
+repair path. `--author` cannot be combined with `--assignment`; dependency flags
+cannot modify existing assignments. Neither helper form approves a goal.
+
+### Default ping destination continuity
+
+V2 routing records include optional `ContinuitySHA` evidence that excludes only
+the default ping destination from the existing wake-scope digest. Owner, worker,
+roster, aliases, Discussion repositories and peer-hop policy still participate.
+Task/goal/assignment authority digests are unchanged.
+
+Upgrade matching host and guest readers first with the exact installed private
+configuration. Let a successful poll seed continuity while the saved legacy
+scope still matches. Verify that seeding completed before changing
+`wake.coordination_url`. A destination-only change then preserves unread
+sources, seen revisions, suppressed peer replies, chain budgets and session
+bindings. Queued pings keep their original destinations; only new pings use the
+new default. Keep old destinations in intake while requests still reference them.
+
+A legacy routing record with no continuity evidence and a mismatching scope
+refuses unchanged. Restore the exact previous configuration to seed it; never
+clear the ledger or manufacture continuity evidence. Real identity or policy
+changes retain their existing fresh-baseline behavior. Invalid stored evidence
+refuses. V1 behavior and writes remain unchanged. Older strict readers reject
+the new routing field; this is not a supported downgrade. Preserve backups and
+distribute compatible readers together through the controlled rollout process.
 
 The supported conversion is one-way, offline, and bound to the exact saved
 `InstanceID`. With separately authorized stopped/drained workers and fenced
@@ -707,7 +763,13 @@ fence before atomically replacing `state.json`. It verifies the fence, all
 retained files and backup bytes, then marks the migration verified. Files are
 mode 0600 inside mode-0700 directories.
 
-Within existing records, only the ledger version changes. Instance ID, job IDs,
+Conversion also clears an existing v1 routing baseline acknowledgement under
+the migration inspection hold. The first complete v2 poll establishes a fresh
+team baseline without replaying historical mentions. The backup retains the
+original routing bytes; queued requests, receipts and session bindings remain
+unchanged. Failed routing publication leaves the migration held for inspection.
+
+The ledger version changes. Instance ID, job IDs,
 completed history, receipts, queued wakes, native session references, counters,
 cached evidence and scope remain intact. Historical wake records stay in `wake/v1`
 with their original record schema; access is gated by the parent ledger/config

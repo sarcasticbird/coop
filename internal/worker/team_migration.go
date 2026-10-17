@@ -338,6 +338,17 @@ func migrateStateLocked(c Config, s *FileStore, expected string, write func(stri
 	if err != nil || len(after) > MaxSnapshot+(4<<20) {
 		return errors.New("converted state exceeds limit")
 	}
+	var convertedRouting []byte
+	if _, exists := files[filepath.Join("wake", "v1", "routing.json")]; exists && routing.Baselined {
+		// A v1 actor pair and a v2 team are different routing authorities. The
+		// verified conversion permits one fresh baseline, never a continuity
+		// bridge from the old policy. Keep the old history in the backup.
+		routing.Baselined = false
+		convertedRouting, err = json.Marshal(routing)
+		if err != nil || len(convertedRouting) > MaxSnapshot {
+			return errors.New("converted routing exceeds limit")
+		}
+	}
 	m := stateMigration{Version: 1, InstanceID: expected, BeforeSHA: BodyHash(string(before)), AfterSHA: BodyHash(string(after)), BackupSHA: BodyHash(string(backup)), Phase: "pending"}
 	publish := func() error {
 		raw, err := json.Marshal(m)
@@ -362,10 +373,17 @@ func migrateStateLocked(c Config, s *FileStore, expected string, write func(stri
 	if err := write(filepath.Join(s.Dir, "state.json"), after); err != nil {
 		return fmt.Errorf("migration replacement uncertain; inspect evidence: %w", err)
 	}
+	if convertedRouting != nil {
+		if err := write(filepath.Join(w.Dir, "routing.json"), convertedRouting); err != nil {
+			return fmt.Errorf("migration routing replacement uncertain; inspect evidence: %w", err)
+		}
+	}
 	for rel, original := range files {
 		want := original
 		if rel == "state.json" {
 			want = after
+		} else if rel == filepath.Join("wake", "v1", "routing.json") && convertedRouting != nil {
+			want = convertedRouting
 		}
 		got, err := readPrivate(filepath.Join(s.Dir, rel), MaxSnapshot+(4<<20))
 		if err != nil || !bytes.Equal(got, want) {

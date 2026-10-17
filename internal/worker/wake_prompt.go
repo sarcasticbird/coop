@@ -51,15 +51,23 @@ func BuildWakePrompt(c Config, r WakeRequest, source ConversationSource, snapsho
 		if member.Name == c.Team.Planner {
 			role = "planner conversation"
 		}
+		var projects []ProjectRef
+		var projectDefaults *ProjectRef
+		if member.Name == c.Team.Planner {
+			projects, projectDefaults = plannerProjectContext(c)
+		}
 		identity, _ = json.Marshal(struct {
-			Name, Role   string
-			Self, Owner  Actor
-			Capabilities []string
-			Team         *TeamPolicy
-		}{member.Name, role, c.Self, c.Owner, member.Capabilities, c.Team})
+			Name, Role      string
+			Self, Owner     Actor
+			Capabilities    []string
+			Team            *TeamPolicy
+			Projects        []ProjectRef `json:",omitempty"`
+			ProjectDefaults *ProjectRef  `json:",omitempty"`
+		}{member.Name, role, c.Self, c.Owner, member.Capabilities, c.Team, projects, projectDefaults})
 		instructions = teamWakePrompt
 		if member.Name == c.Team.Planner {
 			instructions += "\nYou are the configured planner for this conversation. Perform permitted planning and administrative repairs now within verified goal scope; leave coding, engineering review, QA and delivery to their dedicated assigned jobs.\n"
+			instructions += taskAdministrationPrompt
 		} else {
 			instructions += "\nYou are not the configured planner. Answer as Self, report evidence or blockers, and coordinate planning changes with Team.Planner. Do not generate trusted task assignments or administer another author's tracking.\n"
 		}

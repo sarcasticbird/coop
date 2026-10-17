@@ -34,6 +34,7 @@ func (c restComment) comment() Comment {
 }
 
 type restIssue struct {
+	Assignees   *[]restActor    `json:"assignees"`
 	URL         string          `json:"html_url"`
 	Number      int             `json:"number"`
 	Title       string          `json:"title"`
@@ -298,6 +299,15 @@ func (g *GitHubClient) readTask(ctx context.Context, repo string, issue restIssu
 	}
 	t := Task{URL: issue.URL, Repo: repo, Title: issue.Title, Body: issue.Body, BodySHA: TaskScopeHash(issue.Title, issue.Body), Revision: issue.UpdatedAt.Format(time.RFC3339Nano), Completed: issue.State == "closed" && issue.StateReason == "completed"}
 	t.Closed = issue.State == "closed"
+	if g.config.Version == 2 && issue.Assignees != nil {
+		t.AssigneesComplete = true
+		for _, a := range *issue.Assignees {
+			if !validActor(a.actor(), a.Kind) || a.Kind != "Bot" && a.Kind != "User" {
+				return Task{}, ghError("invalid_issue_assignees")
+			}
+			t.Assignees = append(t.Assignees, a.actor())
+		}
+	}
 	comments, err := g.issueComments(ctx, repo, issue.Number)
 	if err != nil {
 		return t, err

@@ -33,8 +33,15 @@ func (g *GitHubClient) verifyTeamTaskIssue(ctx context.Context, repo string, iss
 		return err
 	}
 	// readTask accepts only issues; absent and null both mean no pull request.
-	if fresh.URL != issue.URL || fresh.Number != issue.Number || fresh.Title != issue.Title || fresh.Body != issue.Body || fresh.State != issue.State || fresh.StateReason != issue.StateReason || !fresh.UpdatedAt.Equal(issue.UpdatedAt) || len(fresh.PullRequest) > 0 && string(fresh.PullRequest) != "null" {
+	if fresh.URL != issue.URL || fresh.Number != issue.Number || fresh.Title != issue.Title || fresh.Body != issue.Body || fresh.State != issue.State || fresh.StateReason != issue.StateReason || !fresh.UpdatedAt.Equal(issue.UpdatedAt) || !sameIssueAssignees(fresh.Assignees, issue.Assignees) || len(fresh.PullRequest) > 0 && string(fresh.PullRequest) != "null" {
 		return ghError("task_version_changed")
 	}
 	return nil
+}
+
+func sameIssueAssignees(a, b *[]restActor) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return slices.Equal(*a, *b)
 }

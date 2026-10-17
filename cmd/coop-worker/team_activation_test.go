@@ -77,6 +77,10 @@ func (g *metadataGitHub) Snapshot(context.Context, worker.Config, worker.Snapsho
 	return g.snapshot, nil
 }
 
+func (g *metadataGitHub) InitialAssignmentSnapshot(ctx context.Context, c worker.Config, _ string) (worker.Snapshot, error) {
+	return g.Snapshot(ctx, c, worker.Snapshot{})
+}
+
 func TestWorkerCLITeamPlannerPublishesFirstAssignment(t *testing.T) {
 	c, path := teamCLIConfig(t, "planner")
 	now := time.Now().UTC()
