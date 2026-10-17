@@ -66,6 +66,7 @@ type WakeChain struct {
 	PeerHop                   int
 }
 type WakeRoutingState struct {
+	ContinuitySHA    string `json:",omitempty"`
 	Version          int
 	Baselined        bool
 	ScopeSHA         string

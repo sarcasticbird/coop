@@ -23,6 +23,17 @@ var engineeringReviewPrompt string
 //go:embed prompts/customer-qa.txt
 var customerQAPrompt string
 
+//go:embed prompts/task-administration.txt
+var taskAdministrationPrompt string
+
+func plannerProjectContext(c Config) ([]ProjectRef, *ProjectRef) {
+	// Defaults must not mutate the caller's configuration slice.
+	c.Projects = append([]ProjectRef(nil), c.Projects...)
+	c = Defaults(c)
+	d := Defaults(Config{Projects: []ProjectRef{{}}}).Projects[0]
+	return c.Projects, &d
+}
+
 func WorkerToolPolicy(paths []string) ([]byte, error) {
 	read := map[string]string{}
 	for _, path := range append([]string{"*/auth.json", "*/credentials/*", "/run/coop/current-credentials/*", "/dev/shm/coop-credentials/*", "*/github-apps/*.pem"}, paths...) {
@@ -74,12 +85,22 @@ func buildPrompt(c Config, j Job, s Snapshot, policy string, now time.Time) (str
 				qa = &a.QA
 			}
 		}
+		var team *TeamPolicy
+		var projects []ProjectRef
+		var projectDefaults *ProjectRef
+		if j.Kind == "plan" {
+			team = c.Team
+			projects, projectDefaults = plannerProjectContext(c)
+		}
 		identity, err = json.Marshal(struct {
 			Name, Role         string
 			Self, Author, Peer Actor
 			QA                 *Actor `json:",omitempty"`
 			Owner              Actor
-		}{c.Name, j.Binding.Role, c.Self, author, peer, qa, c.Owner})
+			Team               *TeamPolicy  `json:",omitempty"`
+			Projects           []ProjectRef `json:",omitempty"`
+			ProjectDefaults    *ProjectRef  `json:",omitempty"`
+		}{c.Name, j.Binding.Role, c.Self, author, peer, qa, c.Owner, team, projects, projectDefaults})
 		if err != nil {
 			return "", errors.New("cannot build worker identity")
 		}
@@ -176,6 +197,7 @@ ReviewHandoffs records current heads and admission decisions. A needs_review han
 Maintain the Project for either assigned author. For delivery_completed input, confirm the supplied verified merged PR and completed task, mark its Project item Done and advance existing eligible dependencies within the approved goal. Report concrete blockers rather than inventing readiness. The worker verifies actual board and queue progress.
 Reply in the existing goal thread with actual findings or actions and include the exact supplied ResultMarker. A promise alone does not complete this handoff.
 `
+			role += taskAdministrationPrompt
 		}
 	}
 	sections := []promptSection{

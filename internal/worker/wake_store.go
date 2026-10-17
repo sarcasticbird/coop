@@ -315,13 +315,13 @@ func (s *FileWakeStore) Routing() (WakeRoutingState, error) {
 		return WakeRoutingState{}, err
 	}
 	var r WakeRoutingState
-	if strictJSON(raw, &r) != nil || r.Version != 1 || r.Seen == nil || r.Chains == nil || r.Bindings == nil {
+	if strictJSON(raw, &r) != nil || r.Version != 1 || r.Seen == nil || r.Chains == nil || r.Bindings == nil || !validWakeContinuity(r) {
 		return r, errors.New("invalid wake routing state")
 	}
 	return r, nil
 }
 func (s *FileWakeStore) SaveRouting(r WakeRoutingState) error {
-	if r.Version != 1 || r.Seen == nil || r.Chains == nil || r.Bindings == nil {
+	if r.Version != 1 || r.Seen == nil || r.Chains == nil || r.Bindings == nil || !validWakeContinuity(r) {
 		return errors.New("invalid wake routing state")
 	}
 	if err := s.ensure(true); err != nil {

@@ -51,6 +51,12 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	task := flags.String("task", "", "task issue URL")
 	goal := flags.String("goal", "", "goal URL")
 	assignment := flags.String("assignment", "", "private first v2 assignment JSON file")
+	author := flags.String("author", "", "configured author for a first v2 assignment")
+	var dependencies []string
+	flags.Func("depends-on", "canonical prerequisite issue URL for a first author assignment; repeatable", func(value string) error {
+		dependencies = append(dependencies, value)
+		return nil
+	})
 	requestID := flags.String("request-id", "", "exact wake request ID")
 	jobID := flags.String("job-id", "", "exact recovery intent ID")
 	sessionID := flags.String("session-id", "", "exact saved session ID")
@@ -60,6 +66,18 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	expected := flags.String("expected-instance", "", "exact saved worker instance")
 	if flags.Parse(args[1:]) != nil || *path == "" || len(flags.Args()) > 0 {
 		return errors.New("worker command requires --config /absolute/private.json")
+	}
+	authorSet := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "author" {
+			authorSet = true
+		}
+	})
+	if authorSet && (command != "task-metadata" || *author == "" || *assignment != "") {
+		return errors.New("author requires task-metadata, a nonempty member name and no --assignment")
+	}
+	if len(dependencies) > 0 && !authorSet {
+		return errors.New("depends-on requires a first --author assignment")
 	}
 	if command != "task-metadata" && (*task != "" || *goal != "") {
 		return errors.New("task/goal flags require task-metadata")
@@ -204,12 +222,25 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		if *task == "" || *goal == "" || !planner {
 			return errors.New("task-metadata requires planner role, --task and --goal")
 		}
-		snapshot, err := github.Snapshot(ctx, c, worker.Snapshot{})
+		var snapshot worker.Snapshot
+		if authorSet {
+			reader, ok := github.(interface {
+				InitialAssignmentSnapshot(context.Context, worker.Config, string) (worker.Snapshot, error)
+			})
+			if !ok {
+				return errors.New("initial author assignment requires native PR history reader")
+			}
+			snapshot, err = reader.InitialAssignmentSnapshot(ctx, c, *task)
+		} else {
+			snapshot, err = github.Snapshot(ctx, c, worker.Snapshot{})
+		}
 		if err != nil {
 			return err
 		}
 		var text string
-		if *assignment != "" {
+		if authorSet {
+			text, err = worker.TaskMetadataForAuthor(c, snapshot, *task, *goal, *author, dependencies, time.Now())
+		} else if *assignment != "" {
 			text, err = worker.TaskMetadataWithAssignment(c, snapshot, *task, *goal, *assignment, time.Now())
 		} else {
 			text, err = worker.TaskMetadataComment(c, snapshot, *task, *goal, time.Now())

@@ -192,7 +192,10 @@ func IngestDiscussionWakes(c Config, snapshot Snapshot, store WakeStore, now tim
 	if err != nil {
 		return err
 	}
-	baseline := !routing.Baselined || routing.ScopeSHA != wakeScope(c)
+	baseline, err := wakeRoutingBaseline(c, routing)
+	if err != nil {
+		return err
+	}
 	if baseline {
 		routing.Seen = map[string]string{}
 		routing.Chains = map[string]WakeChain{}
@@ -247,6 +250,9 @@ intakeLoop:
 	}
 	routing.Baselined = true
 	routing.ScopeSHA = wakeScope(c)
+	if c.Version == 2 {
+		routing.ContinuitySHA = wakeContinuityScope(c)
+	}
 	return store.SaveRouting(routing)
 }
 
