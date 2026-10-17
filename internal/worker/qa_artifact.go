@@ -43,14 +43,25 @@ func sourceBundleSHA(raw []byte) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		count++
+		if count > MaxConnection {
+			return "", errors.New("invalid source entry")
+		}
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			// GitHub adds a commit comment. Go does not apply global PAX
+			// semantics to later files, so ignore only explicit comment metadata.
+			if len(h.PAXRecords) != 1 || h.PAXRecords["comment"] == "" {
+				return "", errors.New("unsupported source metadata")
+			}
+			continue
+		}
 		parts := strings.SplitN(h.Name, "/", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[0] == "." || parts[0] == ".." || strings.ContainsAny(parts[0], "\x00\\") || root != "" && root != parts[0] {
 			return "", errors.New("invalid source root")
 		}
 		root = parts[0]
 		name := strings.TrimSuffix(parts[1], "/")
-		count++
-		if count > MaxConnection || name == "" && h.Typeflag != tar.TypeDir || name != "" && (name == "." || name == ".." || path.Clean(name) != name || strings.HasPrefix(name, "../") || strings.HasPrefix(name, "/") || strings.ContainsAny(name, "\x00\\")) {
+		if name == "" && h.Typeflag != tar.TypeDir || name != "" && (name == "." || name == ".." || path.Clean(name) != name || strings.HasPrefix(name, "../") || strings.HasPrefix(name, "/") || strings.ContainsAny(name, "\x00\\")) {
 			return "", errors.New("invalid source entry")
 		}
 		if h.Typeflag == tar.TypeDir {

@@ -18,11 +18,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func qaSourceArchive(t *testing.T, root, content string, mode int64) []byte {
+func qaSourceArchive(t *testing.T, root, content string, mode int64, globals ...map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	z := gzip.NewWriter(&buf)
 	w := tar.NewWriter(z)
+	for _, records := range globals {
+		if err := w.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, Format: tar.FormatPAX, PAXRecords: records}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := w.WriteHeader(&tar.Header{Name: root + "/file.txt", Mode: mode, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +41,29 @@ func qaSourceArchive(t *testing.T, root, content string, mode int64) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func TestQASourceDigestGlobalCommentOffline(t *testing.T) {
+	want := fmt.Sprintf("%x\n", sha256.Sum256([]byte("file.txt\x00420\x0048\x00\x002cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\x00")))
+	for _, unsafe := range []bool{false, true} {
+		records := map[string]string{"comment": strings.Repeat("a", 40)}
+		if unsafe {
+			records["path"] = "outside"
+		}
+		path := filepath.Join(t.TempDir(), "source.tar.gz")
+		if err := os.WriteFile(path, qaSourceArchive(t, "root", "hello", 0644, records), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		err := run([]string{"qa-source-digest", "--archive", path}, &out)
+		if unsafe {
+			if err == nil || out.Len() != 0 {
+				t.Fatal("unsafe global metadata produced a digest")
+			}
+		} else if err != nil || out.String() != want {
+			t.Fatalf("GitHub-shaped archive digest = %q, %v; want %q", out.String(), err, want)
+		}
+	}
 }
 
 func TestQASourceDigestOffline(t *testing.T) {
