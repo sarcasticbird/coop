@@ -154,10 +154,19 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 				return j, err
 			}
 		default:
-			if _, err := c.run(ctx, root, "git", "clone", "--", owner.Origin, checkout); err != nil {
+			staging, err := os.MkdirTemp(root, ".clone-")
+			if err != nil {
 				return j, err
 			}
-			if _, err := c.run(ctx, checkout, "git", "switch", "-c", owner.Branch); err != nil {
+			// Publish only an initialized checkout. Interrupted staging directories
+			// remain private for inspection and never become an agent work directory.
+			if _, err := c.run(ctx, root, "git", "clone", "--", owner.Origin, staging); err != nil {
+				return j, err
+			}
+			if _, err := c.run(ctx, staging, "git", "switch", "-c", owner.Branch); err != nil {
+				return j, err
+			}
+			if err := os.Rename(staging, checkout); err != nil {
 				return j, err
 			}
 		}

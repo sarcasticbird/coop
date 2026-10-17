@@ -450,6 +450,12 @@ func resolveExecutable(home, projectRoot, name, path string) (string, error) {
 }
 
 func trustedSearchPath(home, projectRoot, search string) (string, error) {
+	// Named machines have no project boundary. Use standard host tools rather
+	// than inheriting a launch directory's executable search path. Custom
+	// helpers remain available through explicit absolute paths in private config.
+	if projectRoot == "" {
+		search = strings.Join([]string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, string(os.PathListSeparator))
+	}
 	projectRoot, err := resolveCredentialProjectRoot(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve project root for credential PATH: %w", err)

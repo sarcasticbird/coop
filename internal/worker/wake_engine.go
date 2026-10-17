@@ -325,7 +325,7 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 	if v.Phase == "blocked" && v.Reason == "prompt_size" {
 		return w.reportPromptBlock(ctx, v)
 	}
-	source, err := conversation.RevalidateWake(ctx, r)
+	source, _, err := conversation.RevalidateWake(ctx, r)
 	if err != nil {
 		switch errorCategory(err) {
 		case "source_deleted", "source_superseded":
@@ -391,7 +391,7 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 		return err
 	}
 	// Revalidate after session preparation and re-read local pause just before intent.
-	current, err := conversation.RevalidateWake(ctx, r)
+	current, goal, err := conversation.RevalidateWake(ctx, r)
 	if err != nil {
 		if errorCategory(err) == "source_deleted" || errorCategory(err) == "source_superseded" {
 			v.Phase = "superseded"
@@ -415,7 +415,7 @@ func (w *WakeCoordinator) tick(ctx context.Context, snapshot Snapshot, selectedI
 			return w.save(v)
 		}
 	}
-	prompt, err := BuildWakePrompt(w.Config, r, source, snapshot)
+	prompt, err := BuildWakePrompt(w.Config, r, current, Snapshot{Complete: true, Goals: []Goal{goal}})
 	if err != nil {
 		var size *PromptSizeError
 		if errors.As(err, &size) {

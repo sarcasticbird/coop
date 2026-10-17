@@ -7,7 +7,7 @@ import (
 )
 
 type WakeConversation interface {
-	RevalidateWake(context.Context, WakeRequest) (ConversationSource, error)
+	RevalidateWake(context.Context, WakeRequest) (ConversationSource, Goal, error)
 	WakeReply(context.Context, WakeRequest) (Comment, bool, error)
 }
 
@@ -47,17 +47,18 @@ func (g *GitHubClient) wakeDiscussion(ctx context.Context, r WakeRequest) (graph
 	if err != nil || d.ID != id || d.URL != ref {
 		return graphDiscussion{}, nil, ghError("source_superseded")
 	}
-	comments, err := g.discussionComments(ctx, owner, id)
+	comments, err := g.goalComments(ctx, owner, d)
 	return d, comments, err
 }
-func (g *GitHubClient) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, error) {
+func (g *GitHubClient) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, Goal, error) {
 	d, comments, err := g.wakeDiscussion(ctx, r)
 	if err != nil {
-		return ConversationSource{}, err
+		return ConversationSource{}, Goal{}, err
 	}
+	goal, _ := g.goalFromDiscussion(d, comments)
 	sources := discussionSources(d, comments)
 	if r.Kind == "ping" {
-		return sources[0], nil
+		return sources[0], goal, nil
 	}
 	for _, s := range sources {
 		if s.NodeID == r.Source.NodeID {
@@ -66,15 +67,15 @@ func (g *GitHubClient) RevalidateWake(ctx context.Context, r WakeRequest) (Conve
 				trusted = trusted || sameActor(a, g.config.Self)
 			}
 			if !trusted {
-				return ConversationSource{}, ghError("source_superseded")
+				return ConversationSource{}, Goal{}, ghError("source_superseded")
 			}
 			if s.Revision != r.Source.Revision || !sameActor(s.Author, r.Source.Author) || s.ParentID != r.Source.ParentID || s.RootID != r.Source.RootID {
-				return ConversationSource{}, ghError("source_superseded")
+				return ConversationSource{}, Goal{}, ghError("source_superseded")
 			}
-			return s, nil
+			return s, goal, nil
 		}
 	}
-	return ConversationSource{}, ghError("source_deleted")
+	return ConversationSource{}, Goal{}, ghError("source_deleted")
 }
 func matchingWakeReply(c Config, r WakeRequest, comments []Comment) (Comment, bool, error) {
 	var matches []Comment

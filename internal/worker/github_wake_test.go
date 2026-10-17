@@ -50,6 +50,8 @@ func TestWakeSourceRevalidationReadsActualParentAndRejectsChanges(t *testing.T) 
 	r := testWakeRequest(c)
 	parent := "root"
 	body := r.Source.Body
+	goalBody := "planning"
+	changeGoalDuringRead := false
 	r.Source.ParentID = parent
 	r.Source.ParentAuthor = c.Reviewer
 	r.Source.Revision = ConversationRevision(r.Source)
@@ -66,8 +68,12 @@ func TestWakeSourceRevalidationReadsActualParentAndRejectsChanges(t *testing.T) 
 		}
 		var data any
 		switch {
-		case strings.Contains(req.Query, "WorkerWakeDiscussion"):
-			data = map[string]any{"node": map[string]any{"id": "discussion", "url": r.Source.DiscussionURL, "body": "planning", "author": actor(c.Owner)}}
+		case strings.Contains(req.Query, "WorkerWakeDiscussion") || strings.Contains(req.Query, "WorkerGoalVersion"):
+			currentBody := goalBody
+			if changeGoalDuringRead && strings.Contains(req.Query, "WorkerGoalVersion") {
+				currentBody = "owner narrowed the goal during the comment read"
+			}
+			data = map[string]any{"node": map[string]any{"id": "discussion", "url": r.Source.DiscussionURL, "body": currentBody, "author": actor(c.Owner)}}
 		case strings.Contains(req.Query, "WorkerDiscussionComments"):
 			data = map[string]any{"node": map[string]any{"comments": page([]any{map[string]any{"id": "root", "url": r.Source.URL, "body": "root", "author": actor(c.Reviewer)}})}}
 		case strings.Contains(req.Query, "WorkerDiscussionReplies"):
@@ -82,16 +88,25 @@ func TestWakeSourceRevalidationReadsActualParentAndRejectsChanges(t *testing.T) 
 	}}
 	g := NewGitHubClient(runner)
 	g.config = c
-	if _, err := g.RevalidateWake(context.Background(), r); err != nil {
+	if _, goal, err := g.RevalidateWake(context.Background(), r); err != nil || goal.Body != "planning" {
 		t.Fatal(err)
 	}
+	goalBody = "updated goal without changing the addressed reply"
+	if _, goal, err := g.RevalidateWake(context.Background(), r); err != nil || goal.Body != goalBody || goal.BodySHA != BodyHash(goalBody) {
+		t.Fatal("native source reread did not carry fresh goal context", err)
+	}
+	changeGoalDuringRead = true
+	if _, _, err := g.RevalidateWake(context.Background(), r); errorCategory(err) != "goal_version_changed" {
+		t.Fatal("wake accepted approval context from mixed goal versions", err)
+	}
+	changeGoalDuringRead = false
 	parent = "different"
-	if _, err := g.RevalidateWake(context.Background(), r); errorCategory(err) != "source_superseded" {
+	if _, _, err := g.RevalidateWake(context.Background(), r); errorCategory(err) != "source_superseded" {
 		t.Fatal("changed parent accepted")
 	}
 	parent = "root"
 	body = "meaningfully edited"
-	if _, err := g.RevalidateWake(context.Background(), r); errorCategory(err) != "source_superseded" {
+	if _, _, err := g.RevalidateWake(context.Background(), r); errorCategory(err) != "source_superseded" {
 		t.Fatal("changed source accepted")
 	}
 }

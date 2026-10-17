@@ -213,7 +213,7 @@ type teamScheduleWakeGitHub struct {
 	conversation *wakeGitHub
 }
 
-func (g *teamScheduleWakeGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, error) {
+func (g *teamScheduleWakeGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, Goal, error) {
 	return g.conversation.RevalidateWake(ctx, r)
 }
 func (g *teamScheduleWakeGitHub) WakeReply(ctx context.Context, r WakeRequest) (Comment, bool, error) {
