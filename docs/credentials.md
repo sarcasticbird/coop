@@ -1,5 +1,10 @@
 # Credentials
 
+Named agent Coops resolve credential commands through standard host tool
+directories, independent of the launch directory's `PATH`. Set a custom
+helper's absolute executable path in the private agent configuration. Interactive
+Coops continue to exclude their project tree from executable lookup.
+
 Coop is a host-owned credential broker. Named machines use a different guest
 credential lifetime from interactive entries; see [Persistent agents](agents.md).
 For distinct bot identities and renewable installation tokens, see

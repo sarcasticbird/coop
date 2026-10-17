@@ -315,13 +315,13 @@ type promptReportGitHub struct {
 	rootBody    string
 }
 
-func (g *promptReportGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, error) {
-	s, err := g.wakeGitHub.RevalidateWake(ctx, r)
+func (g *promptReportGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, Goal, error) {
+	s, goal, err := g.wakeGitHub.RevalidateWake(ctx, r)
 	if err == nil && r.Kind == "ping" && g.rootBody != "" {
 		s.Body = g.rootBody
 		s.Revision = ConversationRevision(s)
 	}
-	return s, err
+	return s, goal, err
 }
 
 func (g *promptReportGitHub) ReportBlock(context.Context, Job, string, string) error {

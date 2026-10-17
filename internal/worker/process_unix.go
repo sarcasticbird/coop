@@ -90,6 +90,11 @@ func (r ExecRunner) Run(ctx context.Context, argv, env []string, input io.Reader
 	}
 	cmd.WaitDelay = time.Second
 	err := cmd.Run()
+	if err != nil {
+		if cleanupErr := cmd.Cancel(); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrProcessDone) {
+			return CommandResult{}, errors.New("worker command cleanup failed")
+		}
+	}
 	result := CommandResult{Stdout: out.data, Stderr: stderr.data}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()

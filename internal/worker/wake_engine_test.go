@@ -26,9 +26,9 @@ func (g *wakeGitHub) Snapshot(ctx context.Context, c Config, s Snapshot) (Snapsh
 	}
 	return g.workflowGitHub.Snapshot(ctx, c, s)
 }
-func (g *wakeGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, error) {
+func (g *wakeGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, Goal, error) {
 	if g.sourceError != nil {
-		return ConversationSource{}, g.sourceError
+		return ConversationSource{}, Goal{}, g.sourceError
 	}
 	s := r.Source
 	if r.Kind == "ping" {
@@ -38,7 +38,8 @@ func (g *wakeGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (Convers
 		s.Body = "Planning"
 		s.Revision = ConversationRevision(s)
 	}
-	return s, nil
+	goal, _ := goalFor(g.snapshot, r.Source.DiscussionURL)
+	return s, goal, nil
 }
 func (g *wakeGitHub) WakeReply(ctx context.Context, r WakeRequest) (Comment, bool, error) {
 	v, ok := g.replies[r.ID]
@@ -283,7 +284,7 @@ func TestWakeManualBusySessionHoldsWithoutDirectoryMutation(t *testing.T) {
 	q, _ := QueuePing(e.Config, store, PingInput{}, clock.Now())
 	records, _ := store.Requests()
 	r := records[0]
-	r.Source, _ = e.GitHub.(*wakeGitHub).RevalidateWake(context.Background(), r)
+	r.Source, _, _ = e.GitHub.(*wakeGitHub).RevalidateWake(context.Background(), r)
 	key := WakeBindingKey(e.Config, r)
 	routing, _ := store.Routing()
 	dir := filepath.Join(e.Config.WorkRoot, "must-not-exist", "conversation")
