@@ -34,6 +34,25 @@ func (s *FileStore) checkTeamStartup(state State) error {
 // reuses migration's immutable backup, producer fence and verified journal.
 // A failed/partial attempt is never overwritten or retried automatically.
 func InitializeTeamState(c Config) (string, error) {
+	if c.Version == 3 {
+		if err := ValidateConfig(c); err != nil {
+			return "", err
+		}
+		legacy := c
+		legacy.Version = 2
+		legacy.Master = nil
+		id, err := initializeTeamState(legacy, c.Master.InstanceID)
+		if err != nil {
+			return "", err
+		}
+		if err = MigrateState(c, 2, 3, id); err != nil {
+			return "", err
+		}
+		return id, nil
+	}
+	return initializeTeamState(c, "")
+}
+func initializeTeamState(c Config, instance string) (string, error) {
 	if c.Version != 2 {
 		return "", errors.New("init-state requires v2 configuration")
 	}
@@ -56,6 +75,9 @@ func InitializeTeamState(c Config) (string, error) {
 		}
 	}
 	state := newState()
+	if instance != "" {
+		state.InstanceID = instance
+	}
 	if err = s.Save(state); err != nil {
 		return "", err
 	}

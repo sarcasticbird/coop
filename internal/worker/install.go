@@ -9,6 +9,9 @@ import (
 // CheckInstall permits staging before explicit conversion, never conversion on
 // load. The operator must keep workers, producers and manual sessions stopped.
 func CheckInstall(c Config, previous string) error {
+	if c.Version == 3 {
+		return checkMasterInstall(c, previous)
+	}
 	if previous != "" {
 		old, err := LoadConfig(previous)
 		if err != nil {

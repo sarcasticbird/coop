@@ -32,6 +32,9 @@ func NewVersionedWakeStore(dir string, version int) *FileWakeStore {
 	return &FileWakeStore{Dir: dir, Version: version}
 }
 func (s *FileWakeStore) compatible() error {
+	if s.Version >= 3 {
+		return errors.New("master workers cannot write the retired GitHub wake store")
+	}
 	// Standalone wake fixtures have no parent ledger. Managed inboxes always live
 	// under wake/v1, whose record format stays v1 across the ledger conversion.
 	if filepath.Base(s.Dir) == "v1" && filepath.Base(filepath.Dir(s.Dir)) == "wake" {

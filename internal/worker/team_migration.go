@@ -20,8 +20,16 @@ type stateMigration struct {
 // An unresolved publication is an inspection hold, not permission to replay or
 // restore a backup. The old binary independently rejects Version:2 in state.json.
 func (s *FileStore) compatible() error {
+	if s.version() == 3 {
+		return s.masterCompatible()
+	}
 	if s.version() != 1 && s.version() != 2 {
 		return errors.New("unsupported worker store version")
+	}
+	for _, name := range []string{"master-migration.json", "master-migration-backup.json"} {
+		if _, err := os.Lstat(filepath.Join(s.Dir, name)); !os.IsNotExist(err) {
+			return errors.New("legacy writer refused master migration evidence")
+		}
 	}
 	raw, err := readPrivate(filepath.Join(s.Dir, "migration.json"), 4096)
 	if os.IsNotExist(err) {
@@ -138,6 +146,9 @@ func migrationWakeReceipt(c Config, r WakeRequest, v WakeReceipt) error {
 // MigrateState is deliberately one-way and offline. All wake bytes retain their
 // original v1 schema; they are historical input, not new v2 assignments.
 func MigrateState(c Config, from, to int, expected string) error {
+	if from == 2 && to == 3 {
+		return migrateMasterState(c, expected, atomicPrivate)
+	}
 	return migrateState(c, from, to, expected, atomicPrivate)
 }
 

@@ -9,17 +9,26 @@ import (
 
 // Profile is a host-owned named machine, separate from coding-tool state mounts.
 type Profile struct {
-	Command            []string           `toml:"command"`
-	Orgs               []string           `toml:"orgs"`
-	IncludeCredentials []string           `toml:"include_credentials"`
-	Resources          Resources          `toml:"resources"`
-	Seeds              []Seed             `toml:"seed"`
-	Restart            string             `toml:"restart"`
-	Services           map[string]Service `toml:"services"`
+	Communication      *MasterCommunication `toml:"communication"`
+	Command            []string             `toml:"command"`
+	Orgs               []string             `toml:"orgs"`
+	IncludeCredentials []string             `toml:"include_credentials"`
+	Resources          Resources            `toml:"resources"`
+	Seeds              []Seed               `toml:"seed"`
+	Restart            string               `toml:"restart"`
+	Services           map[string]Service   `toml:"services"`
 }
 
 type Service struct {
 	Command []string `toml:"command"`
+}
+
+// MasterCommunication is host-side message routing. It grants no VM authority.
+type MasterCommunication struct {
+	Backend      string `toml:"backend"`
+	ClientConfig string `toml:"client_config"`
+	AgentID      string `toml:"agent_id"`
+	Engagement   string `toml:"engagement"`
 }
 
 var profileName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -37,6 +46,11 @@ func validateProfiles(cfg *Config) error {
 		return fmt.Errorf("at most 64 profiles are supported")
 	}
 	for name, p := range cfg.Profiles {
+		if m := p.Communication; m != nil {
+			if m.Backend != "master" || !filepath.IsAbs(m.ClientConfig) || m.AgentID == "" || m.Engagement == "" {
+				return fmt.Errorf("profile %s requires explicit master communication settings", name)
+			}
+		}
 		if err := ValidateProfileName(name); err != nil {
 			return err
 		}

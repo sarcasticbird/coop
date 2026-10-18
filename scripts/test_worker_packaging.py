@@ -100,6 +100,21 @@ class Installer(unittest.TestCase):
                     self.module.running_child("container", "robin")
                 self.assertEqual(call.call_args.args[0][:2], ["container", "machine"])
 
+    def test_v3_requires_pinned_master_before_guest_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary, config = root / "worker", root / "config.json"
+            data = bytearray(64)
+            data[:6], data[18:20] = b"\x7fELF\x02\x01", b"\xb7\x00"
+            binary.write_bytes(data)
+            for master in (None, {}, {"backend": "github"}, {"backend": "master", "generation": True}):
+                config.write_text(json.dumps(dict(version=3, name="builder", master=master)))
+                config.chmod(0o600)
+                with mock.patch.object(self.module, "invoke") as call:
+                    with self.assertRaises(ValueError):
+                        self.module.install("builder", binary, config)
+                    call.assert_not_called()
+
     def test_elf_and_private_config_validation_before_container_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

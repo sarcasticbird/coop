@@ -1,0 +1,7 @@
+# Copy outside the checkout and chmod 0600. The token stays in the environment.
+url = "http://127.0.0.1:7744"
+master_id = "example-master"
+token_env = "COOP_MASTER_TOKEN"
+# For a guest service, replace token_env with this private credential reference:
+# token_file = "/var/lib/coop/worker/master-token"
+allow_loopback_http = true

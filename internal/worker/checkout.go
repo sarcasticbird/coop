@@ -29,14 +29,20 @@ func NewCheckouts(c Config, r CommandRunner) *TaskCheckouts {
 }
 
 type checkoutOwner struct {
-	TaskURL, GoalURL, Repo, Branch, Origin, Mode string
-	Version                                      int    `json:",omitempty"`
-	AssignmentSHA                                string `json:",omitempty"`
-	ExecutorID                                   int64  `json:",omitempty"`
-	Role                                         string `json:",omitempty"`
+	TaskURL, GoalURL, Repo, Branch, Origin, Mode       string
+	Version                                            int    `json:",omitempty"`
+	AssignmentSHA                                      string `json:",omitempty"`
+	ExecutorID                                         int64  `json:",omitempty"`
+	Role                                               string `json:",omitempty"`
+	MasterID, AgentID, GoalSHA, InstanceID, BaseBranch string `json:",omitempty"`
+	Generation                                         int64  `json:",omitempty"`
 }
 
 func BindingKey(c Config, j Job) string {
+	if j.Master != nil {
+		raw, _ := json.Marshal(j.Master)
+		return BodyHash("master-v3\x00" + string(raw))
+	}
 	if j.Binding != nil {
 		b := j.Binding
 		return BodyHash(strings.Join([]string{"v2", b.AssignmentSHA, strconv.FormatInt(b.ExecutorID, 10), b.Role, j.TaskURL, j.GoalURL}, "\x00"))
@@ -66,7 +72,36 @@ func (c *TaskCheckouts) run(ctx context.Context, dir string, args ...string) ([]
 	}
 	return result.Stdout, nil
 }
+
+// Fresh fixes must include the existing implementation. This helper is used
+// only before publishing a new checkout, never to reset a model's local work.
+func (c *TaskCheckouts) nativeFixHead(ctx context.Context, dir string, j Job, repo string) (string, error) {
+	if !referenceInRepo(j.PRURL, repo, "pull") || !qaHeadSHA.MatchString(j.HeadSHA) {
+		return "", errors.New("invalid native fix PR head")
+	}
+	_, n, err := parseRef(j.PRURL)
+	if err != nil {
+		return "", err
+	}
+	if _, err = c.run(ctx, dir, "git", "fetch", "origin", "refs/pull/"+stringID(n)+"/head"); err != nil {
+		return "", err
+	}
+	head, err := c.run(ctx, dir, "git", "rev-parse", "FETCH_HEAD")
+	if err != nil || strings.TrimSpace(string(head)) != j.HeadSHA {
+		return "", errors.New("PR head changed during fix checkout")
+	}
+	return j.HeadSHA, nil
+}
+
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
+	if c.config.Version == 3 {
+		m := j.Master
+		if c.config.Master == nil || m == nil || m.Goal == nil || m.MasterID != c.config.Master.MasterID || m.AgentID != c.config.Master.AgentID || m.ExecutorID != c.config.Self.ID || m.Goal.Source != "master" || m.Goal.MasterID != m.MasterID || !hexSHA.MatchString(m.Goal.RevisionSHA256) || !hexSHA.MatchString(m.AssignmentSHA) || j.Kind != "plan" && !validBaseBranch(m.BaseBranch) {
+			return j, errors.New("invalid native checkout ownership binding")
+		}
+	} else if j.Master != nil {
+		return j, errors.New("native checkout requires v3 configuration")
+	}
 	if j.Binding != nil {
 		if c.config.Version != 2 || validateOwnershipBinding(j.Binding, j.Kind) != nil {
 			return j, errors.New("invalid checkout ownership binding")
@@ -75,11 +110,27 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		return j, errors.New("v2 checkout requires explicit ownership binding")
 	}
 	key := BindingKey(c.config, j)
-	root := filepath.Join(c.config.WorkRoot, key[:32])
+	directoryKey := key
+	if j.Master != nil {
+		directoryKey = BodyHash(key + "\x00" + c.config.Master.InstanceID + "\x00" + strconv.FormatInt(c.config.Master.Generation, 10))
+	}
+	root := filepath.Join(c.config.WorkRoot, directoryKey[:32])
 	checkout := filepath.Join(root, "repo")
 	owner := checkoutOwner{TaskURL: j.TaskURL, GoalURL: j.GoalURL, Mode: "clone"}
 	if b := j.Binding; b != nil {
 		owner.Version, owner.AssignmentSHA, owner.ExecutorID, owner.Role = b.Version, b.AssignmentSHA, b.ExecutorID, b.Role
+	}
+	if m := j.Master; m != nil {
+		owner.Version = 3
+		owner.MasterID = m.MasterID
+		owner.AgentID = m.AgentID
+		owner.GoalSHA = m.Goal.RevisionSHA256
+		owner.InstanceID = c.config.Master.InstanceID
+		owner.Generation = c.config.Master.Generation
+		owner.BaseBranch = m.BaseBranch
+		owner.AssignmentSHA = m.AssignmentSHA
+		owner.ExecutorID = m.ExecutorID
+		owner.Role = m.Role
 	}
 	if j.Kind == "plan" {
 		owner.TaskURL = ""
@@ -150,8 +201,35 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 					return j, err
 				}
 			}
-			if _, err := c.run(ctx, container, "wt", "add", "agent-"+key[:16], "-b", owner.Branch); err != nil {
+			if j.Master != nil && j.Kind == "fix" {
+				bare := filepath.Join(container, ".bare")
+				if err := safePath(bare); err != nil {
+					return j, err
+				}
+				head, err := c.nativeFixHead(ctx, bare, j, owner.Repo)
+				if err != nil {
+					return j, err
+				}
+				branch, err := c.run(ctx, bare, "git", "rev-parse", "--verify", "refs/heads/"+owner.Branch)
+				if err == nil {
+					if strings.TrimSpace(string(branch)) != head {
+						return j, errors.New("fresh fix branch differs from assigned PR head")
+					}
+				} else if _, err = c.run(ctx, bare, "git", "branch", "--no-track", owner.Branch, head); err != nil {
+					return j, err
+				}
+				// Use the supported workflow with an already verified branch.
+				// No worktree is visible until that branch starts at the PR head.
+				if _, err = c.run(ctx, container, "wt", "add", "agent-"+key[:16], owner.Branch); err != nil {
+					return j, err
+				}
+			} else if _, err := c.run(ctx, container, "wt", "add", "agent-"+key[:16], "-b", owner.Branch); err != nil {
 				return j, err
+			}
+			if j.Master != nil && j.Kind != "fix" {
+				if _, err := c.run(ctx, checkout, "git", "reset", "--hard", "origin/"+j.Master.BaseBranch); err != nil {
+					return j, err
+				}
 			}
 		default:
 			staging, err := os.MkdirTemp(root, ".clone-")
@@ -163,7 +241,18 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 			if _, err := c.run(ctx, root, "git", "clone", "--", owner.Origin, staging); err != nil {
 				return j, err
 			}
-			if _, err := c.run(ctx, staging, "git", "switch", "-c", owner.Branch); err != nil {
+			args := []string{"git", "switch", "-c", owner.Branch}
+			if j.Master != nil {
+				start := "origin/" + j.Master.BaseBranch
+				if j.Kind == "fix" {
+					start, err = c.nativeFixHead(ctx, staging, j, owner.Repo)
+					if err != nil {
+						return j, err
+					}
+				}
+				args = append(args, "--no-track", start)
+			}
+			if _, err := c.run(ctx, staging, args...); err != nil {
 				return j, err
 			}
 			if err := os.Rename(staging, checkout); err != nil {

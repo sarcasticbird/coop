@@ -350,6 +350,16 @@ def install(agent, binary, config, adopt_matching_launchers=False):
     candidate = json.loads(private)
     if len(private) > 1 << 20 or candidate.get("name") != agent:
         raise ValueError("worker config identity mismatch")
+    if candidate.get("version") == 3:
+        master = candidate.get("master")
+        if (not isinstance(master, dict) or master.get("backend") != "master"
+                or not isinstance(master.get("worker_instance_id"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", master["worker_instance_id"])
+                or type(master.get("generation")) is not int or master["generation"] < 1
+                or any(not isinstance(master.get(key), str) or not master[key]
+                       for key in ("master_id", "agent_id", "host_id", "engagement", "client_config"))
+                or not Path(master["client_config"]).is_absolute()):
+            raise ValueError("v3 worker requires explicit pinned master placement")
     files = {"coop-worker": executable, "config.json": private, "identity": agent.encode()}
     if adopt_matching_launchers:
         if type(candidate.get("version")) is not int or candidate["version"] != 2:

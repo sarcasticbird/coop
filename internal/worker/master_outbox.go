@@ -1,0 +1,160 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"golang.org/x/sys/unix"
+	"os"
+	"path/filepath"
+	"strings"
+
+	c "github.com/sarcasticbird/coop/internal/coordination"
+)
+
+type masterOutbox struct {
+	Version              int
+	MasterID, InstanceID string
+	Epoch                int64
+	Reply                c.PublishReply
+}
+
+// Shared with native actions, stopped reconciliation and placement adoption.
+func lockMasterProducer(cfg Config) (func(), error) {
+	dir := filepath.Join(masterDir(cfg), "actions")
+	if e := ensurePrivateDir(dir, true); e != nil {
+		return nil, e
+	}
+	path := filepath.Join(dir, "producer.lock")
+	if e := safePath(path); e != nil {
+		return nil, e
+	}
+	f, e := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if e != nil {
+		return nil, e
+	}
+	if e = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
+		_ = f.Close()
+		return nil, c.ErrConflict
+	}
+	return func() { _ = f.Close() }, nil
+}
+func QueueMasterReply(cfg Config, deliveryID, body string) error {
+	if cfg.Version != 3 || cfg.Master == nil || strings.TrimSpace(body) == "" || len(body) > c.MaxText {
+		return c.ErrInvalid
+	}
+	release, e := lockMasterProducer(cfg)
+	if e != nil {
+		return e
+	}
+	defer release()
+	if _, err := NewVersionedFileStore(cfg.StateDir, 3).Load(); err != nil {
+		return err
+	}
+	turn, err := loadMasterTurn(cfg, deliveryID)
+	if err != nil {
+		return err
+	}
+	retired, retireErr := retiredTurn(cfg, turn)
+	if retireErr != nil {
+		return retireErr
+	}
+	if retired {
+		return c.ErrEpoch
+	}
+	if turn.Phase != "active" || turn.Job.Master == nil || turn.Job.SessionID == "" || turn.Job.MessageID == "" {
+		return errors.New("reply requires a saved running master turn")
+	}
+	id := BodyHash("master-reply\x00" + turn.MasterID + "\x00" + deliveryID + "\x00" + turn.Job.MessageID)
+	in := masterOutbox{Version: 1, MasterID: turn.MasterID, InstanceID: turn.InstanceID, Epoch: turn.RestoreEpoch, Reply: c.PublishReply{RestoreEpoch: turn.RestoreEpoch, DeliveryID: deliveryID, InstanceID: turn.InstanceID, Generation: turn.Generation, Intent: c.NativeIntent{SessionID: turn.Job.SessionID, MessageID: turn.Job.MessageID}, Body: body, RequestID: id}}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(masterDir(cfg), "outbox")
+	if err = ensurePrivateDir(dir, true); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, id+".json")
+	if old, e := readPrivate(path, c.MaxJSON); e == nil {
+		if string(old) == string(raw) {
+			return nil
+		}
+		return c.ErrConflict
+	} else if !os.IsNotExist(e) {
+		return e
+	}
+	return writeWakeImmutable(path, raw)
+}
+func (m *MasterComms) FlushOutbox(ctx context.Context) error {
+	release, e := lockMasterProducer(m.Config)
+	if e != nil {
+		return e
+	}
+	defer release()
+
+	dir := filepath.Join(masterDir(m.Config), "outbox")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			return errors.New("invalid outbox entry")
+		}
+		raw, err := readPrivate(filepath.Join(dir, e.Name()), c.MaxJSON)
+		if err != nil {
+			return err
+		}
+		if _, ok, e := adoptedRecoveryRecord(m.Config, "outbox", e.Name(), raw); e != nil {
+			return e
+		} else if ok {
+			continue
+		}
+		var in masterOutbox
+		if strictTeamJSON(raw, &in) != nil || in.Version != 1 || in.MasterID != m.Config.Master.MasterID || in.InstanceID != m.Config.Master.InstanceID || e.Name() != in.Reply.RequestID+".json" || !hexSHA.MatchString(in.Reply.RequestID) {
+			return errors.New("outbox ownership mismatch")
+		}
+		retired, retireErr := recoveryRetired(m.Config, "outbox", e.Name(), raw)
+		if retireErr != nil {
+			return retireErr
+		}
+		if retired {
+			continue
+		}
+		if in.Epoch != m.connection.Epoch {
+			return c.ErrEpoch
+		}
+		result := filepath.Join(masterDir(m.Config), "published", e.Name())
+		if saved, err := readPrivate(result, c.MaxJSON); err == nil {
+			var receipt c.MessageReceipt
+			if strictTeamJSON(saved, &receipt) != nil || receipt.MasterID != in.MasterID || receipt.MessageID == "" {
+				return errors.New("invalid saved reply receipt")
+			}
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		receipt, err := m.Client.PublishReply(ctx, in.Reply)
+		if err != nil {
+			return err
+		}
+		if receipt.RestoreEpoch != m.connection.Epoch {
+			return c.ErrEpoch
+		}
+		data, err := json.Marshal(receipt)
+		if err != nil {
+			return err
+		}
+		if err = ensurePrivateDir(filepath.Dir(result), true); err != nil {
+			return err
+		}
+		if err = writeWakeImmutable(result, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}

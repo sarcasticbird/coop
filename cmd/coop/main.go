@@ -163,6 +163,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	// Everything after the agent token belongs to the agent.
 	rootCmd.PersistentFlags().SetInterspersed(false)
 	rootCmd.Flags().SetInterspersed(false)
+	installMasterCommands(rootCmd)
 	rejectCredentials := func(cmd *cobra.Command) error {
 		if cmd.Flags().Changed("credentials") {
 			return errors.New("--credentials is only valid when entering a coop or using tui")

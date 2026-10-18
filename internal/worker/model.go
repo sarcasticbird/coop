@@ -1,7 +1,10 @@
 // Package worker coordinates approved GitHub work with a guest-local OpenCode server.
 package worker
 
-import "time"
+import (
+	c "github.com/sarcasticbird/coop/internal/coordination"
+	"time"
+)
 
 type Actor struct {
 	ID    int64  `json:"id"`
@@ -35,6 +38,7 @@ type OpenCodeConfig struct {
 	ReconcileInterval time.Duration `json:"-"`
 }
 type Config struct {
+	Master                 *MasterConfig     `json:"master,omitempty"`
 	Team                   *TeamPolicy       `json:"team,omitempty"`
 	Wake                   *WakeConfig       `json:"wake,omitempty"`
 	Version                int               `json:"version"`
@@ -101,6 +105,7 @@ type Review struct {
 	LastEditedAt       time.Time `json:",omitzero"`
 }
 type PR struct {
+	MasterGoal                                                   *c.GoalRef  `json:",omitempty"`
 	QAArtifact                                                   *QAArtifact `json:",omitempty"`
 	QAArtifactError                                              string      `json:",omitempty"`
 	BaseScopeRevision                                            string      `json:",omitempty"`
@@ -130,18 +135,19 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
-	SubmittedModel                                                               *ModelIdentity   `json:",omitempty"`
-	ExecutedModel                                                                *ModelIdentity   `json:",omitempty"`
-	FirstEligibleAt                                                              time.Time        `json:",omitzero"`
-	SchedulePriority                                                             int              `json:",omitempty"`
-	ScheduleOrdinal                                                              int              `json:",omitempty"`
-	QAArtifact                                                                   *QAArtifact      `json:",omitempty"`
-	PRScopeRevision                                                              string           `json:",omitempty"`
-	Binding                                                                      *JobBinding      `json:",omitempty"`
-	ReconcileFailures                                                            int              `json:",omitempty"`
-	ReconcileError                                                               string           `json:",omitempty"`
-	PromptReportAttempts                                                         int              `json:",omitempty"`
-	PromptFailure                                                                *PromptSizeError `json:",omitempty"`
+	Master                                                                       *MasterJobBinding `json:",omitempty"`
+	SubmittedModel                                                               *ModelIdentity    `json:",omitempty"`
+	ExecutedModel                                                                *ModelIdentity    `json:",omitempty"`
+	FirstEligibleAt                                                              time.Time         `json:",omitzero"`
+	SchedulePriority                                                             int               `json:",omitempty"`
+	ScheduleOrdinal                                                              int               `json:",omitempty"`
+	QAArtifact                                                                   *QAArtifact       `json:",omitempty"`
+	PRScopeRevision                                                              string            `json:",omitempty"`
+	Binding                                                                      *JobBinding       `json:",omitempty"`
+	ReconcileFailures                                                            int               `json:",omitempty"`
+	ReconcileError                                                               string            `json:",omitempty"`
+	PromptReportAttempts                                                         int               `json:",omitempty"`
+	PromptFailure                                                                *PromptSizeError  `json:",omitempty"`
 	BlockReported                                                                bool
 	TerminalAt                                                                   time.Time
 	ScopeSHA, WaitReason                                                         string

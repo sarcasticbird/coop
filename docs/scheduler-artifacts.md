@@ -21,6 +21,12 @@ the password path is not a signing-key or provider-credential location. Do not
 put private identities, topology, credential paths or rollout evidence in these
 public files.
 
+[worker-master.json](../examples/worker-master.json) adds the explicit v3 master
+backend, stable principal and host/instance/generation pins. Its existing v2
+team policy still defines the engineering roles. See [Coop master](master.md)
+for native authority and guarded 2-to-3 conversion. No GitHub Discussion becomes
+a native goal through configuration alone.
+
 | Contract | V1 | V2 |
 | --- | --- | --- |
 | Configuration | Fixed `role`, `implementer` and `reviewer`; `team` forbidden | Required version-2 `team`; legacy authority fields absent or empty |
@@ -61,7 +67,8 @@ Keep the worker and matching diagnostic, request and producer readers together.
 The offline helper requires a clean committed checkout containing the observation
 repair and its integration merge, plus a directory containing exactly `coop`
 (Darwin arm64), `coop-worker` and `coop-github` (Linux arm64). It binds their
-digests, the installer/launcher sources, itself and both public examples to the
+digests, the installer/launcher sources, itself, all three worker examples,
+neutral master/client templates and SQLite runtime notices to the
 exact source head. Keep generated files outside the checkout and binary directory:
 
 ```sh
@@ -77,6 +84,27 @@ The helper checks binary headers but does not execute binaries or prove that
 they were built from the recorded revision. Keep build and test evidence beside
 the manifest. It refuses changed/missing inputs, dirty or index-hidden source,
 wrong architectures and overwriting existing evidence.
+Its schema and `master/v1` fields record the source package's required native
+compatibility contract. They do not establish that arbitrary supplied binaries
+implement that contract. Keep the exact build commands and hashes as evidence.
+
+Build the three targets into a new, empty staging directory. Set `ARTIFACT_DIR`
+to an absolute directory outside the checkout, then run each command from the
+source root:
+
+```sh
+mkdir -m 700 "$ARTIFACT_DIR"
+flox activate -- env CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+  go build -trimpath -o "$ARTIFACT_DIR/coop" ./cmd/coop
+flox activate -- env CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go build -trimpath -o "$ARTIFACT_DIR/coop-worker" ./cmd/coop-worker
+flox activate -- env CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go build -trimpath -o "$ARTIFACT_DIR/coop-github" ./cmd/coop-github
+```
+
+These commands preserve the installed binaries. A dirty source build is useful
+for local tests, but the manifest helper deliberately refuses it. Commit and
+review the source before preparing a release or live-pilot manifest.
 
 Prepare SHA256 evidence for the exact worker binary, checked launcher scripts
 and public example bytes, together with their source revision and build target.

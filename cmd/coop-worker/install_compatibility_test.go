@@ -428,7 +428,7 @@ func TestWorkerCheckInstallCLIArgumentIsolation(t *testing.T) {
 
 func TestWorkerCheckInstallExamplesOffline(t *testing.T) {
 	_, _, _ = cliMigrationFixture(t, 1) // Install the offline client-construction trap.
-	for _, name := range []string{"worker.json", "worker-team.json"} {
+	for _, name := range []string{"worker.json", "worker-team.json", "worker-master.json"} {
 		t.Run(name, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join("..", "..", "examples", name))
 			if err != nil {
@@ -441,6 +441,11 @@ func TestWorkerCheckInstallExamplesOffline(t *testing.T) {
 			// Never inspect the example's live-looking installation paths.
 			c.StateDir, c.WorkRoot = filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "work")
 			c.OpenCode.PasswordFile = filepath.Join(t.TempDir(), "nonexistent-password")
+			if c.Version == 3 {
+				if _, err = worker.InitializeTeamState(c); err != nil {
+					t.Fatal(err)
+				}
+			}
 			checkInstallOffline(t, installConfigCopy(t, c), "", "")
 		})
 	}
