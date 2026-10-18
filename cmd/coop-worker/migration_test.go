@@ -158,3 +158,17 @@ func TestWorkerCLIMigrationFlagsRequireMigrationCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyRetirementFlagsRequireExplicitMasterMigration(t *testing.T) {
+	for _, args := range [][]string{
+		{"validate", "--retire-legacy-job", "test"},
+		{"migrate-state", "--from", "1", "--to", "2", "--retire-legacy-job", "test"},
+		{"recover-master-migration", "--accept-legacy-wake", "test"},
+	} {
+		args = append(args, "--config", "/nonexistent/private.json")
+		err := run(args, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "legacy retirement requires explicit 2-to-3") {
+			t.Fatalf("unexpected gate: %v", err)
+		}
+	}
+}

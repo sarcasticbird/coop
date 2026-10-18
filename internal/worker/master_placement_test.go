@@ -21,7 +21,7 @@ import (
 func TestFinalReviewPlacementHistory(t *testing.T) {
 	for _, replaceInstance := range []bool{false, true} {
 		t.Run(map[bool]string{false: "same-instance", true: "new-instance"}[replaceInstance], func(t *testing.T) {
-			cfg, comms, s, o, b, th, code := commsFixture(t)
+			cfg, comms, s, o, b, th, code := commsFixtureWithRetiredHistory(t, true)
 			ctx := context.Background()
 			client := comms.Client.(*masterclient.Client)
 			if _, e := s.Send(ctx, o, c.SendMessage{ThreadID: th.ID, Recipients: []string{b.ID}, Body: "before move", RequestID: "move-turn"}); e != nil {

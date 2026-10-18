@@ -177,6 +177,16 @@ then checks the v3 receipt and exact instance before replacing its managed
 artifact generation. It refuses older artifacts and silent placement changes.
 Staging does not launch services. Do not point an old binary at v3 storage.
 
+After checking native and GitHub evidence, an operator may explicitly name
+obsolete, blocked, unbound jobs with repeated `--retire-legacy-job ID` flags on
+the 2-to-3 command. Jobs with pending submissions or current ownership bindings
+remain refused. Repeated `--accept-legacy-wake ID` flags accept only completed
+legacy wake receipts whose old format omitted a terminal timestamp; independently
+verify those exact native turns first. The converter keeps original statuses,
+records the selections in the immutable migration backup, and never replays them.
+Runtime startup and later placement adoption verify the unchanged retired jobs
+against that backup. These options do not approve new work.
+
 An interrupted conversion holds both versions. Inspect the immutable snapshot
 and unchanged evidence, then use `recover-master-migration --config ...
 --expected-instance ...` with the stopped worker. Startup never retries it.

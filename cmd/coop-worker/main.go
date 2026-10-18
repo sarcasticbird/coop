@@ -70,6 +70,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	from := flags.Int("from", 0, "source state version")
 	to := flags.Int("to", 0, "target state version")
 	expected := flags.String("expected-instance", "", "exact saved worker instance")
+	var retiredJobs, legacyWakes []string
+	flags.Func("retire-legacy-job", "exact drained blocked legacy job inspected by the operator; repeatable", func(v string) error { retiredJobs = append(retiredJobs, v); return nil })
+	flags.Func("accept-legacy-wake", "exact completed legacy wake whose native outcome was inspected; repeatable", func(v string) error { legacyWakes = append(legacyWakes, v); return nil })
 	if flags.Parse(args[1:]) != nil || *path == "" || len(flags.Args()) > 0 {
 		return errors.New("worker command requires --config /absolute/private.json")
 	}
@@ -96,6 +99,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	if command != "migrate-state" && command != "recover-master-migration" && (*from != 0 || *to != 0 || *expected != "") {
 		return errors.New("migration flags require migrate-state")
+	}
+	if (len(retiredJobs) != 0 || len(legacyWakes) != 0) && (command != "migrate-state" || *from != 2 || *to != 3) {
+		return errors.New("legacy retirement requires explicit 2-to-3 migrate-state")
 	}
 	if *previous != "" && command != "check-install" {
 		return errors.New("previous-config requires check-install")
@@ -138,7 +144,13 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		if *jobID != "" || *sessionID != "" || *messageID != "" {
 			return errors.New("intent flags require recover")
 		}
-		if err := worker.MigrateState(c, *from, *to, *expected); err != nil {
+		var err error
+		if len(retiredJobs) != 0 || len(legacyWakes) != 0 {
+			err = worker.MigrateMasterStateWithRetirements(c, *expected, retiredJobs, legacyWakes)
+		} else {
+			err = worker.MigrateState(c, *from, *to, *expected)
+		}
+		if err != nil {
 			return err
 		}
 		return json.NewEncoder(out).Encode(map[string]string{"state": "migration_verified"})
