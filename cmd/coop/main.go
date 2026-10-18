@@ -392,6 +392,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	)
 	installAgentCommands(rootCmd, &requestedCredentials)
 	rootCmd.AddCommand(mcpCommand())
+	installHostCommands(rootCmd)
 	return rootCmd
 }
 

@@ -134,6 +134,45 @@ func strictJSON(b []byte, v any) error {
 	}
 	return nil
 }
+
+// UpdatePrivateFile serializes a private read-modify-write without following
+// symlinks. A missing file is passed to update as nil; invalid files fail closed.
+func UpdatePrivateFile(path string, max int64, update func([]byte) ([]byte, error)) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fail("invalid_private_path")
+	}
+	d, err := privateDir(filepath.Dir(path), true)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path)+".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0600)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	var st unix.Stat_t
+	if err = unix.Fstat(fd, &st); err != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Mode&0077 != 0 {
+		return fail("unsafe_private_lock")
+	}
+	if err = unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return err
+	}
+	defer unix.Flock(fd, unix.LOCK_UN)
+	b, err := readAt(d, filepath.Base(path), max)
+	if err != nil && !errors.Is(err, unix.ENOENT) {
+		return err
+	}
+	b, err = update(b)
+	if err != nil {
+		return err
+	}
+	if int64(len(b)) > max {
+		return fail("private_file_too_large")
+	}
+	return writeAt(d, filepath.Base(path), b)
+}
+
 func OpenHost(root, label string) (Host, func() error, error) {
 	d, e := privateDir(root, true)
 	if e != nil {
