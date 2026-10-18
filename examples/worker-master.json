@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "name": "builder",
+  "model": "provider/model",
+  "owner": {
+    "id": 1,
+    "login": "owner",
+    "kind": "User"
+  },
+  "self": {
+    "id": 2,
+    "login": "builder[bot]",
+    "kind": "Bot"
+  },
+  "team": {
+    "version": 2,
+    "members": [
+      {
+        "name": "builder",
+        "actor": {
+          "id": 2,
+          "login": "builder[bot]",
+          "kind": "Bot"
+        },
+        "capabilities": [
+          "implement",
+          "engineering-review"
+        ]
+      },
+      {
+        "name": "planner",
+        "actor": {
+          "id": 3,
+          "login": "planner[bot]",
+          "kind": "Bot"
+        },
+        "capabilities": [
+          "plan",
+          "implement",
+          "engineering-review"
+        ]
+      },
+      {
+        "name": "qa",
+        "actor": {
+          "id": 4,
+          "login": "qa[bot]",
+          "kind": "Bot"
+        },
+        "capabilities": [
+          "customer-qa"
+        ]
+      }
+    ],
+    "planner": "planner",
+    "engineering_peers": {
+      "builder": "planner",
+      "planner": "builder"
+    }
+  },
+  "code_owners": [
+    "example"
+  ],
+  "project_owners": [
+    "example"
+  ],
+  "discussion_repositories": [
+    "example/board"
+  ],
+  "state_dir": "/var/lib/coop/worker/state",
+  "work_root": "/workspace/worker",
+  "opencode": {
+    "base_url": "http://127.0.0.1:4096",
+    "password_file": "/var/lib/coop/opencode/server-password",
+    "request_timeout": "10s",
+    "reconcile_interval": "5s"
+  },
+  "limits": {
+    "poll_interval": "1m",
+    "turn_limit": "30m",
+    "retry_base": "1m",
+    "retry_cap": "15m",
+    "max_attempts": 3,
+    "max_review_cycles": 5
+  },
+  "wake": {
+    "enabled": false,
+    "coordination_url": "https://github.com/orgs/example/discussions/1",
+    "peer_hop_limit": 2
+  },
+  "master": {
+    "backend": "master",
+    "client_config": "/var/lib/coop/worker/master-client.toml",
+    "master_id": "example-master",
+    "engagement": "example-engagement",
+    "agent_id": "example-builder",
+    "host_id": "example-host",
+    "worker_instance_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1
+  }
+}

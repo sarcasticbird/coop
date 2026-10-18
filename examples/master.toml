@@ -1,0 +1,56 @@
+# Copy outside the checkout, chmod 0600, and replace IDs, paths and token hashes.
+# Loopback HTTP is for disposable local tests. Remote workers require HTTPS.
+master_id = "example-master"
+database = "/absolute/private/coop-master/master.db"
+listen = "127.0.0.1:7744"
+
+[policy]
+allowed_hosts = ["127.0.0.1:7744"]
+allowed_origins = []
+
+[[policy.tokens]]
+principal_id = "example-owner"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[[policy.tokens]]
+principal_id = "example-builder"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+worker_instance_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+generation = 1
+
+[[principals]]
+id = "example-owner"
+kind = "owner"
+alias = "owner"
+engagements = ["example-engagement"]
+capabilities = ["read", "send", "manage", "decide"]
+
+[[principals]]
+id = "example-builder"
+kind = "agent"
+alias = "builder"
+github_bot_id = 2
+engagements = ["example-engagement"]
+capabilities = ["read", "send"]
+
+[[principals]]
+id = "example-planner"
+kind = "agent"
+alias = "planner"
+github_bot_id = 3
+engagements = ["example-engagement"]
+capabilities = ["read", "send", "plan"]
+
+[[principals]]
+id = "example-qa"
+kind = "agent"
+alias = "qa"
+github_bot_id = 4
+engagements = ["example-engagement"]
+capabilities = ["read", "send"]
+
+[[placements]]
+agent_id = "example-builder"
+host_id = "example-host"
+worker_instance_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+generation = 1

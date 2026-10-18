@@ -1,5 +1,9 @@
 # GitHub workers
 
+For private native conversations and owner decisions with version-3 workers,
+see [Coop master](master.md). The GitHub-governed v1/v2 workflows below retain
+their existing authority and metadata. Conversion is explicit and offline.
+
 An agent Coop can run an authenticated OpenCode server and a small GitHub worker
 as independent helper services. The terminal attaches to that server. Detaching
 the terminal leaves the server and worker running inside the VM.

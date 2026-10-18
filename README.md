@@ -169,10 +169,12 @@ forwarding SSH, mounting more host directories, or seeding sensitive data.
   Flox, and recovery
 - [GitHub workers](docs/workers.md): OpenCode servers, unattended approved work,
   review handoffs, controls and recovery
+- [Coop master](docs/master.md): private conversations, addressed messages and
+  native owner goal decisions across hosts
 - [Security model](docs/security-model.md): trust boundaries and non-promises
 - [Release process](docs/release.md): contributor-only release procedure
 
-Third-party distribution notices for the embedded image are in
+Third-party distribution notices for Coop and the embedded image are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

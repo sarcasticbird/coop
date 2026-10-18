@@ -33,6 +33,7 @@ func (RealClock) Wait(ctx context.Context, d time.Duration) error {
 }
 
 type Engine struct {
+	MasterRuntime                       *MasterRuntime
 	checkpointErr                       error
 	asynchronous                        bool
 	poll                                chan snapshotPoll
@@ -788,6 +789,9 @@ func (e *Engine) syncBoard(ctx context.Context) error {
 	return nil
 }
 func (e *Engine) Tick(ctx context.Context) (result error) {
+	if e.Config.Version == 3 {
+		return e.tickMaster(ctx)
+	}
 	if err := e.initialize(); err != nil {
 		return err
 	}
@@ -1119,6 +1123,9 @@ func (e *Engine) Tick(ctx context.Context) (result error) {
 	return nil
 }
 func (e *Engine) Run(ctx context.Context) error {
+	if e.Config.Version == 3 {
+		return e.runMaster(ctx)
+	}
 	e.asynchronous = true
 	release, err := e.Store.Lock()
 	if err != nil {

@@ -40,6 +40,8 @@ class Manifest(unittest.TestCase):
             path = self.source / name
             path.parent.mkdir(exist_ok=True)
             path.write_text(json.dumps({"version": artifacts.PROFILES[name]}) if name in artifacts.PROFILES else "# fixture\n")
+            if name == "THIRD_PARTY_NOTICES.md":
+                path.write_text("\n".join(artifacts.REQUIRED_LICENSES))
         self.commit("repair fixture")
         repair = self.head()
         self.git("commit", "-q", "--allow-empty", "-m", "integration fixture")
@@ -85,6 +87,8 @@ class Manifest(unittest.TestCase):
         first = self.create()
         manifest = json.loads(first)
         self.assertEqual(manifest["source_head"], self.source_head)
+        self.assertEqual(manifest["worker_profile_schemas"], [1, 2, 3])
+        self.assertEqual(manifest["native_authority"], "master/v1")
         self.assertEqual(manifest["repair_ancestor"], artifacts.REPAIR_ANCESTOR)
         self.assertEqual(manifest["integration_ancestor"], artifacts.INTEGRATION_ANCESTOR)
         records = manifest["files"]
@@ -275,6 +279,13 @@ class Manifest(unittest.TestCase):
             self.assertEqual(self.invoke("verify"), 1, mutation)
         self.destination.write_bytes(original.replace(b'"version": 1', b'"version": 1, "version": 1'))
         self.assertEqual(self.invoke("verify"), 1)
+
+    def test_missing_sqlite_dependency_notice_is_refused(self):
+        (self.source / "THIRD_PARTY_NOTICES.md").write_text("missing notices\n")
+        self.commit("missing license fixture")
+        self.source_head = self.head()
+        self.assertEqual(self.invoke("create"), 1)
+        self.assertFalse(self.destination.exists())
 
     def test_manifest_destination_cannot_overwrite_inputs_or_follow_symlink(self):
         for path in (self.source / "manifest.json", self.binary_dir / "coop"):

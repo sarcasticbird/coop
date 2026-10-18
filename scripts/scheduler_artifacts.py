@@ -7,7 +7,7 @@ Usage (keep outputs outside the source checkout):
       --artifacts /path/to/binaries --manifest /path/to/manifest.json
 
 The artifact directory must contain exactly coop, coop-worker and coop-github.
-Both committed repository example profiles are required; no private profile or
+All committed repository example profiles are required; no private profile or
 credential paths are accepted. Digests bind supplied bytes, not build provenance
 or a signature. No binary is executed and no installation is performed.
 """
@@ -26,7 +26,12 @@ import sys
 REPAIR_ANCESTOR = "d7e86225666ad9824db3f35903de19c556a83557"
 INTEGRATION_ANCESTOR = "ac6353199e02b3bbca7da0256eaf6fa5567044c6"
 BINARIES = {"coop": "darwin/arm64", "coop-worker": "linux/arm64", "coop-github": "linux/arm64"}
-PROFILES = {"examples/worker.json": 1, "examples/worker-team.json": 2}
+PROFILES = {"examples/worker.json": 1, "examples/worker-team.json": 2,
+            "examples/worker-master.json": 3}
+REQUIRED_LICENSES = ("modernc.org/sqlite", "modernc.org/libc", "modernc.org/memory",
+                     "modernc.org/mathutil", "github.com/dustin/go-humanize",
+                     "github.com/google/uuid", "github.com/ncruces/go-strftime",
+                     "github.com/remyoudompheng/bigfft")
 SOURCES = (
     "scripts/scheduler_artifacts.py",
     "scripts/install-agent-worker.sh",
@@ -35,6 +40,9 @@ SOURCES = (
     "scripts/coop-opencode-launch",
     "scripts/coop-opencode-server",
     "scripts/coop-opencode-attach",
+    "examples/master.toml",
+    "examples/master-client.toml",
+    "THIRD_PARTY_NOTICES.md",
     *PROFILES,
 )
 
@@ -119,6 +127,8 @@ def manifest_bytes(source, artifacts, head):
             profile = json.loads(data, object_pairs_hook=unique_object)
             if not isinstance(profile, dict) or type(profile.get("version")) is not int or profile["version"] != PROFILES[relative]:
                 raise ValueError("incorrect example profile version: " + relative)
+        if relative == "THIRD_PARTY_NOTICES.md" and any(name.encode() not in data for name in REQUIRED_LICENSES):
+            raise ValueError("missing SQLite runtime dependency notices")
         records.append({"path": "source/" + relative, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
     for name, target in sorted(BINARIES.items()):
         data = regular_bytes(artifacts, name)
@@ -128,6 +138,8 @@ def manifest_bytes(source, artifacts, head):
     # Catch ordinary concurrent checkout changes before publishing evidence.
     source_identity(source, head)
     return canonical({"version": 1, "source_head": head,
+                      "worker_profile_schemas": [1, 2, 3],
+                      "native_authority": "master/v1",
                       "repair_ancestor": REPAIR_ANCESTOR,
                       "integration_ancestor": INTEGRATION_ANCESTOR,
                       "files": sorted(records, key=lambda row: row["path"])})

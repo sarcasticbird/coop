@@ -35,11 +35,17 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return errors.New("expected run, validate, preflight, dry-run, status, pause or resume")
 	}
 	command := args[0]
+	if command == "native" {
+		return nativeCommand(args[1:], out)
+	}
+	if command == "comms" {
+		return commsCommand(args[1:], out)
+	}
 	if command == "qa-source-digest" {
 		return qaSourceDigest(args[1:], out)
 	}
 	switch command {
-	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "init-state":
+	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "recover-master-migration", "init-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -88,7 +94,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	if *requestID != "" && command != "requests" {
 		return errors.New("request-id requires requests")
 	}
-	if command != "migrate-state" && (*from != 0 || *to != 0 || *expected != "") {
+	if command != "migrate-state" && command != "recover-master-migration" && (*from != 0 || *to != 0 || *expected != "") {
 		return errors.New("migration flags require migrate-state")
 	}
 	if *previous != "" && command != "check-install" {
@@ -100,6 +106,23 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	c, err := worker.LoadConfig(*path)
 	if err != nil {
 		return err
+	}
+	if c.Version == 3 {
+		switch command {
+		case "task-metadata", "recover", "ping", "requests":
+			return errors.New("legacy command retired for v3; use native action/resolve or master comms")
+		case "preflight", "dry-run":
+			return nativeCommand(append([]string{command}, args[1:]...), out)
+		}
+	}
+	if command == "recover-master-migration" {
+		if *from != 0 || *to != 0 || *jobID != "" || *sessionID != "" || *messageID != "" {
+			return errors.New("recovery requires only config and expected-instance")
+		}
+		if err := worker.RecoverMasterMigration(c, *expected); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]string{"state": "master_migration_verified"})
 	}
 	if command == "init-state" {
 		if *jobID != "" || *sessionID != "" || *messageID != "" {

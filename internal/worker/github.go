@@ -81,14 +81,8 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 	if err != nil || len(raw) > MaxAPIPage {
 		return nil, res.Header, ghError("response_too_large")
 	}
-	if res.StatusCode == 429 || res.StatusCode == 403 && (res.Header.Get("Retry-After") != "" || res.Header.Get("X-RateLimit-Remaining") == "0") {
-		retry := time.Now().Add(time.Minute)
-		if seconds, e := strconv.ParseInt(res.Header.Get("Retry-After"), 10, 64); e == nil && seconds > 0 && seconds < 86400 {
-			retry = time.Now().Add(time.Duration(seconds) * time.Second)
-		} else if reset, e := strconv.ParseInt(res.Header.Get("X-RateLimit-Reset"), 10, 64); e == nil && reset > time.Now().Unix() {
-			retry = time.Unix(reset, 0)
-		}
-		return nil, res.Header, &GitHubError{Category: "rate_limited", RetryAt: retry}
+	if res.StatusCode == 429 || res.StatusCode == 403 && (res.Header.Get("Retry-After") != "" || res.Header.Get("X-RateLimit-Remaining") == "0") || res.StatusCode == 200 && endpoint == "graphql" && graphqlQuota(raw) {
+		return nil, res.Header, &GitHubError{Category: "rate_limited", RetryAt: quotaRetry(res.Header, time.Now())}
 	}
 	if runErr != nil || result.ExitCode != 0 || res.StatusCode < 200 || res.StatusCode >= 300 {
 		category := "request_failed"
@@ -103,6 +97,39 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 		return nil, res.Header, ghError(category)
 	}
 	return raw, res.Header, nil
+}
+
+func graphqlQuota(raw []byte) bool {
+	var envelope struct {
+		Errors []struct {
+			Type string `json:"type"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	for _, e := range envelope.Errors {
+		if e.Type == "RATE_LIMIT" || e.Type == "RATE_LIMITED" {
+			return true
+		}
+	}
+	return false
+}
+
+func quotaRetry(headers http.Header, now time.Time) time.Time {
+	valid := func(t time.Time) bool { return t.After(now) && t.Before(now.Add(24*time.Hour)) }
+	if seconds, err := strconv.ParseInt(headers.Get("Retry-After"), 10, 64); err == nil && seconds > 0 && seconds < 86400 {
+		return now.Add(time.Duration(seconds) * time.Second)
+	}
+	if date, err := http.ParseTime(headers.Get("Retry-After")); err == nil && valid(date) {
+		return date
+	}
+	if reset, err := strconv.ParseInt(headers.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+		if t := time.Unix(reset, 0); valid(t) {
+			return t
+		}
+	}
+	return now.Add(time.Minute)
 }
 func (g *GitHubClient) graphql(ctx context.Context, owner, query string, variables map[string]any) (json.RawMessage, error) {
 	raw, _, err := g.api(ctx, owner, "POST", "graphql", map[string]any{"query": query, "variables": variables})

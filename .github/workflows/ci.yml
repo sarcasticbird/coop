@@ -29,6 +29,11 @@ jobs:
         run: go test -race ./...
       - name: vet
         run: go vet ./...
+      - name: worker packaging and artifact manifests
+        run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+      - name: installer ownership recovery
+        # Runs only disposable fixture paths; the ownership cases require root.
+        run: sudo python3 -B -m unittest discover -s scripts -p 'test_worker_install_recovery.py'
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 

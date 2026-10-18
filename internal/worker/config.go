@@ -179,7 +179,7 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil || token != json.Delim('{') {
 		return c, errors.New("invalid worker configuration envelope")
 	}
-	version, seenVersion, seenTeam := 0, false, false
+	version, seenVersion, seenTeam, seenMaster := 0, false, false, false
 	for d.More() {
 		key, err := d.Token()
 		if err != nil {
@@ -200,17 +200,21 @@ func LoadConfig(path string) (Config, error) {
 			seenVersion = true
 		}
 		seenTeam = seenTeam || strings.EqualFold(name, "team")
+		seenMaster = seenMaster || strings.EqualFold(name, "master")
 	}
 	if _, err := d.Token(); err != nil {
 		return c, errors.New("invalid worker configuration envelope")
 	}
-	if !seenVersion || (version != 1 && version != 2) {
+	if !seenVersion || (version != 1 && version != 2 && version != 3) {
 		return c, errors.New("unsupported worker configuration version")
 	}
 	if version == 1 && seenTeam {
 		return c, errors.New("v1 configuration forbids team policy")
 	}
-	if version == 2 {
+	if version < 3 && seenMaster {
+		return c, errors.New("legacy configuration forbids master fields")
+	}
+	if version >= 2 {
 		if err := strictTeamJSON(raw, &c); err != nil {
 			return c, err
 		}
@@ -239,6 +243,12 @@ func validActor(a Actor, kind string) bool {
 }
 
 func ValidateConfig(c Config) error {
+	if c.Version == 3 {
+		return validateMasterConfig(c)
+	}
+	if c.Master != nil {
+		return errors.New("master configuration requires worker version 3")
+	}
 	c = Defaults(c)
 	if err := validateDiscussionIntake(c); err != nil {
 		return err

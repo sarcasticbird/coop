@@ -3,8 +3,11 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/masterclient"
 	"github.com/sarcasticbird/coop/internal/worker"
 	"io"
 	"time"
@@ -38,6 +41,24 @@ func (s *Session) Worker(ctx context.Context, operation string) error {
 func (s *Session) Ping(ctx context.Context, input worker.PingInput) error {
 	if err := worker.ValidatePingInput(input); err != nil {
 		return err
+	}
+	if cfg := s.Spec.Profile.Communication; cfg != nil {
+		if cfg.Backend != "master" {
+			return errors.New("unsupported communication backend")
+		}
+		cl, err := masterclient.LoadConfig(cfg.ClientConfig)
+		if err != nil {
+			return err
+		}
+		id := input.RequestID
+		if id == "" {
+			id = rand.Text()
+		}
+		receipt, err := cl.Ping(ctx, c.Ping{AgentID: cfg.AgentID, Engagement: cfg.Engagement, Body: input.Prompt, RequestID: id})
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(s.output()).Encode(receipt)
 	}
 	if _, ok := s.Spec.Profile.Services["worker"]; !ok {
 		return errors.New("worker is not configured for this agent")

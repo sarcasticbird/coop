@@ -164,6 +164,10 @@ func validateOwnershipBinding(b *JobBinding, kind string) error {
 	return nil
 }
 func validateState(s State) error {
+	if s.Version == 3 {
+		s.Version = 2
+		return validateState(s)
+	}
 	if s.Schedule != nil {
 		c := s.Schedule.Counters
 		if s.Version != 2 || c.Handoffs < 0 || c.Handoffs > 2 || c.Foreground < 0 || c.Foreground > 3 {
@@ -252,7 +256,7 @@ func (s *FileStore) Load() (State, error) {
 	}
 	var state State
 	decode := strictJSON
-	if s.version() == 2 {
+	if s.version() >= 2 {
 		decode = strictTeamJSON
 	}
 	if err := decode(raw, &state); err != nil {
