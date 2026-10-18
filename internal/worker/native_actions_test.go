@@ -3,12 +3,87 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
+
+func TestNativeTaskProjectSelectionPrecedesEffects(t *testing.T) {
+	for _, operation := range []string{"create-task", "rebind-task"} {
+		for _, selection := range []string{"omitted", "unknown", "owner-only", "number-only"} {
+			t.Run(operation+"/"+selection, func(t *testing.T) {
+				cfg, m, cat, _ := dispatchFixture(t)
+				cfg.Projects = []ProjectRef{{Owner: "code", Number: 3}, {Owner: "code", Number: 4}}
+				cfg.ProjectOwners = nil
+				cfg.Name, cfg.Self, cfg.Master.AgentID = cfg.Team.Planner, teamPlanner(cfg), "peer"
+				m.self.Principal.ID, m.self.Principal.GitHubBotID, m.self.Placement.AgentID = "peer", cfg.Self.ID, "peer"
+				cat.catalog.Tasks = nil
+				v := NativeCandidates(cfg, cat.catalog, nil, time.Now())[0]
+				x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: v.Goal.Revision.Ref, Job: v.Job, Phase: "active"}
+				if err := saveNativeExecution(cfg, x); err != nil {
+					t.Fatal(err)
+				}
+				writes := 0
+				g := NewGitHubClient(&fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+					if endpoint == "graphql" {
+						return jsonResponse(map[string]any{"data": map[string]any{"viewer": map[string]any{"__typename": "Bot", "databaseId": cfg.Self.ID, "login": cfg.Self.Login}}}), nil
+					}
+					if method != "GET" {
+						writes++
+					}
+					return CommandResult{}, c.ErrUnavailable
+				}})
+				in := NativeAction{Operation: operation, RequestID: "correctable-project", Repository: "code/repo", Title: "Task", Body: "scope", BaseBranch: "main", TaskURL: "https://github.com/code/repo/issues/1"}
+				switch selection {
+				case "unknown":
+					in.ProjectOwner, in.ProjectNumber = "code", 99
+				case "owner-only":
+					in.ProjectOwner = "code"
+				case "number-only":
+					in.ProjectNumber = 3
+				}
+				if _, err := RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, in); err == nil {
+					t.Fatal("invalid Project selection accepted")
+				}
+				if writes != 0 {
+					t.Fatalf("invalid Project selection caused %d external writes", writes)
+				}
+				if _, err := os.Stat(nativeActionPath(cfg, x.Job.ID, in.RequestID)); !os.IsNotExist(err) {
+					t.Fatal("invalid Project selection bound the request to an immutable journal", err)
+				}
+				if operation == "create-task" {
+					in.ProjectOwner, in.ProjectNumber = "code", 3
+					_, _ = RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, in)
+					if writes != 1 {
+						t.Fatal("corrected Project selection could not reuse the uncommitted request ID")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestNativeSingleProjectSelectionDoesNotIgnoreExplicitNumber(t *testing.T) {
+	cfg, _, _, _ := dispatchFixture(t)
+	cfg.Projects = []ProjectRef{{Owner: "code", Number: 3}}
+	cfg.ProjectOwners = nil
+	g := NewGitHubClient(nil)
+	g.config = cfg
+	for _, number := range []int{3, 99} {
+		if _, err := selectNativeTaskProject(t.Context(), cfg, g, NativeAction{ProjectNumber: number}); err == nil {
+			t.Fatal("Project number without its owner was silently ignored")
+		}
+	}
+	for _, in := range []NativeAction{{}, {ProjectOwner: "code", ProjectNumber: 3}} {
+		selected, err := selectNativeTaskProject(t.Context(), cfg, g, in)
+		if err != nil || selected != cfg.Projects[0] {
+			t.Fatal("valid single Project selection failed", err)
+		}
+	}
+}
 
 func TestNativeActionFreshAuthorityBlocksWrites(t *testing.T) {
 	cfg, m, cat, _ := dispatchFixture(t)

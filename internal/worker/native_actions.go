@@ -337,6 +337,11 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		return empty, err
 	}
 	if os.IsNotExist(readErr) {
+		if in.Operation == "create-task" || in.Operation == "rebind-task" {
+			if _, err = selectNativeTaskProject(ctx, cfg, reader, in); err != nil {
+				return empty, err
+			}
+		}
 		if err = saveNativeAction(cfg, record); err != nil {
 			return empty, err
 		}
