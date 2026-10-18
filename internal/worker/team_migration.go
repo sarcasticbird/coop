@@ -66,6 +66,10 @@ func migrationJobEvidence(j Job, wake, legacyCompletedWake bool) error {
 	} else {
 		switch j.Kind {
 		case "plan", "implement", "review", "fix", "deliver":
+		case "qa":
+			if err := validateOwnershipBinding(j.Binding, j.Kind); err != nil {
+				return err
+			}
 		default:
 			return errors.New("invalid task job kind")
 		}

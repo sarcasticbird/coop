@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,6 +11,71 @@ import (
 type masterMigration struct {
 	Version, From, To                                 int
 	InstanceID, BeforeSHA, AfterSHA, BackupSHA, Phase string
+}
+
+// MigrateMasterStateWithRetirements explicitly retires named, drained legacy
+// records without changing their historical status or native identities.
+func MigrateMasterStateWithRetirements(c Config, expected string, jobs, wakes []string) error {
+	return migrateMasterStateRetiring(c, expected, jobs, wakes, atomicPrivate)
+}
+
+type masterLegacyRetirement struct {
+	Version                          int
+	InstanceID, StateSHA             string
+	RetiredJobs, AcceptedLegacyWakes []string
+}
+
+func drainedLegacyRetirement(j Job) bool {
+	return j.Binding == nil && j.Phase == "blocked" && j.MessageID == "" && j.SubmissionState == "" && j.SubmittedAt.IsZero() && migrationJob(j, false) == nil
+}
+func validateMasterLegacyJobs(c Config, state State) error {
+	needsAudit := false
+	for _, j := range state.Jobs {
+		needsAudit = needsAudit || j.Phase != "completed"
+	}
+	if !needsAudit {
+		return nil
+	}
+	store := NewVersionedFileStore(c.StateDir, 3)
+	if err := store.masterCompatible(); err != nil {
+		return err
+	}
+	raw, err := readPrivate(filepath.Join(store.Dir, "master-migration-backup.json"), migrationLimit)
+	if err != nil {
+		return err
+	}
+	var files map[string][]byte
+	if json.Unmarshal(raw, &files) != nil {
+		return errors.New("invalid retirement backup")
+	}
+	auditRaw, err := readPrivate(filepath.Join(store.Dir, "master-legacy-retirement.json"), MaxSnapshot)
+	if err != nil || !bytes.Equal(auditRaw, files["master-legacy-retirement.json"]) {
+		return errors.New("retirement audit changed or missing")
+	}
+	var audit masterLegacyRetirement
+	var before State
+	if strictTeamJSON(auditRaw, &audit) != nil || audit.Version != 1 || audit.InstanceID != state.InstanceID || audit.StateSHA != BodyHash(string(files["state.json"])) || strictTeamJSON(files["state.json"], &before) != nil || before.InstanceID != state.InstanceID {
+		return errors.New("retirement audit identity mismatch")
+	}
+	retired := map[string]bool{}
+	for _, id := range audit.RetiredJobs {
+		j, ok := before.Jobs[id]
+		if !ok || retired[id] || !drainedLegacyRetirement(j) {
+			return errors.New("invalid retired legacy job")
+		}
+		retired[id] = true
+	}
+	for _, j := range state.Jobs {
+		if j.Phase == "completed" {
+			continue
+		}
+		previous, _ := json.Marshal(before.Jobs[j.ID])
+		current, _ := json.Marshal(j)
+		if !retired[j.ID] || !bytes.Equal(previous, current) {
+			return errors.New("legacy work must finish under its original authority")
+		}
+	}
+	return nil
 }
 
 func (s *FileStore) masterCompatible() error {
@@ -36,6 +102,10 @@ func (s *FileStore) masterCompatible() error {
 	return nil
 }
 func migrateMasterState(c Config, expected string, write func(string, []byte) error) error {
+	return migrateMasterStateRetiring(c, expected, nil, nil, write)
+}
+
+func migrateMasterStateRetiring(c Config, expected string, jobs, wakes []string, write func(string, []byte) error) error {
 	if c.Version != 3 || ValidateConfig(c) != nil || c.Master.InstanceID != expected || !hexSHA.MatchString(expected) {
 		return errors.New("master migration requires v3 config and exact instance")
 	}
@@ -66,8 +136,27 @@ func migrateMasterState(c Config, expected string, write func(string, []byte) er
 	if err = s.checkTeamStartup(state); err != nil {
 		return err
 	}
+	jobIDs, wakeIDs := map[string]bool{}, map[string]bool{}
+	for _, group := range []struct {
+		ids      []string
+		selected map[string]bool
+	}{{jobs, jobIDs}, {wakes, wakeIDs}} {
+		for _, id := range group.ids {
+			if !hexSHA.MatchString(id) || group.selected[id] {
+				return errors.New("invalid or duplicate legacy retirement identity")
+			}
+			group.selected[id] = true
+		}
+	}
 	// Old authority is drained before native admission. Keep every record intact.
 	for _, j := range state.Jobs {
+		if jobIDs[j.ID] {
+			if !drainedLegacyRetirement(j) {
+				return errors.New("retirement requires a blocked unbound legacy job with no pending native submission")
+			}
+			delete(jobIDs, j.ID)
+			continue
+		}
 		if j.Phase != "completed" || migrationJob(j, false) != nil {
 			return errors.New("finish or explicitly resolve legacy engineering work before master migration")
 		}
@@ -81,8 +170,38 @@ func migrateMasterState(c Config, expected string, write func(string, []byte) er
 		if e != nil {
 			return e
 		}
+		if wakeIDs[r.ID] {
+			if v.Phase != "completed" || v.Job.Phase != "completed" || v.Job.SubmissionState != "running" || !v.Job.TerminalAt.IsZero() || migrationWakeReceipt(c, r, v) != nil {
+				return errors.New("legacy wake acceptance requires an exact completed historical receipt")
+			}
+			delete(wakeIDs, r.ID)
+			continue
+		}
 		if !wakeReceiptTerminal(v) || v.Job.Phase == "active" || v.Job.MessageID != "" && v.Job.TerminalAt.IsZero() {
 			return errors.New("master migration refuses unresolved wake turn")
+		}
+	}
+	if len(jobIDs) != 0 || len(wakeIDs) != 0 {
+		return errors.New("legacy retirement identity not found")
+	}
+	if len(jobs) != 0 || len(wakes) != 0 {
+		before, e := readPrivate(filepath.Join(s.Dir, "state.json"), MaxSnapshot+(4<<20))
+		if e != nil {
+			return e
+		}
+		audit, e := json.Marshal(masterLegacyRetirement{1, expected, BodyHash(string(before)), jobs, wakes})
+		if e != nil {
+			return e
+		}
+		auditPath := filepath.Join(s.Dir, "master-legacy-retirement.json")
+		existing, e := readPrivate(auditPath, MaxSnapshot)
+		if os.IsNotExist(e) {
+			e = writeWakeImmutable(auditPath, audit)
+		} else if e == nil && !bytes.Equal(existing, audit) {
+			return errors.New("retirement audit changed; inspect before retrying migration")
+		}
+		if e != nil {
+			return e
 		}
 	}
 	files := map[string][]byte{}

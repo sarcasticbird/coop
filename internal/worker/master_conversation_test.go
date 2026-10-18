@@ -16,9 +16,23 @@ import (
 )
 
 func commsFixture(t *testing.T) (Config, *MasterComms, *master.Store, c.Principal, c.Principal, c.Thread, *fakeOpenCode) {
+	return commsFixtureWithRetiredHistory(t, false)
+}
+
+func commsFixtureWithRetiredHistory(t *testing.T, retired bool) (Config, *MasterComms, *master.Store, c.Principal, c.Principal, c.Thread, *fakeOpenCode) {
 	t.Helper()
-	cfg, _, before := masterMigrationFixture(t)
-	if err := MigrateState(cfg, 2, 3, before.InstanceID); err != nil {
+	cfg, old, before := masterMigrationFixture(t)
+	var retiredJobs []string
+	if retired {
+		j := Job{Kind: "plan", TaskURL: "https://github.com/code/repo/issues/99", Phase: "blocked", WaitReason: "scope"}
+		j.ID = JobKey(j)
+		before.Jobs[j.ID] = j
+		if err := old.Save(before); err != nil {
+			t.Fatal(err)
+		}
+		retiredJobs = []string{j.ID}
+	}
+	if err := MigrateMasterStateWithRetirements(cfg, before.InstanceID, retiredJobs, nil); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()

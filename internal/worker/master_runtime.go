@@ -39,10 +39,8 @@ func (e *Engine) initMaster() error {
 	if state.Version != 3 || !masterStateInstanceAllowed(e.Config, state.InstanceID) {
 		return errors.New("master worker state identity mismatch")
 	}
-	for _, job := range state.Jobs {
-		if job.Phase != "completed" {
-			return errors.New("legacy work must finish under its original authority")
-		}
+	if err := validateMasterLegacyJobs(e.Config, state); err != nil {
+		return err
 	}
 	client, err := masterclient.LoadConfig(e.Config.Master.ClientConfig)
 	if err != nil {

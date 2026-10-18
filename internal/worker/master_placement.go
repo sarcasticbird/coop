@@ -165,10 +165,8 @@ func AdoptMasterPlacement(ctx context.Context, old, next Config, cl MasterPlacem
 		if !masterStateInstanceAllowed(old, state.InstanceID) {
 			return proof, c.ErrConflict
 		}
-		for _, job := range state.Jobs {
-			if job.Phase != "completed" {
-				return proof, c.ErrConflict
-			}
+		if e = validateMasterLegacyJobs(old, state); e != nil {
+			return proof, e
 		}
 		var conn masterConnectionState
 		raw, e = readPrivate(filepath.Join(masterDir(old), "connection.json"), 4096)
