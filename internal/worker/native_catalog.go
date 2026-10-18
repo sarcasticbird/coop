@@ -141,7 +141,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		}
 		var tracking Snapshot
 		for _, p := range refs {
-			if err = reader.readProject(ctx, p, projectTasks, &tracking); err != nil {
+			if err = reader.readProject(ctx, p, projectTasks, &tracking, true); err != nil {
 				return out, err
 			}
 		}

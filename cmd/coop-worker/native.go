@@ -100,7 +100,7 @@ func nativeResolve(args []string, out io.Writer) error {
 	job := flags.String("job", "", "exact saved engineering job")
 	session := flags.String("session", "", "exact saved native session")
 	message := flags.String("message", "", "exact saved native message")
-	action := flags.String("action", "observe", "observe or cancel after native terminal evidence")
+	action := flags.String("action", "observe", "observe, cancel or continue after native terminal evidence")
 	if flags.Parse(args) != nil || *config == "" || *job == "" || len(flags.Args()) != 0 {
 		return c.ErrInvalid
 	}
@@ -114,7 +114,19 @@ func nativeResolve(args []string, out io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	result, err := worker.ResolveNativeEngineering(ctx, cfg, code, *job, *session, *message, *action)
+	var result worker.NativeExecution
+	if *action == "continue" {
+		if cfg.Master == nil {
+			return c.ErrInvalid
+		}
+		master, e := masterclient.LoadConfig(cfg.Master.ClientConfig)
+		if e != nil {
+			return e
+		}
+		result, err = worker.ContinueNativeEngineering(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), code, *job, *session, *message)
+	} else {
+		result, err = worker.ResolveNativeEngineering(ctx, cfg, code, *job, *session, *message, *action)
+	}
 	if err != nil {
 		return err
 	}

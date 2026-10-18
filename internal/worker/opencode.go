@@ -20,6 +20,7 @@ type OpenCode interface {
 	EnsureSession(context.Context, Config, Job) (Job, error)
 	Submit(context.Context, Config, Job, string) (Turn, error)
 	Observe(context.Context, Job) (Turn, error)
+	CheckContinuation(context.Context, Job) error
 	Abort(context.Context, Job) error
 }
 type OpenCodeError struct {
@@ -261,6 +262,13 @@ func (c *OpenCodeClient) Submit(ctx context.Context, cfg Config, j Job, prompt s
 	if cfg.ModelVariant != "" {
 		// The directory-specific probe may outlive an idle manual session.
 		if err := c.CheckIdle(ctx, j); err != nil {
+			return turn, err
+		}
+	}
+	if j.ContinuationMessageID != "" {
+		previous := j
+		previous.MessageID = j.ContinuationMessageID
+		if err := c.CheckContinuation(ctx, previous); err != nil {
 			return turn, err
 		}
 	}
@@ -508,6 +516,23 @@ func (c *OpenCodeClient) Observe(ctx context.Context, j Job) (Turn, error) {
 	}
 	return turn, nil
 }
+
+// Terminal observation alone can reconcile an old turn after a manual takeover.
+// Continuation additionally requires the idle session's latest owned lineage.
+func (c *OpenCodeClient) CheckContinuation(ctx context.Context, j Job) error {
+	if err := c.CheckIdle(ctx, j); err != nil {
+		return err
+	}
+	turn, latestUser, err := c.readTurn(ctx, j)
+	if err != nil {
+		return err
+	}
+	if !turn.Terminal || latestUser != j.MessageID {
+		return &OpenCodeError{Category: "continuation_ownership_unknown"}
+	}
+	return nil
+}
+
 func (c *OpenCodeClient) Abort(ctx context.Context, j Job) error {
 	if !validSession(j.SessionID) || !validMessage(j.MessageID) || !cleanPrivatePath(j.Checkout) {
 		return &OpenCodeError{Category: "invalid_session_id"}

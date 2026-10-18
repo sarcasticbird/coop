@@ -132,6 +132,10 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		owner.ExecutorID = m.ExecutorID
 		owner.Role = m.Role
 	}
+	continuing := j.Master != nil && j.ContinuationMessageID != ""
+	if continuing && (j.Checkout == "" || !validMessage(j.ContinuationMessageID)) {
+		return j, errors.New("invalid continuation checkout identity")
+	}
 	if j.Kind == "plan" {
 		owner.TaskURL = ""
 		owner.Mode = "planning"
@@ -173,6 +177,9 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 			return j, errors.New("foreign checkout ownership record")
 		}
 	} else if os.IsNotExist(existsErr) {
+		if continuing {
+			return j, errors.New("continuation checkout ownership record missing")
+		}
 		if err := ensurePrivateDir(root, true); err != nil {
 			return j, err
 		}
@@ -189,6 +196,9 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	_, checkoutErr := os.Lstat(checkout)
 	created := os.IsNotExist(checkoutErr)
 	if os.IsNotExist(checkoutErr) {
+		if continuing {
+			return j, errors.New("continuation checkout missing")
+		}
 		switch owner.Mode {
 		case "planning":
 			if err := ensurePrivateDir(checkout, true); err != nil {
@@ -293,19 +303,26 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")
 			}
-			status, err := c.run(ctx, checkout, "git", "status", "--porcelain")
-			if err != nil || len(status) != 0 {
-				return j, errors.New("review checkout has uncheckpointed changes")
-			}
-			if _, err := c.run(ctx, checkout, "git", "fetch", "origin", "refs/pull/"+stringID(n)+"/head"); err != nil {
-				return j, err
-			}
-			head, err := c.run(ctx, checkout, "git", "rev-parse", "FETCH_HEAD")
-			if err != nil || strings.TrimSpace(string(head)) != j.HeadSHA {
-				return j, errors.New("PR head changed during checkout")
-			}
-			if _, err := c.run(ctx, checkout, "git", "reset", "--hard", "FETCH_HEAD"); err != nil {
-				return j, err
+			if continuing {
+				head, err := c.run(ctx, checkout, "git", "rev-parse", "HEAD")
+				if err != nil || strings.TrimSpace(string(head)) != j.HeadSHA {
+					return j, errors.New("continuation checkout target changed")
+				}
+			} else {
+				status, err := c.run(ctx, checkout, "git", "status", "--porcelain")
+				if err != nil || len(status) != 0 {
+					return j, errors.New("review checkout has uncheckpointed changes")
+				}
+				if _, err := c.run(ctx, checkout, "git", "fetch", "origin", "refs/pull/"+stringID(n)+"/head"); err != nil {
+					return j, err
+				}
+				head, err := c.run(ctx, checkout, "git", "rev-parse", "FETCH_HEAD")
+				if err != nil || strings.TrimSpace(string(head)) != j.HeadSHA {
+					return j, errors.New("PR head changed during checkout")
+				}
+				if _, err := c.run(ctx, checkout, "git", "reset", "--hard", "FETCH_HEAD"); err != nil {
+					return j, err
+				}
 			}
 		}
 	}

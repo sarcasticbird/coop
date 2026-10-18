@@ -192,7 +192,7 @@ func (g *GitHubClient) readSnapshot(ctx context.Context, previous Snapshot) (Sna
 		return s, err
 	}
 	for _, p := range projects {
-		if err := g.readProject(ctx, p, tasks, &s); err != nil {
+		if err := g.readProject(ctx, p, tasks, &s, false); err != nil {
 			return s, err
 		}
 	}
@@ -726,7 +726,7 @@ type projectField struct {
 	Options  []struct{ ID, Name string }
 }
 
-func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[string]Task, s *Snapshot) error {
+func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[string]Task, s *Snapshot, verifiedOnly bool) error {
 	query := `query WorkerProject($owner:String!,$number:Int!){` + projectFragment(`projectV2(number:$number){id}`) + `}`
 	data, err := g.graphql(ctx, p.Owner, query, map[string]any{"owner": p.Owner, "number": p.Number})
 	if err != nil {
@@ -814,9 +814,18 @@ func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[
 		if len(g.config.Repositories) > 0 && !containsFold(g.config.Repositories, repo) {
 			continue
 		}
-		t, err := g.taskByURL(ctx, ref)
-		if err != nil {
-			return err
+		t, registered := tasks[ref]
+		if verifiedOnly {
+			// Native authority comes only from registered, verified master tasks.
+			// Other board items cannot become candidates and need no issue reads.
+			if !registered {
+				continue
+			}
+		} else {
+			t, err = g.taskByURL(ctx, ref)
+			if err != nil {
+				return err
+			}
 		}
 		valuesQuery := `query WorkerProjectValues($id:ID!,$after:String){node(id:$id){... on ProjectV2Item{fieldValues(first:100,after:$after){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2FieldCommon{id name}}} ... on ProjectV2ItemFieldNumberValue{number field{... on ProjectV2FieldCommon{id name}}}} pageInfo{hasNextPage endCursor}}}}}`
 		values, err := g.connection(ctx, p.Owner, valuesQuery, map[string]any{"id": item.ID}, []string{"node", "fieldValues"})

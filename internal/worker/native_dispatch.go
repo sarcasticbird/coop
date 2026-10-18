@@ -179,12 +179,13 @@ func NewNativeDispatcher(cfg Config, m NativeEngineeringMaster, g NativeCatalogR
 			}
 			copy := x
 			d.active = &copy
-		case "blocked":
-			d.held = true
-		case "completed", "cancelled":
+		case "blocked", "completed", "cancelled":
 		default:
 			return nil, c.ErrConflict
 		}
+	}
+	if err := d.updateRecoveryHold(); err != nil {
+		return nil, err
 	}
 	return d, nil
 }
@@ -243,7 +244,12 @@ func (d *NativeDispatcher) poll() {
 func (d *NativeDispatcher) Ready() bool {
 	d.poll()
 	if d.held {
-		return d.resumablePause() != nil
+		if err := d.updateRecoveryHold(); err != nil {
+			return true // Tick reports the error without admitting work.
+		}
+		if d.held {
+			return d.resumableBlocked() != nil
+		}
 	}
 	candidates, err := d.candidates(d.catalog)
 	return err != nil || len(candidates) > 0
@@ -260,16 +266,12 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			d.step = nil
 			x := result.execution
 			d.history[x.Job.ID] = x
-			d.held = false
-			for _, h := range d.history {
-				if h.Phase == "blocked" {
-					d.held = true
-				}
-			}
 			d.active = &x
 			if x.Phase == "completed" || x.Phase == "blocked" || x.Phase == "cancelled" {
 				d.active = nil
-				d.held = d.held || x.Phase == "blocked"
+			}
+			if err := d.updateRecoveryHold(); err != nil {
+				return false, err
 			}
 			if result.completed || x.Phase == "cancelled" {
 				d.nextRefresh = time.Time{}
@@ -280,9 +282,12 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			return false, nil
 		}
 	}
+	if err := d.updateRecoveryHold(); err != nil {
+		return false, err
+	}
 	if d.active == nil {
 		if d.held {
-			d.active = d.resumablePause()
+			d.active = d.resumableBlocked()
 			if d.active == nil {
 				return false, nil
 			}
@@ -428,7 +433,7 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 		return NativeCandidate{}, errors.New("native catalog unavailable or incomplete")
 	}
 	selection := catalog
-	if x.Job.Kind == "plan" && (len(x.Turns) > 0 || x.Phase == "blocked" && x.Reason == "goal_paused") {
+	if x.Job.Kind == "plan" && (len(x.Turns) > 0 || x.Phase == "blocked" && (resumableNativeReason(x.Reason) || x.Reason == "native_completed_without_result")) {
 		// Registration removes a plan from discovery, but does not finish its saved
 		// turn. Revalidate continuation policy/identity against the exact approval;
 		// retain unfinished rebind instructions without requiring new-plan eligibility.
@@ -509,8 +514,8 @@ func (d *NativeDispatcher) rejectUnsubmitted(x *NativeExecution, cause error) (b
 	return false, cause
 }
 func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (bool, error) {
-	if x.Phase == "blocked" && x.Reason == "goal_paused" {
-		return d.resumePaused(ctx, x)
+	if x.Phase == "blocked" && resumableNativeReason(x.Reason) {
+		return d.resumeBlocked(ctx, x)
 	}
 	paused, pauseErr := NewVersionedFileStore(d.config.StateDir, 3).Paused()
 	if pauseErr != nil {
@@ -526,6 +531,11 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		return false, saveNativeExecution(d.config, *x)
 	}
 	if x.Phase == "selected" || x.Phase == "prepared" {
+		if len(x.Turns) > 0 {
+			if err := d.code.CheckContinuation(ctx, x.Turns[len(x.Turns)-1]); err != nil {
+				return false, err
+			}
+		}
 		initial, err := d.freshCandidate(ctx, *x)
 		if err != nil {
 			return d.rejectUnsubmitted(x, err)
@@ -552,8 +562,6 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 				return false, err
 			}
 			j.MessageID = "msg_" + randomID()
-			j.Deadline = d.clock.Now().Add(Defaults(d.config).Limits.TurnLimit)
-			j.SubmittedAt = d.clock.Now()
 			j.SubmissionState = "prepared"
 			x.Job = j
 			x.Phase = "prepared"
@@ -588,14 +596,30 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		}
 		// A prepared native identity is never reallocated. Persist uncertainty before
 		// crossing the async submission boundary; recovery only observes this pair.
+		if len(x.Turns) > 0 {
+			if err := d.code.CheckContinuation(ctx, x.Turns[len(x.Turns)-1]); err != nil {
+				return false, err
+			}
+		}
+		model, err := configuredModel(d.config)
+		if err != nil {
+			return false, err
+		}
 		x.Phase = "active"
 		x.Job.SubmissionState = "submitting"
+		x.Job.SubmittedModel, x.Job.ExecutedModel = model, nil
+		x.Job.SubmittedAt = d.clock.Now()
+		x.Job.Deadline = x.Job.SubmittedAt.Add(Defaults(d.config).Limits.TurnLimit)
 		if err = saveNativeExecution(d.config, *x); err != nil {
 			return false, err
 		}
 		turn, submitErr := d.code.Submit(ctx, d.config, x.Job, prompt)
 		x.Job = observedModel(x.Job, turn)
 		x.Job.SubmissionState = "unknown"
+		if turn.State == "not_submitted" && !turn.Accepted {
+			x.Phase = "prepared"
+			x.Job.SubmissionState = "prepared"
+		}
 		if submitErr == nil && turn.Accepted {
 			x.Job.SubmissionState = "accepted"
 		}
@@ -688,21 +712,27 @@ func (d *NativeDispatcher) rejectPromptSize(x *NativeExecution, size int) (bool,
 	return false, saveNativeExecution(d.config, *x)
 }
 
-func (d *NativeDispatcher) resumablePause() *NativeExecution {
+func resumableNativeReason(reason string) bool {
+	return reason == "goal_paused" || reason == "native_turn_limit"
+}
+
+func (d *NativeDispatcher) resumableBlocked() *NativeExecution {
 	if !d.catalog.Complete {
 		return nil
 	}
 	for _, x := range d.history {
-		if x.Phase == "blocked" && x.Reason != "goal_paused" {
-			return nil
+		if x.Phase == "blocked" && !resumableNativeReason(x.Reason) {
+			if held, err := nativeExecutionRecoveryHold(d.config, x); err != nil || held {
+				return nil
+			}
 		}
 	}
 	for _, x := range d.history {
-		if x.Phase != "blocked" || x.Reason != "goal_paused" {
+		if x.Phase != "blocked" || !resumableNativeReason(x.Reason) {
 			continue
 		}
 		for _, a := range d.catalog.Goals {
-			if a.Valid && a.State == "approved" && a.Revision.Ref == x.Goal && a.DecisionSequence > x.PausedDecisionSequence {
+			if a.Valid && a.State == "approved" && a.Revision.Ref == x.Goal && (x.Reason == "native_turn_limit" || a.DecisionSequence > x.PausedDecisionSequence) {
 				copy := x
 				return &copy
 			}
@@ -710,12 +740,12 @@ func (d *NativeDispatcher) resumablePause() *NativeExecution {
 	}
 	return nil
 }
-func (d *NativeDispatcher) resumePaused(ctx context.Context, x *NativeExecution) (bool, error) {
+func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution) (bool, error) {
 	a, e := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
 	if e != nil {
 		return false, e
 	}
-	if a.DecisionSequence <= x.PausedDecisionSequence {
+	if x.Reason == "goal_paused" && a.DecisionSequence <= x.PausedDecisionSequence {
 		return false, c.ErrForbidden
 	}
 	paused, e := NewVersionedFileStore(d.config.StateDir, 3).Paused()
@@ -725,17 +755,25 @@ func (d *NativeDispatcher) resumePaused(ctx context.Context, x *NativeExecution)
 	if paused {
 		return false, nil
 	}
+	if paused, e = NewVersionedFileStore(d.config.StateDir, 3).AdmissionPaused(); e != nil || paused {
+		return false, e
+	}
+	release, e := lockNativeProducer(d.config)
+	if e != nil {
+		return false, e
+	}
+	defer release()
 	if uncertain, e := nativeJobActionUncertain(d.config, x.Job.ID); e != nil {
 		return false, e
 	} else if uncertain {
-		return false, errors.New("paused native job has uncertain actions")
+		return false, errors.New("blocked native job has uncertain actions")
 	}
 	observed, e := d.code.Observe(ctx, x.Job)
 	if e != nil {
 		return false, e
 	}
 	if !observed.Terminal || observed.SessionID != x.Job.SessionID || observed.MessageID != x.Job.MessageID {
-		return false, errors.New("paused native turn lacks exact terminal evidence")
+		return false, errors.New("blocked native turn lacks exact terminal evidence")
 	}
 	x.Job = observedModel(x.Job, observed)
 	x.Job.SubmissionState = "completed"
@@ -747,14 +785,23 @@ func (d *NativeDispatcher) resumePaused(ctx context.Context, x *NativeExecution)
 		x.Phase, x.Reason = "completed", ""
 		return true, saveNativeExecution(d.config, *x)
 	}
+	if e = d.code.CheckContinuation(ctx, x.Job); e != nil {
+		return false, e
+	}
 	if _, e = d.freshCandidate(ctx, *x); e != nil {
 		return false, e
 	}
 	if len(x.Turns) >= Defaults(d.config).Limits.MaxAttempts {
-		return false, errors.New("native pause continuation limit reached")
+		x.Reason = "native_continuation_limit"
+		if e = saveNativeExecution(d.config, *x); e != nil {
+			return false, e
+		}
+		return false, errors.New("native continuation limit reached")
 	}
 	x.Turns = append(x.Turns, x.Job)
+	x.Job.ContinuationMessageID = x.Job.MessageID
 	x.Job.MessageID = ""
+	x.Job.SubmittedModel, x.Job.ExecutedModel = nil, nil
 	x.Job.SubmissionState = ""
 	x.Job.Deadline = time.Time{}
 	x.Job.SubmittedAt = time.Time{}

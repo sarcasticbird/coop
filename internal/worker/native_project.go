@@ -127,7 +127,7 @@ func nativePlaceTask(ctx context.Context, cfg Config, g *GitHubClient, in Native
 		}
 	}
 	tasks := map[string]Task{b.TaskURL: {URL: b.TaskURL}}
-	if err = g.readProject(ctx, selected, tasks, &Snapshot{}); err != nil {
+	if err = g.readProject(ctx, selected, tasks, &Snapshot{}, false); err != nil {
 		return err
 	}
 	if !tasks[b.TaskURL].Ready || tasks[b.TaskURL].BodySHA != b.TaskScopeSHA {

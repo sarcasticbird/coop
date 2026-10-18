@@ -42,6 +42,12 @@ func (n *nativeCode) Observe(_ context.Context, j worker.Job) (worker.Turn, erro
 	return worker.Turn{SessionID: j.SessionID, MessageID: j.MessageID, Accepted: true, Terminal: !n.running}, nil
 }
 func (n *nativeCode) Abort(context.Context, worker.Job) error { n.running = false; return nil }
+func (n *nativeCode) CheckContinuation(context.Context, worker.Job) error {
+	if n.running {
+		return errors.New("session is busy")
+	}
+	return nil
+}
 
 type noCheckout struct{}
 
