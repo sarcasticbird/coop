@@ -298,7 +298,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 				}
 				return nil
 			}},
-		&cobra.Command{Use: "tui", Args: cobra.NoArgs, Short: "Fleet dashboard — every coop on this machine",
+		&cobra.Command{Use: "tui", Args: cobra.NoArgs, Short: "Browse local and registered-host Coops",
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				credentials, err := requestedCredentialNames(cmd, requestedCredentials)
 				if err != nil {
