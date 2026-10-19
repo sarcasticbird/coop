@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
+	"github.com/sarcasticbird/coop/internal/runtime"
 )
 
 type fixtureRegistry struct {
@@ -106,7 +107,7 @@ func TestFleetConfirmationCapturesHostAndTargetAcrossReorder(t *testing.T) {
 		t.Fatal(done.err)
 	}
 	requests := m.services.Actions.(*fixtureActions).requests
-	if len(requests) != 1 || requests[0].Target != captured || requests[0].Operation != "destroy" {
+	if len(requests) != 1 || requests[0].Target != captured || requests[0].Operation != "command" || strings.Join(requests[0].Args, " ") != "--agent same destroy" || requests[0].Directory != "" {
 		t.Fatalf("redirected request: %+v", requests)
 	}
 }
@@ -338,5 +339,106 @@ func TestFleetResizeHelpAndFocus(t *testing.T) {
 		if m.detail {
 			t.Fatal("back did not restore browser focus")
 		}
+	}
+}
+
+func TestFleetRefreshReconcilesIdentityNotIndex(t *testing.T) {
+	m := fixtureFleet()
+	a := fixtureRow(hostrouter.Local, hostrouter.Interactive, "one")
+	b := fixtureRow(hostrouter.Local, hostrouter.Interactive, "two")
+	m.hosts[0].entries = []hostrouter.InventoryEntry{a, b}
+	m.selected = b.Target
+	out, _ := m.Update(hostLoaded{inventory: hostrouter.HostInventory{Host: hostrouter.Local, Entries: []hostrouter.InventoryEntry{b, a}}})
+	m = out.(fleetModel)
+	if m.selected != b.Target {
+		t.Fatal("refresh redirected selection by row index")
+	}
+	out, _ = m.Update(hostLoaded{inventory: hostrouter.HostInventory{Host: hostrouter.Local, Entries: []hostrouter.InventoryEntry{a}}})
+	m = out.(fleetModel)
+	if m.selected != a.Target {
+		t.Fatal("removed target selection was not reconciled")
+	}
+}
+
+func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
+	m := fixtureFleet()
+	rt := runtime.NewMock()
+	m.legacy = rt
+	m, cmd := fleetKey(m, "s")
+	if cmd == nil {
+		t.Fatal("local stop not launched")
+	}
+	if done := cmd().(fleetActionDone); done.err != nil {
+		t.Fatal(done.err)
+	}
+	if len(rt.Stopped) != 1 || rt.Stopped[0] != "same-name" {
+		t.Fatalf("wrong local target: %v", rt.Stopped)
+	}
+	if len(m.services.Actions.(*fixtureActions).requests) != 0 {
+		t.Fatal("local compatibility routed remotely")
+	}
+	m = fixtureFleet()
+	m.legacy = rt
+	m, cmd = fleetKey(m, "enter")
+	if cmd == nil || m.result.EnterWorkdir != "/project" || m.result.EnterName != "same-name" {
+		t.Fatal("local CLI entry result changed")
+	}
+}
+
+type actionFunc func(context.Context, hostrouter.ActionRequest, io.Reader, io.Writer, io.Writer) (hostrouter.ActionResult, error)
+
+func (f actionFunc) Execute(ctx context.Context, r hostrouter.ActionRequest, in io.Reader, out, errout io.Writer) (hostrouter.ActionResult, error) {
+	return f(ctx, r, in, out, errout)
+}
+
+func TestFleetActionCancellationAndRemoteProjectContract(t *testing.T) {
+	m := fixtureFleet()
+	h := m.hosts[1].host
+	e := fixtureRow(h, hostrouter.Interactive, "remote-id")
+	m.hosts[1].entries = []hostrouter.InventoryEntry{e}
+	m.selected = e.Target
+	started := make(chan hostrouter.ActionRequest, 1)
+	m.services.Actions = actionFunc(func(ctx context.Context, r hostrouter.ActionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (hostrouter.ActionResult, error) {
+		started <- r
+		<-ctx.Done()
+		return hostrouter.ActionResult{}, ctx.Err()
+	})
+	m, cmd := fleetKey(m, "s")
+	if cmd == nil {
+		t.Fatal("stop not launched")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	r := <-started
+	if r.Target != e.Target || r.Operation != "command" || strings.Join(r.Args, " ") != "down" || r.Directory != e.Project {
+		t.Fatalf("wrong remote request: %+v", r)
+	}
+	m, _ = fleetKey(m, "esc")
+	select {
+	case msg := <-done:
+		if !errors.Is(msg.(fleetActionDone).err, context.Canceled) {
+			t.Fatal("cancel lost")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("action did not honor cancellation")
+	}
+}
+
+func TestFleetNarrowOverlayKeepsConfirmationAndFooter(t *testing.T) {
+	m := fixtureFleet()
+	m.width = 30
+	m.height = 10
+	m.selected = m.hosts[1].entries[0].Target
+	m, _ = fleetKey(m, "d")
+	view := m.View()
+	if !strings.Contains(view, "CONFIRM DESTROY") || !strings.Contains(view, "y confirm") || len(strings.Split(view, "\n")) > m.height {
+		t.Fatalf("overlay is not usable: %s", view)
+	}
+	m.pending = nil
+	m.workspace = 2
+	m, _ = fleetKey(m, "a")
+	m, _ = fleetKey(m, "bad\x1b[31m")
+	if m.form.name != "" {
+		t.Fatal("control characters entered form rendering")
 	}
 }

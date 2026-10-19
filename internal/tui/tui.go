@@ -1,5 +1,5 @@
-// Package tui is the coop fleet dashboard: every coop on the machine,
-// its state, and lifecycle controls. Launch with `coop tui`.
+// Package tui presents local and registered-host Coops, server references,
+// and lifecycle controls. Launch with `coop tui`.
 package tui
 
 import (

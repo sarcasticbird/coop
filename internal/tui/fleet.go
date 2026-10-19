@@ -65,6 +65,8 @@ type fleetModel struct {
 	epoch                 uint64
 	stream                <-chan hostrouter.HostInventory
 	cancel                context.CancelFunc
+	actionCancel          context.CancelFunc
+	scroll                int
 	refreshing, busy      bool
 	registryError, status string
 	form                  *serverForm
@@ -100,7 +102,9 @@ func runFleet(rt runtime.Runtime) (Result, error) {
 	}
 	return runServices(Services{
 		Registry:  r,
-		Inventory: hostrouter.Router{Local: runtimeInventory{rt}, Remote: hostrouter.SSH{}},
+		Inventory: hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
+		Actions:   hostrouter.SSH{},
+		Terminal:  hostrouter.SSH{},
 	}, rt)
 }
 
@@ -118,27 +122,6 @@ func runServices(s Services, legacy runtime.Runtime) (Result, error) {
 		return Result{}, err
 	}
 	return out.(fleetModel).result, nil
-}
-
-type runtimeInventory struct{ rt runtime.Runtime }
-
-func (r runtimeInventory) Inventory(ctx context.Context, h hostrouter.Host) ([]hostrouter.InventoryEntry, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	infos, err := r.rt.Containers()
-	if err != nil {
-		return nil, err
-	}
-	rows := make([]hostrouter.InventoryEntry, 0, len(infos))
-	for _, info := range infos {
-		t := hostrouter.Target{Host: h, Kind: hostrouter.Interactive, ID: info.Name}
-		if info.Mode == "agent" {
-			t.Kind, t.ID = hostrouter.Agent, info.Profile
-		}
-		rows = append(rows, hostrouter.InventoryEntry{Target: t, Name: info.Name, State: info.State, Project: info.ProjectMount()})
-	}
-	return rows, nil
 }
 
 func (m fleetModel) Init() tea.Cmd { return func() tea.Msg { return fleetRefresh{} } }
@@ -304,6 +287,10 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 	case fleetActionDone:
 		m.busy = false
+		if m.actionCancel != nil {
+			m.actionCancel()
+			m.actionCancel = nil
+		}
 		m.status = identity(msg.target) + " " + msg.operation + " complete"
 		if msg.err != nil {
 			m.status = identity(msg.target) + " " + msg.operation + " failed: " + msg.err.Error()
@@ -326,9 +313,24 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cancel != nil {
 			m.cancel()
 		}
+		if m.actionCancel != nil {
+			m.actionCancel()
+		}
 		return m, tea.Quit
 	}
+	if key == "pgdown" {
+		m.scroll++
+		return m, nil
+	}
+	if key == "pgup" {
+		m.scroll = max(0, m.scroll-1)
+		return m, nil
+	}
 	if m.busy {
+		if key == "esc" && m.actionCancel != nil {
+			m.actionCancel()
+			m.status = "cancelling; remote outcome may be unknown; refresh before retry"
+		}
 		return m, nil
 	}
 	if m.help {
@@ -362,10 +364,13 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 	case "1":
 		m.workspace = 0
+		m.scroll = 0
 	case "2":
 		m.workspace = 1
+		m.scroll = 0
 	case "3":
 		m.workspace = 2
+		m.scroll = 0
 	case "tab", "shift+tab":
 		m.detail = !m.detail
 	case "esc":
@@ -411,6 +416,8 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "d" && m.workspace == 0 {
 			if e, ok := m.entry(m.selected); ok {
 				m.pending = &pendingAction{e, "destroy"}
+			} else {
+				m.status = "selected host inventory is not authoritative; refresh"
 			}
 		}
 	case "u", "s", "enter":
@@ -435,6 +442,11 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m fleetModel) keyForm(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := *m.form
 	m.form = &f
+	if f.operation == "remove" && k.String() == "n" {
+		m.form = nil
+		m.status = "server change cancelled"
+		return m, nil
+	}
 	switch k.String() {
 	case "esc":
 		m.form = nil
@@ -465,6 +477,12 @@ func (m fleetModel) keyForm(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		fallthrough
 	default:
 		if f.operation != "remove" && k.Type == tea.KeyRunes {
+			for _, r := range k.Runes {
+				if r < 32 || r == 127 {
+					m.status = "server references must be a single line without control characters"
+					return m, nil
+				}
+			}
 			v := &m.form.address
 			if f.field == 0 {
 				v = &m.form.name
@@ -503,9 +521,24 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if p.operation == "enter" {
-		if m.services.Terminal != nil {
-			m.status = "terminal attachment is provided by the action workflow slice"
-			return m, nil
+		if m.services.Terminal != nil && (e.Target.Host != hostrouter.Local || m.legacy == nil) {
+			m.busy = true
+			m.epoch++
+			m.refreshing = false
+			if m.cancel != nil {
+				m.cancel()
+			}
+			for i := range m.hosts {
+				if m.hosts[i].host == e.Target.Host {
+					m.hosts[i].errorCode = "terminal_pending"
+				}
+			}
+			ctx := m.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			command := &terminalCommand{ctx: ctx, client: m.services.Terminal, target: e.Target, registry: m.services.Registry}
+			return m, tea.Exec(command, func(err error) tea.Msg { return fleetActionDone{e.Target, "terminal", err} })
 		}
 		if e.Target.Host != hostrouter.Local || m.legacy == nil {
 			m.status = identity(e.Target) + ": terminal backend unavailable"
@@ -538,14 +571,31 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.status = identity(e.Target) + " " + p.operation + "..."
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, m.actionCancel = context.WithCancel(ctx)
 	services, rt := m.services, m.legacy
 	return m, func() tea.Msg {
 		if _, err := services.Registry.ResolveTarget(e.Target); err != nil {
 			return fleetActionDone{e.Target, p.operation, err}
 		}
 		var err error
-		if services.Actions != nil {
-			result, actionErr := services.Actions.Execute(context.Background(), hostrouter.ActionRequest{Target: e.Target, Operation: p.operation, RequestID: fmt.Sprintf("tui-%d", time.Now().UnixNano())}, nil, io.Discard, io.Discard)
+		if services.Actions != nil && (e.Target.Host != hostrouter.Local || rt == nil) {
+			args := []string{p.operation}
+			if e.Target.Kind == hostrouter.Agent {
+				args = append([]string{"--agent", e.Target.ID}, args...)
+			}
+			var input io.Reader
+			if p.operation == "destroy" {
+				input = strings.NewReader("y\n")
+			}
+			directory := e.Project
+			if e.Target.Kind == hostrouter.Agent {
+				directory = ""
+			}
+			result, actionErr := services.Actions.Execute(ctx, hostrouter.ActionRequest{Target: e.Target, Operation: "command", Args: args, Directory: directory}, input, io.Discard, io.Discard)
 			err = actionErr
 			if err == nil && result.ExitCode != 0 {
 				err = fmt.Errorf("exit status %d", result.ExitCode)
@@ -586,6 +636,9 @@ func (m fleetModel) View() string {
 			lines = append(lines, "HOST   CONFIGURED SSH REFERENCE")
 		}
 		var body []string
+		if len(m.hosts) == 0 {
+			body = append(body, "Loading host registry and local inventory...")
+		}
 		selectedLine := 0
 		for _, h := range m.hosts {
 			state := "loading"
@@ -628,7 +681,12 @@ func (m fleetModel) View() string {
 		}
 		start := max(0, selectedLine-limit+1)
 		end := min(len(body), start+limit)
-		lines = append(lines, body[start:end]...)
+		for _, line := range body[start:end] {
+			if m.width > 0 {
+				line = textansi.Truncate(line, m.width, "...")
+			}
+			lines = append(lines, line)
+		}
 		if end < len(body) {
 			lines = append(lines, "... more below")
 		}
@@ -643,7 +701,7 @@ func (m fleetModel) View() string {
 	}
 	if m.form != nil {
 		f := m.form
-		lines = append(lines, "", strings.ToUpper(f.operation)+" SERVER", "Name: "+f.name, "SSH reference: "+f.address)
+		lines = []string{strings.ToUpper(f.operation) + " SERVER", "Name: " + f.name, "SSH reference: " + f.address}
 		if f.operation == "remove" {
 			lines = append(lines, "Remove "+f.original.Name+" ("+f.original.Address+")? [y/N; esc cancels]")
 		} else {
@@ -651,7 +709,7 @@ func (m fleetModel) View() string {
 		}
 	}
 	if m.pending != nil {
-		lines = append(lines, "", "Destroy "+identity(m.pending.entry.Target)+" ("+valueOr(m.pending.entry.Target.Host.Address, "this machine")+") and its state volumes? [y/N]")
+		lines = []string{"CONFIRM DESTROY", "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Remove this Coop and its state volumes? [y/N; esc cancels]"}
 	}
 	if m.registryError != "" {
 		lines = append(lines, m.registryError)
@@ -659,11 +717,39 @@ func (m fleetModel) View() string {
 	if m.status != "" {
 		lines = append(lines, m.status)
 	}
-	lines = append(lines, "", "1/2/3 workspace | tab focus | r refresh | ? help | q quit")
+	footer := "1/2/3 workspace | tab focus | r refresh | ? help | q quit"
+	if m.workspace == 0 {
+		footer += " | u up / s stop / d destroy / enter terminal"
+	}
+	if m.workspace == 2 {
+		footer += " | a add / e edit / d remove"
+	}
+	if m.form != nil {
+		footer = "tab field | enter save | esc cancel"
+	}
+	if m.pending != nil || (m.form != nil && m.form.operation == "remove") {
+		footer = "y confirm | n/esc cancel"
+	}
+	if m.busy {
+		footer = "Operation in progress | esc cancel if supported | Ctrl+C quit"
+	}
 	if m.width > 0 {
 		for i, line := range lines {
 			lines[i] = textansi.Hardwrap(line, m.width, true)
 		}
 	}
-	return strings.Join(lines, "\n")
+	content := strings.Split(strings.Join(lines, "\n"), "\n")
+	if m.height > 0 {
+		limit := max(1, m.height-2)
+		total := len(content)
+		start := min(m.scroll, max(0, len(content)-limit))
+		content = content[start:min(len(content), start+limit)]
+		if total > limit {
+			footer = "PgUp/PgDn scroll | " + footer
+		}
+	}
+	if m.width > 0 {
+		footer = textansi.Truncate(footer, m.width, "...")
+	}
+	return strings.Join(append(content, "", footer), "\n")
 }
