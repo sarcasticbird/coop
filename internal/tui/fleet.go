@@ -319,7 +319,8 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if key == "pgdown" {
-		m.scroll++
+		lines, _, _ := m.content()
+		m.scroll = min(m.scroll+1, max(0, len(lines)-max(1, m.height-2)))
 		return m, nil
 	}
 	if key == "pgup" {
@@ -362,6 +363,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "?":
 		m.help = true
+		m.scroll = 0
 	case "1":
 		m.workspace = 0
 		m.scroll = 0
@@ -373,12 +375,21 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 	case "tab", "shift+tab":
 		m.detail = !m.detail
+		if m.workspace == 0 && m.height > 0 {
+			lines, _, selectedLine := m.content()
+			if m.detail {
+				m.scroll = max(0, len(lines)-max(1, m.height-2))
+			} else {
+				m.scroll = max(0, selectedLine-max(1, m.height-2)+1)
+			}
+		}
 	case "esc":
 		m.detail = false
 		m.status = ""
 	case "r":
 		return m, m.refresh()
 	case "up", "k", "down", "j":
+		previousTarget, previousHost := m.selected, m.server
 		delta := 1
 		if key == "up" || key == "k" {
 			delta = -1
@@ -399,6 +410,19 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if previousTarget != m.selected || previousHost != m.server {
+			lines, _, selectedLine := m.content()
+			if selectedLine >= 0 && m.height > 0 {
+				limit := max(1, m.height-2)
+				if selectedLine < m.scroll {
+					m.scroll = selectedLine
+				}
+				if selectedLine >= m.scroll+limit {
+					m.scroll = selectedLine - limit + 1
+				}
+				m.scroll = min(m.scroll, max(0, len(lines)-limit))
+			}
+		}
 	case "a", "e", "d":
 		if m.workspace == 2 {
 			if key != "a" && m.server == hostrouter.Local {
@@ -407,6 +431,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			op := map[string]string{"a": "add", "e": "update", "d": "remove"}[key]
 			m.form = &serverForm{operation: op, original: m.server}
+			m.scroll = 0
 			if key != "a" {
 				m.form.name, m.form.address = m.server.Name, m.server.Address
 				m.form.field = 1
@@ -416,6 +441,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "d" && m.workspace == 0 {
 			if e, ok := m.entry(m.selected); ok {
 				m.pending = &pendingAction{e, "destroy"}
+				m.scroll = 0
 			} else {
 				m.status = "selected host inventory is not authoritative; refresh"
 			}
@@ -624,8 +650,11 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m fleetModel) View() string {
+// Keep every host row in the content. The viewport is the only clipping layer,
+// so paging can reach hosts that have no selectable target entries.
+func (m fleetModel) content() ([]string, string, int) {
 	var lines []string
+	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
 		lines = append(lines, "Coordination workflows are a separate implementation slice.")
@@ -639,7 +668,6 @@ func (m fleetModel) View() string {
 		if len(m.hosts) == 0 {
 			body = append(body, "Loading host registry and local inventory...")
 		}
-		selectedLine := 0
 		for _, h := range m.hosts {
 			state := "loading"
 			if !h.updated.IsZero() {
@@ -657,7 +685,7 @@ func (m fleetModel) View() string {
 			prefix := "  "
 			if m.workspace == 2 && h.host == m.server {
 				prefix = "> "
-				selectedLine = len(body)
+				selectedLine = len(lines) + len(body)
 			}
 			body = append(body, prefix+h.host.Name+" ("+valueOr(h.host.Address, "this machine")+") ["+state+"]")
 			if m.workspace != 0 {
@@ -670,25 +698,16 @@ func (m fleetModel) View() string {
 				prefix = "  "
 				if e.Target == m.selected {
 					prefix = "> "
-					selectedLine = len(body)
+					selectedLine = len(lines) + len(body)
 				}
 				body = append(body, prefix+identity(e.Target)+"   "+e.State)
 			}
 		}
-		limit := len(body)
-		if m.height > 0 {
-			limit = max(1, m.height-14)
-		}
-		start := max(0, selectedLine-limit+1)
-		end := min(len(body), start+limit)
-		for _, line := range body[start:end] {
+		for _, line := range body {
 			if m.width > 0 {
 				line = textansi.Truncate(line, m.width, "...")
 			}
 			lines = append(lines, line)
-		}
-		if end < len(body) {
-			lines = append(lines, "... more below")
 		}
 		if m.workspace == 0 {
 			if e, ok := m.entry(m.selected); ok && (m.detail || m.width >= 100) {
@@ -697,9 +716,11 @@ func (m fleetModel) View() string {
 		}
 	}
 	if m.help {
+		selectedLine = -1
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | tab: focus detail", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: u up | s stop | d destroy | enter terminal", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 	}
 	if m.form != nil {
+		selectedLine = -1
 		f := m.form
 		lines = []string{strings.ToUpper(f.operation) + " SERVER", "Name: " + f.name, "SSH reference: " + f.address}
 		if f.operation == "remove" {
@@ -709,6 +730,7 @@ func (m fleetModel) View() string {
 		}
 	}
 	if m.pending != nil {
+		selectedLine = -1
 		lines = []string{"CONFIRM DESTROY", "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Remove this Coop and its state volumes? [y/N; esc cancels]"}
 	}
 	if m.registryError != "" {
@@ -733,12 +755,22 @@ func (m fleetModel) View() string {
 	if m.busy {
 		footer = "Operation in progress | esc cancel if supported | Ctrl+C quit"
 	}
-	if m.width > 0 {
-		for i, line := range lines {
-			lines[i] = textansi.Hardwrap(line, m.width, true)
+	var content []string
+	selectedPhysicalLine := -1
+	for i, line := range lines {
+		if i == selectedLine {
+			selectedPhysicalLine = len(content)
 		}
+		if m.width > 0 {
+			line = textansi.Hardwrap(line, m.width, true)
+		}
+		content = append(content, strings.Split(line, "\n")...)
 	}
-	content := strings.Split(strings.Join(lines, "\n"), "\n")
+	return content, footer, selectedPhysicalLine
+}
+
+func (m fleetModel) View() string {
+	content, footer, _ := m.content()
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)

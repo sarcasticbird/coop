@@ -45,7 +45,7 @@ updated or removed reference before submitting an edit.
 | `?` | Contextual keyboard help |
 | `esc` | Close help, cancel form/confirmation, return to browser |
 | `q`, `Ctrl+C` | Quit; Ctrl+C also works in overlays |
-| `PgUp`, `PgDn` | Scroll long details, confirmations and forms |
+| `PgUp`, `PgDn` | Scroll all host/status rows, details, confirmations and forms |
 | `u`, `s`, `d`, `enter` | Fleet start, stop, destroy confirmation, terminal |
 | `a`, `e`, `d` | Server add, update, remove confirmation |
 
