@@ -54,8 +54,8 @@ func TestTeamJSONAndWatchReadOnly(t *testing.T) {
 			if watch {
 				args = append(args, "--watch")
 				reader, writer := io.Pipe()
-				defer reader.Close()
-				defer writer.Close()
+				defer func() { _ = reader.Close() }()
+				defer func() { _ = writer.Close() }()
 				cmd.SetIn(reader)
 				go func() {
 					select {
