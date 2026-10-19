@@ -400,3 +400,27 @@ If a continuation was selected but never submitted, use the last retained turn's
 session/message identity with `native resolve --action cancel`. This retires only
 the unsubmitted job after checking the retained terminal turn; it does not abort
 or take ownership of another session turn.
+
+Native implement/fix jobs can declare a dependency wait with the action helper:
+
+```json
+{"operation":"wait","request_id":"backend-wait-1","depends_on":["https://github.com/owner/repo/issues/12"],"body":"Waiting for the backend contract to merge."}
+```
+
+Checkpoint local work before declaring the wait, then end the turn. Dependencies
+must be existing registered tasks under current approved goals visible to the
+worker. A wait records exact task assignments and the current native message.
+It frees the slot only after terminal observation and reconciliation. Completed
+dependencies trigger bounded continuation in the same checkout/session, with
+fresh approval, assignment, producer and native ownership checks. Changed or
+missing bindings stay waiting. An undeclared terminal stop still needs explicit
+operator continuation; the worker does not infer dependencies from prose.
+
+`coop worker status` includes a `native` snapshot with the current stage, exact
+PR head/model, turn deadline and retained blockers. `coop team` and
+`coop_master_team` expose diagnostic heartbeat reasons for global recovery,
+dependency waits, catalog failures, overdue turns and admissions waiting at least
+five minutes. Pending messages older than five minutes are reported when the
+worker has no active turn accounting for their wait. Paused workers keep their
+paused status. These diagnostics do not restart workers or models, and they do
+not send repeated conversation turns. Hark can poll the existing MCP tools.

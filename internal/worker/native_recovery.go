@@ -24,7 +24,7 @@ func ContinueNativeEngineering(ctx context.Context, cfg Config, m NativeEngineer
 	if err != nil {
 		return x, err
 	}
-	if x.Phase != "blocked" || x.Reason != "native_completed_without_result" || x.Job.SessionID != session || x.Job.MessageID != message {
+	if x.Phase != "blocked" || (x.Reason != "native_completed_without_result" && x.Reason != "native_dependency_wait") || x.Job.SessionID != session || x.Job.MessageID != message {
 		return x, c.ErrConflict
 	}
 	d, err := NewNativeDispatcher(cfg, m, g, code, NewCheckouts(cfg, ExecRunner{}), RealClock{})

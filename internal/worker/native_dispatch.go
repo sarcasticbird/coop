@@ -66,21 +66,23 @@ func (d *NativeDispatcher) Preview(ctx context.Context) (NativePreview, error) {
 // NativeDispatcher owns the single engineering slot. All remote reads and native
 // model calls run outside the receipt loop; results are consumed by that loop.
 type NativeDispatcher struct {
-	config      Config
-	master      NativeEngineeringMaster
-	github      NativeCatalogReader
-	code        OpenCode
-	checkouts   Checkouts
-	clock       Clock
-	history     map[string]NativeExecution
-	eligible    map[string]time.Time
-	catalog     NativeCatalog
-	active      *NativeExecution
-	refresh     chan nativeRefresh
-	step        chan nativeStep
-	stepCancel  context.CancelFunc
-	nextRefresh time.Time
-	held        bool
+	config       Config
+	master       NativeEngineeringMaster
+	github       NativeCatalogReader
+	code         OpenCode
+	checkouts    Checkouts
+	clock        Clock
+	history      map[string]NativeExecution
+	eligible     map[string]time.Time
+	catalog      NativeCatalog
+	active       *NativeExecution
+	refresh      chan nativeRefresh
+	step         chan nativeStep
+	stepCancel   context.CancelFunc
+	nextRefresh  time.Time
+	held         bool
+	catalogError string
+	recoveryJob  string
 }
 
 func nativeExecutionPath(cfg Config, id string) string {
@@ -216,8 +218,10 @@ func (d *NativeDispatcher) poll() {
 		case result := <-d.refresh:
 			d.refresh = nil
 			d.catalog = result.catalog
+			d.catalogError = ""
 			if result.err != nil {
 				d.catalog.Complete = false
+				d.catalogError = errorCategory(result.err)
 			}
 			d.nextRefresh = d.clock.Now().Add(d.config.Limits.PollInterval)
 			if d.config.Limits.PollInterval <= 0 {
@@ -252,7 +256,7 @@ func (d *NativeDispatcher) Ready() bool {
 		}
 	}
 	candidates, err := d.candidates(d.catalog)
-	return err != nil || len(candidates) > 0
+	return err != nil || len(candidates) > 0 || len(d.dependencyWaits()) > 0
 }
 func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	d.poll()
@@ -313,13 +317,24 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 		for _, v := range candidates {
 			jobs = append(jobs, v.Job)
 		}
+		waiting := d.dependencyWaits()
+		for _, x := range waiting {
+			jobs = append(jobs, x.Job)
+		}
 		j, ok := ChooseTeamJob(jobs, counters)
 		if !ok {
 			return false, nil
 		}
+		for _, x := range waiting {
+			if x.Job.ID == j.ID {
+				copy := x
+				d.active = &copy
+				break
+			}
+		}
 		for _, v := range candidates {
 			if v.Job.ID == j.ID {
-				x := NativeExecution{Version: 3, MasterID: d.config.Master.MasterID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation, Goal: v.Goal.Revision.Ref, Job: j, Phase: "selected"}
+				x := NativeExecution{Version: 3, MasterID: d.config.Master.MasterID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation, Goal: v.Goal.Revision.Ref, Job: j, Phase: "selected", SelectedAt: d.clock.Now()}
 				if v.Task != nil {
 					b := v.Task.Binding
 					x.Binding = &b
@@ -432,6 +447,9 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	if !catalog.Complete {
 		return NativeCandidate{}, errors.New("native catalog unavailable or incomplete")
 	}
+	if x.Wait != nil && !nativeDependenciesReady(catalog, x.Wait) {
+		return NativeCandidate{}, errNativeDependencyWait
+	}
 	selection := catalog
 	if x.Job.Kind == "plan" && (len(x.Turns) > 0 || x.Phase == "blocked" && (resumableNativeReason(x.Reason) || x.Reason == "native_completed_without_result")) {
 		// Registration removes a plan from discovery, but does not finish its saved
@@ -503,6 +521,9 @@ func nativeScopeChanged(x NativeExecution, catalog NativeCatalog) bool {
 var errNativeCandidateStale = errors.New("native task, PR, checks or review scope no longer current")
 
 func (d *NativeDispatcher) rejectUnsubmitted(x *NativeExecution, cause error) (bool, error) {
+	if errors.Is(cause, errNativeDependencyWait) {
+		return d.parkDependencyContinuation(x)
+	}
 	if !errors.Is(cause, errNativeCandidateStale) {
 		return false, cause
 	}
@@ -514,6 +535,21 @@ func (d *NativeDispatcher) rejectUnsubmitted(x *NativeExecution, cause error) (b
 	return false, cause
 }
 func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (bool, error) {
+	if x.Phase == "blocked" && x.Reason == "native_dependency_wait" {
+		done, err := d.resumeBlocked(ctx, x)
+		if err != nil {
+			if errors.Is(err, errNativeCandidateStale) {
+				return d.rejectUnsubmitted(x, err)
+			}
+			x.Job.ReconcileFailures++
+			x.Job.ReconcileError = errorCategory(err)
+			x.Job.NextAttemptAt = d.clock.Now().Add(time.Minute)
+			if saveErr := saveNativeExecution(d.config, *x); saveErr != nil {
+				return false, saveErr
+			}
+		}
+		return done, err
+	}
 	if x.Phase == "blocked" && resumableNativeReason(x.Reason) {
 		return d.resumeBlocked(ctx, x)
 	}
@@ -679,6 +715,15 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		}
 		if !complete {
 			x.Phase, x.Reason = "blocked", "native_completed_without_result"
+			x.Wait = nil
+			wait, e := nativeTurnWait(d.config, *x)
+			if e != nil {
+				return false, e
+			}
+			if wait != nil {
+				x.Wait = wait
+				x.Reason = "native_dependency_wait"
+			}
 		} else {
 			x.Phase = "completed"
 		}
@@ -691,7 +736,7 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, error) {
 	goal, _ := json.Marshal(v.Goal.Revision)
 	binding, _ := json.Marshal(x.Binding)
-	prompt := fmt.Sprintf("You are %s, authenticated agent %s and immutable GitHub bot %d. Execute only the assigned %s stage for the approved native goal below. Preserve local work if authority becomes unavailable or superseded. Use /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json for all consequential writes. Never self-review. Every action JSON requires operation and a stable request_id. Supported operations are create-task (repository,title,body,base_branch,depends_on), rebind-task (task_url,base_branch,depends_on), publish-pr (title,body,artifact optional), review (verdict approved or changes-needed,body), qa (verdict,report_body private), deliver, and complete-plan. Task creation and rebinding can select a configured Project with project_owner and project_number; one configured Project is selected automatically and confirmed Ready. The helper derives role, goal, assignment, exact head and evidence metadata from fresh authenticated sources. Use complete-plan after all task registrations. Checkpoint local code before publish-pr; the helper pushes the assigned branch and derives the immutable source artifact when artifact is omitted. QA must test the approved acceptance and environment revision. Private QA belongs only in report_body. An uncertain helper outcome requires operator inspection; preserve its request_id and never bypass the journal with a new request.\nApproved revision: %s\nAssignment: %s\nTask: %s\nPR: %s\nExact head: %s", cfg.Name, cfg.Master.AgentID, cfg.Self.ID, x.Job.Kind, x.Job.ID, goal, binding, x.Job.TaskURL, x.Job.PRURL, x.Job.HeadSHA)
+	prompt := fmt.Sprintf("You are %s, authenticated agent %s and immutable GitHub bot %d. Execute only the assigned %s stage for the approved native goal below. Preserve local work if authority becomes unavailable or superseded. Use /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json for all consequential writes. Never self-review. Every action JSON requires operation and a stable request_id. When an implement/fix task needs an existing approved task to finish, checkpoint local work, call wait (depends_on canonical task URLs,body blocker reason), then end this turn. Coop resumes the same session after those exact dependencies complete. Do not wait in a loop or create a replacement task. Supported operations are wait, create-task (repository,title,body,base_branch,depends_on), rebind-task (task_url,base_branch,depends_on), publish-pr (title,body,artifact optional), review (verdict approved or changes-needed,body), qa (verdict,report_body private), deliver, and complete-plan. Task creation and rebinding can select a configured Project with project_owner and project_number; one configured Project is selected automatically and confirmed Ready. The helper derives role, goal, assignment, exact head and evidence metadata from fresh authenticated sources. Use complete-plan after all task registrations. Checkpoint local code before publish-pr; the helper pushes the assigned branch and derives the immutable source artifact when artifact is omitted. QA must test the approved acceptance and environment revision. Private QA belongs only in report_body. An uncertain helper outcome requires operator inspection; preserve its request_id and never bypass the journal with a new request.\nApproved revision: %s\nAssignment: %s\nTask: %s\nPR: %s\nExact head: %s", cfg.Name, cfg.Master.AgentID, cfg.Self.ID, x.Job.Kind, x.Job.ID, goal, binding, x.Job.TaskURL, x.Job.PRURL, x.Job.HeadSHA)
 	if v.Task != nil {
 		prompt += "\nTask title: " + v.Task.Task.Title + "\nTask body:\n" + v.Task.Task.Body
 	}
@@ -791,6 +836,22 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 	if _, e = d.freshCandidate(ctx, *x); e != nil {
 		return false, e
 	}
+	if pending := x.PendingContinuation; pending != nil {
+		if pending.ID != x.Job.ID || pending.SessionID != x.Job.SessionID || pending.Master == nil || pending.Master.AssignmentSHA != x.Job.Master.AssignmentSHA || pending.ContinuationMessageID != x.Job.MessageID || pending.SubmissionState != "" && pending.SubmissionState != "prepared" {
+			return false, c.ErrConflict
+		}
+		x.Job = *pending
+		x.Job.ReconcileFailures = 0
+		x.Job.ReconcileError = ""
+		x.Job.NextAttemptAt = time.Time{}
+		x.PendingContinuation = nil
+		x.Phase, x.Reason = "selected", ""
+		x.SelectedAt = d.clock.Now()
+		if x.Job.SubmissionState == "prepared" {
+			x.Phase = "prepared"
+		}
+		return false, saveNativeExecution(d.config, *x)
+	}
 	if len(x.Turns) >= Defaults(d.config).Limits.MaxAttempts {
 		x.Reason = "native_continuation_limit"
 		if e = saveNativeExecution(d.config, *x); e != nil {
@@ -808,6 +869,7 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 	x.Job.TerminalAt = time.Time{}
 	x.Job.ReconcileFailures = 0
 	x.Job.ReconcileError = ""
+	x.SelectedAt = d.clock.Now()
 	x.Phase, x.Reason = "selected", ""
 	return false, saveNativeExecution(d.config, *x)
 }
