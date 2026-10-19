@@ -73,3 +73,22 @@ func TestNativeTaskRejectsChangeDuringMetadataRead(t *testing.T) {
 		t.Fatal("mixed native task and metadata accepted")
 	}
 }
+
+func TestNativePRPinsCoherentBaseCommit(t *testing.T) {
+	cfg, m, catalog, _ := dispatchFixture(t)
+	task := catalog.catalog.Tasks[0]
+	transport := &nativeDeliveryTransport{t: t, cfg: cfg, head: strings.Repeat("a", 40), baseSHA: strings.Repeat("b", 40), mergeState: "BEHIND"}
+	// The PR's integration snapshot can lag its base ref's current target.
+	transport.snapshotBaseSHA, transport.restBaseSHA = strings.Repeat("e", 40), strings.Repeat("e", 40)
+	transport.prBody = NativePRBody(NativePRMetadata{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding)})
+	transport.commands = &fakeCommands{respond: transport.response}
+	g := NewGitHubClient(transport)
+	p, err := g.ReadNativePR(t.Context(), cfg, task, m.authority, "https://github.com/code/repo/pull/1")
+	if err != nil || p.BaseSHA != strings.Repeat("b", 40) {
+		t.Fatalf("current base lost in native PR: %+v %v", p, err)
+	}
+	transport.baseReadSHA = strings.Repeat("c", 40)
+	if _, err = g.ReadNativePR(t.Context(), cfg, task, m.authority, p.URL); err == nil {
+		t.Fatal("mixed base commits accepted for branch update")
+	}
+}

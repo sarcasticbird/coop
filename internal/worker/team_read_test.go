@@ -10,12 +10,13 @@ import (
 )
 
 type teamReadFixture struct {
-	c        Config
-	version  map[string]any
-	pages    map[string][]map[string]any
-	accounts map[int64]restActor
-	hook     func(string, map[string]any)
-	calls    map[string]int
+	c           Config
+	version     map[string]any
+	pages       map[string][]map[string]any
+	accounts    map[int64]restActor
+	restCommits map[string]any
+	hook        func(string, map[string]any)
+	calls       map[string]int
 }
 
 func teamReadPage(nodes []any, total int, next string) map[string]any {
@@ -53,6 +54,9 @@ func (f *teamReadFixture) client(t *testing.T) *GitHubClient {
 			var id int64
 			_, _ = fmt.Sscanf(endpoint, "user/%d", &id)
 			return jsonResponse(f.accounts[id]), nil
+		}
+		if strings.HasPrefix(endpoint, "repos/code/repo/commits/") {
+			return jsonResponse(f.restCommits[strings.TrimPrefix(endpoint, "repos/code/repo/commits/")]), nil
 		}
 		if strings.Contains(endpoint, "/pulls?") {
 			return jsonResponse([]any{map[string]any{"html_url": f.version["url"]}}), nil

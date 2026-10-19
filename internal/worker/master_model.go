@@ -18,14 +18,15 @@ type MasterJobBinding struct {
 	Goal          *c.GoalRef `json:",omitempty"`
 }
 type MasterConfig struct {
-	Backend      string `json:"backend"`
-	ClientConfig string `json:"client_config"`
-	MasterID     string `json:"master_id"`
-	Engagement   string `json:"engagement"`
-	AgentID      string `json:"agent_id"`
-	HostID       string `json:"host_id"`
-	InstanceID   string `json:"worker_instance_id"`
-	Generation   int64  `json:"generation"`
+	BlockerRecipient string `json:"blocker_recipient,omitempty"`
+	Backend          string `json:"backend"`
+	ClientConfig     string `json:"client_config"`
+	MasterID         string `json:"master_id"`
+	Engagement       string `json:"engagement"`
+	AgentID          string `json:"agent_id"`
+	HostID           string `json:"host_id"`
+	InstanceID       string `json:"worker_instance_id"`
+	Generation       int64  `json:"generation"`
 }
 
 func validateMasterConfig(c Config) error {
@@ -37,6 +38,9 @@ func validateMasterConfig(c Config) error {
 		if v == "" || len(v) > 128 || strings.ContainsAny(v, "\x00\r\n/\\") {
 			return errors.New("invalid master identity")
 		}
+	}
+	if m.BlockerRecipient != "" && (len(m.BlockerRecipient) > 128 || strings.ContainsAny(m.BlockerRecipient, "\x00\r\n/\\")) {
+		return errors.New("invalid master blocker recipient")
 	}
 	legacy := c
 	legacy.Version = 2

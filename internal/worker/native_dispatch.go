@@ -66,23 +66,25 @@ func (d *NativeDispatcher) Preview(ctx context.Context) (NativePreview, error) {
 // NativeDispatcher owns the single engineering slot. All remote reads and native
 // model calls run outside the receipt loop; results are consumed by that loop.
 type NativeDispatcher struct {
-	config       Config
-	master       NativeEngineeringMaster
-	github       NativeCatalogReader
-	code         OpenCode
-	checkouts    Checkouts
-	clock        Clock
-	history      map[string]NativeExecution
-	eligible     map[string]time.Time
-	catalog      NativeCatalog
-	active       *NativeExecution
-	refresh      chan nativeRefresh
-	step         chan nativeStep
-	stepCancel   context.CancelFunc
-	nextRefresh  time.Time
-	held         bool
-	catalogError string
-	recoveryJob  string
+	config          Config
+	master          NativeEngineeringMaster
+	github          NativeCatalogReader
+	code            OpenCode
+	checkouts       Checkouts
+	clock           Clock
+	history         map[string]NativeExecution
+	eligible        map[string]time.Time
+	catalog         NativeCatalog
+	active          *NativeExecution
+	refresh         chan nativeRefresh
+	step            chan nativeStep
+	stepCancel      context.CancelFunc
+	nextRefresh     time.Time
+	held            bool
+	catalogError    string
+	recoveryJob     string
+	noticeDone      chan error
+	nextNoticeCheck time.Time
 }
 
 func nativeExecutionPath(cfg Config, id string) string {
@@ -256,7 +258,8 @@ func (d *NativeDispatcher) Ready() bool {
 		}
 	}
 	candidates, err := d.candidates(d.catalog)
-	return err != nil || len(candidates) > 0 || len(d.dependencyWaits()) > 0
+	recovery, recoveryErr := d.automaticRecoveries()
+	return err != nil || recoveryErr != nil || len(recovery) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0
 }
 func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	d.poll()
@@ -318,6 +321,11 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			jobs = append(jobs, v.Job)
 		}
 		waiting := d.dependencyWaits()
+		recovery, err := d.automaticRecoveries()
+		if err != nil {
+			return false, err
+		}
+		waiting = append(waiting, recovery...)
 		for _, x := range waiting {
 			jobs = append(jobs, x.Job)
 		}
@@ -353,7 +361,11 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	x := *d.active
 	d.step = make(chan nativeStep, 1)
 	ch := d.step
-	stepCtx, cancel := context.WithTimeout(ctx, githubRevalidationTimeout)
+	timeout := githubRevalidationTimeout
+	if d.active.Phase == "blocked" && d.active.Reason == "native_completed_without_result" {
+		timeout = 5 * time.Minute
+	}
+	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	d.stepCancel = cancel
 	go func() {
 		defer cancel()
@@ -479,6 +491,15 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	if nativeScopeChanged(x, catalog) {
 		return NativeCandidate{}, errNativeCandidateStale
 	}
+	if nativeIsChecksRepair(x.Job) {
+		for _, task := range catalog.Tasks {
+			for _, pr := range task.PRs {
+				if pr.URL == x.Job.PRURL && pr.HeadSHA == x.Job.HeadSHA && nativeChecksRecovered(pr) {
+					return NativeCandidate{}, errNativeCandidateStale
+				}
+			}
+		}
+	}
 	return NativeCandidate{}, errors.New("native candidate temporarily unavailable")
 }
 
@@ -535,6 +556,22 @@ func (d *NativeDispatcher) rejectUnsubmitted(x *NativeExecution, cause error) (b
 	return false, cause
 }
 func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (bool, error) {
+	// An interrupted action recovery retains a completed native job while its
+	// execution is temporarily active. Restore reconciliation before the old
+	// model deadline can turn it into a fresh model continuation.
+	if x.Phase == "active" && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
+		if complete, err := nativeJobHasResult(d.config, *x); err != nil {
+			return false, err
+		} else if complete {
+			x.Phase, x.Reason = "completed", ""
+			return true, saveNativeExecution(d.config, *x)
+		}
+		x.Phase, x.Reason = "blocked", "native_completed_without_result"
+		return false, saveNativeExecution(d.config, *x)
+	}
+	if x.Phase == "blocked" && x.Reason == "native_completed_without_result" {
+		return d.reconcileNativeAction(ctx, x)
+	}
 	if x.Phase == "blocked" && x.Reason == "native_dependency_wait" {
 		done, err := d.resumeBlocked(ctx, x)
 		if err != nil {
@@ -543,7 +580,7 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 			}
 			x.Job.ReconcileFailures++
 			x.Job.ReconcileError = errorCategory(err)
-			x.Job.NextAttemptAt = d.clock.Now().Add(time.Minute)
+			x.Job.NextAttemptAt = d.clock.Now().Add(nativeDependencyBackoff(*x))
 			if saveErr := saveNativeExecution(d.config, *x); saveErr != nil {
 				return false, saveErr
 			}
@@ -714,6 +751,11 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 			return false, err
 		}
 		if !complete {
+			if retired, err := d.retireRecoveredChecksRepair(ctx, x); err != nil {
+				return false, err
+			} else if retired {
+				return false, nil
+			}
 			x.Phase, x.Reason = "blocked", "native_completed_without_result"
 			x.Wait = nil
 			wait, e := nativeTurnWait(d.config, *x)
@@ -739,6 +781,12 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	prompt := fmt.Sprintf("You are %s, authenticated agent %s and immutable GitHub bot %d. Execute only the assigned %s stage for the approved native goal below. Preserve local work if authority becomes unavailable or superseded. Use /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json for all consequential writes. Never self-review. Every action JSON requires operation and a stable request_id. When an implement/fix task needs an existing approved task to finish, checkpoint local work, call wait (depends_on canonical task URLs,body blocker reason), then end this turn. Coop resumes the same session after those exact dependencies complete. Do not wait in a loop or create a replacement task. Supported operations are wait, create-task (repository,title,body,base_branch,depends_on), rebind-task (task_url,base_branch,depends_on), publish-pr (title,body,artifact optional), review (verdict approved or changes-needed,body), qa (verdict,report_body private), deliver, and complete-plan. Task creation and rebinding can select a configured Project with project_owner and project_number; one configured Project is selected automatically and confirmed Ready. The helper derives role, goal, assignment, exact head and evidence metadata from fresh authenticated sources. Use complete-plan after all task registrations. Checkpoint local code before publish-pr; the helper pushes the assigned branch and derives the immutable source artifact when artifact is omitted. QA must test the approved acceptance and environment revision. Private QA belongs only in report_body. An uncertain helper outcome requires operator inspection; preserve its request_id and never bypass the journal with a new request.\nApproved revision: %s\nAssignment: %s\nTask: %s\nPR: %s\nExact head: %s", cfg.Name, cfg.Master.AgentID, cfg.Self.ID, x.Job.Kind, x.Job.ID, goal, binding, x.Job.TaskURL, x.Job.PRURL, x.Job.HeadSHA)
 	if v.Task != nil {
 		prompt += "\nTask title: " + v.Task.Task.Title + "\nTask body:\n" + v.Task.Task.Body
+	}
+	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
+		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
+	}
+	if nativeIsChecksRepair(x.Job) && v.PR != nil {
+		prompt += "\nThis author fix repairs failed checks for exact PR head " + x.Job.HeadSHA + ". Inspect the failed GitHub check runs and logs for that head, identify the cause, and make the smallest repair within the existing approved task. Run the failed checks locally, checkpoint a new head, and publish through publish-pr with artifact omitted to regenerate immutable source metadata. Do not create empty commits or rerun unchanged failures in a loop. Fresh CI, independent peer review and required exact-artifact QA remain mandatory. If an infrastructure or permission problem prevents a scoped code repair, checkpoint and report the concrete blocker. No new goal approval is required for this repair."
 	}
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")

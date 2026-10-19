@@ -109,6 +109,7 @@ type PR struct {
 	QAArtifact                                                   *QAArtifact `json:",omitempty"`
 	QAArtifactError                                              string      `json:",omitempty"`
 	BaseScopeRevision                                            string      `json:",omitempty"`
+	BaseSHA                                                      string      `json:",omitempty"`
 	AssignmentSHA                                                string      `json:",omitempty"`
 	Contributors                                                 []Actor     `json:",omitempty"`
 	ContributorsComplete, ReviewsComplete                        bool        `json:",omitempty"`

@@ -19,14 +19,20 @@ func nativeCommand(args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "resolve" {
 		return nativeResolve(args[1:], out)
 	}
-	if len(args) == 0 || args[0] != "action" {
+	if len(args) == 0 || args[0] != "action" && args[0] != "recover-delivery" && args[0] != "retain-action" {
 		return c.ErrInvalid
 	}
-	flags := flag.NewFlagSet("native action", flag.ContinueOnError)
+	recoverDelivery := args[0] == "recover-delivery"
+	flags := flag.NewFlagSet("native "+args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	config := flags.String("config", "", "private v3 worker configuration")
 	job := flags.String("job", "", "exact saved engineering job")
 	input := flags.String("input", "", "private native action JSON file")
+	var session, message string
+	if recoverDelivery {
+		flags.StringVar(&session, "session", "", "exact saved native session")
+		flags.StringVar(&message, "message", "", "exact saved native message")
+	}
 	if flags.Parse(args[1:]) != nil || *config == "" || *job == "" || *input == "" || len(flags.Args()) != 0 {
 		return c.ErrInvalid
 	}
@@ -41,13 +47,28 @@ func nativeCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if args[0] == "retain-action" {
+		if err = worker.RetainNativeAction(cfg, *job, action); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]bool{"retained": true})
+	}
 	master, err := masterclient.LoadConfig(cfg.Master.ClientConfig)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	result, err := worker.RunNativeAction(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), *job, action)
+	var result worker.NativeActionResult
+	if recoverDelivery {
+		code, e := worker.NewOpenCodeClient(cfg.OpenCode, nil)
+		if e != nil {
+			return e
+		}
+		result, err = worker.RecoverNativeDelivery(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), code, *job, session, message, action)
+	} else {
+		result, err = worker.RunNativeAction(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), *job, action)
+	}
 	if err != nil {
 		return err
 	}

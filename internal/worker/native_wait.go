@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
@@ -142,13 +143,40 @@ func recordNativeWait(ctx context.Context, cfg Config, m NativeEngineeringMaster
 	}
 	return record.Result, nil
 }
+func nativeDependencyTransportRetry(x NativeExecution) bool {
+	return x.Job.ReconcileError == "transport_failed"
+}
+
+func nativeDependencyBlocker(cfg Config, x NativeExecution) string {
+	if x.Reason != "native_dependency_wait" {
+		return x.Reason
+	}
+	if x.Job.ReconcileFailures > 0 && nativeDependencyTransportRetry(x) {
+		return "native_dependency_retry"
+	}
+	if x.Job.ReconcileFailures >= Defaults(cfg).Limits.MaxAttempts {
+		return "native_dependency_recovery_required"
+	}
+	return x.Reason
+}
+
+func nativeDependencyBackoff(x NativeExecution) time.Duration {
+	delay := time.Minute
+	if nativeDependencyTransportRetry(x) {
+		for i := 1; i < x.Job.ReconcileFailures && delay < 15*time.Minute; i++ {
+			delay *= 2
+		}
+	}
+	return min(delay, 15*time.Minute)
+}
+
 func (d *NativeDispatcher) dependencyWaits() []NativeExecution {
 	out := []NativeExecution{}
 	if !d.catalog.Complete {
 		return out
 	}
 	for _, x := range d.history {
-		if x.Phase == "blocked" && x.Reason == "native_dependency_wait" && x.Wait != nil && !d.clock.Now().Before(x.Job.NextAttemptAt) && x.Job.ReconcileFailures < Defaults(d.config).Limits.MaxAttempts && nativeDependenciesReady(d.catalog, x.Wait) {
+		if x.Phase == "blocked" && x.Reason == "native_dependency_wait" && x.Wait != nil && !d.clock.Now().Before(x.Job.NextAttemptAt) && (x.Job.ReconcileFailures < Defaults(d.config).Limits.MaxAttempts || nativeDependencyTransportRetry(x)) && nativeDependenciesReady(d.catalog, x.Wait) {
 			for _, a := range d.catalog.Goals {
 				if a.Revision.Ref == x.Goal && nativeCatalogApproved(d.catalog, x.Goal, a.ApprovalSequence) {
 					out = append(out, x)

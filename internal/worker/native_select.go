@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
@@ -29,6 +30,35 @@ type NativeCandidate struct {
 	Task        *NativeTask
 	PR          *PR
 	RebindTasks []string
+}
+
+const nativeBranchRefreshPrefix = "branch-refresh:"
+const nativeChecksRepairPrefix = "checks-repair:"
+
+func nativeNeedsChecksRepair(p PR) bool {
+	return !p.Merged && !p.Closed && (p.ChecksState == "failure" || p.ChecksState == "error")
+}
+
+func nativeIsChecksRepair(j Job) bool {
+	return j.Kind == "fix" && strings.HasPrefix(j.InputRevision, nativeChecksRepairPrefix)
+}
+
+func nativeNeedsBranchRefresh(p PR) bool {
+	return !p.Merged && !p.Closed && (p.MergeState == "BEHIND" || p.MergeState == "DIRTY")
+}
+
+func nativeFixCycles(taskURL string, history map[string]NativeExecution) int {
+	cycles := 0
+	for _, v := range history {
+		if v.Job.Kind == "fix" && v.Job.TaskURL == taskURL && v.Phase == "completed" {
+			cycles++
+		}
+	}
+	return cycles
+}
+
+func nativeIsBranchRefresh(j Job) bool {
+	return j.Kind == "fix" && strings.HasPrefix(j.InputRevision, nativeBranchRefreshPrefix)
 }
 
 func NativeAcceptanceSHA(a c.GoalAuthority) string {
@@ -224,7 +254,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		if a.Revision.Proposal.QA.Required {
 			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Reports)
 		}
-		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged {
+		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
 			if nativeChangesRequested("review", t.Binding, a, p, peer) {
 				continue
 			}
@@ -240,14 +270,20 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				add("deliver", a, &t, &p, "merged:"+p.HeadSHA)
 				continue
 			}
-			if peer.HeadSHA == p.HeadSHA && peer.State == "CHANGES_REQUESTED" || qa.HeadSHA == p.HeadSHA && qa.State == "CHANGES_REQUESTED" {
-				cycles := 0
-				for _, v := range history {
-					if v.Job.Kind == "fix" && v.Job.TaskURL == t.Task.URL && v.Phase == "completed" {
-						cycles++
-					}
+			if nativeNeedsBranchRefresh(p) {
+				if qaHeadSHA.MatchString(p.BaseSHA) && nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
+					add("fix", a, &t, &p, nativeBranchRefreshPrefix+p.BaseSHA+":"+p.ScopeRevision)
 				}
-				if cycles < Defaults(cfg).Limits.MaxReviewCycles {
+				continue
+			}
+			if nativeNeedsChecksRepair(p) {
+				if nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
+					add("fix", a, &t, &p, nativeChecksRepairPrefix+p.ScopeRevision)
+				}
+				continue
+			}
+			if peer.HeadSHA == p.HeadSHA && peer.State == "CHANGES_REQUESTED" || qa.HeadSHA == p.HeadSHA && qa.State == "CHANGES_REQUESTED" {
+				if nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
 					add("fix", a, &t, &p, BodyHash(peer.ID+":"+qa.ID+":"+p.ScopeRevision))
 				}
 				continue
@@ -256,7 +292,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				add("deliver", a, &t, &p, BodyHash(peer.ID+":"+qa.ID+":"+p.ScopeRevision))
 			}
 		}
-		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
+		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
 			if nativeChangesRequested("qa", t.Binding, a, p, qa) {
 				continue
 			}
