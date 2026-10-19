@@ -117,6 +117,30 @@ func nativeJobHasResult(cfg Config, x NativeExecution) (bool, error) {
 	return false, nil
 }
 
+var errNativeProducerBusy = errors.New("native action already running")
+
+func lockNativeProducer(cfg Config) (func(), error) {
+	dir := filepath.Join(masterDir(cfg), "actions")
+	if err := ensurePrivateDir(dir, true); err != nil {
+		return nil, err
+	}
+	// Helpers can overlap while the worker observes. Serialize producer effects
+	// without holding the worker's native-slot or receipt lock.
+	lockPath := filepath.Join(dir, "producer.lock")
+	if err := safePath(lockPath); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = lock.Close()
+		return nil, errNativeProducerBusy
+	}
+	return func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN); _ = lock.Close() }, nil
+}
+
 // RunNativeAction rechecks both authority systems before every external effect.
 // These reads cannot make master revocation atomic with GitHub's action. A
 // revocation can race the final remote read and write across those services.
@@ -125,25 +149,11 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	if cfg.Version != 3 || cfg.Master == nil || cfg.Team == nil || in.RequestID == "" || len(in.RequestID) > 128 || len(in.Body) > c.MaxText || len(in.ReportBody) > c.MaxText {
 		return empty, c.ErrInvalid
 	}
-	dir := filepath.Join(masterDir(cfg), "actions")
-	if err := ensurePrivateDir(dir, true); err != nil {
-		return empty, err
-	}
-	// Helpers can overlap while the worker observes. Serialize producer effects
-	// without holding the worker's native-slot or receipt lock.
-	lockPath := filepath.Join(dir, "producer.lock")
-	if err := safePath(lockPath); err != nil {
-		return empty, err
-	}
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	release, err := lockNativeProducer(cfg)
 	if err != nil {
 		return empty, err
 	}
-	defer func() { _ = lock.Close() }()
-	if err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return empty, errors.New("native action already running")
-	}
-	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	defer release()
 	x, err := loadNativeExecution(cfg, jobID)
 	if err != nil {
 		return empty, err

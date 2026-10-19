@@ -68,6 +68,9 @@ func TestNativeCatalogPreservesProjectStatus(t *testing.T) {
 		return map[string]any{"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": false}}
 	}
 	commands := &fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+		if strings.HasPrefix(endpoint, "repos/code/repo/issues/99") {
+			t.Fatal("native catalog fetched an unregistered legacy board task")
+		}
 		if endpoint == "repos/code/repo/issues/1" {
 			return jsonResponse(map[string]any{"html_url": b.TaskURL, "number": 1, "title": "Task", "body": "scope", "state": "open", "updated_at": now}), nil
 		}
@@ -85,7 +88,7 @@ func TestNativeCatalogPreservesProjectStatus(t *testing.T) {
 		case strings.Contains(req.Query, "WorkerProjectFields"):
 			data = map[string]any{"node": map[string]any{"fields": page([]any{map[string]any{"id": "status", "name": "Status", "options": []any{map[string]any{"id": "ready", "name": "Ready"}, map[string]any{"id": "progress", "name": "In Progress"}, map[string]any{"id": "done", "name": "Done"}}}})}}
 		case strings.Contains(req.Query, "WorkerProjectItems"):
-			data = map[string]any{"node": map[string]any{"items": page([]any{map[string]any{"id": "item", "content": map[string]any{"__typename": "Issue", "url": b.TaskURL}}})}}
+			data = map[string]any{"node": map[string]any{"items": page([]any{map[string]any{"id": "legacy", "content": map[string]any{"__typename": "Issue", "url": "https://github.com/code/repo/issues/99"}}, map[string]any{"id": "item", "content": map[string]any{"__typename": "Issue", "url": b.TaskURL}}})}}
 		case strings.Contains(req.Query, "WorkerProjectValues"):
 			data = map[string]any{"node": map[string]any{"fieldValues": page([]any{map[string]any{"name": "In Progress", "field": map[string]any{"id": "status", "name": "Status"}}})}}
 		case strings.Contains(req.Query, "WorkerProject"):

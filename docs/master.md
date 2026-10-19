@@ -159,6 +159,23 @@ It publishes immutable private QA evidence and places only its digest/reference
 and safe summary in a formal exact-head GitHub QA review. A chat reply or private
 report alone cannot satisfy QA. Authored work needs an independent peer review.
 
+The configured turn limit starts at submission, after preparation and fresh
+authority checks. It defaults to 30 minutes and supports up to one hour.
+A timed-out engineering turn can continue in its saved session and checkout
+after exact terminal evidence, current authority and assignment, and mutation
+journals are verified. Each continuation preserves the previous turn and uses
+a new message, up to `limits.max_attempts` continuations. Paused admission,
+uncertain mutations or exhausted continuations keep the job held for inspection.
+
+A turn that ended without its expected artifact holds only its task when its
+terminal checkpoint is verified and all its producer journals are complete.
+Other reviews and conversations can proceed. Incomplete writes and uncertain
+execution still hold the worker. With the worker stopped, an operator can use
+`coop-worker native resolve --action continue --config CONFIG --job JOB
+--session SESSION --message MESSAGE` to continue the exact saved task after its
+dependency is available. This rechecks authority and session ownership, retains
+the old turn and enforces the continuation limit; it does not submit a prompt.
+
 ## Explicit worker conversion
 
 Version 3 selects `master.backend = "master"` and pins the full placement plus
@@ -378,3 +395,8 @@ the master and do not scan the retired GitHub goal conversation. Existing V1/V2
 GitHub-governed work keeps its original authority; import/cutover never converts
 in-flight work or changes worker configuration. Use the guarded offline migration
 only after legacy work has terminal evidence.
+
+If a continuation was selected but never submitted, use the last retained turn's
+session/message identity with `native resolve --action cancel`. This retires only
+the unsubmitted job after checking the retained terminal turn; it does not abort
+or take ownership of another session turn.

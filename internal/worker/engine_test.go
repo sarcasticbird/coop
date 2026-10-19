@@ -166,6 +166,13 @@ func (c *fakeOpenCode) Abort(context.Context, Job) error {
 	c.running = false
 	return nil
 }
+
+func (c *fakeOpenCode) CheckContinuation(context.Context, Job) error {
+	if c.running {
+		return errors.New("session is busy")
+	}
+	return nil
+}
 func engineFixture(t *testing.T) (*Engine, *workflowGitHub, *fakeOpenCode, *fakeClock, *memoryStore) {
 	t.Helper()
 	cfg, s, n := policyFixture(t)

@@ -135,6 +135,7 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	ContinuationMessageID                                                        string            `json:",omitempty"`
 	Master                                                                       *MasterJobBinding `json:",omitempty"`
 	SubmittedModel                                                               *ModelIdentity    `json:",omitempty"`
 	ExecutedModel                                                                *ModelIdentity    `json:",omitempty"`

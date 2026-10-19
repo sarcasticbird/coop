@@ -326,7 +326,7 @@ func ValidateConfig(c Config) error {
 		seenProjects[key] = true
 	}
 	l := c.Limits
-	if l.PollInterval < time.Second || l.PollInterval > time.Hour || l.TurnLimit < time.Second || l.TurnLimit > 30*time.Minute || l.RetryBase < time.Second || l.RetryCap < l.RetryBase || l.RetryCap > 15*time.Minute || l.MaxAttempts < 1 || l.MaxAttempts > 3 || l.MaxReviewCycles < 1 || l.MaxReviewCycles > 5 {
+	if l.PollInterval < time.Second || l.PollInterval > time.Hour || l.TurnLimit < time.Second || l.TurnLimit > time.Hour || l.RetryBase < time.Second || l.RetryCap < l.RetryBase || l.RetryCap > 15*time.Minute || l.MaxAttempts < 1 || l.MaxAttempts > 3 || l.MaxReviewCycles < 1 || l.MaxReviewCycles > 5 {
 		return errors.New("worker limits exceed supported bounds")
 	}
 	u, err := url.Parse(c.OpenCode.BaseURL)

@@ -144,6 +144,11 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			Kind, Task, PR, Head, Revision string
 		}{master, kind, taskURL, prURL, head, revision})
 		j.ID = BodyHash(string(raw))
+		for _, retained := range history {
+			if retained.Phase == "blocked" && BindingKey(cfg, retained.Job) == BindingKey(cfg, j) {
+				return
+			}
+		}
 		if _, seen := history[j.ID]; seen {
 			return
 		}
