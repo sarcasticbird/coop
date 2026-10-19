@@ -155,6 +155,8 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 		}
 		needs := "Inspect the saved run and blocker before using supported recovery; do not replay uncertain actions."
 		switch reason {
+		case "native_action_retry":
+			needs = "The worker retries the original acknowledged action with a capped cooldown, then continues the saved session. No owner action is required unless authority changes or the outcome cannot be verified."
 		case "native_dependency_wait":
 			needs = "The worker resumes automatically when its registered prerequisites complete; no owner action is required unless those prerequisites stall."
 		case "native_dependency_retry":
@@ -179,7 +181,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 			latest = x.Job
 		}
 		if x.Phase == "blocked" && x.Reason != "goal_paused" && x.Reason != "local_pause" {
-			add(x.Job, nativeDependencyBlocker(d.config, x))
+			add(x.Job, nativeRecoveryBlocker(d.config, x))
 			if x.Wait != nil && x.Job.Master != nil {
 				deps := []string{}
 				for _, dep := range x.Wait.Dependencies {

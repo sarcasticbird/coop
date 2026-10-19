@@ -63,7 +63,7 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		if x.Phase != "blocked" {
 			continue
 		}
-		b := NativeBlocker{JobID: x.Job.ID, Task: x.Job.TaskURL, Reason: nativeDependencyBlocker(d.config, x)}
+		b := NativeBlocker{JobID: x.Job.ID, Task: x.Job.TaskURL, Reason: nativeRecoveryBlocker(d.config, x)}
 		if x.Wait != nil {
 			for _, dep := range x.Wait.Dependencies {
 				if len(b.Dependencies) < 3 {

@@ -169,12 +169,36 @@ uncertain mutations or exhausted continuations keep the job held for inspection.
 
 A turn that ended without its expected artifact holds only its task when its
 terminal checkpoint is verified and all its producer journals are complete.
-Other reviews and conversations can proceed. Incomplete writes and uncertain
+Other reviews and conversations can proceed. Retained acknowledged actions
+recover automatically as described below. Unrecoverable writes and uncertain
 execution still hold the worker. With the worker stopped, an operator can use
 `coop-worker native resolve --action continue --config CONFIG --job JOB
 --session SESSION --message MESSAGE` to continue the exact saved task after its
 dependency is available. This rechecks authority and session ownership, retains
 the old turn and enforces the continuation limit; it does not submit a prompt.
+
+A delivery turn can end after a read failure with its original journal still
+`prepared` and its step empty. With the worker stopped, use the explicit command:
+
+```sh
+coop-worker native recover-delivery --config CONFIG --job JOB \
+  --session SESSION --message MESSAGE --input ORIGINAL_ACTION_JSON
+```
+
+This requires the exact saved terminal turn and original input/request ID, an
+unstarted delivery journal or an acknowledged merge checkpoint, and no active
+engineering or conversation slot. It
+holds both worker and producer locks and invokes the normal delivery helper,
+including fresh placement, approval, assignment, head, CI, review and QA checks.
+It creates no model turn. Successful recovery checkpoints completion; a refused
+or failed retry retains the blocked execution and actual journal progress.
+An acknowledged merge is confirmed read-only: the original exact PR head must
+be merged and its original task already closed as completed. A merge is never
+replayed. Other started or uncertain effects remain held for separate
+remote-evidence inspection. GitHub automatic issue closure is also recognized
+during ordinary delivery, so it does not cause a redundant closure write.
+Back up retained state first, then restart the worker after recovery. This is an
+operator command; it does not enable automatic retries of GitHub mutations.
 
 ## Explicit worker conversion
 
@@ -480,3 +504,30 @@ pauses suppress notices. Hark can monitor these messages through existing
 `coop_master_read_thread` calls and retain the last observed sequence; configuring
 Hark's polling schedule is separate from enabling worker notices. The current
 chat does not monitor threads while inactive.
+
+
+Workers retain each native action's exact input privately before any effect.
+If its model turn ends after a recoverable helper failure, the worker resumes
+that original request through the same authority, task, head, review and QA
+guards. Acknowledged checkpoints skip finished writes; uncertain remote effects
+remain held for inspection. Recovery never invents a replacement issue or PR.
+Transport failures and pending prerequisites retry with a persisted cooldown
+from one to fifteen minutes. GitHub quota waits honor the server reset time.
+These waits do not exhaust the safety-refusal limit. An unstarted delivery
+superseded by current author repairs retires without deleting its history, so
+the repair can proceed. Repeated safety refusals stop at `max_attempts` and
+require intervention.
+
+Once intermediate actions complete, the worker continues the saved session
+within the existing continuation limit. Recovery shares normal engineering
+scheduling, allows unrelated work during cooldown, and reserves the original
+task. Status and blocker notices identify `native_action_retry` as automatic.
+Old journals without their original input remain inspectable. To retain a known
+legacy input while the worker is stopped, use:
+
+```sh
+coop-worker native retain-action --config CONFIG --job JOB --input ORIGINAL.json
+```
+
+This command checks the original journal's input hash and records only a
+private intent. It performs no remote action and does not relax any approval.

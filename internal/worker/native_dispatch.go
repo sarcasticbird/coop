@@ -258,7 +258,8 @@ func (d *NativeDispatcher) Ready() bool {
 		}
 	}
 	candidates, err := d.candidates(d.catalog)
-	return err != nil || len(candidates) > 0 || len(d.dependencyWaits()) > 0
+	recovery, recoveryErr := d.automaticRecoveries()
+	return err != nil || recoveryErr != nil || len(recovery) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0
 }
 func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	d.poll()
@@ -320,6 +321,11 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			jobs = append(jobs, v.Job)
 		}
 		waiting := d.dependencyWaits()
+		recovery, err := d.automaticRecoveries()
+		if err != nil {
+			return false, err
+		}
+		waiting = append(waiting, recovery...)
 		for _, x := range waiting {
 			jobs = append(jobs, x.Job)
 		}
@@ -355,7 +361,11 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	x := *d.active
 	d.step = make(chan nativeStep, 1)
 	ch := d.step
-	stepCtx, cancel := context.WithTimeout(ctx, githubRevalidationTimeout)
+	timeout := githubRevalidationTimeout
+	if d.active.Phase == "blocked" && d.active.Reason == "native_completed_without_result" {
+		timeout = 5 * time.Minute
+	}
+	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	d.stepCancel = cancel
 	go func() {
 		defer cancel()
@@ -546,6 +556,22 @@ func (d *NativeDispatcher) rejectUnsubmitted(x *NativeExecution, cause error) (b
 	return false, cause
 }
 func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (bool, error) {
+	// An interrupted action recovery retains a completed native job while its
+	// execution is temporarily active. Restore reconciliation before the old
+	// model deadline can turn it into a fresh model continuation.
+	if x.Phase == "active" && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
+		if complete, err := nativeJobHasResult(d.config, *x); err != nil {
+			return false, err
+		} else if complete {
+			x.Phase, x.Reason = "completed", ""
+			return true, saveNativeExecution(d.config, *x)
+		}
+		x.Phase, x.Reason = "blocked", "native_completed_without_result"
+		return false, saveNativeExecution(d.config, *x)
+	}
+	if x.Phase == "blocked" && x.Reason == "native_completed_without_result" {
+		return d.reconcileNativeAction(ctx, x)
+	}
 	if x.Phase == "blocked" && x.Reason == "native_dependency_wait" {
 		done, err := d.resumeBlocked(ctx, x)
 		if err != nil {

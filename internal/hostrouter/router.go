@@ -53,10 +53,13 @@ type InventoryClient interface {
 type ActionRequest struct {
 	Target    Target
 	Operation string
-	Args      []string
-	RequestID string
+	Args      []string // full CLI argv, including existing command-specific --request-id
+	Directory string   // absolute path on the selected host, never the controller cwd
 }
-type ActionResult struct{ ExitCode int }
+type ActionResult struct {
+	Target   Target
+	ExitCode int
+}
 type ActionClient interface {
 	Execute(context.Context, ActionRequest, io.Reader, io.Writer, io.Writer) (ActionResult, error)
 }

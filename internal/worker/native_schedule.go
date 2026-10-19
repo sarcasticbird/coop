@@ -52,6 +52,20 @@ func scheduleEvidence(raw []byte) c.RecoveryEvidence {
 
 func (d *NativeDispatcher) candidates(catalog NativeCatalog) ([]NativeCandidate, error) {
 	jobs := NativeCandidates(d.config, catalog, d.history, d.clock.Now())
+	filtered := jobs[:0]
+	for _, candidate := range jobs {
+		fenced := false
+		for _, x := range d.history {
+			if x.Phase == "blocked" && (candidate.Job.TaskURL != "" && candidate.Job.TaskURL == x.Job.TaskURL || x.Job.Kind == "plan" && candidate.Job.Kind == "plan" && candidate.Goal.Revision.Ref == x.Goal) {
+				fenced = true
+				break
+			}
+		}
+		if !fenced {
+			filtered = append(filtered, candidate)
+		}
+	}
+	jobs = filtered
 	changed := false
 	next := map[string]time.Time{}
 	for id, at := range d.eligible {
