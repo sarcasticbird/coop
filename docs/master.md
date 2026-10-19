@@ -71,7 +71,12 @@ coop message send THREAD_ID --to builder --body-file /absolute/message.txt \
 coop message status MESSAGE_ID
 coop thread read THREAD_ID --follow
 coop team
+# Read-only keyboard screen (same configured master, JSON unchanged without --watch)
+coop team --watch
 ```
+
+See [Team watch](team-watch.md) for keyboard help, stale/unknown semantics,
+read-only guarantees and the fixture/operator UAT checklist.
 
 `coop inbox` reads an agent credential's own pending deliveries. The owner reads
 replies through the thread and can follow it from the CLI or MCP.
