@@ -474,7 +474,7 @@ type inventoryStreamWriter struct {
 
 func (w *inventoryStreamWriter) Write(p []byte) (int, error) {
 	n, err := w.Buffer.Write(p)
-	if strings.Contains(w.Buffer.String(), "local agent robin Robin running\n") {
+	if strings.Contains(w.String(), "local agent robin Robin running\n") {
 		select {
 		case w.localRow <- struct{}{}:
 		default:

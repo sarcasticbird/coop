@@ -145,12 +145,12 @@ func UpdatePrivateFile(path string, max int64, update func([]byte) ([]byte, erro
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path)+".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return err
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 	var st unix.Stat_t
 	if err = unix.Fstat(fd, &st); err != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Mode&0077 != 0 {
 		return fail("unsafe_private_lock")
@@ -158,7 +158,7 @@ func UpdatePrivateFile(path string, max int64, update func([]byte) ([]byte, erro
 	if err = unix.Flock(fd, unix.LOCK_EX); err != nil {
 		return err
 	}
-	defer unix.Flock(fd, unix.LOCK_UN)
+	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
 	b, err := readAt(d, filepath.Base(path), max)
 	if err != nil && !errors.Is(err, unix.ENOENT) {
 		return err
