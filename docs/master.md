@@ -416,11 +416,48 @@ fresh approval, assignment, producer and native ownership checks. Changed or
 missing bindings stay waiting. An undeclared terminal stop still needs explicit
 operator continuation; the worker does not infer dependencies from prose.
 
+An open PR reported as `BEHIND` or `DIRTY` schedules an author `fix` job to merge
+its approved base. The job pins the PR head, base commit and scope, preserves
+history, and publishes through the existing action helper with a regenerated
+source artifact. Publication rejects an unchanged head or a head that does not
+contain the pinned base. Peer review and QA wait for branch maintenance; every
+new head still needs fresh CI, independent engineering review and exact-artifact
+QA before delivery. Refreshes share the configured `max_review_cycles` bound
+with other author fixes, and the same PR/base/scope attempt is not repeated.
+Conflicts belong to the author within approved scope; unresolved conflicts or
+exhausted attempts need an operator, not another goal approval or a force push.
+
+GitHub-generated merge commits sometimes have no GraphQL committer user. Coop
+then resolves that identity from REST for the exact commit SHA and canonical
+account ID. It retains that committer in independence checks; unresolved primary
+authors, co-authors or committers still block admission.
+
 `coop worker status` includes a `native` snapshot with the current stage, exact
 PR head/model, turn deadline and retained blockers. `coop team` and
 `coop_master_team` expose diagnostic heartbeat reasons for global recovery,
-dependency waits, catalog failures, overdue turns and admissions waiting at least
-five minutes. Pending messages older than five minutes are reported when the
+dependency waits, branch-refresh work or exhausted refresh attempts, catalog
+failures, overdue turns and admissions waiting at least five minutes. Pending
+messages older than five minutes are reported when the
 worker has no active turn accounting for their wait. Paused workers keep their
 paused status. These diagnostics do not restart workers or models, and they do
 not send repeated conversation turns. Hark can poll the existing MCP tools.
+
+Workers also post `[COOP BLOCKED]` notices in the affected work thread, with the
+task, last recorded action, blocker and required next step. Set
+`master.blocker_recipient` to the owner's master principal ID for an addressed
+notice and `@` mention. This must identify the owner; known agent recipients are
+rejected. Without it, notices are unaddressed thread messages.
+No peer or model turn is created. Engineering and conversation recovery holds,
+stalled admissions, overdue turns and exhausted branch refreshes are reported;
+catalog failures get a five-minute grace period. Dependency waits name their
+prerequisites and say when continuation is automatic.
+
+Notice checks run at the heartbeat interval, with one bounded background send
+at a time so network delays do not hold the worker loop. Notices are deduplicated
+across polls and restarts. A changed blocker gets an
+update, and a cleared blocker gets `[COOP UNBLOCKED]`. Unknown send responses
+reuse the durable request ID and body, with a one-minute retry delay. Local
+pauses suppress notices. Hark can monitor these messages through existing
+`coop_master_read_thread` calls and retain the last observed sequence; configuring
+Hark's polling schedule is separate from enabling worker notices. The current
+chat does not monitor threads while inactive.

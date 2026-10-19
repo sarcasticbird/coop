@@ -23,6 +23,10 @@ type nativeDeliveryTransport struct {
 	projectAdded, projectReady                                     bool
 	writes                                                         []string
 	checks                                                         string
+	baseSHA, restBaseSHA, mergeState                               string
+	rejectAncestor                                                 bool
+	snapshotBaseSHA, baseReadSHA                                   string
+	advanceBaseAfterAncestry                                       bool
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -46,6 +50,16 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 	case "rev-parse":
 		out = s.head
 	case "status", "switch", "clone", "fetch", "reset":
+	case "merge-base":
+		if len(argv) != 5 || argv[2] != "--is-ancestor" || argv[3] != s.baseSHA || argv[4] != s.localHead {
+			s.t.Fatalf("wrong branch ancestry check: %v", argv)
+		}
+		if s.rejectAncestor {
+			return CommandResult{ExitCode: 1}, nil
+		}
+		if s.advanceBaseAfterAncestry {
+			s.baseSHA = strings.Repeat("e", 40)
+		}
 	case "push":
 		s.writes = append(s.writes, "push")
 	default:
@@ -56,6 +70,9 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 	}
 	if argv[1] == "push" && s.localHead != "" {
 		s.head = s.localHead
+		if s.mergeState == "BEHIND" {
+			s.mergeState = "CLEAN"
+		}
 	}
 	return CommandResult{Stdout: []byte(out)}, nil
 }
@@ -79,6 +96,16 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		}
 		var data any
 		pr := map[string]any{"url": prURL, "body": s.prBody, "createdAt": created, "headRefOid": s.head, "headRefName": s.branch, "baseRefName": "main", "updatedAt": created, "mergeStateStatus": "CLEAN", "state": "OPEN", "merged": s.merged, "author": actor(12, "implementer[bot]"), "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}
+		pr["baseRefOid"] = s.baseSHA
+		if s.snapshotBaseSHA != "" {
+			pr["baseRefOid"] = s.snapshotBaseSHA
+		}
+		if s.baseSHA != "" {
+			pr["baseRef"] = map[string]any{"name": "main", "target": map[string]any{"oid": s.baseSHA}}
+		}
+		if s.mergeState != "" {
+			pr["mergeStateStatus"] = s.mergeState
+		}
 		if s.merged {
 			pr["state"] = "MERGED"
 		}
@@ -86,6 +113,12 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			pr["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": s.checks}}}}}
 		}
 		switch {
+		case strings.Contains(req.Query, "WorkerNativeBase"):
+			sha := s.baseSHA
+			if s.baseReadSHA != "" {
+				sha = s.baseReadSHA
+			}
+			data = map[string]any{"repository": map[string]any{"ref": map[string]any{"name": "main", "target": map[string]any{"oid": sha}}}}
 		case strings.Contains(req.Query, "WorkerNativeProjectAdd"):
 			s.projectAdded = true
 			data = map[string]any{"addProjectV2ItemById": map[string]any{"item": map[string]any{"id": "item"}}}
@@ -193,7 +226,11 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			_ = json.Unmarshal(body, &req)
 			s.prBody = req.Body
 		}
-		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": s.head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "repo": map[string]any{"full_name": "code/repo"}}}), nil
+		baseSHA := s.baseSHA
+		if s.restBaseSHA != "" {
+			baseSHA = s.restBaseSHA
+		}
+		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": s.head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
 	}
 	if endpoint == "user/12" {
 		return jsonResponse(map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}), nil
@@ -354,6 +391,30 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	transport.localHead = ""
 	finish(fix)
+	// A base update is ordinary author work even without a review request.
+	// Publication must prove it actually includes the pinned base commit.
+	transport.baseSHA, transport.mergeState = strings.Repeat("d", 40), "BEHIND"
+	refresh := stage(1, "author", "fix")
+	refreshAction := NativeAction{Operation: "publish-pr", RequestID: "refresh-pr", Title: "Updated implementation", Body: "Merge approved base without rewriting history"}
+	writesBeforeRefresh := len(transport.writes)
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("unchanged branch was published as a successful refresh", err)
+	}
+	transport.localHead, transport.rejectAncestor = strings.Repeat("c", 40), true
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("refresh without the approved base was published", err)
+	}
+	transport.rejectAncestor = false
+	transport.advanceBaseAfterAncestry = true
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("changed base after ancestry check still allowed publication", err)
+	}
+	transport.advanceBaseAfterAncestry, transport.baseSHA = false, strings.Repeat("d", 40)
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err != nil {
+		t.Fatal("branch refresh publication", err)
+	}
+	transport.localHead = ""
+	finish(refresh)
 	peer = stage(0, "peer", "review")
 	if _, err := RunNativeAction(ctx, cfg, m, g, peer.Job.ID, NativeAction{Operation: "review", RequestID: "peer-review", Verdict: "approved", Body: "Reviewed the exact head."}); err != nil {
 		t.Fatal(err)

@@ -66,23 +66,25 @@ func (d *NativeDispatcher) Preview(ctx context.Context) (NativePreview, error) {
 // NativeDispatcher owns the single engineering slot. All remote reads and native
 // model calls run outside the receipt loop; results are consumed by that loop.
 type NativeDispatcher struct {
-	config       Config
-	master       NativeEngineeringMaster
-	github       NativeCatalogReader
-	code         OpenCode
-	checkouts    Checkouts
-	clock        Clock
-	history      map[string]NativeExecution
-	eligible     map[string]time.Time
-	catalog      NativeCatalog
-	active       *NativeExecution
-	refresh      chan nativeRefresh
-	step         chan nativeStep
-	stepCancel   context.CancelFunc
-	nextRefresh  time.Time
-	held         bool
-	catalogError string
-	recoveryJob  string
+	config          Config
+	master          NativeEngineeringMaster
+	github          NativeCatalogReader
+	code            OpenCode
+	checkouts       Checkouts
+	clock           Clock
+	history         map[string]NativeExecution
+	eligible        map[string]time.Time
+	catalog         NativeCatalog
+	active          *NativeExecution
+	refresh         chan nativeRefresh
+	step            chan nativeStep
+	stepCancel      context.CancelFunc
+	nextRefresh     time.Time
+	held            bool
+	catalogError    string
+	recoveryJob     string
+	noticeDone      chan error
+	nextNoticeCheck time.Time
 }
 
 func nativeExecutionPath(cfg Config, id string) string {
@@ -739,6 +741,9 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	prompt := fmt.Sprintf("You are %s, authenticated agent %s and immutable GitHub bot %d. Execute only the assigned %s stage for the approved native goal below. Preserve local work if authority becomes unavailable or superseded. Use /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json for all consequential writes. Never self-review. Every action JSON requires operation and a stable request_id. When an implement/fix task needs an existing approved task to finish, checkpoint local work, call wait (depends_on canonical task URLs,body blocker reason), then end this turn. Coop resumes the same session after those exact dependencies complete. Do not wait in a loop or create a replacement task. Supported operations are wait, create-task (repository,title,body,base_branch,depends_on), rebind-task (task_url,base_branch,depends_on), publish-pr (title,body,artifact optional), review (verdict approved or changes-needed,body), qa (verdict,report_body private), deliver, and complete-plan. Task creation and rebinding can select a configured Project with project_owner and project_number; one configured Project is selected automatically and confirmed Ready. The helper derives role, goal, assignment, exact head and evidence metadata from fresh authenticated sources. Use complete-plan after all task registrations. Checkpoint local code before publish-pr; the helper pushes the assigned branch and derives the immutable source artifact when artifact is omitted. QA must test the approved acceptance and environment revision. Private QA belongs only in report_body. An uncertain helper outcome requires operator inspection; preserve its request_id and never bypass the journal with a new request.\nApproved revision: %s\nAssignment: %s\nTask: %s\nPR: %s\nExact head: %s", cfg.Name, cfg.Master.AgentID, cfg.Self.ID, x.Job.Kind, x.Job.ID, goal, binding, x.Job.TaskURL, x.Job.PRURL, x.Job.HeadSHA)
 	if v.Task != nil {
 		prompt += "\nTask title: " + v.Task.Task.Title + "\nTask body:\n" + v.Task.Task.Body
+	}
+	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
+		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
 	}
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")

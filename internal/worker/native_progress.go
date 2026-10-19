@@ -31,6 +31,30 @@ type NativeProgress struct {
 // retries an action or mistakes a quiet running turn for a stalled admission.
 func (d *NativeDispatcher) Progress() NativeProgress {
 	p := NativeProgress{LastCatalogRead: d.catalog.ReadAt, NextCatalogRead: d.nextRefresh}
+	// Candidate construction is local and uses the same authority/ownership
+	// checks as admission. Ignore history here so spent attempts stay visible.
+	for _, v := range NativeCandidates(d.config, d.catalog, nil, d.clock.Now()) {
+		if !nativeIsBranchRefresh(v.Job) {
+			continue
+		}
+		reserved := false
+		for _, x := range d.history {
+			if x.Phase == "blocked" && BindingKey(d.config, x.Job) == BindingKey(d.config, v.Job) {
+				reserved = true
+				break
+			}
+		}
+		if reserved {
+			continue
+		}
+		reason := "native_branch_refresh_required"
+		if nativeFixCycles(v.Job.TaskURL, d.history) >= Defaults(d.config).Limits.MaxReviewCycles {
+			reason = "native_branch_refresh_limit"
+		} else if x, ok := d.history[v.Job.ID]; ok && (x.Phase == "completed" || x.Phase == "cancelled") {
+			reason = "native_branch_refresh_no_progress"
+		}
+		p.Blocked = append(p.Blocked, NativeBlocker{JobID: v.Job.ID, Task: v.Job.TaskURL, Reason: reason})
+	}
 	for _, x := range d.history {
 		if x.Phase != "blocked" {
 			continue
@@ -55,6 +79,9 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 			p.Current.Role = x.Job.Master.Role
 		}
 		p.SelectedAt, p.Deadline = x.SelectedAt, x.Job.Deadline
+		if nativeIsBranchRefresh(x.Job) {
+			p.Reason = "native_branch_refresh"
+		}
 		if (x.Phase == "selected" || x.Phase == "prepared") && !x.SelectedAt.IsZero() && d.clock.Now().Sub(x.SelectedAt) >= nativeAdmissionStall {
 			p.Reason = "native_admission_stalled"
 		}
@@ -78,6 +105,14 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 			p.PrimaryJobID = b.JobID
 			if d.history[b.JobID].Job.ReconcileFailures >= Defaults(d.config).Limits.MaxAttempts {
 				p.Reason = "native_dependency_recovery_required"
+				break
+			}
+		}
+	}
+	if p.Current == nil && !d.held && d.catalogError == "" && p.Reason != "native_dependency_recovery_required" {
+		for _, b := range p.Blocked {
+			if strings.HasPrefix(b.Reason, "native_branch_refresh_") {
+				p.Reason, p.PrimaryJobID = b.Reason, b.JobID
 				break
 			}
 		}
@@ -135,7 +170,7 @@ func (m *MasterComms) pendingStall(now time.Time) (string, error) {
 func (m *MasterComms) engineeringHeartbeat(p NativeProgress) {
 	m.EngineeringState, m.EngineeringReason = "", p.heartbeatReason()
 	switch p.Reason {
-	case "native_recovery_required", "native_dependency_recovery_required", "native_catalog_unavailable", "native_admission_stalled", "native_turn_overdue":
+	case "native_recovery_required", "native_dependency_recovery_required", "native_catalog_unavailable", "native_admission_stalled", "native_turn_overdue", "native_branch_refresh_limit", "native_branch_refresh_no_progress":
 		m.EngineeringState = "recovering"
 	}
 }

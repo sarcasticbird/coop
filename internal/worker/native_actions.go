@@ -287,6 +287,16 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 					if pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 						return errors.New("native exact head or PR scope changed")
 					}
+					if in.Operation == "publish-pr" && nativeIsBranchRefresh(x.Job) {
+						base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")
+						current, err := reader.nativeBaseSHA(ctx, task.Task.Repo, task.Binding.BaseBranch)
+						if err != nil {
+							return err
+						}
+						if !ok || current != base {
+							return errors.New("native branch refresh base changed")
+						}
+					}
 				}
 			}
 		}
@@ -586,6 +596,15 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		headSHA := strings.TrimSpace(string(head))
 		if !qaHeadSHA.MatchString(headSHA) {
 			return empty, c.ErrInvalid
+		}
+		if nativeIsBranchRefresh(x.Job) {
+			base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")
+			if !ok || !qaHeadSHA.MatchString(base) || headSHA == x.Job.HeadSHA {
+				return empty, errors.New("branch refresh must checkpoint a new head containing the approved base")
+			}
+			if _, e = local.run(ctx, prepared.Checkout, "git", "merge-base", "--is-ancestor", base, headSHA); e != nil {
+				return empty, errors.New("branch refresh does not contain the approved base")
+			}
 		}
 		meta := NativePRMetadata{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), Artifact: in.Artifact}
 		if a.Revision.Proposal.QA.Required && meta.Artifact != nil && (meta.Artifact.HeadSHA != headSHA || !hexSHA.MatchString(meta.Artifact.SHA256)) {

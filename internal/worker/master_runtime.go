@@ -95,7 +95,7 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 					status.SubmissionState = p.SubmissionState
 					status.SessionID = p.SessionID
 				}
-				if p.Reason == "native_recovery_required" || p.Reason == "native_dependency_recovery_required" || p.Reason == "native_admission_stalled" || p.Reason == "native_turn_overdue" || p.Reason == "native_catalog_unavailable" {
+				if p.Reason == "native_recovery_required" || p.Reason == "native_dependency_recovery_required" || p.Reason == "native_admission_stalled" || p.Reason == "native_turn_overdue" || p.Reason == "native_catalog_unavailable" || p.Reason == "native_branch_refresh_limit" || p.Reason == "native_branch_refresh_no_progress" {
 					status.State = "blocked"
 				}
 				if m.Paused {
@@ -107,6 +107,11 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 			}
 			if err := writer.WriteStatus(status); result == nil {
 				result = err
+			}
+		}
+		if notifier, ok := r.Engineering.(interface{ TickBlockerNotices() error }); ok && !m.Paused {
+			if err := notifier.TickBlockerNotices(); err != nil {
+				slog.Warn("native blocker notification failed", "error", errorCategory(err))
 			}
 		}
 	}()

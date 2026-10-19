@@ -143,7 +143,7 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 	reader := NewGitHubClient(g.runner)
 	reader.config = cfg
 	parts := strings.Split(repo, "/")
-	query := `query WorkerNativePR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body createdAt lastEditedAt state merged headRefOid headRefName baseRefName updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`
+	query := `query WorkerNativePR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body createdAt lastEditedAt state merged headRefOid headRefName baseRefName baseRef{name target{oid}} updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`
 	data, err := reader.graphql(ctx, parts[0], query, map[string]any{"owner": parts[0], "repo": parts[1], "number": n})
 	if err != nil {
 		return PR{}, err
@@ -155,10 +155,14 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 	var item struct {
 		prBodyVersion
 		State, HeadRefName, MergeStateStatus string
-		Merged                               bool
-		UpdatedAt                            time.Time
-		Author                               graphActor
-		Commits                              struct {
+		BaseRef                              *struct {
+			Name   string
+			Target *struct{ OID string }
+		}
+		Merged    bool
+		UpdatedAt time.Time
+		Author    graphActor
+		Commits   struct {
 			Nodes []struct {
 				Commit struct{ StatusCheckRollup *struct{ State string } }
 			}
@@ -172,6 +176,11 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 		return PR{}, err
 	}
 	pr := PR{URL: ref, TaskURL: t.Task.URL, MasterGoal: &m.Goal, AssignmentSHA: m.AssignmentSHA, Author: item.Author.actor(), HeadSHA: item.HeadRefOid, Branch: item.HeadRefName, BaseBranch: item.BaseRefName, MergeState: item.MergeStateStatus, ChecksState: "unknown", Merged: item.Merged, Closed: item.State == "CLOSED" || item.Merged, Revision: item.UpdatedAt.Format(time.RFC3339Nano)}
+	// PR baseRefOid and REST base.sha can lag the live base branch. Missing
+	// refs remain readable so merged/deleted-base PRs can be reconciled.
+	if item.BaseRef != nil && item.BaseRef.Name == pr.BaseBranch && item.BaseRef.Target != nil && qaHeadSHA.MatchString(item.BaseRef.Target.OID) {
+		pr.BaseSHA = item.BaseRef.Target.OID
+	}
 	if len(item.Commits.Nodes) == 1 {
 		pr.ChecksState = "none"
 		if rollup := item.Commits.Nodes[0].Commit.StatusCheckRollup; rollup != nil {
@@ -216,6 +225,7 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 		} `json:"head"`
 		Base struct {
 			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
 			Repo struct {
 				FullName string `json:"full_name"`
 			} `json:"repo"`
@@ -224,5 +234,35 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 	if json.Unmarshal(raw, &fresh) != nil || fresh.URL != ref || fresh.Body != item.Body || fresh.User.ID != pr.Author.ID || fresh.Head.SHA != pr.HeadSHA || fresh.Base.Ref != pr.BaseBranch || fresh.Head.Repo.FullName != repo || fresh.Base.Repo.FullName != repo {
 		return PR{}, ghError("native_PR_changed_during_read")
 	}
+	if nativeNeedsBranchRefresh(pr) {
+		base, err := reader.nativeBaseSHA(ctx, repo, pr.BaseBranch)
+		if err != nil {
+			return PR{}, err
+		}
+		if base != pr.BaseSHA {
+			return PR{}, ghError("native_base_changed_during_read")
+		}
+	}
 	return pr, nil
+}
+
+func (g *GitHubClient) nativeBaseSHA(ctx context.Context, repo, branch string) (string, error) {
+	parts := strings.Split(repo, "/")
+	query := `query WorkerNativeBase($owner:String!,$repo:String!,$ref:String!){repository(owner:$owner,name:$repo){ref(qualifiedName:$ref){name target{oid}}}}`
+	data, err := g.graphql(ctx, parts[0], query, map[string]any{"owner": parts[0], "repo": parts[1], "ref": "refs/heads/" + branch})
+	if err != nil {
+		return "", err
+	}
+	raw, err := at(data, "repository", "ref")
+	if err != nil {
+		return "", err
+	}
+	ref, err := decode[struct {
+		Name   string
+		Target *struct{ OID string }
+	}](raw)
+	if err != nil || ref.Name != branch || ref.Target == nil || !qaHeadSHA.MatchString(ref.Target.OID) {
+		return "", ghError("unresolved_native_base")
+	}
+	return ref.Target.OID, nil
 }

@@ -89,6 +89,7 @@
     "peer_hop_limit": 2
   },
   "master": {
+    "blocker_recipient": "example-owner",
     "backend": "master",
     "client_config": "/var/lib/coop/worker/master-client.toml",
     "master_id": "example-master",

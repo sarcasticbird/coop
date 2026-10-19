@@ -138,6 +138,60 @@ func TestTeamContributorsCommitterIndependence(t *testing.T) {
 	}
 }
 
+func TestTeamContributorsResolveNullGraphQLCommitter(t *testing.T) {
+	for _, scenario := range []string{"independent", "peer", "wrong_sha", "missing_committer", "zero_id", "unknown_kind", "unknown_account", "wrong_account", "unresolved_coauthor"} {
+		t.Run(scenario, func(t *testing.T) {
+			f, task, peer := contributorEngineeringFixture(t)
+			head := f.version["headRefOid"].(string)
+			commit := f.pages["commits"][0]["nodes"].([]any)[0].(map[string]any)["commit"].(map[string]any)
+			commit["committer"] = map[string]any{"user": nil}
+			id := int64(98)
+			if scenario == "peer" {
+				id = peer.ID
+			}
+			actor := restActor{ID: id, Login: "native-committer", Kind: "User"}
+			if scenario == "peer" {
+				actor = restActor(peer)
+			}
+			f.accounts[id] = actor
+			rest := map[string]any{"sha": head, "committer": actor}
+			switch scenario {
+			case "wrong_sha":
+				rest["sha"] = "different-commit"
+			case "missing_committer":
+				rest["committer"] = nil
+			case "zero_id":
+				rest["committer"] = restActor{Login: "native-committer", Kind: "User"}
+			case "unknown_kind":
+				rest["committer"] = restActor{ID: id, Login: "native-committer", Kind: "Organization"}
+			case "unknown_account":
+				delete(f.accounts, id)
+			case "wrong_account":
+				f.accounts[id] = restActor{ID: id + 1, Login: "other", Kind: "User"}
+			case "unresolved_coauthor":
+				f.pages["commit-head"][0]["nodes"] = []any{map[string]any{"user": nil}}
+			}
+			f.restCommits = map[string]any{head: rest}
+			pr, err := f.client(t).readPR(t.Context(), f.version["url"].(string))
+			_, cleared := EngineeringReviewFor(f.c, task, pr)
+			if scenario == "independent" || scenario == "peer" {
+				if err != nil || !pr.ContributorsComplete || !pr.ReviewsComplete || cleared != (scenario == "independent") {
+					t.Fatalf("resolved committer lost or independence bypassed: cleared=%t pr=%+v err=%v", cleared, pr, err)
+				}
+				found := false
+				for _, a := range pr.Contributors {
+					found = found || a.ID == id && a.Kind == actor.Kind
+				}
+				if !found {
+					t.Fatal("REST committer omitted from contributors")
+				}
+			} else if err == nil || cleared || pr.ContributorsComplete || pr.ReviewsComplete {
+				t.Fatalf("unresolved contributor accepted: %+v %v", pr, err)
+			}
+		})
+	}
+}
+
 func TestTeamContributorsCompletePages(t *testing.T) {
 	f := newTeamReadFixture()
 	firstReview := f.pages["reviews"][0]["nodes"].([]any)[0]
