@@ -35,7 +35,10 @@ func lockMasterProducer(cfg Config) (func(), error) {
 	}
 	if e = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
 		_ = f.Close()
-		return nil, c.ErrConflict
+		if errors.Is(e, unix.EWOULDBLOCK) {
+			return nil, errors.Join(c.ErrConflict, errNativeProducerBusy)
+		}
+		return nil, e
 	}
 	return func() { _ = f.Close() }, nil
 }
@@ -88,6 +91,12 @@ func QueueMasterReply(cfg Config, deliveryID, body string) error {
 }
 func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 	release, e := lockMasterProducer(m.Config)
+	if errors.Is(e, errNativeProducerBusy) {
+		// A native continuation or action owns the producer. Leave the durable
+		// outbox for the next tick; this is not a transport outage and must not
+		// cancel the native operation that currently holds the shared lock.
+		return nil
+	}
 	if e != nil {
 		return e
 	}
