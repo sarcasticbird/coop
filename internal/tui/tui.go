@@ -87,16 +87,7 @@ type tickMsg time.Time
 
 // Run blocks until the user quits; the Result says whether to exec.
 func Run(rt runtime.Runtime) (Result, error) {
-	m := model{rt: rt, result: &Result{}}
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	out, err := p.Run()
-	if err != nil {
-		return Result{}, err
-	}
-	if fm, ok := out.(model); ok {
-		return *fm.result, nil
-	}
-	return Result{}, nil
+	return runFleet(rt)
 }
 
 func (m model) Init() tea.Cmd {
