@@ -5,6 +5,8 @@ updates arrive independently through `Inventory.Watch`; transport owns bounded
 concurrency and deadlines. The UI keeps the last successful snapshot and its age
 after host failures. An error never means an empty fleet. Failed-host snapshots
 remain visible but cannot dispatch actions.
+Host health and stale age wrap on their own lines, independently of clipped SSH
+references; retained failed-host target rows are also marked `[stale]`.
 
 `RunWithServices` accepts inventory, registry, action, and terminal dependencies.
 `Run(runtime.Runtime)` preserves the existing CLI entry point and local session

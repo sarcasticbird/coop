@@ -665,6 +665,7 @@ func (m fleetModel) content() ([]string, string, int) {
 			lines = append(lines, "HOST   CONFIGURED SSH REFERENCE")
 		}
 		var body []string
+		selectedHealth := ""
 		if len(m.hosts) == 0 {
 			body = append(body, "Loading host registry and local inventory...")
 		}
@@ -682,12 +683,21 @@ func (m fleetModel) content() ([]string, string, int) {
 			if h.loading {
 				state += "; refreshing"
 			}
+			if h.host == m.selected.Host {
+				selectedHealth = state
+			}
 			prefix := "  "
 			if m.workspace == 2 && h.host == m.server {
 				prefix = "> "
 				selectedLine = len(lines) + len(body)
 			}
-			body = append(body, prefix+h.host.Name+" ("+valueOr(h.host.Address, "this machine")+") ["+state+"]")
+			body = append(body, prefix+h.host.Name+" ("+valueOr(h.host.Address, "this machine")+")")
+			// Health must remain readable even when a long SSH reference is clipped.
+			health := "    [" + state + "]"
+			if m.width > 0 {
+				health = textansi.Wrap(health, m.width, "")
+			}
+			body = append(body, strings.Split(health, "\n")...)
 			if m.workspace != 0 {
 				continue
 			}
@@ -700,6 +710,9 @@ func (m fleetModel) content() ([]string, string, int) {
 					prefix = "> "
 					selectedLine = len(lines) + len(body)
 				}
+				if h.errorCode != "" {
+					prefix += "[stale] "
+				}
 				body = append(body, prefix+identity(e.Target)+"   "+e.State)
 			}
 		}
@@ -710,8 +723,15 @@ func (m fleetModel) content() ([]string, string, int) {
 			lines = append(lines, line)
 		}
 		if m.workspace == 0 {
-			if e, ok := m.entry(m.selected); ok && (m.detail || m.width >= 100) {
-				lines = append(lines, "", "Selected: "+identity(e.Target), "Name: "+e.Name, "Project: "+valueOr(e.Project, "-"))
+			for _, e := range m.rows() {
+				if e.Target == m.selected && (m.detail || m.width >= 100) {
+					health := "Host health: " + selectedHealth
+					if m.width > 0 {
+						health = textansi.Wrap(health, m.width, "")
+					}
+					lines = append(lines, "", "Selected: "+identity(e.Target), "Name: "+e.Name, "Project: "+valueOr(e.Project, "-"), health)
+					break
+				}
 			}
 		}
 	}

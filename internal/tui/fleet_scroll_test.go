@@ -37,17 +37,15 @@ func TestFleetEntrylessHostsRemainReachable(t *testing.T) {
 					}
 					for _, h := range m.hosts {
 						if strings.Contains(view, h.host.Name) {
-							seen[h.host.Name] = true
-							if h.host != hostrouter.Local {
+							if h.host == hostrouter.Local {
+								seen[h.host.Name] = true
+							} else {
 								marker := map[string]string{"disconnected": "unreachable", "loading": "loading", "empty": "ok; snapshot"}[state]
-								visibleStatus := false
-								for _, line := range strings.Split(view, "\n") {
-									if strings.Contains(line, h.host.Name) && strings.Contains(line, marker) {
-										visibleStatus = true
+								lines := strings.Split(view, "\n")
+								for i, line := range lines {
+									if strings.Contains(line, h.host.Name) && i+1 < len(lines) && strings.Contains(lines[i+1], marker) {
+										seen[h.host.Name] = true
 									}
-								}
-								if !visibleStatus {
-									t.Fatalf("host %s status was not visible: %s", h.host.Name, view)
 								}
 							}
 						}
