@@ -16,7 +16,12 @@ var newInventoryRouter = func() hostrouter.Router {
 }
 
 func installHostCommands(root *cobra.Command) {
-	root.PersistentFlags().String("host", "local", "select local or a registered server (inventory only for remote hosts)")
+	root.PersistentFlags().String("host", "local", "select local or a registered SSH server")
+	root.PersistentFlags().String("remote-directory", "", "absolute project directory on the selected remote server")
+	root.PersistentFlags().String("target-kind", "", "captured remote target kind: agent or interactive")
+	root.PersistentFlags().String("target-id", "", "captured remote target ID (requires --target-kind)")
+	root.PersistentFlags().Bool("tty", false, "allocate an interactive SSH terminal for a remote command")
+	root.AddCommand(&cobra.Command{Use: "host-exec ENVELOPE", Hidden: true, Args: cobra.ExactArgs(1), RunE: receiveHostInvocation})
 	server := &cobra.Command{Use: "server", Short: "Manage private named SSH server references"}
 	server.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := rejectInventorySelectors(cmd); err != nil {
@@ -72,30 +77,44 @@ func installHostCommands(root *cobra.Command) {
 	// never load a local project/profile or run an unsupported local command.
 	var wrap func(*cobra.Command)
 	wrap = func(c *cobra.Command) {
+		// Persistent pre-runs (notably MCP configuration loading) also belong to
+		// the selected host. Never inspect controller paths before dispatch.
+		if c.PersistentPreRunE != nil {
+			original := c.PersistentPreRunE
+			c.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+				if remoteSelected(cmd) {
+					return nil
+				}
+				return original(cmd, args)
+			}
+		}
 		if c.RunE != nil {
 			original := c.RunE
 			c.RunE = func(cmd *cobra.Command, args []string) error {
-				if !root.PersistentFlags().Changed("host") {
-					return original(cmd, args)
-				}
-				name, _ := cmd.Flags().GetString("host")
+				name, _ := root.PersistentFlags().GetString("host")
 				if name == "" {
 					return errors.New("--host requires local or a registered server name")
 				}
 				if name == "local" {
+					for _, flag := range []string{"remote-directory", "target-kind", "target-id", "tty"} {
+						if root.PersistentFlags().Changed(flag) {
+							return fmt.Errorf("--%s requires a remote --host", flag)
+						}
+					}
 					return original(cmd, args)
 				}
 				r, err := hostrouter.DefaultRegistry()
 				if err != nil {
 					return err
 				}
-				if _, err := r.Resolve(name); err != nil {
+				h, err := r.Resolve(name)
+				if err != nil {
 					return err
 				}
 				if cmd == inventory || (cmd.Parent() == root && cmd.Name() == "ls") {
 					return printInventory(cmd)
 				}
-				return errors.New("this command does not yet support remote --host; no local action was executed")
+				return routeHostCommand(cmd, args, h)
 			}
 		}
 		for _, child := range c.Commands() {

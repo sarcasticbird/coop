@@ -210,7 +210,7 @@ func TestServerAndInventoryRejectAgentAndCredentials(t *testing.T) {
 	}
 }
 
-func TestHostRemoteUnsupportedCommandsNeverFallBackToLocal(t *testing.T) {
+func TestHostRemoteUnavailableCommandsNeverFallBackToLocal(t *testing.T) {
 	r := serverTestRegistry(t)
 	forbidHostLocalDispatch(t)
 	if err := r.Change("add", "remote", "trusted-alias"); err != nil {
@@ -239,7 +239,7 @@ func TestHostRemoteUnsupportedCommandsNeverFallBackToLocal(t *testing.T) {
 		t.Run(strings.Join(command, "/"), func(t *testing.T) {
 			args := append([]string{"--host", "remote"}, command...)
 			out, err := runHostCLI(args...)
-			if err == nil || !strings.Contains(err.Error(), "does not yet support remote --host; no local action was executed") || out != "" {
+			if err == nil || out != "" {
 				t.Fatalf("remote dispatch: output=%q error=%v", out, err)
 			}
 		})
