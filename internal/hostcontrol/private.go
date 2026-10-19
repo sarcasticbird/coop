@@ -146,7 +146,13 @@ func UpdatePrivateFile(path string, max int64, update func([]byte) ([]byte, erro
 		return err
 	}
 	defer func() { _ = d.Close() }()
-	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path)+".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0600)
+	flags := unix.O_RDWR | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+	// Separate creation from opening an existing lock. Concurrent O_CREAT
+	// opens with O_NOFOLLOW can return ENOENT on macOS before locking begins.
+	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path)+".lock", flags|unix.O_CREAT|unix.O_EXCL, 0600)
+	if errors.Is(err, unix.EEXIST) {
+		fd, err = unix.Openat(int(d.Fd()), filepath.Base(path)+".lock", flags, 0)
+	}
 	if err != nil {
 		return err
 	}

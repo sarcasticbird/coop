@@ -86,6 +86,41 @@ func saveNativeFixtureConnection(t *testing.T, cfg Config) {
 		t.Fatal(err)
 	}
 }
+
+type budgetedNativeCatalog struct {
+	catalog   NativeCatalog
+	remaining int
+}
+
+func (g *budgetedNativeCatalog) NativeSnapshot(context.Context, Config, NativeMaster) (NativeCatalog, error) {
+	// A complete catalog can consume over half of the admission deadline.
+	// Model that budget without wall-clock sleeps or timing-sensitive tests.
+	if g.remaining == 0 {
+		return NativeCatalog{}, context.DeadlineExceeded
+	}
+	g.remaining--
+	return g.catalog, nil
+}
+
+func TestNativePreparedAdmissionFitsOneCatalogReadBudget(t *testing.T) {
+	cfg, m, g, code := dispatchFixture(t)
+	v := NativeCandidates(cfg, g.catalog, nil, time.Now())[0]
+	x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: v.Goal.Revision.Ref, Job: v.Job, Binding: &v.Task.Binding, Phase: "prepared"}
+	x.Job.Checkout = filepath.Join(cfg.WorkRoot, "saved-checkout")
+	x.Job.SessionID, x.Job.MessageID, x.Job.SubmissionState = "ses_saved", "msg_saved", "prepared"
+	d, err := NewNativeDispatcher(cfg, m, &budgetedNativeCatalog{catalog: g.catalog, remaining: 1}, code, &fakeCheckouts{}, RealClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.advance(t.Context(), &x); err != nil {
+		t.Fatal("prepared admission exhausted its catalog read budget", err)
+	}
+	saved, err := loadNativeExecution(cfg, x.Job.ID)
+	if err != nil || saved.Phase != "active" || saved.Job.SubmissionState != "accepted" || saved.Job.SessionID != "ses_saved" || saved.Job.MessageID != "msg_saved" || saved.Job.Checkout != filepath.Join(cfg.WorkRoot, "saved-checkout") {
+		t.Fatalf("saved admission = %+v, %v", saved, err)
+	}
+}
+
 func TestNativeDispatcherPersistsIntentAndNeverReplays(t *testing.T) {
 	cfg, m, g, code := dispatchFixture(t)
 	code.lost = true

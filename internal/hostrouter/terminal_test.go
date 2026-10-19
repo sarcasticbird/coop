@@ -136,11 +136,13 @@ func TestTerminalTTYRoundTripResizeAndExit(t *testing.T) {
 				t.Fatal("accepted empty size")
 			}
 			_, _ = io.WriteString(a, "exit\n")
+			// Darwin waits for pending PTY output to drain when closing the
+			// slave. Consume output concurrently with child exit, as the CLI does.
+			terminalLine(t, reader, "BYE")
 			if err := a.Wait(); err != nil {
 				t.Fatal(err)
 			}
-			// Wait must not close the master before buffered output is drained.
-			terminalLine(t, reader, "BYE")
+			// Wait must leave the master readable through EOF, not close it.
 			if _, err := reader.ReadByte(); err != io.EOF {
 				t.Fatalf("PTY EOF = %v", err)
 			}
@@ -165,6 +167,9 @@ func TestTerminalDetachCancelAndDisconnect(t *testing.T) {
 			terminalLine(t, bufio.NewReader(a), "READY")
 			if mode == "disconnect" {
 				_, _ = io.WriteString(a, "fail\n")
+				if _, err := io.Copy(io.Discard, a); err != nil {
+					t.Fatal(err)
+				}
 			} else {
 				readDone := make(chan struct{})
 				go func() { _, _ = a.Read(make([]byte, 1)); close(readDone) }()
