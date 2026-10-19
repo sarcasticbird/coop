@@ -28,5 +28,9 @@ func execute(cmd *cobra.Command) int {
 	if errors.As(err, &signalExit) {
 		return signalExit.ExitCode()
 	}
+	var remoteExit interface{ RemoteExitCode() int }
+	if errors.As(err, &remoteExit) {
+		return remoteExit.RemoteExitCode()
+	}
 	return 1
 }
