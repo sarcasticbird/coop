@@ -62,7 +62,36 @@ func DefaultRegistry() (Registry, error) {
 	if !filepath.IsAbs(root) {
 		return Registry{}, errors.New("server configuration root must be absolute")
 	}
-	return Registry{Path: filepath.Join(root, "coop", "servers", "registry.json")}, nil
+	dir, err := physicalConfigDirectory(filepath.Join(root, "coop"))
+	if err != nil {
+		return Registry{}, err
+	}
+	return Registry{Path: filepath.Join(dir, "servers", "registry.json")}, nil
+}
+
+// The user-selected configuration location may be managed by Stow. Resolve
+// that location once, including when some directories do not exist yet. The
+// private servers directory and its files retain their no-follow checks.
+func physicalConfigDirectory(dir string) (string, error) {
+	var missing []string
+	for {
+		_, err := os.Lstat(dir)
+		if err == nil {
+			resolved, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				return "", errors.New("cannot resolve Coop configuration directory")
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", errors.New("cannot inspect Coop configuration directory")
+		}
+		missing = append(missing, filepath.Base(dir))
+		dir = filepath.Dir(dir)
+	}
 }
 
 type registryFile struct {
