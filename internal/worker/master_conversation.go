@@ -24,13 +24,14 @@ type MasterTransport interface {
 	PublishReply(context.Context, c.PublishReply) (c.MessageReceipt, error)
 }
 type MasterComms struct {
-	Config                 Config
-	Client                 MasterTransport
-	Code                   OpenCode
-	Clock                  Clock
-	connection             masterConnectionState
-	lastHeartbeat          time.Time
-	Busy, Paused, Recovery bool
+	Config                              Config
+	Client                              MasterTransport
+	Code                                OpenCode
+	Clock                               Clock
+	connection                          masterConnectionState
+	lastHeartbeat                       time.Time
+	Busy, Paused, Recovery              bool
+	EngineeringState, EngineeringReason string
 }
 
 func NewMasterComms(cfg Config, client MasterTransport, code OpenCode, clock Clock) (*MasterComms, error) {
@@ -129,6 +130,17 @@ func (m *MasterComms) Tick(ctx context.Context) error {
 		state, reason := "idle", ""
 		if m.Busy {
 			state, reason = "busy", "active_native_work"
+		}
+		if m.EngineeringReason != "" {
+			reason = m.EngineeringReason
+		}
+		if m.EngineeringState != "" {
+			state = m.EngineeringState
+		}
+		if pending, e := m.pendingStall(m.Clock.Now()); e != nil {
+			return e
+		} else if pending != "" && m.EngineeringState == "" {
+			state, reason = "recovering", pending
 		}
 		if m.Paused {
 			state, reason = "paused", "local_pause"

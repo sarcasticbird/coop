@@ -14,7 +14,7 @@ func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 	if x.Phase != "blocked" {
 		return false, nil
 	}
-	if x.Reason != "native_completed_without_result" || x.Job.Phase != "completed" || x.Job.SubmissionState != "completed" || x.Job.TerminalAt.IsZero() || !validSession(x.Job.SessionID) || !validMessage(x.Job.MessageID) {
+	if (x.Reason != "native_completed_without_result" && x.Reason != "native_dependency_wait") || x.Job.Phase != "completed" || x.Job.SubmissionState != "completed" || x.Job.TerminalAt.IsZero() || !validSession(x.Job.SessionID) || !validMessage(x.Job.MessageID) {
 		return true, nil
 	}
 	release, err := lockNativeProducer(cfg)
@@ -50,11 +50,16 @@ func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 
 func (d *NativeDispatcher) updateRecoveryHold() error {
 	d.held = true // Classification errors must retain the recovery hold.
+	d.recoveryJob = ""
 	held := false
 	for _, x := range d.history {
 		blocked, err := nativeExecutionRecoveryHold(d.config, x)
 		if err != nil {
+			d.recoveryJob = x.Job.ID
 			return err
+		}
+		if blocked && d.recoveryJob == "" {
+			d.recoveryJob = x.Job.ID
 		}
 		held = held || blocked
 	}

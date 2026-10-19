@@ -83,6 +83,25 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 				state = "paused"
 			}
 			status := Status{Name: e.Config.Name, Enabled: true, Actor: e.Config.Self, State: state, WakeEnabled: true, Heartbeat: m.Clock.Now()}
+			if progress, ok := r.Engineering.(interface{ Progress() NativeProgress }); ok {
+				p := progress.Progress()
+				status.Native = &p
+				status.Current = p.Current
+				status.WaitReason = p.Reason
+				status.LastPoll = p.LastCatalogRead
+				status.NextRetry = p.NextCatalogRead
+				if p.Current != nil {
+					status.ActiveTask = p.Current.TaskURL
+					status.SubmissionState = p.SubmissionState
+					status.SessionID = p.SessionID
+				}
+				if p.Reason == "native_recovery_required" || p.Reason == "native_dependency_recovery_required" || p.Reason == "native_admission_stalled" || p.Reason == "native_turn_overdue" || p.Reason == "native_catalog_unavailable" {
+					status.State = "blocked"
+				}
+				if m.Paused {
+					status.State = "paused"
+				}
+			}
 			if result != nil {
 				status.LastError = errorCategory(result)
 			}
@@ -113,6 +132,9 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 		return errors.New("conflicting native work")
 	}
 	m.Busy = nativeActive || conversation != nil
+	if progress, ok := r.Engineering.(interface{ Progress() NativeProgress }); ok {
+		m.engineeringHeartbeat(progress.Progress())
+	}
 	// Receipts and outbox progress always precede GitHub-dependent work.
 	if err = m.Tick(ctx); err != nil {
 		if conversation != nil {

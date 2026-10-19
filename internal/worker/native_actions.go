@@ -37,6 +37,7 @@ type NativeActionResult struct {
 	Phase             string `json:"phase"`
 }
 type nativeActionRecord struct {
+	Wait                                                                                                       *NativeDependencyWait `json:"wait,omitempty"`
 	Version                                                                                                    int
 	JobID, RequestID, InputSHA, Operation, State, Step, PublishedHeadSHA, ProjectItemID, ExpectedAssignmentSHA string
 	Result                                                                                                     NativeActionResult
@@ -345,6 +346,9 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	}
 	if err = guard(); err != nil {
 		return empty, err
+	}
+	if in.Operation == "wait" {
+		return recordNativeWait(ctx, cfg, m, reader, x, in, record)
 	}
 	if os.IsNotExist(readErr) {
 		if in.Operation == "create-task" || in.Operation == "rebind-task" {

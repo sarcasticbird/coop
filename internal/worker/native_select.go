@@ -10,6 +10,9 @@ import (
 )
 
 type NativeExecution struct {
+	PendingContinuation    *Job `json:",omitempty"`
+	Wait                   *NativeDependencyWait
+	SelectedAt             time.Time
 	Version                int
 	MasterID, InstanceID   string
 	Generation             int64
