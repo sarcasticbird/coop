@@ -91,7 +91,10 @@ including on macOS, alongside existing Coop configuration).
 `servers` directory must belong to the effective user with no group/other
 permissions, normally mode 0700. The registry and its lock file must be regular,
 effective-user-owned files, normally mode 0600. Symlinks in any path component
-are refused; use physical absolute paths. Existing unsafe permissions are not
+of that private storage are refused. The user-selected configuration root and
+its `coop` directory may be symlinks, such as a Stow-managed dotfiles location;
+Coop resolves that location before opening the private `servers` directory.
+Existing unsafe permissions are not
 silently repaired. Writes use a descriptor-relative lock, private temporary
 file, atomic rename, and file/directory sync through the existing host-control
 private-file safeguards.

@@ -58,14 +58,14 @@ func (s SSH) AttachCommand(ctx context.Context, req ActionRequest, size Terminal
 	if err != nil {
 		return nil, errors.New("SSH terminal unavailable")
 	}
-	// PTY setup uses File.Fd, which switches the master to blocking mode.
-	// Restore polling so closing it interrupts blocked readers and writers.
-	if err := syscall.SetNonblock(int(master.Fd()), true); err != nil {
+	pollable, err := pollableTerminalFile(master)
+	if err != nil {
 		_ = master.Close()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return nil, errors.New("SSH terminal unavailable")
 	}
+	master = pollable
 	a := &sshTerminal{master: master, cmd: cmd, done: make(chan struct{})}
 	stop := context.AfterFunc(ctx, func() { _ = a.Close() })
 	go func() {
@@ -90,6 +90,26 @@ func (s SSH) AttachCommand(ctx context.Context, req ActionRequest, size Terminal
 		close(a.done)
 	}()
 	return a, nil
+}
+
+// Darwin's PTY starts as a blocking os.NewFile without a Go poll descriptor.
+// Changing its kernel flags alone leaves Read returning EAGAIN. Wrap a private
+// nonblocking duplicate so Go registers polling and Close interrupts pending IO.
+func pollableTerminalFile(master *os.File) (*os.File, error) {
+	fd, err := unix.FcntlInt(master.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err = unix.SetNonblock(fd, true); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
+	pollable := os.NewFile(uintptr(fd), master.Name())
+	if err = master.Close(); err != nil {
+		_ = pollable.Close()
+		return nil, err
+	}
+	return pollable, nil
 }
 
 type sshTerminal struct {

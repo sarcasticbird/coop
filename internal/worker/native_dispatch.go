@@ -609,16 +609,19 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 				return false, err
 			}
 		}
-		initial, err := d.freshCandidate(ctx, *x)
-		if err != nil {
-			return d.rejectUnsubmitted(x, err)
-		}
-		if prompt, e := nativePrompt(d.config, *x, initial); errors.Is(e, c.ErrSize) {
-			return d.rejectPromptSize(x, len(prompt))
-		} else if e != nil {
-			return false, e
-		}
 		if x.Phase == "selected" {
+			// Preparation can mutate the checkout. Revalidate before it, then
+			// again before submission below. An already-prepared retry only
+			// needs that final read, preserving its bounded admission budget.
+			initial, err := d.freshCandidate(ctx, *x)
+			if err != nil {
+				return d.rejectUnsubmitted(x, err)
+			}
+			if prompt, e := nativePrompt(d.config, *x, initial); errors.Is(e, c.ErrSize) {
+				return d.rejectPromptSize(x, len(prompt))
+			} else if e != nil {
+				return false, e
+			}
 			health, err := d.code.Health(ctx)
 			if err != nil {
 				return false, err
