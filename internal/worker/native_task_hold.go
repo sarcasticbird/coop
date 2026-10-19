@@ -9,7 +9,7 @@ import (
 )
 
 // A verified terminal turn without its expected result holds that task, not
-// unrelated work. Any incomplete producer journal still requires recovery.
+// unrelated work. A retained acknowledged action can recover automatically.
 func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 	if x.Phase != "blocked" {
 		return false, nil
@@ -42,7 +42,8 @@ func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 			return true, c.ErrConflict
 		}
 		if record.JobID == x.Job.ID && record.State != "completed" {
-			return true, nil
+			automatic, err := nativeAutomaticRecovery(cfg, x)
+			return !automatic, err
 		}
 	}
 	return false, nil

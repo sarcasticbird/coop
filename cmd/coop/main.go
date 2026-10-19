@@ -131,10 +131,11 @@ func root() *cobra.Command {
 lightweight Linux VM (Apple container). The project is mounted at its
 identical host path, agent configs are seeded in declaratively, and local project
 settings can add tools through .coop.toml or an optional project flox environment.`,
-		Args:          cobra.ArbitraryArgs,
-		Version:       resolvedVersion(),
-		SilenceErrors: true,
-		SilenceUsage:  true,
+		Args:             cobra.ArbitraryArgs,
+		Version:          resolvedVersion(),
+		SilenceErrors:    true,
+		SilenceUsage:     true,
+		TraverseChildren: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// note: flag parsing stops at the first positional (see
 			// SetInterspersed below) so agent flags forward verbatim:

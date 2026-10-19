@@ -103,6 +103,9 @@ func TestCommitReviewReplyProducerFence(t *testing.T) {
 	if e = m.Advance(ctx, turn); e != nil {
 		t.Fatal(e)
 	}
+	if e = QueueMasterReply(cfg, turn.Delivery.ID, "queued answer"); e != nil {
+		t.Fatal(e)
+	}
 	dir := filepath.Join(masterDir(cfg), "actions")
 	if e = ensurePrivateDir(dir, true); e != nil {
 		t.Fatal(e)
@@ -118,8 +121,22 @@ func TestCommitReviewReplyProducerFence(t *testing.T) {
 	if e = QueueMasterReply(cfg, turn.Delivery.ID, "answer"); e == nil {
 		t.Fatal("reply escaped recovery producer fence")
 	}
-	if e = m.FlushOutbox(ctx); e == nil {
-		t.Fatal("receipt publication escaped recovery producer fence")
+	if e = m.FlushOutbox(ctx); e != nil {
+		t.Fatal("busy producer should defer publication", e)
+	}
+	page, e := s.Messages(ctx, o, th.ID, 0)
+	if e != nil || len(page.Messages) != 1 {
+		t.Fatal("receipt publication escaped recovery producer fence", e)
+	}
+	if e = unix.Flock(int(lock.Fd()), unix.LOCK_UN); e != nil {
+		t.Fatal(e)
+	}
+	if e = m.FlushOutbox(ctx); e != nil {
+		t.Fatal("deferred reply did not recover", e)
+	}
+	page, e = s.Messages(ctx, o, th.ID, 0)
+	if e != nil || len(page.Messages) != 2 {
+		t.Fatal("deferred reply was lost", e)
 	}
 }
 func TestCommitReviewRenewedApprovalPlansAgain(t *testing.T) {

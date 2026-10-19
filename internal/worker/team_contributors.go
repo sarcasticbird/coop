@@ -154,7 +154,28 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 			return ghError("invalid_team_commit")
 		}
 		seenCommits[c.Commit.OID] = true
-		if c.Commit.Committer == nil || c.Commit.Committer.User == nil || c.Commit.Committer.User.ID <= 0 {
+		if c.Commit.Committer == nil {
+			return ghError("unresolved_team_contributors")
+		}
+		committer := c.Commit.Committer.User
+		if committer == nil {
+			// GitHub-generated merges can have a null GitActor.user while
+			// REST resolves the committer. Use the exact immutable commit,
+			// never its name/email, then resolve its database ID below.
+			body, _, err := g.api(ctx, parts[0], "GET", "repos/"+repo+"/commits/"+c.Commit.OID, nil)
+			if err != nil {
+				return err
+			}
+			account, err := decode[struct {
+				SHA       string
+				Committer *restActor
+			}](body)
+			if err != nil || account.SHA != c.Commit.OID || account.Committer == nil || !knownTeamActor(account.Committer.actor()) {
+				return ghError("unresolved_team_contributors")
+			}
+			committer = &graphActor{ID: account.Committer.ID}
+		}
+		if committer.ID <= 0 {
 			return ghError("unresolved_team_contributors")
 		}
 		// Commit.authors includes the primary author and GitHub-resolved
@@ -168,7 +189,7 @@ func (g *GitHubClient) readTeamEvidence(ctx context.Context, repo string, number
 			return ghError("unresolved_team_contributors")
 		}
 		seenAuthors := map[int64]bool{}
-		identities := []int64{c.Commit.Committer.User.ID}
+		identities := []int64{committer.ID}
 		for _, raw := range authors {
 			a, err := decode[struct{ User *graphActor }](raw)
 			if err != nil || a.User == nil || a.User.ID <= 0 || seenAuthors[a.User.ID] {

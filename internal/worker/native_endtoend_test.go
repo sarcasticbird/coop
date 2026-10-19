@@ -20,9 +20,16 @@ type nativeDeliveryTransport struct {
 	taskBody, taskTitle, metadata, prBody, branch, head, localHead string
 	reviews                                                        []map[string]any
 	closed, merged                                                 bool
+	autoCloseIssue                                                 bool
+	projectReadLag                                                 int
 	projectAdded, projectReady                                     bool
 	writes                                                         []string
 	checks                                                         string
+	baseSHA, restBaseSHA, mergeState                               string
+	rejectAncestor                                                 bool
+	snapshotBaseSHA, baseReadSHA                                   string
+	advanceBaseAfterAncestry                                       bool
+	checksAfterCheckout                                            string
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -46,6 +53,19 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 	case "rev-parse":
 		out = s.head
 	case "status", "switch", "clone", "fetch", "reset":
+		if argv[1] == "status" && s.checksAfterCheckout != "" {
+			s.checks = s.checksAfterCheckout
+		}
+	case "merge-base":
+		if len(argv) != 5 || argv[2] != "--is-ancestor" || argv[3] != s.baseSHA || argv[4] != s.localHead {
+			s.t.Fatalf("wrong branch ancestry check: %v", argv)
+		}
+		if s.rejectAncestor {
+			return CommandResult{ExitCode: 1}, nil
+		}
+		if s.advanceBaseAfterAncestry {
+			s.baseSHA = strings.Repeat("e", 40)
+		}
 	case "push":
 		s.writes = append(s.writes, "push")
 	default:
@@ -56,6 +76,9 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 	}
 	if argv[1] == "push" && s.localHead != "" {
 		s.head = s.localHead
+		if s.mergeState == "BEHIND" {
+			s.mergeState = "CLEAN"
+		}
 	}
 	return CommandResult{Stdout: []byte(out)}, nil
 }
@@ -79,6 +102,16 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		}
 		var data any
 		pr := map[string]any{"url": prURL, "body": s.prBody, "createdAt": created, "headRefOid": s.head, "headRefName": s.branch, "baseRefName": "main", "updatedAt": created, "mergeStateStatus": "CLEAN", "state": "OPEN", "merged": s.merged, "author": actor(12, "implementer[bot]"), "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}
+		pr["baseRefOid"] = s.baseSHA
+		if s.snapshotBaseSHA != "" {
+			pr["baseRefOid"] = s.snapshotBaseSHA
+		}
+		if s.baseSHA != "" {
+			pr["baseRef"] = map[string]any{"name": "main", "target": map[string]any{"oid": s.baseSHA}}
+		}
+		if s.mergeState != "" {
+			pr["mergeStateStatus"] = s.mergeState
+		}
 		if s.merged {
 			pr["state"] = "MERGED"
 		}
@@ -86,6 +119,12 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			pr["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": s.checks}}}}}
 		}
 		switch {
+		case strings.Contains(req.Query, "WorkerNativeBase"):
+			sha := s.baseSHA
+			if s.baseReadSHA != "" {
+				sha = s.baseReadSHA
+			}
+			data = map[string]any{"repository": map[string]any{"ref": map[string]any{"name": "main", "target": map[string]any{"oid": sha}}}}
 		case strings.Contains(req.Query, "WorkerNativeProjectAdd"):
 			s.projectAdded = true
 			data = map[string]any{"addProjectV2ItemById": map[string]any{"item": map[string]any{"id": "item"}}}
@@ -104,6 +143,10 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			status := "Todo"
 			if s.projectReady {
 				status = "Ready"
+			}
+			if s.projectReadLag > 0 && s.projectReady {
+				status = "Todo"
+				s.projectReadLag--
 			}
 			data = map[string]any{"node": map[string]any{"fieldValues": page([]any{map[string]any{"name": status, "field": map[string]any{"id": "status", "name": "Status"}}}, 1)}}
 		case strings.Contains(req.Query, "WorkerProject"):
@@ -185,6 +228,9 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 	}
 	if endpoint == "repos/code/repo/pulls/1/merge" && method == "PUT" {
 		s.merged = true
+		if s.autoCloseIssue {
+			s.closed = true
+		}
 		return jsonResponse(map[string]any{"merged": true}), nil
 	}
 	if endpoint == "repos/code/repo/pulls/1" {
@@ -193,7 +239,11 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			_ = json.Unmarshal(body, &req)
 			s.prBody = req.Body
 		}
-		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": s.head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "repo": map[string]any{"full_name": "code/repo"}}}), nil
+		baseSHA := s.baseSHA
+		if s.restBaseSHA != "" {
+			baseSHA = s.restBaseSHA
+		}
+		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": s.head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
 	}
 	if endpoint == "user/12" {
 		return jsonResponse(map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}), nil
@@ -354,6 +404,49 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	transport.localHead = ""
 	finish(fix)
+	// A base update is ordinary author work even without a review request.
+	// Publication must prove it actually includes the pinned base commit.
+	transport.baseSHA, transport.mergeState = strings.Repeat("d", 40), "BEHIND"
+	refresh := stage(1, "author", "fix")
+	refreshAction := NativeAction{Operation: "publish-pr", RequestID: "refresh-pr", Title: "Updated implementation", Body: "Merge approved base without rewriting history"}
+	writesBeforeRefresh := len(transport.writes)
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("unchanged branch was published as a successful refresh", err)
+	}
+	transport.localHead, transport.rejectAncestor = strings.Repeat("c", 40), true
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("refresh without the approved base was published", err)
+	}
+	transport.rejectAncestor = false
+	transport.advanceBaseAfterAncestry = true
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil || len(transport.writes) != writesBeforeRefresh {
+		t.Fatal("changed base after ancestry check still allowed publication", err)
+	}
+	transport.advanceBaseAfterAncestry, transport.baseSHA = false, strings.Repeat("d", 40)
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err != nil {
+		t.Fatal("branch refresh publication", err)
+	}
+	transport.localHead = ""
+	finish(refresh)
+	// Failed CI directly hands the exact current head back to its author.
+	transport.checks = "FAILURE"
+	checksFix := stage(1, "author", "fix")
+	checksAction := NativeAction{Operation: "publish-pr", RequestID: "checks-pr", Title: "Repair failed checks", Body: "Fix the exact-head lint failures"}
+	writesBeforeChecks := len(transport.writes)
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err == nil || len(transport.writes) != writesBeforeChecks {
+		t.Fatal("unchanged failed head was published as a successful CI repair", err)
+	}
+	transport.localHead = strings.Repeat("f", 40)
+	transport.checksAfterCheckout = "SUCCESS"
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err == nil || len(transport.writes) != writesBeforeChecks {
+		t.Fatal("CI recovered after eligibility read but an obsolete repair still pushed", err)
+	}
+	transport.checksAfterCheckout, transport.checks = "", "FAILURE"
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err != nil {
+		t.Fatal("checks repair publication", err)
+	}
+	transport.localHead, transport.checks = "", ""
+	finish(checksFix)
 	peer = stage(0, "peer", "review")
 	if _, err := RunNativeAction(ctx, cfg, m, g, peer.Job.ID, NativeAction{Operation: "review", RequestID: "peer-review", Verdict: "approved", Body: "Reviewed the exact head."}); err != nil {
 		t.Fatal(err)
@@ -377,6 +470,75 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		}
 	}
 	delivery := stage(1, "author", "deliver")
+	transport.autoCloseIssue = true
+	// Reproduce a pre-effect helper failure followed by a terminal model turn.
+	action := NativeAction{Operation: "deliver", RequestID: "delivery"}
+	rawAction, err := json.Marshal(action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := nativeActionRecord{Version: 3, JobID: delivery.Job.ID, RequestID: action.RequestID, InputSHA: BodyHash(string(rawAction)), Operation: action.Operation, State: "prepared"}
+	if err = saveNativeAction(cfg, record); err != nil {
+		t.Fatal(err)
+	}
+	models[delivery.Job.ID].running = false
+	delivery.Phase, delivery.Reason = "blocked", "native_completed_without_result"
+	delivery.Job.Phase, delivery.Job.SubmissionState = "completed", "completed"
+	delivery.Job.TerminalAt = time.Now().UTC()
+	if err = saveNativeExecution(cfg, delivery); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, action); err == nil {
+		t.Fatal("normal action bypassed terminal recovery hold")
+	}
+
+	if err = RetainNativeAction(cfg, delivery.Job.ID, action); err != nil {
+		t.Fatal(err)
+	}
+	autoWait, err := NewNativeDispatcher(cfg, m, g, models[delivery.Job.ID], NewCheckouts(cfg, transport), RealClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitClock := &fakeClock{now: time.Now().UTC()}
+	autoWait.clock = waitClock
+	autoWait.nextRefresh = waitClock.Now().Add(24 * time.Hour)
+	transport.checks = "PENDING"
+	for range 4 {
+		if _, err = autoWait.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = consumeNativeStep(t, autoWait); err == nil {
+			t.Fatal("pending CI did not park delivery")
+		}
+		saved, e := loadNativeExecution(cfg, delivery.Job.ID)
+		if e != nil || saved.Job.ReconcileError != "native_prerequisite_wait" || autoWait.RecoveryBlocked() || transport.merged {
+			t.Fatal("routine CI wait became an operator hold", saved.Job.ReconcileError, e)
+		}
+		waitClock.now = waitClock.now.Add(16 * time.Minute)
+	}
+	transport.checks = "FAILURE"
+	if _, err = autoWait.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = consumeNativeStep(t, autoWait); err != nil {
+		t.Fatal(err)
+	}
+	retired, e := loadNativeExecution(cfg, delivery.Job.ID)
+	if e != nil || retired.Phase != "cancelled" || autoWait.RecoveryBlocked() || transport.merged {
+		t.Fatal("failed CI kept unstarted delivery reservation", e)
+	}
+	autoWait.catalog, err = g.NativeSnapshot(ctx, cfg, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixCandidates, err := autoWait.candidates(autoWait.catalog)
+	if err != nil || len(fixCandidates) != 1 || !nativeIsChecksRepair(fixCandidates[0].Job) {
+		t.Fatal("delivery reservation blocked CI repair", err)
+	}
+	transport.checks = ""
+	if err = saveNativeExecution(cfg, delivery); err != nil {
+		t.Fatal(err)
+	}
 	for _, failure := range []string{"peer", "checks", "qa"} {
 		fired := false
 		m.onMessage = func() {
@@ -393,16 +555,24 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 				transport.reviews[2]["state"] = "DISMISSED"
 			}
 		}
-		if _, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err == nil || transport.merged {
+		if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil || transport.merged {
 			t.Fatalf("stale %s passed final merge effect gate", failure)
+		}
+		saved, loadErr := loadNativeExecution(cfg, delivery.Job.ID)
+		if loadErr != nil || saved.Phase != "blocked" || models[delivery.Job.ID].calls != 1 {
+			t.Fatal("refused recovery changed original run", loadErr)
 		}
 		m.onMessage = nil
 		transport.checks = ""
 		transport.reviews[1]["state"] = "APPROVED"
 		transport.reviews[2]["state"] = "APPROVED"
 	}
-	if _, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err != nil {
+	if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err != nil {
 		t.Fatal(err)
+	}
+	savedDelivery, err := loadNativeExecution(cfg, delivery.Job.ID)
+	if err != nil || savedDelivery.Phase != "completed" || savedDelivery.Reason != "" || savedDelivery.Job.SessionID != delivery.Job.SessionID || savedDelivery.Job.MessageID != delivery.Job.MessageID || models[delivery.Job.ID].calls != 1 {
+		t.Fatal("recovery lost terminal native identity or replayed model", err)
 	}
 	checkpoint, err := readPrivate(nativeActionPath(cfg, delivery.Job.ID, "delivery"), 256<<10)
 	if err != nil {
@@ -412,15 +582,72 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	if json.Unmarshal(checkpoint, &known) != nil {
 		t.Fatal("journal unreadable")
 	}
+	// A known merge may have succeeded before final local receipt publication.
+	known.State, known.Step, known.Result = "prepared", "merge", NativeActionResult{}
+	if err = saveNativeAction(cfg, known); err != nil {
+		t.Fatal(err)
+	}
+	if err = saveNativeExecution(cfg, delivery); err != nil {
+		t.Fatal(err)
+	}
+	knownWrites := len(transport.writes)
+	for _, unavailable := range []string{"task-open", "head-changed"} {
+		if unavailable == "task-open" {
+			transport.closed = false
+		} else {
+			transport.head = BodyHash("different recovery PR head")[:40]
+		}
+		if _, e := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); e == nil || len(transport.writes) != knownWrites {
+			t.Fatal("unconfirmed completion changed remote state", unavailable, e)
+		}
+		transport.closed, transport.head = true, delivery.Job.HeadSHA
+	}
+	if result, e := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); e != nil || result.Phase != "completed" || len(transport.writes) != knownWrites {
+		t.Fatal("known merged/closed delivery was not confirmed read-only", e)
+	}
+
+	// The permanent worker confirms the same acknowledged merge without
+	// replaying it or sending another model prompt.
+	if err = saveNativeAction(cfg, known); err != nil {
+		t.Fatal(err)
+	}
+	if err = saveNativeExecution(cfg, delivery); err != nil {
+		t.Fatal(err)
+	}
+	automatic, err := NewNativeDispatcher(cfg, m, g, models[delivery.Job.ID], NewCheckouts(cfg, transport), RealClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	automatic.nextRefresh = time.Now().Add(time.Hour)
+	for range 2 {
+		if _, err = automatic.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = consumeNativeStep(t, automatic); err != nil {
+			t.Fatal(err)
+		}
+	}
+	automaticResult, err := loadNativeExecution(cfg, delivery.Job.ID)
+	if err != nil || automaticResult.Phase != "completed" || len(transport.writes) != knownWrites || models[delivery.Job.ID].calls != 1 {
+		t.Fatal("automatic delivery confirmation replayed effects/model", err)
+	}
+	known.Step = "task-completed"
 	known.State = "prepared"
 	known.Result.Phase = ""
 	if err = saveNativeAction(cfg, known); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash before the helper's final receipt and terminal checkpoint.
+	interrupted := delivery
+	interrupted.Phase, interrupted.Reason = "active", ""
+	if err = saveNativeExecution(cfg, interrupted); err != nil {
 		t.Fatal(err)
 	}
 	writesBefore := len(transport.writes)
 	if result, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err != nil || result.Phase != "completed" || len(transport.writes) != writesBefore {
 		t.Fatal("known task completion was not reconciled without writes", err)
 	}
+	delivery = interrupted
 	finish(delivery)
 	if !transport.merged || !transport.closed || len(m.links) != 3 || len(m.reports) != 1 {
 		t.Fatalf("delivery incomplete: merged=%v completed=%v links=%d reports=%d", transport.merged, transport.closed, len(m.links), len(m.reports))

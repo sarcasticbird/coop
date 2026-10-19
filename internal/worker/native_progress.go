@@ -31,11 +31,39 @@ type NativeProgress struct {
 // retries an action or mistakes a quiet running turn for a stalled admission.
 func (d *NativeDispatcher) Progress() NativeProgress {
 	p := NativeProgress{LastCatalogRead: d.catalog.ReadAt, NextCatalogRead: d.nextRefresh}
+	// Candidate construction is local and uses the same authority/ownership
+	// checks as admission. Ignore history here so spent attempts stay visible.
+	for _, v := range NativeCandidates(d.config, d.catalog, nil, d.clock.Now()) {
+		if !nativeIsBranchRefresh(v.Job) && !nativeIsChecksRepair(v.Job) {
+			continue
+		}
+		reserved := false
+		for _, x := range d.history {
+			if x.Phase == "blocked" && BindingKey(d.config, x.Job) == BindingKey(d.config, v.Job) {
+				reserved = true
+				break
+			}
+		}
+		if reserved {
+			continue
+		}
+		prefix := "native_branch_refresh_"
+		if nativeIsChecksRepair(v.Job) {
+			prefix = "native_checks_repair_"
+		}
+		reason := prefix + "required"
+		if nativeFixCycles(v.Job.TaskURL, d.history) >= Defaults(d.config).Limits.MaxReviewCycles {
+			reason = prefix + "limit"
+		} else if x, ok := d.history[v.Job.ID]; ok && (x.Phase == "completed" || x.Phase == "cancelled") {
+			reason = prefix + "no_progress"
+		}
+		p.Blocked = append(p.Blocked, NativeBlocker{JobID: v.Job.ID, Task: v.Job.TaskURL, Reason: reason})
+	}
 	for _, x := range d.history {
 		if x.Phase != "blocked" {
 			continue
 		}
-		b := NativeBlocker{JobID: x.Job.ID, Task: x.Job.TaskURL, Reason: x.Reason}
+		b := NativeBlocker{JobID: x.Job.ID, Task: x.Job.TaskURL, Reason: nativeRecoveryBlocker(d.config, x)}
 		if x.Wait != nil {
 			for _, dep := range x.Wait.Dependencies {
 				if len(b.Dependencies) < 3 {
@@ -55,6 +83,12 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 			p.Current.Role = x.Job.Master.Role
 		}
 		p.SelectedAt, p.Deadline = x.SelectedAt, x.Job.Deadline
+		if nativeIsBranchRefresh(x.Job) {
+			p.Reason = "native_branch_refresh"
+		}
+		if nativeIsChecksRepair(x.Job) {
+			p.Reason = "native_checks_repair"
+		}
 		if (x.Phase == "selected" || x.Phase == "prepared") && !x.SelectedAt.IsZero() && d.clock.Now().Sub(x.SelectedAt) >= nativeAdmissionStall {
 			p.Reason = "native_admission_stalled"
 		}
@@ -71,13 +105,21 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.Reason = "native_task_wait"
 		p.PrimaryJobID = p.Blocked[0].JobID
 		for _, b := range p.Blocked {
-			if b.Reason != "native_dependency_wait" {
+			if b.Reason != "native_dependency_wait" && b.Reason != "native_dependency_retry" && b.Reason != "native_dependency_recovery_required" {
 				continue
 			}
-			p.Reason = "native_dependency_wait"
-			p.PrimaryJobID = b.JobID
-			if d.history[b.JobID].Job.ReconcileFailures >= Defaults(d.config).Limits.MaxAttempts {
-				p.Reason = "native_dependency_recovery_required"
+			if p.Reason != "native_dependency_retry" || b.Reason == "native_dependency_recovery_required" {
+				p.Reason, p.PrimaryJobID = b.Reason, b.JobID
+			}
+			if b.Reason == "native_dependency_recovery_required" {
+				break
+			}
+		}
+	}
+	if p.Current == nil && !d.held && d.catalogError == "" && p.Reason != "native_dependency_recovery_required" {
+		for _, b := range p.Blocked {
+			if strings.HasPrefix(b.Reason, "native_branch_refresh_") || strings.HasPrefix(b.Reason, "native_checks_repair_") {
+				p.Reason, p.PrimaryJobID = b.Reason, b.JobID
 				break
 			}
 		}
@@ -135,7 +177,7 @@ func (m *MasterComms) pendingStall(now time.Time) (string, error) {
 func (m *MasterComms) engineeringHeartbeat(p NativeProgress) {
 	m.EngineeringState, m.EngineeringReason = "", p.heartbeatReason()
 	switch p.Reason {
-	case "native_recovery_required", "native_dependency_recovery_required", "native_catalog_unavailable", "native_admission_stalled", "native_turn_overdue":
+	case "native_recovery_required", "native_dependency_recovery_required", "native_catalog_unavailable", "native_admission_stalled", "native_turn_overdue", "native_branch_refresh_limit", "native_branch_refresh_no_progress", "native_checks_repair_limit", "native_checks_repair_no_progress":
 		m.EngineeringState = "recovering"
 	}
 }

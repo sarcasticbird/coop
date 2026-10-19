@@ -1,11 +1,93 @@
 package worker
 
 import (
+	"context"
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"strings"
 	"testing"
 	"time"
 )
+
+type dependencyReadFailure struct {
+	*fakeOpenCode
+}
+
+func (c *dependencyReadFailure) Observe(context.Context, Job) (Turn, error) {
+	return Turn{}, &OpenCodeError{Category: "transport_failed"}
+}
+
+func TestNativeDependencyTransportRecoverySurvivesRetryBudget(t *testing.T) {
+	for _, category := range []string{"transport_failed", "continuation_ownership_unknown"} {
+		t.Run(category, func(t *testing.T) {
+			cfg, m, g, code, clock, x := dependencyWaitFixture(t)
+			wait, err := prepareNativeWait(t.Context(), cfg, m, g, x, NativeAction{DependsOn: []string{g.catalog.Tasks[1].Task.URL}, Body: "backend"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			x.Wait, x.Phase, x.Reason = wait, "blocked", "native_dependency_wait"
+			x.Job.Phase, x.Job.SubmissionState, x.Job.TerminalAt = "completed", "completed", clock.Now()
+			x.Job.ReconcileFailures = Defaults(cfg).Limits.MaxAttempts
+			x.Job.ReconcileError = category
+			x.Job.NextAttemptAt = clock.Now().Add(time.Minute)
+			g.catalog.Tasks[1].Task.Completed = true
+			if err = saveNativeExecution(cfg, x); err != nil {
+				t.Fatal(err)
+			}
+			d, err := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.catalog, d.nextRefresh = g.catalog, clock.Now().Add(time.Hour)
+			if len(d.dependencyWaits()) != 0 {
+				t.Fatal("recovery ignored durable cooldown")
+			}
+			clock.now = clock.now.Add(2 * time.Minute)
+			if category != "transport_failed" {
+				if len(d.dependencyWaits()) != 0 {
+					t.Fatal("ownership uncertainty was retried automatically")
+				}
+				return
+			}
+			if len(d.dependencyWaits()) != 1 {
+				t.Fatal("recovered transport left the saved task permanently excluded")
+			}
+			if _, err = d.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = consumeNativeStep(t, d); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := loadNativeExecution(cfg, x.Job.ID)
+			if err != nil || saved.Phase != "selected" || len(saved.Turns) != 1 || saved.Job.SessionID != x.Job.SessionID || saved.Job.Checkout != x.Job.Checkout || code.calls != 1 {
+				t.Fatal("recovery replayed or lost the original work", saved.Phase, err)
+			}
+		})
+	}
+}
+
+func TestNativeDependencyTransportBackoffIsBoundedWithoutModelReplay(t *testing.T) {
+	cfg, m, g, code, clock, x := dependencyWaitFixture(t)
+	x.Phase, x.Reason = "blocked", "native_dependency_wait"
+	d, err := NewNativeDispatcher(cfg, m, g, &dependencyReadFailure{code}, &fakeCheckouts{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := time.Duration(0)
+	for attempt := 1; attempt <= 9; attempt++ {
+		if _, err := d.advance(t.Context(), &x); errorCategory(err) != "transport_failed" {
+			t.Fatal("expected failed read revalidation", err)
+		}
+		delay := x.Job.NextAttemptAt.Sub(clock.Now())
+		if delay > 15*time.Minute || delay < last || attempt == 2 && delay <= last {
+			t.Fatal("transport retries lack capped exponential backoff", delay, last)
+		}
+		last = delay
+		clock.now = x.Job.NextAttemptAt
+	}
+	if code.calls != 1 || code.aborts != 0 || len(x.Turns) != 0 {
+		t.Fatal("read recovery replayed model work")
+	}
+}
 
 func dependencyWaitFixture(t *testing.T) (Config, *dispatchMaster, *dispatchCatalog, *fakeOpenCode, *fakeClock, NativeExecution) {
 	t.Helper()

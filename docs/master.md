@@ -169,12 +169,36 @@ uncertain mutations or exhausted continuations keep the job held for inspection.
 
 A turn that ended without its expected artifact holds only its task when its
 terminal checkpoint is verified and all its producer journals are complete.
-Other reviews and conversations can proceed. Incomplete writes and uncertain
+Other reviews and conversations can proceed. Retained acknowledged actions
+recover automatically as described below. Unrecoverable writes and uncertain
 execution still hold the worker. With the worker stopped, an operator can use
 `coop-worker native resolve --action continue --config CONFIG --job JOB
 --session SESSION --message MESSAGE` to continue the exact saved task after its
 dependency is available. This rechecks authority and session ownership, retains
 the old turn and enforces the continuation limit; it does not submit a prompt.
+
+A delivery turn can end after a read failure with its original journal still
+`prepared` and its step empty. With the worker stopped, use the explicit command:
+
+```sh
+coop-worker native recover-delivery --config CONFIG --job JOB \
+  --session SESSION --message MESSAGE --input ORIGINAL_ACTION_JSON
+```
+
+This requires the exact saved terminal turn and original input/request ID, an
+unstarted delivery journal or an acknowledged merge checkpoint, and no active
+engineering or conversation slot. It
+holds both worker and producer locks and invokes the normal delivery helper,
+including fresh placement, approval, assignment, head, CI, review and QA checks.
+It creates no model turn. Successful recovery checkpoints completion; a refused
+or failed retry retains the blocked execution and actual journal progress.
+An acknowledged merge is confirmed read-only: the original exact PR head must
+be merged and its original task already closed as completed. A merge is never
+replayed. Other started or uncertain effects remain held for separate
+remote-evidence inspection. GitHub automatic issue closure is also recognized
+during ordinary delivery, so it does not cause a redundant closure write.
+Back up retained state first, then restart the worker after recovery. This is an
+operator command; it does not enable automatic retries of GitHub mutations.
 
 ## Explicit worker conversion
 
@@ -416,11 +440,94 @@ fresh approval, assignment, producer and native ownership checks. Changed or
 missing bindings stay waiting. An undeclared terminal stop still needs explicit
 operator continuation; the worker does not infer dependencies from prose.
 
+Failed or errored CI schedules an author `fix` job for the exact PR head and
+scope, without requiring a reviewer to request changes. Pending or unknown
+checks do not start a repair. These jobs share `max_review_cycles` with other
+author fixes and do not repeat the same head. Publication requires a new head;
+fresh CI, peer review and QA are still required. Checks that recover before
+submission retire the obsolete repair. Exhaustion or an unchanged result is
+visible in status and owner notices.
+
+An open PR reported as `BEHIND` or `DIRTY` schedules an author `fix` job to merge
+its approved base. The job pins the PR head, base commit and scope, preserves
+history, and publishes through the existing action helper with a regenerated
+source artifact. Publication rejects an unchanged head or a head that does not
+contain the pinned base. Peer review and QA wait for branch maintenance; every
+new head still needs fresh CI, independent engineering review and exact-artifact
+QA before delivery. Refreshes share the configured `max_review_cycles` bound
+with other author fixes, and the same PR/base/scope attempt is not repeated.
+Conflicts belong to the author within approved scope; unresolved conflicts or
+exhausted attempts need an operator, not another goal approval or a force push.
+
+GitHub-generated merge commits sometimes have no GraphQL committer user. Coop
+then resolves that identity from REST for the exact commit SHA and canonical
+account ID. It retains that committer in independence checks; unresolved primary
+authors, co-authors or committers still block admission.
+
+Dependency continuation retries failed transport reads with exponential delays
+from one minute up to fifteen minutes. Read failures do not consume the model
+continuation budget or permanently exclude the saved task. Every retry still
+checks the original session, message, checkout, action journals, current
+approval and dependency assignments. Ownership uncertainty and other exhausted
+safety refusals require operator recovery. Owner notices distinguish an automatic
+transport retry from required intervention and update when that state changes.
+
 `coop worker status` includes a `native` snapshot with the current stage, exact
 PR head/model, turn deadline and retained blockers. `coop team` and
 `coop_master_team` expose diagnostic heartbeat reasons for global recovery,
-dependency waits, catalog failures, overdue turns and admissions waiting at least
-five minutes. Pending messages older than five minutes are reported when the
+dependency waits, branch-refresh work or exhausted refresh attempts, catalog
+failures, overdue turns and admissions waiting at least five minutes. Pending
+messages older than five minutes are reported when the
 worker has no active turn accounting for their wait. Paused workers keep their
 paused status. These diagnostics do not restart workers or models, and they do
 not send repeated conversation turns. Hark can poll the existing MCP tools.
+The legacy top-level `server_healthy` field is not populated by the native v3
+worker; its default `false` does not establish an OpenCode outage. Use the
+authenticated OpenCode health endpoint to check the server itself.
+
+Workers also post `[COOP BLOCKED]` notices in the affected work thread, with the
+task, last recorded action, blocker and required next step. Set
+`master.blocker_recipient` to the owner's master principal ID for an addressed
+notice and `@` mention. This must identify the owner; known agent recipients are
+rejected. Without it, notices are unaddressed thread messages.
+No peer or model turn is created. Engineering and conversation recovery holds,
+stalled admissions, overdue turns and exhausted branch refreshes are reported;
+catalog failures get a five-minute grace period. Dependency waits name their
+prerequisites and say when continuation is automatic.
+
+Notice checks run at the heartbeat interval, with one bounded background send
+at a time so network delays do not hold the worker loop. Notices are deduplicated
+across polls and restarts. A changed blocker gets an
+update, and a cleared blocker gets `[COOP UNBLOCKED]`. Unknown send responses
+reuse the durable request ID and body, with a one-minute retry delay. Local
+pauses suppress notices. Hark can monitor these messages through existing
+`coop_master_read_thread` calls and retain the last observed sequence; configuring
+Hark's polling schedule is separate from enabling worker notices. The current
+chat does not monitor threads while inactive.
+
+
+Workers retain each native action's exact input privately before any effect.
+If its model turn ends after a recoverable helper failure, the worker resumes
+that original request through the same authority, task, head, review and QA
+guards. Acknowledged checkpoints skip finished writes; uncertain remote effects
+remain held for inspection. Recovery never invents a replacement issue or PR.
+Transport failures and pending prerequisites retry with a persisted cooldown
+from one to fifteen minutes. GitHub quota waits honor the server reset time.
+These waits do not exhaust the safety-refusal limit. An unstarted delivery
+superseded by current author repairs retires without deleting its history, so
+the repair can proceed. Repeated safety refusals stop at `max_attempts` and
+require intervention.
+
+Once intermediate actions complete, the worker continues the saved session
+within the existing continuation limit. Recovery shares normal engineering
+scheduling, allows unrelated work during cooldown, and reserves the original
+task. Status and blocker notices identify `native_action_retry` as automatic.
+Old journals without their original input remain inspectable. To retain a known
+legacy input while the worker is stopped, use:
+
+```sh
+coop-worker native retain-action --config CONFIG --job JOB --input ORIGINAL.json
+```
+
+This command checks the original journal's input hash and records only a
+private intent. It performs no remote action and does not relax any approval.

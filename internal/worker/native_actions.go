@@ -155,6 +155,13 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		return empty, err
 	}
 	defer release()
+	return runNativeActionLocked(ctx, cfg, m, g, jobID, in)
+}
+
+// Caller owns the native producer lock. Automatic recovery runs in the worker;
+// offline recovery also owns the stopped worker lock.
+func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringMaster, g *GitHubClient, jobID string, in NativeAction) (NativeActionResult, error) {
+	var empty NativeActionResult
 	x, err := loadNativeExecution(cfg, jobID)
 	if err != nil {
 		return empty, err
@@ -195,23 +202,34 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	if x.Phase != "active" {
 		return empty, c.ErrForbidden
 	}
+	reader := NewGitHubClient(g.runner)
+	reader.config = cfg
+	// Reject correctable local Project choices before binding an immutable
+	// request. Dynamic discovery and authority reads still retain exact intent.
+	if os.IsNotExist(readErr) && (in.Operation == "create-task" || in.Operation == "rebind-task") && (len(cfg.Projects) > 0 || len(cfg.ProjectOwners) == 0) {
+		if _, err = selectNativeTaskProject(ctx, cfg, reader, in); err != nil {
+			return empty, err
+		}
+	}
+	if err = persistNativeActionIntent(cfg, x, in); err != nil {
+		return empty, err
+	}
 	a, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
 	if err != nil {
 		return empty, err
 	}
-	reader := NewGitHubClient(g.runner)
-	reader.config = cfg
-	if in.Operation == "deliver" && record.Step == "task-completed" && record.State == "prepared" {
-		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err != nil {
+	if in.Operation == "deliver" && (record.Step == "task-completed" || record.Step == "merge") && record.State == "prepared" {
+		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err == nil {
+			record.State = "completed"
+			record.Result.URL = x.Job.PRURL
+			record.Result.Phase = "completed"
+			if err = saveNativeAction(cfg, record); err != nil {
+				return empty, err
+			}
+			return record.Result, nil
+		} else if record.Step == "task-completed" || !errors.Is(err, c.ErrConflict) {
 			return empty, err
 		}
-		record.State = "completed"
-		record.Result.URL = x.Job.PRURL
-		record.Result.Phase = "completed"
-		if err = saveNativeAction(cfg, record); err != nil {
-			return empty, err
-		}
-		return record.Result, nil
 	}
 	var task NativeTask
 	var pr PR
@@ -286,6 +304,19 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 					}
 					if pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 						return errors.New("native exact head or PR scope changed")
+					}
+					if in.Operation == "publish-pr" && nativeIsChecksRepair(x.Job) && nativeChecksRecovered(pr) {
+						return errors.New("native checks already recovered; preserve local work")
+					}
+					if in.Operation == "publish-pr" && nativeIsBranchRefresh(x.Job) {
+						base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")
+						current, err := reader.nativeBaseSHA(ctx, task.Task.Repo, task.Binding.BaseBranch)
+						if err != nil {
+							return err
+						}
+						if !ok || current != base {
+							return errors.New("native branch refresh base changed")
+						}
 					}
 				}
 			}
@@ -587,6 +618,18 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		if !qaHeadSHA.MatchString(headSHA) {
 			return empty, c.ErrInvalid
 		}
+		if nativeIsChecksRepair(x.Job) && headSHA == x.Job.HeadSHA {
+			return empty, errors.New("checks repair must checkpoint a new head")
+		}
+		if nativeIsBranchRefresh(x.Job) {
+			base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")
+			if !ok || !qaHeadSHA.MatchString(base) || headSHA == x.Job.HeadSHA {
+				return empty, errors.New("branch refresh must checkpoint a new head containing the approved base")
+			}
+			if _, e = local.run(ctx, prepared.Checkout, "git", "merge-base", "--is-ancestor", base, headSHA); e != nil {
+				return empty, errors.New("branch refresh does not contain the approved base")
+			}
+		}
 		meta := NativePRMetadata{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), Artifact: in.Artifact}
 		if a.Revision.Proposal.QA.Required && meta.Artifact != nil && (meta.Artifact.HeadSHA != headSHA || !hexSHA.MatchString(meta.Artifact.SHA256)) {
 			return empty, errors.New("required immutable exact-head QA artifact missing")
@@ -771,6 +814,19 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 				return empty, e
 			}
 			return empty, c.ErrConflict
+		}
+		// GitHub can close the linked task as part of merging the PR. Confirm
+		// that exact completed delivery before attempting another task write.
+		if record.Step != "task-completed" {
+			confirmed := nativeConfirmDelivery(ctx, cfg, reader, a, x)
+			if confirmed == nil {
+				record.Step = "task-completed"
+				if err = saveNativeAction(cfg, record); err != nil {
+					return empty, err
+				}
+			} else if !errors.Is(confirmed, c.ErrConflict) {
+				return empty, confirmed
+			}
 		}
 		if record.Step != "task-completed" {
 			if err = effect("task-completed", func() error {
