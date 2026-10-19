@@ -217,7 +217,9 @@ func TestActionSSHProcess(t *testing.T) {
 		os.Exit(95)
 	}
 	fmt.Fprintln(os.Stderr, "private-sentinel /private/controller/key credential-value")
-	fmt.Fprintln(os.Stdout, "ACTION_READY")
+	if _, err := fmt.Fprintln(os.Stdout, "ACTION_READY"); err != nil {
+		os.Exit(97)
+	}
 	if os.Getenv("COOP_ACTION_MODE") == "block" {
 		// No child process or busy loop: CommandContext must kill and reap us.
 		time.Sleep(time.Hour)
@@ -458,8 +460,8 @@ func TestActionExecuteCancellation(t *testing.T) {
 				return
 			}
 			output, receive := io.Pipe()
-			defer output.Close()
-			defer receive.Close()
+			defer func() { _ = output.Close() }()
+			defer func() { _ = receive.Close() }()
 			done := make(chan error, 1)
 			go func() {
 				result, err := (SSH{}).Execute(ctx, req, nil, receive, io.Discard)

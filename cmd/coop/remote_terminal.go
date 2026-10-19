@@ -41,7 +41,7 @@ func runRemoteTerminal(ctx context.Context, req hostrouter.ActionRequest, cmd *c
 	if err != nil {
 		return fmt.Errorf("open cancelable terminal input: %w", err)
 	}
-	defer input.Close()
+	defer func() { err = errors.Join(err, input.Close()) }()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	resizes := make(chan os.Signal, 1)

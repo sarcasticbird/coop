@@ -161,7 +161,7 @@ func TestTerminalDetachCancelAndDisconnect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer a.Close()
+			defer func() { _ = a.Close() }()
 			terminalLine(t, bufio.NewReader(a), "READY")
 			if mode == "disconnect" {
 				_, _ = io.WriteString(a, "fail\n")

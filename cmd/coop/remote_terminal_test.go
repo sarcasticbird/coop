@@ -183,8 +183,8 @@ func TestRunRemoteTerminalRequiresTerminalInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 	for _, input := range []io.Reader{strings.NewReader("input"), r} {
 		cmd := &cobra.Command{}
 		cmd.SetIn(input)
@@ -199,8 +199,8 @@ func TestRunRemoteTerminalRestoresStateOnAttachFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 	if err := pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
 		t.Fatal(err)
 	}
