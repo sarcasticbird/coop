@@ -89,7 +89,7 @@ func TestConfigScopeAndLimits(t *testing.T) {
 		"mixed selectors":    func(c *Config) { c.ProjectOwners = []string{"planning"} },
 		"too many attempts":  func(c *Config) { c.Limits.MaxAttempts = 4 },
 		"too many cycles":    func(c *Config) { c.Limits.MaxReviewCycles = 6 },
-		"long turn":          func(c *Config) { c.Limits.TurnLimit = time.Hour },
+		"long turn":          func(c *Config) { c.Limits.TurnLimit = time.Hour + time.Second },
 		"negative poll":      func(c *Config) { c.Limits.PollInterval = -time.Second },
 		"public server":      func(c *Config) { c.OpenCode.BaseURL = "http://0.0.0.0:4096" },
 		"url credentials":    func(c *Config) { c.OpenCode.BaseURL = "http://user:pass@127.0.0.1:4096" },

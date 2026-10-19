@@ -49,7 +49,7 @@ func TestTeamModelVariantConfig(t *testing.T) {
 }
 
 func TestTeamModelVariantPreflightAndSubmission(t *testing.T) {
-	for _, mode := range []string{"supported", "missing schema", "wrong field type", "missing metadata schema", "unavailable", "dropped", "wrong model", "cleanup failure", "checkout unavailable", "checkout dropped", "checkout takeover", "POST error"} {
+	for _, mode := range []string{"supported", "missing schema", "wrong field type", "missing metadata schema", "unavailable", "dropped", "wrong model", "cleanup failure", "checkout unavailable", "checkout dropped", "checkout takeover", "checkout completed takeover", "POST error"} {
 		t.Run(mode, func(t *testing.T) {
 			dir, root := "", ""
 			probeDirectory := ""
@@ -124,6 +124,15 @@ func TestTeamModelVariantPreflightAndSubmission(t *testing.T) {
 					} else {
 						writeJSON(w, map[string]any{})
 					}
+				case "/session/ses_task/message/msg_previous":
+					writeJSON(w, ownershipMessage(Job{SessionID: "ses_task", Checkout: dir}, "msg_previous", "user", ""))
+				case "/session/ses_task/message":
+					j := Job{SessionID: "ses_task", Checkout: dir}
+					messages := []any{ownershipMessage(j, "msg_previous", "user", ""), ownershipMessage(j, "msg_done", "assistant", "msg_previous")}
+					if probes == 2 {
+						messages = append(messages, ownershipMessage(j, "msg_manual", "user", ""))
+					}
+					writeJSON(w, messages)
 				case "/session/ses_task/prompt_async":
 					submits++
 					if mode == "POST error" {
@@ -152,6 +161,9 @@ func TestTeamModelVariantPreflightAndSubmission(t *testing.T) {
 				t.Fatalf("variant preflight = %v", preflightErr)
 			}
 			j := Job{SessionID: "ses_task", MessageID: "msg_worker", Checkout: dir, Deadline: time.Now().Add(time.Minute)}
+			if mode == "checkout completed takeover" {
+				j.ContinuationMessageID = "msg_previous"
+			}
 			probeDirectory = dir
 			turn, err := client.Submit(context.Background(), cfg, j, "Continue approved work")
 			if mode == "supported" {

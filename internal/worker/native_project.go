@@ -9,27 +9,38 @@ import (
 
 // Project ordering and readiness stay on GitHub. A planner must select one of
 // the configured Projects; a single configured Project is unambiguous.
-func nativePlaceTask(ctx context.Context, cfg Config, g *GitHubClient, in NativeAction, b NativeTaskBinding, r *nativeActionRecord, effect func(string, func() error) error) error {
+func selectNativeTaskProject(ctx context.Context, cfg Config, g *GitHubClient, in NativeAction) (ProjectRef, error) {
 	if len(cfg.Projects) == 0 && len(cfg.ProjectOwners) == 0 {
 		if in.ProjectOwner != "" || in.ProjectNumber != 0 {
-			return errors.New("native project is outside configured scope")
+			return ProjectRef{}, errors.New("native project is outside configured scope")
 		}
-		return nil
+		return ProjectRef{}, nil
 	}
 	refs, err := g.projectRefs(ctx)
 	if err != nil {
-		return err
+		return ProjectRef{}, err
 	}
 	var selected ProjectRef
 	matches := 0
 	for _, p := range refs {
-		if in.ProjectOwner == "" && len(refs) == 1 || p.Owner == in.ProjectOwner && p.Number == in.ProjectNumber {
+		if in.ProjectOwner == "" && in.ProjectNumber == 0 && len(refs) == 1 || p.Owner == in.ProjectOwner && p.Number == in.ProjectNumber {
 			selected = p
 			matches++
 		}
 	}
 	if matches != 1 {
-		return errors.New("select exactly one configured Project with project_owner and project_number")
+		return ProjectRef{}, errors.New("select exactly one configured Project with project_owner and project_number")
+	}
+	return selected, nil
+}
+
+func nativePlaceTask(ctx context.Context, cfg Config, g *GitHubClient, in NativeAction, b NativeTaskBinding, r *nativeActionRecord, effect func(string, func() error) error) error {
+	selected, err := selectNativeTaskProject(ctx, cfg, g, in)
+	if err != nil {
+		return err
+	}
+	if selected.Owner == "" {
+		return nil
 	}
 	if err = g.verifyOwner(ctx, selected.Owner); err != nil {
 		return err
@@ -116,7 +127,7 @@ func nativePlaceTask(ctx context.Context, cfg Config, g *GitHubClient, in Native
 		}
 	}
 	tasks := map[string]Task{b.TaskURL: {URL: b.TaskURL}}
-	if err = g.readProject(ctx, selected, tasks, &Snapshot{}); err != nil {
+	if err = g.readProject(ctx, selected, tasks, &Snapshot{}, false); err != nil {
 		return err
 	}
 	if !tasks[b.TaskURL].Ready || tasks[b.TaskURL].BodySHA != b.TaskScopeSHA {

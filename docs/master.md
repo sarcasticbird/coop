@@ -150,9 +150,31 @@ the exact saved native turn. A remote decision can race the final check and
 GitHub write; the two systems do not share a transaction.
 
 The native helper registers GitHub task and PR links under the approved goal.
+When more than one Project is configured, task creation and rebinding require
+an explicit `project_owner` and `project_number` on the first request. Invalid
+selection is rejected before saving a mutation journal or changing GitHub, so
+the planner can correct that input using the same request ID. Once a journal
+exists, its original input remains immutable.
 It publishes immutable private QA evidence and places only its digest/reference
 and safe summary in a formal exact-head GitHub QA review. A chat reply or private
 report alone cannot satisfy QA. Authored work needs an independent peer review.
+
+The configured turn limit starts at submission, after preparation and fresh
+authority checks. It defaults to 30 minutes and supports up to one hour.
+A timed-out engineering turn can continue in its saved session and checkout
+after exact terminal evidence, current authority and assignment, and mutation
+journals are verified. Each continuation preserves the previous turn and uses
+a new message, up to `limits.max_attempts` continuations. Paused admission,
+uncertain mutations or exhausted continuations keep the job held for inspection.
+
+A turn that ended without its expected artifact holds only its task when its
+terminal checkpoint is verified and all its producer journals are complete.
+Other reviews and conversations can proceed. Incomplete writes and uncertain
+execution still hold the worker. With the worker stopped, an operator can use
+`coop-worker native resolve --action continue --config CONFIG --job JOB
+--session SESSION --message MESSAGE` to continue the exact saved task after its
+dependency is available. This rechecks authority and session ownership, retains
+the old turn and enforces the continuation limit; it does not submit a prompt.
 
 ## Explicit worker conversion
 
@@ -373,3 +395,32 @@ the master and do not scan the retired GitHub goal conversation. Existing V1/V2
 GitHub-governed work keeps its original authority; import/cutover never converts
 in-flight work or changes worker configuration. Use the guarded offline migration
 only after legacy work has terminal evidence.
+
+If a continuation was selected but never submitted, use the last retained turn's
+session/message identity with `native resolve --action cancel`. This retires only
+the unsubmitted job after checking the retained terminal turn; it does not abort
+or take ownership of another session turn.
+
+Native implement/fix jobs can declare a dependency wait with the action helper:
+
+```json
+{"operation":"wait","request_id":"backend-wait-1","depends_on":["https://github.com/owner/repo/issues/12"],"body":"Waiting for the backend contract to merge."}
+```
+
+Checkpoint local work before declaring the wait, then end the turn. Dependencies
+must be existing registered tasks under current approved goals visible to the
+worker. A wait records exact task assignments and the current native message.
+It frees the slot only after terminal observation and reconciliation. Completed
+dependencies trigger bounded continuation in the same checkout/session, with
+fresh approval, assignment, producer and native ownership checks. Changed or
+missing bindings stay waiting. An undeclared terminal stop still needs explicit
+operator continuation; the worker does not infer dependencies from prose.
+
+`coop worker status` includes a `native` snapshot with the current stage, exact
+PR head/model, turn deadline and retained blockers. `coop team` and
+`coop_master_team` expose diagnostic heartbeat reasons for global recovery,
+dependency waits, catalog failures, overdue turns and admissions waiting at least
+five minutes. Pending messages older than five minutes are reported when the
+worker has no active turn accounting for their wait. Paused workers keep their
+paused status. These diagnostics do not restart workers or models, and they do
+not send repeated conversation turns. Hark can poll the existing MCP tools.

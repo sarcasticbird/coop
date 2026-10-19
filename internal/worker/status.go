@@ -9,6 +9,7 @@ import (
 )
 
 type Status struct {
+	Native                  *NativeProgress  `json:"native,omitempty"`
 	Actor                   Actor            `json:"actor"`
 	Current                 *CurrentWork     `json:"current,omitempty"`
 	HistoricalJobs          int              `json:"historical_jobs,omitempty"`
@@ -80,7 +81,7 @@ func currentWork(c Config, s Snapshot, j Job, now time.Time) *CurrentWork {
 				}
 			}
 		}
-	} else if j.Kind != "plan" && j.Kind != "wake" {
+	} else if c.Version != 3 && j.Kind != "plan" && j.Kind != "wake" {
 		w.Author, w.Peer = &c.Implementer, &c.Reviewer
 	}
 	return w

@@ -50,3 +50,47 @@ func TestNativeEngineeringRecoveryNeverReplaysOrAbandonsRunningTurn(t *testing.T
 		t.Fatal("recovery resubmitted native model")
 	}
 }
+
+func TestNativeObservedTerminalCanContinue(t *testing.T) {
+	cfg, m, g, code, _, x := timedOutNativeFixture(t)
+	x.Reason = "native_observation_unavailable"
+	x.Job.Phase = "active"
+	x.Job.SubmissionState = "accepted"
+	x.Job.TerminalAt = time.Time{}
+	if err := saveNativeExecution(cfg, x); err != nil {
+		t.Fatal(err)
+	}
+	code.running = false
+	observed, err := ResolveNativeEngineering(t.Context(), cfg, code, x.Job.ID, x.Job.SessionID, x.Job.MessageID, "observe")
+	if err != nil || observed.Job.Phase != "completed" || observed.Job.TerminalAt.IsZero() {
+		t.Fatal("terminal observation left recovery checkpoint incomplete", err)
+	}
+	continued, err := ContinueNativeEngineering(t.Context(), cfg, m, g, code, x.Job.ID, x.Job.SessionID, x.Job.MessageID)
+	if err != nil || continued.Phase != "selected" {
+		t.Fatal("observed terminal could not continue", err)
+	}
+}
+
+type requireNativePair struct{ *fakeOpenCode }
+
+func (c requireNativePair) Observe(ctx context.Context, j Job) (Turn, error) {
+	if !validMessage(j.MessageID) {
+		return Turn{}, errors.New("missing message identity")
+	}
+	return c.fakeOpenCode.Observe(ctx, j)
+}
+func TestNativeUnsubmittedContinuationCanCancelRetainedTurn(t *testing.T) {
+	cfg, m, g, code, _, x := timedOutNativeFixture(t)
+	d, err := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, RealClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.resumeBlocked(t.Context(), &x); err != nil {
+		t.Fatal(err)
+	}
+	previous := x.Turns[len(x.Turns)-1]
+	cancelled, err := ResolveNativeEngineering(t.Context(), cfg, requireNativePair{code}, x.Job.ID, previous.SessionID, previous.MessageID, "cancel")
+	if err != nil || cancelled.Phase != "cancelled" || len(cancelled.Turns) != 1 || code.calls != 1 {
+		t.Fatal("unsubmitted continuation could not be cancelled without replay", err)
+	}
+}
