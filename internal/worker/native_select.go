@@ -33,6 +33,15 @@ type NativeCandidate struct {
 }
 
 const nativeBranchRefreshPrefix = "branch-refresh:"
+const nativeChecksRepairPrefix = "checks-repair:"
+
+func nativeNeedsChecksRepair(p PR) bool {
+	return !p.Merged && !p.Closed && (p.ChecksState == "failure" || p.ChecksState == "error")
+}
+
+func nativeIsChecksRepair(j Job) bool {
+	return j.Kind == "fix" && strings.HasPrefix(j.InputRevision, nativeChecksRepairPrefix)
+}
 
 func nativeNeedsBranchRefresh(p PR) bool {
 	return !p.Merged && !p.Closed && (p.MergeState == "BEHIND" || p.MergeState == "DIRTY")
@@ -245,7 +254,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		if a.Revision.Proposal.QA.Required {
 			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Reports)
 		}
-		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) {
+		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
 			if nativeChangesRequested("review", t.Binding, a, p, peer) {
 				continue
 			}
@@ -264,6 +273,12 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			if nativeNeedsBranchRefresh(p) {
 				if qaHeadSHA.MatchString(p.BaseSHA) && nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
 					add("fix", a, &t, &p, nativeBranchRefreshPrefix+p.BaseSHA+":"+p.ScopeRevision)
+				}
+				continue
+			}
+			if nativeNeedsChecksRepair(p) {
+				if nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
+					add("fix", a, &t, &p, nativeChecksRepairPrefix+p.ScopeRevision)
 				}
 				continue
 			}

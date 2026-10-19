@@ -27,6 +27,7 @@ type nativeDeliveryTransport struct {
 	rejectAncestor                                                 bool
 	snapshotBaseSHA, baseReadSHA                                   string
 	advanceBaseAfterAncestry                                       bool
+	checksAfterCheckout                                            string
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -50,6 +51,9 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 	case "rev-parse":
 		out = s.head
 	case "status", "switch", "clone", "fetch", "reset":
+		if argv[1] == "status" && s.checksAfterCheckout != "" {
+			s.checks = s.checksAfterCheckout
+		}
 	case "merge-base":
 		if len(argv) != 5 || argv[2] != "--is-ancestor" || argv[3] != s.baseSHA || argv[4] != s.localHead {
 			s.t.Fatalf("wrong branch ancestry check: %v", argv)
@@ -415,6 +419,25 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	transport.localHead = ""
 	finish(refresh)
+	// Failed CI directly hands the exact current head back to its author.
+	transport.checks = "FAILURE"
+	checksFix := stage(1, "author", "fix")
+	checksAction := NativeAction{Operation: "publish-pr", RequestID: "checks-pr", Title: "Repair failed checks", Body: "Fix the exact-head lint failures"}
+	writesBeforeChecks := len(transport.writes)
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err == nil || len(transport.writes) != writesBeforeChecks {
+		t.Fatal("unchanged failed head was published as a successful CI repair", err)
+	}
+	transport.localHead = strings.Repeat("f", 40)
+	transport.checksAfterCheckout = "SUCCESS"
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err == nil || len(transport.writes) != writesBeforeChecks {
+		t.Fatal("CI recovered after eligibility read but an obsolete repair still pushed", err)
+	}
+	transport.checksAfterCheckout, transport.checks = "", "FAILURE"
+	if _, err := RunNativeAction(ctx, cfg, m, g, checksFix.Job.ID, checksAction); err != nil {
+		t.Fatal("checks repair publication", err)
+	}
+	transport.localHead, transport.checks = "", ""
+	finish(checksFix)
 	peer = stage(0, "peer", "review")
 	if _, err := RunNativeAction(ctx, cfg, m, g, peer.Job.ID, NativeAction{Operation: "review", RequestID: "peer-review", Verdict: "approved", Body: "Reviewed the exact head."}); err != nil {
 		t.Fatal(err)

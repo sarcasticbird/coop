@@ -481,6 +481,15 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	if nativeScopeChanged(x, catalog) {
 		return NativeCandidate{}, errNativeCandidateStale
 	}
+	if nativeIsChecksRepair(x.Job) {
+		for _, task := range catalog.Tasks {
+			for _, pr := range task.PRs {
+				if pr.URL == x.Job.PRURL && pr.HeadSHA == x.Job.HeadSHA && nativeChecksRecovered(pr) {
+					return NativeCandidate{}, errNativeCandidateStale
+				}
+			}
+		}
+	}
 	return NativeCandidate{}, errors.New("native candidate temporarily unavailable")
 }
 
@@ -545,7 +554,7 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 			}
 			x.Job.ReconcileFailures++
 			x.Job.ReconcileError = errorCategory(err)
-			x.Job.NextAttemptAt = d.clock.Now().Add(time.Minute)
+			x.Job.NextAttemptAt = d.clock.Now().Add(nativeDependencyBackoff(*x))
 			if saveErr := saveNativeExecution(d.config, *x); saveErr != nil {
 				return false, saveErr
 			}
@@ -716,6 +725,11 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 			return false, err
 		}
 		if !complete {
+			if retired, err := d.retireRecoveredChecksRepair(ctx, x); err != nil {
+				return false, err
+			} else if retired {
+				return false, nil
+			}
 			x.Phase, x.Reason = "blocked", "native_completed_without_result"
 			x.Wait = nil
 			wait, e := nativeTurnWait(d.config, *x)
@@ -744,6 +758,9 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	}
 	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
+	}
+	if nativeIsChecksRepair(x.Job) && v.PR != nil {
+		prompt += "\nThis author fix repairs failed checks for exact PR head " + x.Job.HeadSHA + ". Inspect the failed GitHub check runs and logs for that head, identify the cause, and make the smallest repair within the existing approved task. Run the failed checks locally, checkpoint a new head, and publish through publish-pr with artifact omitted to regenerate immutable source metadata. Do not create empty commits or rerun unchanged failures in a loop. Fresh CI, independent peer review and required exact-artifact QA remain mandatory. If an infrastructure or permission problem prevents a scoped code repair, checkpoint and report the concrete blocker. No new goal approval is required for this repair."
 	}
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")

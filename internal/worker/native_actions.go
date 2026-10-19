@@ -287,6 +287,9 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 					if pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 						return errors.New("native exact head or PR scope changed")
 					}
+					if in.Operation == "publish-pr" && nativeIsChecksRepair(x.Job) && nativeChecksRecovered(pr) {
+						return errors.New("native checks already recovered; preserve local work")
+					}
 					if in.Operation == "publish-pr" && nativeIsBranchRefresh(x.Job) {
 						base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")
 						current, err := reader.nativeBaseSHA(ctx, task.Task.Repo, task.Binding.BaseBranch)
@@ -596,6 +599,9 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		headSHA := strings.TrimSpace(string(head))
 		if !qaHeadSHA.MatchString(headSHA) {
 			return empty, c.ErrInvalid
+		}
+		if nativeIsChecksRepair(x.Job) && headSHA == x.Job.HeadSHA {
+			return empty, errors.New("checks repair must checkpoint a new head")
 		}
 		if nativeIsBranchRefresh(x.Job) {
 			base, _, ok := strings.Cut(strings.TrimPrefix(x.Job.InputRevision, nativeBranchRefreshPrefix), ":")

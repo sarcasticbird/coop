@@ -157,10 +157,16 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 		switch reason {
 		case "native_dependency_wait":
 			needs = "The worker resumes automatically when its registered prerequisites complete; no owner action is required unless those prerequisites stall."
+		case "native_dependency_retry":
+			needs = "A saved-run transport read failed. The worker retries exact-run revalidation with a capped cooldown while preserving the session, checkout and approval gates. Model work is not replayed."
+		case "native_dependency_recovery_required":
+			needs = "Automatic recovery stopped after repeated safety or authority refusals. Inspect the saved run and recorded recovery error, then use supported continuation only after ownership and approval are verified."
 		case "native_completed_without_result", "native_completed_without_reply":
 			needs = "Inspect the saved terminal run, then explicitly continue it or resolve the missing result through supported recovery."
 		case "native_branch_refresh_limit", "native_branch_refresh_no_progress":
 			needs = "Inspect branch conflicts and the exhausted or unchanged author refresh before deciding how to continue."
+		case "native_checks_repair_limit", "native_checks_repair_no_progress":
+			needs = "Inspect failed CI logs and the exhausted or unchanged author repair before deciding how to continue."
 		case "native_catalog_unavailable":
 			needs = "Restore the GitHub/catalog read; the worker will retry while preserving saved work."
 		}
@@ -173,7 +179,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 			latest = x.Job
 		}
 		if x.Phase == "blocked" && x.Reason != "goal_paused" && x.Reason != "local_pause" {
-			add(x.Job, x.Reason)
+			add(x.Job, nativeDependencyBlocker(d.config, x))
 			if x.Wait != nil && x.Job.Master != nil {
 				deps := []string{}
 				for _, dep := range x.Wait.Dependencies {
@@ -218,7 +224,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 	}
 	progress := d.Progress()
 	for _, b := range progress.Blocked {
-		if b.Reason != "native_branch_refresh_limit" && b.Reason != "native_branch_refresh_no_progress" {
+		if b.Reason != "native_branch_refresh_limit" && b.Reason != "native_branch_refresh_no_progress" && b.Reason != "native_checks_repair_limit" && b.Reason != "native_checks_repair_no_progress" {
 			continue
 		}
 		for _, task := range d.catalog.Tasks {

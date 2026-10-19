@@ -416,6 +416,14 @@ fresh approval, assignment, producer and native ownership checks. Changed or
 missing bindings stay waiting. An undeclared terminal stop still needs explicit
 operator continuation; the worker does not infer dependencies from prose.
 
+Failed or errored CI schedules an author `fix` job for the exact PR head and
+scope, without requiring a reviewer to request changes. Pending or unknown
+checks do not start a repair. These jobs share `max_review_cycles` with other
+author fixes and do not repeat the same head. Publication requires a new head;
+fresh CI, peer review and QA are still required. Checks that recover before
+submission retire the obsolete repair. Exhaustion or an unchanged result is
+visible in status and owner notices.
+
 An open PR reported as `BEHIND` or `DIRTY` schedules an author `fix` job to merge
 its approved base. The job pins the PR head, base commit and scope, preserves
 history, and publishes through the existing action helper with a regenerated
@@ -432,6 +440,14 @@ then resolves that identity from REST for the exact commit SHA and canonical
 account ID. It retains that committer in independence checks; unresolved primary
 authors, co-authors or committers still block admission.
 
+Dependency continuation retries failed transport reads with exponential delays
+from one minute up to fifteen minutes. Read failures do not consume the model
+continuation budget or permanently exclude the saved task. Every retry still
+checks the original session, message, checkout, action journals, current
+approval and dependency assignments. Ownership uncertainty and other exhausted
+safety refusals require operator recovery. Owner notices distinguish an automatic
+transport retry from required intervention and update when that state changes.
+
 `coop worker status` includes a `native` snapshot with the current stage, exact
 PR head/model, turn deadline and retained blockers. `coop team` and
 `coop_master_team` expose diagnostic heartbeat reasons for global recovery,
@@ -441,6 +457,9 @@ messages older than five minutes are reported when the
 worker has no active turn accounting for their wait. Paused workers keep their
 paused status. These diagnostics do not restart workers or models, and they do
 not send repeated conversation turns. Hark can poll the existing MCP tools.
+The legacy top-level `server_healthy` field is not populated by the native v3
+worker; its default `false` does not establish an OpenCode outage. Use the
+authenticated OpenCode health endpoint to check the server itself.
 
 Workers also post `[COOP BLOCKED]` notices in the affected work thread, with the
 task, last recorded action, blocker and required next step. Set

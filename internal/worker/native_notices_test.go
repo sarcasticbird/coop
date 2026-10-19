@@ -369,3 +369,43 @@ func TestNativeBlockerNoticeRejectedRecipientCanBeCorrected(t *testing.T) {
 		t.Fatal("corrected owner did not receive notice", page, err)
 	}
 }
+
+func TestNativeDependencyNoticeChangesWhenRecoveryNeedsAttention(t *testing.T) {
+	cfg, comms, store, owner, _, thread, _ := commsFixture(t)
+	cfg.Master.BlockerRecipient = owner.ID
+	if err := comms.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{ID: BodyHash("waiting"), Kind: "implement", TaskURL: "https://github.com/code/repo/issues/1", Master: &MasterJobBinding{ThreadID: thread.ID}}
+	d := &NativeDispatcher{config: cfg, master: comms.Client.(NativeEngineeringMaster), clock: RealClock{}, history: map[string]NativeExecution{j.ID: {Job: j, Phase: "blocked", Reason: "native_dependency_wait"}}}
+	if err := notifyNativeBlockers(t, d); err != nil {
+		t.Fatal(err)
+	}
+	x := d.history[j.ID]
+	x.Job.ReconcileFailures = Defaults(cfg).Limits.MaxAttempts
+	x.Job.ReconcileError = "transport_failed"
+	d.history[j.ID] = x
+	if err := notifyNativeBlockers(t, d); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.Messages(t.Context(), owner, thread.ID, 0)
+	if err != nil || len(page.Messages) != 2 || !strings.Contains(page.Messages[1].Body, "native_dependency_retry") {
+		t.Fatal("transport retry was hidden behind the original dependency wait", page, err)
+	}
+	x.Job.ReconcileError = "continuation_ownership_unknown"
+	d.history[j.ID] = x
+	if err := notifyNativeBlockers(t, d); err != nil {
+		t.Fatal(err)
+	}
+	page, err = store.Messages(t.Context(), owner, thread.ID, 0)
+	if err != nil || len(page.Messages) != 3 || !strings.Contains(page.Messages[2].Body, "native_dependency_recovery_required") || strings.Contains(page.Messages[2].Body, "no owner action") {
+		t.Fatal("exhausted recovery still advertised automatic continuation", page, err)
+	}
+	if err := notifyNativeBlockers(t, d); err != nil {
+		t.Fatal(err)
+	}
+	page, _ = store.Messages(t.Context(), owner, thread.ID, 0)
+	if len(page.Messages) != 3 {
+		t.Fatal("unchanged recovery spammed owner")
+	}
+}
