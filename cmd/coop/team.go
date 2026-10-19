@@ -2,18 +2,25 @@ package main
 
 import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/tui/team"
 	"github.com/spf13/cobra"
 )
 
 func teamCommand() *cobra.Command {
-	return &cobra.Command{Use: "team", Short: "Read master agent presence and placements", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	var watch bool
+	cmd := &cobra.Command{Use: "team", Short: "Read master agent presence and placements", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		cl, e := masterClient(cmd)
 		if e != nil {
 			return e
 		}
+		if watch {
+			return team.Run(cmd.Context(), cl, cl.MasterID(), cmd.InOrStdin(), cmd.OutOrStdout())
+		}
 		v, e := cl.Team(cmd.Context())
 		return printMaster(cmd, v, e)
 	}}
+	cmd.Flags().BoolVar(&watch, "watch", false, "Open the read-only Team screen (r refresh, ? help, q quit)")
+	return cmd
 }
 func inboxCommand() *cobra.Command {
 	var after string
