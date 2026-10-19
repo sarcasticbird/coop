@@ -86,6 +86,7 @@ coop up                   Create or start the project workspace
 coop down                 Stop it and preserve project state
 coop status               Show workspace and image status
 coop ls                   List all workspaces
+coop inventory            List agents and project Coops across registered hosts
 coop tui                  Open the workspace dashboard
 coop doctor               Check host requirements and configuration
 coop rebuild              Rebuild after changing configured tools
@@ -104,6 +105,24 @@ coop --credentials github-work codex
 
 `coop down` preserves state. `coop destroy` asks for confirmation and deletes
 the project's Coop-owned volumes.
+
+Named remote servers use existing trusted SSH configuration. Registration stores
+only a destination reference, not credentials:
+
+```sh
+coop server add workshop coop-workshop
+coop server list
+coop inventory
+coop --host workshop inventory --json
+coop --host local inventory
+coop server update workshop coop-workshop-next
+coop server remove workshop
+```
+
+`local` is reserved and remains the default for existing commands. Remote
+selection currently supports inventory and `ls` only; other remote actions fail
+without executing locally. See [Server inventory](docs/servers.md) for the backend
+contract, privacy model, partial-host results, and current command coverage.
 
 ## Machine-local configuration
 
