@@ -114,6 +114,82 @@ func TestDefaultRegistryUsesCoopConfigurationRoot(t *testing.T) {
 	}
 }
 
+func TestDefaultRegistrySupportsSymlinkedConfiguration(t *testing.T) {
+	for _, kind := range []string{"config root", "coop directory", "home ancestor"} {
+		t.Run(kind, func(t *testing.T) {
+			base := filepath.Dir(testRegistry(t).Path)
+			physical := filepath.Join(base, "dotfiles", "config")
+			if err := os.MkdirAll(filepath.Join(physical, "coop"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			linked := filepath.Join(base, "linked")
+			t.Setenv("XDG_CONFIG_HOME", linked)
+			switch kind {
+			case "config root":
+				if err := os.Symlink(physical, linked); err != nil {
+					t.Fatal(err)
+				}
+			case "coop directory":
+				if err := os.Mkdir(linked, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(physical, "coop"), filepath.Join(linked, "coop")); err != nil {
+					t.Fatal(err)
+				}
+			case "home ancestor":
+				if err := os.Symlink(base, linked); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("HOME", linked)
+				t.Setenv("XDG_CONFIG_HOME", "")
+				physical = filepath.Join(base, ".config")
+			}
+			r, err := DefaultRegistry()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(physical, "coop", "servers", "registry.json")
+			if r.Path != want {
+				t.Fatalf("registry path = %s; want %s", r.Path, want)
+			}
+			if err := r.Change("add", "rack", "rack-alias"); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := r.Resolve("rack"); err != nil || got != (Host{Name: "rack", Address: "rack-alias"}) {
+				t.Fatalf("Resolve() = %#v, %v", got, err)
+			}
+			if _, err := os.Stat(want); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDefaultRegistryKeepsPrivateStorageSymlinkChecks(t *testing.T) {
+	base := filepath.Dir(testRegistry(t).Path)
+	t.Setenv("XDG_CONFIG_HOME", base)
+	coop := filepath.Join(base, "coop")
+	private := filepath.Join(base, "private")
+	for _, dir := range []string{coop, private} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(private, filepath.Join(coop, "servers")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Change("add", "rack", "rack-alias"); err == nil {
+		t.Fatal("symlinked private registry directory accepted")
+	}
+	if entries, err := os.ReadDir(private); err != nil || len(entries) != 0 {
+		t.Fatalf("symlink destination changed: %v, %v", entries, err)
+	}
+}
+
 func TestRegistryRejectsInvalidChangesWithoutMutationOrInputEcho(t *testing.T) {
 	r := testRegistry(t)
 	if err := r.Change("add", "existing", "trusted-alias"); err != nil {
