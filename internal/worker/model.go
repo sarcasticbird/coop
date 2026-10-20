@@ -38,30 +38,31 @@ type OpenCodeConfig struct {
 	ReconcileInterval time.Duration `json:"-"`
 }
 type Config struct {
-	Master                 *MasterConfig     `json:"master,omitempty"`
-	Team                   *TeamPolicy       `json:"team,omitempty"`
-	Wake                   *WakeConfig       `json:"wake,omitempty"`
-	Version                int               `json:"version"`
-	Name                   string            `json:"name"`
-	Role                   string            `json:"role"`
-	Model                  string            `json:"model"`
-	ModelVariant           string            `json:"model_variant,omitempty"`
-	StateDir               string            `json:"state_dir"`
-	WorkRoot               string            `json:"work_root"`
-	OpenCode               OpenCodeConfig    `json:"opencode"`
-	Owner                  Actor             `json:"owner"`
-	Self                   Actor             `json:"self"`
-	Implementer            Actor             `json:"implementer"`
-	Reviewer               Actor             `json:"reviewer"`
-	CodeOwners             []string          `json:"code_owners"`
-	ProjectOwners          []string          `json:"project_owners,omitempty"`
-	DiscussionRepositories []string          `json:"discussion_repositories"`
-	DiscussionURLs         []string          `json:"discussion_urls,omitempty"`
-	Repositories           []string          `json:"repositories,omitempty"`
-	Projects               []ProjectRef      `json:"projects,omitempty"`
-	BootstrapGoals         []BootstrapGoal   `json:"bootstrap_goals,omitempty"`
-	Limits                 Limits            `json:"limits"`
-	CheckoutModes          map[string]string `json:"checkout_modes,omitempty"`
+	GitHubCache            *GitHubCacheWorkerConfig `json:"github_cache,omitempty"`
+	Master                 *MasterConfig            `json:"master,omitempty"`
+	Team                   *TeamPolicy              `json:"team,omitempty"`
+	Wake                   *WakeConfig              `json:"wake,omitempty"`
+	Version                int                      `json:"version"`
+	Name                   string                   `json:"name"`
+	Role                   string                   `json:"role"`
+	Model                  string                   `json:"model"`
+	ModelVariant           string                   `json:"model_variant,omitempty"`
+	StateDir               string                   `json:"state_dir"`
+	WorkRoot               string                   `json:"work_root"`
+	OpenCode               OpenCodeConfig           `json:"opencode"`
+	Owner                  Actor                    `json:"owner"`
+	Self                   Actor                    `json:"self"`
+	Implementer            Actor                    `json:"implementer"`
+	Reviewer               Actor                    `json:"reviewer"`
+	CodeOwners             []string                 `json:"code_owners"`
+	ProjectOwners          []string                 `json:"project_owners,omitempty"`
+	DiscussionRepositories []string                 `json:"discussion_repositories"`
+	DiscussionURLs         []string                 `json:"discussion_urls,omitempty"`
+	Repositories           []string                 `json:"repositories,omitempty"`
+	Projects               []ProjectRef             `json:"projects,omitempty"`
+	BootstrapGoals         []BootstrapGoal          `json:"bootstrap_goals,omitempty"`
+	Limits                 Limits                   `json:"limits"`
+	CheckoutModes          map[string]string        `json:"checkout_modes,omitempty"`
 }
 type Decision struct {
 	ID, Command         string

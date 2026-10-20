@@ -18,6 +18,7 @@ type NativeEngineering interface {
 	Tick(context.Context) (bool, error)
 }
 type MasterRuntime struct {
+	Collector        *GitHubCollector
 	continuationStep <-chan continuationCheck
 	continuationTurn *MasterTurn
 	Comms            *MasterComms
@@ -61,11 +62,27 @@ func (e *Engine) initMaster() error {
 	if e.Checkouts == nil {
 		return errors.New("native checkouts unavailable")
 	}
+	var collector *GitHubCollector
+	if e.Config.GitHubCache != nil && e.Config.GitHubCache.Enabled {
+		reader = NewCachedNativeReader(e.Config, reader, client, e.Clock)
+		if github, ok := e.GitHub.(*GitHubClient); ok && len(e.Config.GitHubCache.CollectRoutes) > 0 {
+			source := NewGitHubObservationSource(github).(*githubObservationSource)
+			source.yield = func(ctx context.Context) error {
+				release, err := lockNativeProducer(e.Config)
+				if err != nil {
+					return err
+				}
+				release()
+				return ctx.Err()
+			}
+			collector = NewGitHubCollector(e.Config, client, source, e.Clock)
+		}
+	}
 	engineering, err := NewNativeDispatcher(e.Config, client, reader, e.OpenCode, e.Checkouts, e.Clock)
 	if err != nil {
 		return err
 	}
-	e.MasterRuntime = &MasterRuntime{Comms: comms, Engineering: engineering}
+	e.MasterRuntime = &MasterRuntime{Comms: comms, Engineering: engineering, Collector: collector}
 	return nil
 }
 func (e *Engine) tickMaster(ctx context.Context) (result error) {
@@ -184,6 +201,9 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 		}
 		return err
 	}
+	if r.Collector != nil && !paused && !m.Recovery && !engineeringHeld {
+		r.Collector.Tick(ctx)
+	}
 	if handled, e := r.tickContinuation(ctx); e != nil || handled {
 		return e
 	}
@@ -255,6 +275,9 @@ func (e *Engine) runMaster(ctx context.Context) error {
 	defer release()
 	if err = e.initMaster(); err != nil {
 		return err
+	}
+	if e.MasterRuntime.Collector != nil {
+		defer e.MasterRuntime.Collector.Close()
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

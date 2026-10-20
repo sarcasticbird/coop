@@ -411,7 +411,7 @@ func TestRemoteCommandClassificationExhaustive(t *testing.T) {
 		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover",
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team inspect",
 		"goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
-		"mcp serve", "mcp stdio", "mcp inspect", "mcp register")
+		"mcp serve", "mcp stdio", "mcp inspect", "mcp register", "cache status")
 	// Inventory/ls aggregate on the controller rather than executing a remote CLI.
 	controller := []string{"host-exec", "tui-exec", "inventory", "ls", "tui", "server add", "server update", "server remove", "server list", "help", "completion bash", "completion fish", "completion powershell", "completion zsh"}
 	classified := map[string]bool{"": true}

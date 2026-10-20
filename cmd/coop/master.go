@@ -77,6 +77,9 @@ func installMasterCommands(root *cobra.Command) {
 		if err = store.Configure(cmd.Context(), cfg.Principals, cfg.Placements); err != nil {
 			return err
 		}
+		if err = store.ConfigureGitHubCache(cmd.Context(), cfg.GitHubCache); err != nil {
+			return err
+		}
 		privateConfig, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -107,5 +110,5 @@ func installMasterCommands(root *cobra.Command) {
 	installMasterRecovery(masterCmd)
 	masterCmd.AddCommand(serve)
 	root.AddCommand(masterCmd)
-	root.AddCommand(threadCommand(), messageCommand(), teamCommand(), inboxCommand(), goalCommand())
+	root.AddCommand(threadCommand(), messageCommand(), teamCommand(), inboxCommand(), goalCommand(), cacheCommand())
 }

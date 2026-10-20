@@ -24,6 +24,7 @@ type NativeMaster interface {
 const NativeCatalogTimeout = 5 * time.Minute
 
 type NativeCatalog struct {
+	Cache *NativeCacheCoverage
 	// TaskScope is nonempty for a validation-only view; never cache it as discovery.
 	TaskScope string
 	Goals     []c.GoalAuthority

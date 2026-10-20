@@ -786,7 +786,15 @@ func (g *GitHubClient) readProjectView(ctx context.Context, p ProjectRef, tasks 
 	// through an issue's memberships. Preserve the bounded Project-side reader
 	// for those cases; a quota/transport failure must retain its original retry.
 	if !selectedOnly || err != nil || len(items) < len(tasks) {
-		items, err = g.connection(ctx, p.Owner, itemsQuery, map[string]any{"id": project.ID}, []string{"node", "items"})
+		if g.cacheRegisteredOnly {
+			if !selectedOnly || err != nil {
+				return ghError("cache_project_membership_unavailable")
+			}
+			// A complete readable membership connection can legitimately omit
+			// this board. It is not permission to enumerate unrelated items.
+		} else {
+			items, err = g.connection(ctx, p.Owner, itemsQuery, map[string]any{"id": project.ID}, []string{"node", "items"})
+		}
 	}
 	if err != nil {
 		return err

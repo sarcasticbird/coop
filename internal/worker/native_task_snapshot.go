@@ -201,6 +201,11 @@ func nativeValidationSnapshot(ctx context.Context, cfg Config, master NativeMast
 	case "implement", "fix", "review", "qa", "deliver":
 		return reader.NativeTaskSnapshot(ctx, cfg, master, job, extra...)
 	default:
+		if live, ok := reader.(interface {
+			NativeLiveSnapshot(context.Context, Config, NativeMaster) (NativeCatalog, error)
+		}); ok {
+			return live.NativeLiveSnapshot(ctx, cfg, master)
+		}
 		return reader.NativeSnapshot(ctx, cfg, master)
 	}
 }

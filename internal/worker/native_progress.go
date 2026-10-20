@@ -33,6 +33,11 @@ type NativeProgress struct {
 // retries an action or mistakes a quiet running turn for a stalled admission.
 func (d *NativeDispatcher) Progress() NativeProgress {
 	p := NativeProgress{LastCatalogRead: d.catalog.ReadAt, NextCatalogRead: d.nextRefresh}
+	if d.catalog.Cache != nil {
+		for ref := range d.catalog.Cache.Reasons {
+			p.Blocked = append(p.Blocked, NativeBlocker{JobID: BodyHash("cache:" + ref), Task: ref, Reason: "cache_refresh_wait"})
+		}
+	}
 	// Candidate construction is local and uses the same authority/ownership
 	// checks as admission. Ignore history here so spent attempts stay visible.
 	for _, v := range NativeCandidates(d.config, d.catalog, nil, d.clock.Now()) {
@@ -95,6 +100,18 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		if (x.Phase == "selected" || x.Phase == "prepared") && !x.SelectedAt.IsZero() && d.clock.Now().Sub(x.SelectedAt) >= nativeAdmissionStall {
 			p.Reason = "native_admission_stalled"
 		}
+		if d.catalog.Cache != nil && x.Phase == "selected" && x.Job.SessionID == "" && x.Job.MessageID == "" && x.Job.Kind == "review" && nativeCacheTaskReady(d.catalog, x.Job.TaskURL, d.clock.Now()) {
+			for _, task := range d.catalog.Tasks {
+				if task.Task.URL != x.Job.TaskURL {
+					continue
+				}
+				for _, pr := range task.PRs {
+					if pr.URL == x.Job.PRURL && pr.HeadSHA == x.Job.HeadSHA && nativeNeedsBranchRefresh(pr) {
+						p.Reason = "native_branch_refresh_wait"
+					}
+				}
+			}
+		}
 		if x.Phase == "active" && !x.Job.Deadline.IsZero() && !d.clock.Now().Before(x.Job.Deadline) {
 			p.Reason = "native_turn_overdue"
 		}
@@ -106,6 +123,9 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.Reason = "native_catalog_unavailable"
 	} else if p.Current == nil && len(p.Blocked) > 0 {
 		p.Reason = "native_task_wait"
+		if p.Blocked[0].Reason == "cache_refresh_wait" {
+			p.Reason = "cache_refresh_wait"
+		}
 		p.PrimaryJobID = p.Blocked[0].JobID
 		for _, b := range p.Blocked {
 			if b.Reason != "native_dependency_wait" && b.Reason != "native_dependency_retry" && b.Reason != "native_dependency_recovery_required" {
