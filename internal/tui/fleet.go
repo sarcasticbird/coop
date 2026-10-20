@@ -29,11 +29,12 @@ type Inventory interface {
 }
 
 type Services struct {
-	Version   string
-	Inventory Inventory
-	Registry  Registry
-	Actions   hostrouter.ActionClient
-	Terminal  hostrouter.TerminalClient
+	Coordination Coordination
+	Version      string
+	Inventory    Inventory
+	Registry     Registry
+	Actions      hostrouter.ActionClient
+	Terminal     hostrouter.TerminalClient
 	// Foreground uses the existing CLI on the released controlling terminal.
 	Foreground func(context.Context, hostrouter.ActionRequest) (*exec.Cmd, error)
 }
@@ -62,6 +63,7 @@ type pendingAction struct {
 }
 
 type fleetModel struct {
+	coordination          coordState
 	services              Services
 	ctx                   context.Context
 	hosts                 []hostState
@@ -206,6 +208,8 @@ func (m *fleetModel) reconcile() {
 
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case coordResult:
+		return m.coordUpdate(msg)
 	case operationStarted:
 		if !m.active || msg.request != m.actionSequence || msg.target != m.activeTarget {
 			return m, nil
@@ -217,6 +221,9 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, fleetClock())
 	case fleetTick:
 		cmd := m.refresh()
+		if m.workspace == 1 && m.coordination.follow && m.coordination.form == nil && !m.coordination.busy {
+			return m, tea.Batch(cmd, m.coordLoad(false), fleetClock())
+		}
 		return m, tea.Batch(cmd, fleetClock())
 	case registryLoaded:
 		if msg.epoch != m.epoch {
@@ -397,6 +404,23 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		return m.keyForm(k)
 	}
+	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
+		out, cmd := m.coordKey(k)
+		updated := out.(fleetModel)
+		if key == "up" || key == "down" || key == "k" || key == "j" || key == "tab" || key == "shift+tab" || key == "esc" {
+			_, _, selected := updated.content()
+			if selected >= 0 && updated.height > 0 {
+				limit := max(1, updated.height-2)
+				if selected < updated.scroll {
+					updated.scroll = selected
+				}
+				if selected >= updated.scroll+limit {
+					updated.scroll = selected - limit + 1
+				}
+			}
+		}
+		return updated, cmd
+	}
 	switch key {
 	case "v":
 		m.runbook, m.scroll = true, 0
@@ -416,6 +440,9 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "2":
 		m.workspace = 1
 		m.scroll = 0
+		if m.coordination.seen.IsZero() {
+			return m, m.coordLoad(false)
+		}
 	case "3":
 		m.workspace = 2
 		m.scroll = 0
@@ -709,7 +736,13 @@ func (m fleetModel) content() ([]string, string, int) {
 	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
-		lines = append(lines, "Coordination workflows are a separate implementation slice.")
+		lines = append(lines, m.coordLines()...)
+		for i, line := range lines {
+			if strings.HasPrefix(line, "> ") {
+				selectedLine = i
+				break
+			}
+		}
 	} else {
 		if m.workspace == 0 {
 			lines = append(lines, "HOST / KIND / TARGET   STATE")
@@ -790,6 +823,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.help {
 		selectedLine = -1
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | tab: focus detail", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: u up | s stop | d destroy | enter terminal", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc clear")
 	}
 	if m.operations != nil {
 		lines = m.operationLines()
@@ -833,6 +867,15 @@ func (m fleetModel) content() ([]string, string, int) {
 		lines = append(lines, strings.Split(m.output, "\n")...)
 	}
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
+	if m.workspace == 1 {
+		footer = "t/l/i/g sections | r refresh | f follow | ] next | ? help | esc back | 1/3 workspace | q quit"
+		if m.coordination.form != nil {
+			footer = "Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear"
+		}
+		if m.coordination.busy {
+			footer = "Coordination request in progress; no automatic mutation retries | Ctrl+C quit"
+		}
+	}
 	if m.workspace == 0 {
 		footer += " | u up / s stop / d destroy / enter terminal"
 	}

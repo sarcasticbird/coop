@@ -62,7 +62,12 @@ to cancel. Server names cannot be renamed by an update. Removal and destroy
 identify the captured host and destination and require `y`. Busy mutations
 serialize further mutations; Escape requests cancellation when supported and
 Ctrl+C quits. Inventory results from before an action are dropped.
-Coordination is explicitly the #94 workflow slice, not a functioning screen yet.
+Coordination uses the injected identity-pinned master client, separately from
+Fleet host selection. Team, threads, inbox, private compose/reply, receipts and
+exact-revision goal workflows are documented in
+[`docs/fleet-tui.md`](../../docs/fleet-tui.md), including complete command coverage
+and the `fleet-tui-uat-v1` checklist. Coordination forms use Ctrl+S to preview and
+submit, Ctrl+V to reveal masked input, and Ctrl+R to retry identical frozen input.
 Operational forms, safeguards, command coverage and fixture UAT are documented in
 [`docs/tui-operations.md`](../../docs/tui-operations.md). Forms never accept raw
 shell commands or credential values. Config and archive paths are host-owned.
