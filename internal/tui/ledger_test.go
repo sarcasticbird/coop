@@ -236,3 +236,54 @@ func TestLedgerConnectRechecksLifecycleAtConfirmation(t *testing.T) {
 		t.Fatal("confirmation used an obsolete running state")
 	}
 }
+
+func TestLedgerResizeKeepsSelectedHighlightVisible(t *testing.T) {
+	m := fixtureFleet()
+	m.hosts = m.hosts[:1]
+	m.hosts[0].entries = nil
+	m.selected = hostrouter.Target{}
+	m.width, m.height = 120, 40
+	for i := range 20 {
+		m.hosts[0].entries = append(m.hosts[0].entries, fixtureRow(hostrouter.Local, hostrouter.Agent, fmt.Sprintf("long-but-valid-agent-profile-%02d", i)))
+	}
+	for range 15 {
+		m, _ = fleetKey(m, "down")
+	}
+	target := m.selected
+	if target.ID != "long-but-valid-agent-profile-14" || !strings.Contains(m.View(), "> "+identity(target)) {
+		t.Fatal("wide Ledger did not show the selected target")
+	}
+	for _, size := range []struct{ width, height int }{{40, 20}, {80, 24}, {120, 40}, {40, 20}} {
+		out, cmd := m.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+		m = out.(fleetModel)
+		// Join physical lines to check the complete stable identity, not just
+		// some other visible selection marker or an off-screen model value.
+		view := strings.Join(strings.Split(m.View(), "\n"), "")
+		if cmd != nil || m.selected != target || !strings.Contains(view, "> "+identity(target)) {
+			t.Fatalf("resize to %dx%d hid or changed the selected target:\n%s", size.width, size.height, m.View())
+		}
+		if maxLineWidth(m.View()) > size.width || len(strings.Split(m.View(), "\n")) > size.height {
+			t.Fatal("resized Ledger exceeds terminal bounds")
+		}
+	}
+	m, cmd := fleetKey(m, "enter")
+	if cmd != nil || !m.detail || m.detailEntry.Target != target {
+		t.Fatal("Enter did not open Details for the visible selected target")
+	}
+}
+
+func TestLedgerResizePreservesVisibleManualScroll(t *testing.T) {
+	m := fixtureFleet()
+	m.width, m.height = 120, 40
+	// Pad the Ledger so paging is meaningful without changing its target.
+	for i := range 20 {
+		m.hosts = append(m.hosts, hostState{host: hostrouter.Host{Name: fmt.Sprintf("empty-%02d", i)}})
+	}
+	m, _ = fleetKey(m, "pgdown")
+	scroll, target := m.scroll, m.selected
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = out.(fleetModel)
+	if scroll == 0 || m.scroll != scroll || m.selected != target || !strings.Contains(m.View(), "> "+identity(target)) {
+		t.Fatal("resize disturbed intentional scroll despite a visible selected target")
+	}
+}

@@ -169,3 +169,15 @@ the foreground callback without attaching a live guest; they do not establish
 real Blackbook/rack-mini PTY behavior. Robin exact-head approval, Wren private
 exact-runtime QA, CI, live operator UAT and rollout remain separate gates. Stage
 4 still owns complete long-confirmation review and the remaining setup/help parity.
+
+Stage-1 review follow-up: Robin's populated-Ledger resize case reproduced on
+`f0a58f5322f9bd7e1819dc725a5ebc07c65c6524`: shrinking from 120x40 to 40x20
+left profile 14 selected but off-screen. Resize now recomputes the selected
+physical row and re-anchors only when its highlight would be outside the viewport;
+visible manual paging is retained. `TestLedgerResizeKeepsSelectedHighlightVisible`
+covers wide/narrow/medium transitions and Details entry for the visible identity;
+`TestLedgerResizePreservesVisibleManualScroll` guards intentional paging. The
+focused reproduction failed before the fix and passed after it. Scoped tests,
+vet, no-color checks, formatting and diff checks passed again. Race testing in
+this author environment is still blocked by disabled CGO / missing `gcc`; Robin's
+previous-head race pass is not a current-head validation result.

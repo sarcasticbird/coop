@@ -392,6 +392,23 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.workspace == 0 && !m.detail && !m.filtering && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && m.height > 0 {
+			lines, _, selectedLine := m.content()
+			if selectedLine >= 0 {
+				limit := max(1, m.height-2)
+				maxScroll := max(0, len(lines)-limit)
+				if m.height >= 4 {
+					selectedLine-- // Match the pinned Fleet context in View.
+					limit--
+				}
+				m.scroll = min(m.scroll, maxScroll)
+				if selectedLine < m.scroll || selectedLine >= m.scroll+limit {
+					// Re-anchor by identity after wrapping changes, not by the
+					// previous physical-line offset. Otherwise leave paging alone.
+					m.scroll = min(selectedLine, maxScroll)
+				}
+			}
+		}
 	case tea.KeyMsg:
 		return m.keyFleet(msg)
 	}
