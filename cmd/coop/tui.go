@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sarcasticbird/coop/internal/hostrouter"
+	"github.com/sarcasticbird/coop/internal/masterclient"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/tui"
 	"github.com/spf13/cobra"
@@ -95,7 +96,7 @@ func tuiForegroundCommand(ctx context.Context, req hostrouter.ActionRequest, cre
 	return tuiCommand(ctx, req)
 }
 
-func runOperationalTUI(_ runtime.Runtime, credentials []string) (tui.Result, error) {
+func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig string) (tui.Result, error) {
 	r, err := hostrouter.DefaultRegistry()
 	if err != nil {
 		return tui.Result{}, err
@@ -103,9 +104,19 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string) (tui.Result, err
 	foreground := func(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
 		return tuiForegroundCommand(ctx, req, credentials)
 	}
+	if masterConfig == "" {
+		masterConfig = defaultMasterClientPath()
+	}
+	// A missing/invalid private config must not disable the fleet browser or
+	// expose credential/path details. Coordination renders its unavailable state.
+	var coordination tui.Coordination
+	if client, err := masterclient.LoadConfig(masterConfig); err == nil {
+		coordination = client
+	}
 	return tui.RunWithServices(tui.Services{Registry: r, Version: resolvedVersion(),
-		Inventory: hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
-		Actions:   tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: foreground})
+		Coordination: coordination,
+		Inventory:    hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
+		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: foreground})
 }
 
 func tuiExecCommand() *cobra.Command {
