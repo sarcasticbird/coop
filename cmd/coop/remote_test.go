@@ -413,7 +413,7 @@ func TestRemoteCommandClassificationExhaustive(t *testing.T) {
 		"goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register")
 	// Inventory/ls aggregate on the controller rather than executing a remote CLI.
-	controller := []string{"host-exec", "inventory", "ls", "tui", "server add", "server update", "server remove", "server list", "help", "completion bash", "completion fish", "completion powershell", "completion zsh"}
+	controller := []string{"host-exec", "tui-exec", "inventory", "ls", "tui", "server add", "server update", "server remove", "server list", "help", "completion bash", "completion fish", "completion powershell", "completion zsh"}
 	classified := map[string]bool{"": true}
 	for _, name := range remote {
 		classified[name] = true

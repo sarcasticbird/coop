@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -15,6 +16,26 @@ import (
 	"github.com/muesli/cancelreader"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 )
+
+// Bubble Tea reinitializes raw mode after exec and captures a new baseline.
+// Restore the original cooked state first, even if a child exits in raw mode.
+type foregroundCommand struct{ command *exec.Cmd }
+
+func (c *foregroundCommand) SetStdin(r io.Reader)  { c.command.Stdin = r }
+func (c *foregroundCommand) SetStdout(w io.Writer) { c.command.Stdout = w }
+func (c *foregroundCommand) SetStderr(w io.Writer) { c.command.Stderr = w }
+func (c *foregroundCommand) Run() (err error) {
+	file, ok := c.command.Stdin.(*os.File)
+	if !ok || !term.IsTerminal(file.Fd()) {
+		return errors.New("foreground action requires terminal stdin")
+	}
+	state, err := term.GetState(file.Fd())
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, term.Restore(file.Fd(), state)) }()
+	return c.command.Run()
+}
 
 // Bubble Tea releases its input reader and alternate screen before Run and
 // redraws the model afterward. Only this presentation bridge owns raw mode.

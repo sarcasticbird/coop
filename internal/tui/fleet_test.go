@@ -57,7 +57,7 @@ type fixtureActions struct{ requests []hostrouter.ActionRequest }
 
 func (a *fixtureActions) Execute(_ context.Context, r hostrouter.ActionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (hostrouter.ActionResult, error) {
 	a.requests = append(a.requests, r)
-	return hostrouter.ActionResult{}, nil
+	return hostrouter.ActionResult{Target: r.Target}, nil
 }
 
 type inventoryFunc func(context.Context, hostrouter.Host) ([]hostrouter.InventoryEntry, error)
@@ -401,7 +401,7 @@ func TestFleetActionCancellationAndRemoteProjectContract(t *testing.T) {
 	m.services.Actions = actionFunc(func(ctx context.Context, r hostrouter.ActionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (hostrouter.ActionResult, error) {
 		started <- r
 		<-ctx.Done()
-		return hostrouter.ActionResult{}, ctx.Err()
+		return hostrouter.ActionResult{Target: r.Target}, ctx.Err()
 	})
 	m, cmd := fleetKey(m, "s")
 	if cmd == nil {

@@ -975,7 +975,7 @@ func TestTUIEntryOffersFirstBuild(t *testing.T) {
 	}
 	t.Cleanup(func() { buildImage = oldBuild })
 	oldTUI, oldSession := runTUI, runSession
-	runTUI = func(runtime.Runtime) (tui.Result, error) {
+	runTUI = func(runtime.Runtime, []string) (tui.Result, error) {
 		return tui.Result{EnterWorkdir: project}, nil
 	}
 	entered := false
@@ -1380,7 +1380,10 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldTUI, oldSession := runTUI, runSession
-	runTUI = func(runtime.Runtime) (tui.Result, error) {
+	runTUI = func(_ runtime.Runtime, credentials []string) (tui.Result, error) {
+		if !slices.Equal(credentials, []string{"aws-dev", "github"}) {
+			t.Fatalf("launcher credentials = %v", credentials)
+		}
 		return tui.Result{EnterWorkdir: project}, nil
 	}
 	var got []string
@@ -1412,7 +1415,7 @@ func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
 	}
 
 	oldTUI, oldSession, oldWarnings := runTUI, runSession, warningOutput
-	runTUI = func(runtime.Runtime) (tui.Result, error) {
+	runTUI = func(runtime.Runtime, []string) (tui.Result, error) {
 		return tui.Result{EnterWorkdir: project}, nil
 	}
 	runSession = func(*session.Session, string, []string, []string) error { return nil }
