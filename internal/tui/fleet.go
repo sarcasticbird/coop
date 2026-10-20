@@ -68,6 +68,13 @@ type fleetModel struct {
 	ctx                   context.Context
 	hosts                 []hostState
 	selected              hostrouter.Target
+	filter                hostrouter.Host
+	filtering             bool
+	filterIndex           int
+	filterChoices         []hostrouter.Host
+	ledgerScroll          int
+	detailEntry           *hostrouter.InventoryEntry
+	detailInvalid         bool
 	server                hostrouter.Host
 	workspace             int
 	detail, help          bool
@@ -164,12 +171,18 @@ func nextHost(ch <-chan hostrouter.HostInventory, epoch uint64) tea.Cmd {
 func (m fleetModel) rows() []hostrouter.InventoryEntry {
 	var rows []hostrouter.InventoryEntry
 	for _, h := range m.hosts {
+		if m.filter != (hostrouter.Host{}) && h.host != m.filter {
+			continue
+		}
 		rows = append(rows, h.entries...)
 	}
 	return rows
 }
 
 func (m fleetModel) entry(t hostrouter.Target) (hostrouter.InventoryEntry, bool) {
+	if m.registryError != "" && t.Host != hostrouter.Local {
+		return hostrouter.InventoryEntry{}, false
+	}
 	for _, h := range m.hosts {
 		if h.host == t.Host && h.errorCode == "" && !h.updated.IsZero() {
 			for _, e := range h.entries {
@@ -191,8 +204,43 @@ func (m *fleetModel) reconcile() {
 	}
 	if !found {
 		m.selected = hostrouter.Target{}
-		if rows := m.rows(); len(rows) > 0 {
-			m.selected = rows[0].Target
+	}
+	if m.detailEntry != nil {
+		e, ok := m.entry(m.detailEntry.Target)
+		// Disconnection is transient, but changed placement or identity requires
+		// fresh explicit intent, even if the old target later reappears.
+		present := false
+		for _, row := range m.rows() {
+			if row.Target == m.detailEntry.Target {
+				present = true
+			}
+		}
+		if !present || (ok && (e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project)) {
+			m.detailInvalid = true
+		}
+	}
+	if m.pending != nil && m.pending.entry.Target.Kind != "" {
+		present := false
+		for _, row := range m.rows() {
+			if row.Target == m.pending.entry.Target && row.Name == m.pending.entry.Name && row.Project == m.pending.entry.Project {
+				present = true
+			}
+		}
+		if !present {
+			m.pending = nil
+			m.status = "Captured target changed or removed; action cancelled; select again"
+		}
+	}
+	if m.operations != nil && m.operations.entry.Target.Kind != "" {
+		present := false
+		for _, row := range m.rows() {
+			if row.Target == m.operations.entry.Target && row.Name == m.operations.entry.Name && row.Project == m.operations.entry.Project {
+				present = true
+			}
+		}
+		if !present {
+			m.operations = nil
+			m.status = "Captured target changed or removed; action cancelled; select again"
 		}
 	}
 	found = false
@@ -233,6 +281,11 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.registryError = "registry unavailable: " + msg.err.Error()
 			msg.hosts = nil
+			for _, old := range m.hosts {
+				if old.host != hostrouter.Local {
+					msg.hosts = append(msg.hosts, old.host)
+				}
+			}
 		}
 		hosts := append([]hostrouter.Host{hostrouter.Local}, msg.hosts...)
 		sort.Slice(hosts, func(i, j int) bool {
@@ -371,6 +424,8 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "esc" && m.actionCancel != nil {
 			m.actionCancel()
 			m.status = "cancelling; remote outcome may be unknown; refresh before retry"
+		} else {
+			m.status = "Operation in progress; control blocked, not queued; Esc cancels if supported"
 		}
 		return m, nil
 	}
@@ -403,6 +458,76 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.form != nil {
 		return m.keyForm(k)
+	}
+	if m.filtering {
+		switch key {
+		case "esc", "h":
+			m.filtering = false
+			m.scroll = m.ledgerScroll
+		case "up", "k":
+			m.filterIndex = max(0, m.filterIndex-1)
+		case "down", "j":
+			m.filterIndex = min(len(m.filterChoices), m.filterIndex+1)
+		case "enter":
+			m.filter = hostrouter.Host{}
+			if m.filterIndex > 0 && m.filterIndex <= len(m.filterChoices) {
+				m.filter = m.filterChoices[m.filterIndex-1]
+			}
+			m.filtering, m.detail = false, false
+			m.selected = hostrouter.Target{}
+			m.detailEntry = nil
+			m.scroll = 0
+			m.status = "filter changed; select a target explicitly"
+		}
+		if key == "up" || key == "k" || key == "down" || key == "j" {
+			_, _, selectedLine := m.content()
+			limit := max(1, m.height-3)
+			selectedLine--
+			if selectedLine < m.scroll {
+				m.scroll = max(0, selectedLine)
+			}
+			if selectedLine >= m.scroll+limit {
+				m.scroll = selectedLine - limit + 1
+			}
+		}
+		return m, nil
+	}
+	if m.workspace == 0 && !m.detail {
+		switch key {
+		case "h":
+			m.filtering, m.filterIndex, m.ledgerScroll = true, 0, m.scroll
+			m.filterChoices = nil
+			for _, h := range m.hosts {
+				m.filterChoices = append(m.filterChoices, h.host)
+			}
+			m.scroll = 0
+			return m, nil
+		case "enter", "tab", "shift+tab", "u", "s", "d", "x":
+			for _, e := range m.rows() {
+				if e.Target == m.selected {
+					m.detail, m.detailEntry, m.detailInvalid = true, &e, false
+					m.ledgerScroll, m.scroll, m.status = m.scroll, 0, ""
+					if key != "enter" && key != "tab" && key != "shift+tab" {
+						m.status = "Details opened; choose an action explicitly"
+					}
+					return m, nil
+				}
+			}
+			m.status = "No target selected; use up/down to select, then Enter for Details"
+			return m, nil
+		}
+	}
+	if m.workspace == 0 && m.detail && (key == "enter" || key == "u" || key == "s" || key == "d" || key == "x") {
+		if m.detailInvalid || m.detailEntry == nil {
+			m.status = "Target changed or removed; return to Fleet and select again"
+			return m, nil
+		}
+		e, ok := m.entry(m.detailEntry.Target)
+		if !ok || e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project {
+			m.status = "selected host inventory is not authoritative or target changed; refresh and select again"
+			return m, nil
+		}
+		m.selected = m.detailEntry.Target
 	}
 	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
@@ -447,17 +572,16 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.workspace = 2
 		m.scroll = 0
 	case "tab", "shift+tab":
-		m.detail = !m.detail
-		if m.workspace == 0 && m.height > 0 {
-			lines, _, selectedLine := m.content()
-			if m.detail {
-				m.scroll = max(0, len(lines)-max(1, m.height-2))
-			} else {
-				m.scroll = max(0, selectedLine-max(1, m.height-2)+1)
-			}
+		if m.workspace == 0 && m.detail {
+			m.detail, m.detailEntry = false, nil
+			m.scroll = m.ledgerScroll
 		}
 	case "esc":
+		if m.workspace == 0 && m.detail {
+			m.scroll = m.ledgerScroll
+		}
 		m.detail = false
+		m.detailEntry = nil
 		m.status = ""
 	case "r":
 		return m, m.refresh()
@@ -468,12 +592,24 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			delta = -1
 		}
 		if m.workspace == 0 {
+			if m.detail {
+				return m, nil
+			}
 			rows := m.rows()
+			found := false
 			for i, e := range rows {
 				if e.Target == m.selected {
+					found = true
 					m.selected = rows[max(0, min(len(rows)-1, i+delta))].Target
 					break
 				}
+			}
+			if !found && len(rows) > 0 {
+				index := 0
+				if delta < 0 {
+					index = len(rows) - 1
+				}
+				m.selected = rows[index].Target
 			}
 		} else if m.workspace == 2 {
 			for i, h := range m.hosts {
@@ -487,6 +623,10 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			lines, _, selectedLine := m.content()
 			if selectedLine >= 0 && m.height > 0 {
 				limit := max(1, m.height-2)
+				if m.workspace == 0 {
+					selectedLine-- // Fleet context occupies a pinned line.
+					limit = max(1, m.height-3)
+				}
 				if selectedLine < m.scroll {
 					m.scroll = selectedLine
 				}
@@ -531,6 +671,11 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		op := map[string]string{"u": "up", "s": "down", "enter": "enter"}[key]
 		if (op == "enter" || op == "down") && e.State != "running" {
 			m.status = identity(e.Target) + " is not running"
+			return m, nil
+		}
+		if op == "enter" {
+			m.pending = &pendingAction{entry: e, operation: op}
+			m.scroll = 0
 			return m, nil
 		}
 		return m.dispatch(pendingAction{entry: e, operation: op})
@@ -623,6 +768,10 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if p.operation == "enter" {
+		if e.State != "running" {
+			m.status = identity(e.Target) + " is not running; connect cancelled"
+			return m, nil
+		}
 		if m.services.Terminal != nil && (e.Target.Host != hostrouter.Local || m.legacy == nil) {
 			m.busy = true
 			m.epoch++
@@ -745,7 +894,25 @@ func (m fleetModel) content() ([]string, string, int) {
 		}
 	} else {
 		if m.workspace == 0 {
-			lines = append(lines, "HOST / KIND / TARGET   STATE")
+			scope := "All"
+			hiddenHosts, hiddenTargets := 0, 0
+			if m.filter != (hostrouter.Host{}) {
+				scope = m.filter.Name + " (" + valueOr(m.filter.Address, "this machine") + ")"
+				for _, h := range m.hosts {
+					if h.host != m.filter {
+						hiddenHosts++
+						hiddenTargets += len(h.entries)
+					}
+				}
+			}
+			lines = append(lines, "Fleet Ledger | Filter: "+scope, fmt.Sprintf("Hidden: %d hosts / %d cached targets", hiddenHosts, hiddenTargets))
+			lines[0] = fmt.Sprintf("Fleet | %dH/%dT hidden | Filter: %s", hiddenHosts, hiddenTargets, scope)
+			if m.width > 0 {
+				lines[0] = textansi.Truncate(lines[0], m.width, "...")
+			}
+			if m.selected == (hostrouter.Target{}) && !m.detail {
+				lines = append(lines, "No target selected")
+			}
 		} else {
 			lines = append(lines, "HOST   CONFIGURED SSH REFERENCE")
 		}
@@ -770,11 +937,17 @@ func (m fleetModel) content() ([]string, string, int) {
 					state += "; stale snapshot " + time.Since(h.updated).Round(time.Second).String() + " old"
 				}
 			}
+			if m.registryError != "" && h.host != hostrouter.Local {
+				state = "registry unavailable; cached destination; actions blocked"
+			}
 			if h.loading && h.updated.IsZero() && h.errorCode == "" {
 				state += "; refreshing"
 			}
 			if h.host == m.selected.Host {
 				selectedHealth = state
+			}
+			if m.workspace == 0 && m.filter != (hostrouter.Host{}) && h.host != m.filter {
+				continue
 			}
 			prefix := "  "
 			if m.workspace == 2 && h.host == m.server {
@@ -803,7 +976,11 @@ func (m fleetModel) content() ([]string, string, int) {
 				if h.errorCode != "" {
 					prefix += "[stale] "
 				}
-				body = append(body, prefix+identity(e.Target)+"   "+e.State)
+				row := prefix + identity(e.Target) + "   VM: " + e.State
+				if m.width > 0 {
+					row = textansi.Hardwrap(row, m.width, true)
+				}
+				body = append(body, strings.Split(row, "\n")...)
 			}
 		}
 		for _, line := range body {
@@ -812,22 +989,40 @@ func (m fleetModel) content() ([]string, string, int) {
 			}
 			lines = append(lines, line)
 		}
-		if m.workspace == 0 {
-			for _, e := range m.rows() {
-				if e.Target == m.selected && (m.detail || m.width >= 100) {
-					health := "Host health: " + selectedHealth
-					if m.width > 0 {
-						health = textansi.Wrap(health, m.width, "")
-					}
-					lines = append(lines, "", "Selected: "+identity(e.Target), "Name: "+e.Name, "Project: "+valueOr(e.Project, "-"), health)
-					break
-				}
+		if m.workspace == 0 && len(body) == 0 && m.filter != (hostrouter.Host{}) {
+			lines = append(lines, "Filtered host removed or registration changed; h to choose scope")
+		}
+		if m.workspace == 0 && m.detail && m.detailEntry != nil {
+			e := *m.detailEntry
+			state := "unknown (cached " + e.State + ")"
+			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
+				state = current.State
 			}
+			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Agent work / blocker: unknown (not inferred from VM)", "Enter: Connect | x: actions | Esc: Fleet"}
+			selectedLine = -1
+			if m.detailInvalid {
+				lines = append(lines, "Target changed or removed; actions blocked. Return to Fleet and select again.")
+			}
+		}
+	}
+	if m.filtering {
+		lines = []string{"Fleet > Host Filter", "Choose scope; selection clears on change"}
+		choices := append([]hostrouter.Host{{}}, m.filterChoices...)
+		for i, h := range choices {
+			label := "All hosts"
+			if i > 0 {
+				label = h.Name + " (" + valueOr(h.Address, "this machine") + ")"
+			}
+			prefix := "  "
+			if i == m.filterIndex {
+				prefix, selectedLine = "> ", len(lines)
+			}
+			lines = append(lines, prefix+label)
 		}
 	}
 	if m.help {
 		selectedLine = -1
-		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | tab: focus detail", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: u up | s stop | d destroy | enter terminal", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc clear")
 	}
 	if m.operations != nil {
@@ -853,6 +1048,9 @@ func (m fleetModel) content() ([]string, string, int) {
 		impact := "Run the selected operation using this host's configuration and paths?"
 		if m.pending.operation == "destroy" {
 			impact = "Remove this Coop and its persistent state volumes?"
+		}
+		if m.pending.operation == "enter" {
+			impact = "Connect on the foreground terminal? Ctrl+] detaches; Ctrl+D may end the guest shell. Return to Details; no automatic reconnect."
 		}
 		lines = []string{"CONFIRM " + strings.ToUpper(m.pending.operation), "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: " + valueOr(m.pending.entry.Project, "-"), impact + " [y/N; esc cancels]"}
 		if m.pending.directory != "" {
@@ -882,7 +1080,13 @@ func (m fleetModel) content() ([]string, string, int) {
 		}
 	}
 	if m.workspace == 0 {
-		footer += " | u up / s stop / d destroy / enter terminal"
+		footer = "Enter Details | h filter | ? help"
+		if m.detail {
+			footer = "Enter Connect | x actions | Esc | ? help"
+		}
+		if m.filtering {
+			footer = "Enter apply | Esc cancel | arrows select"
+		}
 	}
 	if m.workspace == 2 {
 		footer += " | a add / e edit / d remove"
@@ -915,14 +1119,30 @@ func (m fleetModel) View() string {
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)
-		start := min(m.scroll, max(0, len(content)-limit))
-		content = content[start:min(len(content), start+limit)]
+		if m.workspace == 0 && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
+			pinned := content[0]
+			content = content[1:]
+			limit--
+			start := min(m.scroll, max(0, len(content)-limit))
+			content = append([]string{pinned}, content[start:min(len(content), start+limit)]...)
+		} else {
+			start := min(m.scroll, max(0, len(content)-limit))
+			content = content[start:min(len(content), start+limit)]
+		}
 		if total > limit {
-			footer = "PgUp/PgDn scroll | " + footer
+			footer += " | PgUp/PgDn scroll"
 		}
 	}
 	if m.width > 0 {
 		footer = textansi.Truncate(footer, m.width, "...")
 	}
-	return strings.Join(append(content, "", footer), "\n")
+	feedback := m.status
+	if m.registryError != "" {
+		feedback = m.registryError
+	}
+	feedback = strings.Join(strings.Fields(feedback), " ")
+	if m.width > 0 {
+		feedback = textansi.Truncate(feedback, m.width, "...")
+	}
+	return strings.Join(append(content, feedback, footer), "\n")
 }

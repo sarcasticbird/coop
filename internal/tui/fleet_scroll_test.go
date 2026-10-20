@@ -61,13 +61,14 @@ func TestFleetEntrylessHostsRemainReachable(t *testing.T) {
 				if m.selected != selected {
 					t.Fatal("paging redirected the target selection")
 				}
+				ledgerScroll := m.scroll
 				m, _ = fleetKey(m, "tab")
 				if !strings.Contains(m.View(), "Project: /project") {
 					t.Fatal("details focus did not reveal the selected target's pane")
 				}
 				m, _ = fleetKey(m, "tab")
-				if !strings.Contains(m.View(), "> "+identity(selected)) {
-					t.Fatal("browser focus did not reveal the selected target")
+				if m.detail || m.scroll != ledgerScroll || m.selected != selected {
+					t.Fatal("return from details did not retain ledger scroll and selection")
 				}
 				for range 100 {
 					m, _ = fleetKey(m, "pgup")

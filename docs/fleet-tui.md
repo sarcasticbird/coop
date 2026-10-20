@@ -61,12 +61,15 @@ text is literal. Use `?` for the integrated runtime's contextual help.
 | --- | --- | --- |
 | Browser | `1`, `2`, `3` | Fleet, Coordination, Servers respectively |
 | Browser | arrows or `j` / `k` | Select a row |
-| Browser | `tab` | Focus/show details; in forms, move between fields |
+| Browser | `tab` | Open/return from Fleet Details; in forms, move between fields |
 | Browser | `r`, `?`, `esc` | Refresh, help, back/cancel |
 | Browser | `PgUp`, `PgDn` | Scroll long rows, details, forms and confirmations |
 | Browser | `q`, `Ctrl+C` | Quit; editors handle text contextually |
-| Fleet | `enter`, `u`, `s`, `d` | Terminal, start, stop, destroy confirmation |
-| Fleet/Servers | `x` | Exact-target or selected-host operations menu |
+| Fleet Ledger | `enter`, `tab` | Open full-page Details, never connect directly |
+| Fleet Ledger | `h` | Choose All or an exact host filter; applying clears target selection |
+| Fleet Ledger | `u`, `s`, `d`, `x` | Open Details only; choose an action explicitly there |
+| Details | `enter`, `u`, `s`, `d` | Connect confirmation, start, stop, destroy confirmation |
+| Details/Servers | `x` | Exact-target or selected-host operations menu |
 | Servers | `a`, `e`, `d` | Add, update, remove a server reference |
 | Browser | `v` | Services/About, help/version, completion and advanced runbooks |
 | Coordination | `t`, `l`, `i`, `g` | Team, Threads, Inbox, Goals sections |
@@ -80,6 +83,14 @@ text is literal. Use `?` for the integrated runtime's contextual help.
 | Coordination form | `Ctrl+S` twice | Preview captured request, then explicitly submit it |
 | Coordination | `Ctrl+R` | Retry the identical retained uncertain request, not a new mutation |
 | Private buffer | `Ctrl+V` | Toggle masked/revealed rendering; default is masked |
+
+Fleet opens in All with no target selected. Arrows highlight a stable host/kind/ID;
+Enter opens a single full-page Details body at every width. Empty and unavailable
+hosts remain visible, and paging reaches hosts without targets. A failed read
+retains cached rows, but unavailable inventory or registry authority blocks actions.
+Return from Details restores Ledger scroll, filter and highlight. Removing or
+changing a captured target invalidates its intent, even if it later reappears;
+return and select explicitly instead of using a replacement row.
 
 Host operation forms retain their existing Enter/save and explicit confirmation
 rules, including `y` for destructive confirmation. Do not apply those rules to
@@ -180,7 +191,7 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | Current command | Disposition | Representation and boundary |
 | --- | --- | --- |
 | `coop` | UI | Default shell or agent argv entry through Fleet terminal; normal session and credential handling |
-| `shell` | UI | Fleet Enter or enter operation, real local terminal or remote SSH PTY |
+| `shell` | UI | Fleet -> Details -> Connect confirmation or enter operation, real local terminal or remote SSH PTY |
 | `tui` | UI | Launch browser; no nested TUI action |
 | `ls` | UI | Fleet local inventory; original CLI remains local without host selection |
 | `inventory` | UI | Combined local/registered-host snapshots with independent stale/error health |
