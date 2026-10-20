@@ -33,17 +33,18 @@ type AgentDiagnostics struct {
 }
 
 type DiagnosticWork struct {
-	ObservedAt      time.Time        `json:"observed_at"`
-	JobID           string           `json:"job_id,omitempty"`
-	Stage           string           `json:"stage,omitempty"`
-	Phase           string           `json:"phase,omitempty"`
-	TaskURL         string           `json:"task,omitempty"`
-	PRURL           string           `json:"pr,omitempty"`
-	HeadSHA         string           `json:"head,omitempty"`
-	SessionID       string           `json:"session_id,omitempty"`
-	SubmissionState string           `json:"submission_state,omitempty"`
-	SubmittedModel  *DiagnosticModel `json:"submitted_model,omitempty"`
-	ExecutedModel   *DiagnosticModel `json:"executed_model,omitempty"`
+	Continuation    *TaskContinuationTarget `json:"continuation_target,omitempty"`
+	ObservedAt      time.Time               `json:"observed_at"`
+	JobID           string                  `json:"job_id,omitempty"`
+	Stage           string                  `json:"stage,omitempty"`
+	Phase           string                  `json:"phase,omitempty"`
+	TaskURL         string                  `json:"task,omitempty"`
+	PRURL           string                  `json:"pr,omitempty"`
+	HeadSHA         string                  `json:"head,omitempty"`
+	SessionID       string                  `json:"session_id,omitempty"`
+	SubmissionState string                  `json:"submission_state,omitempty"`
+	SubmittedModel  *DiagnosticModel        `json:"submitted_model,omitempty"`
+	ExecutedModel   *DiagnosticModel        `json:"executed_model,omitempty"`
 }
 
 type DiagnosticModel struct {
@@ -136,6 +137,9 @@ func ValidateDiagnostics(d WorkerDiagnostics) error {
 		return ErrInvalid
 	}
 	if d.Work.SessionID != "" && (!diagnosticID.MatchString(d.Work.SessionID) || !strings.HasPrefix(d.Work.SessionID, "ses_")) {
+		return ErrInvalid
+	}
+	if d.Work.Continuation != nil && ValidateContinuationTarget(*d.Work.Continuation) != nil {
 		return ErrInvalid
 	}
 	for _, m := range []*DiagnosticModel{d.Work.SubmittedModel, d.Work.ExecutedModel} {

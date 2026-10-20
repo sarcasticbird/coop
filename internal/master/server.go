@@ -246,6 +246,9 @@ func NewHandler(service *Service, policy *Policy) http.Handler {
 	mux.HandleFunc("GET /api/v1/messages/{id}", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.Message(r.Context(), p, r.PathValue("id"))
 	}))
+	mux.HandleFunc("GET /api/v1/messages/{id}/continuation", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		return s.Continuation(r.Context(), p, r.PathValue("id"))
+	}))
 	mux.HandleFunc("GET /api/v1/messages/{id}/status", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.MessageStatus(r.Context(), p, r.PathValue("id"))
 	}))

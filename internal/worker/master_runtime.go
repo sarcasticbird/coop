@@ -18,10 +18,12 @@ type NativeEngineering interface {
 	Tick(context.Context) (bool, error)
 }
 type MasterRuntime struct {
-	Comms       *MasterComms
-	Engineering NativeEngineering
-	diagnostics *diagnosticBuilder
-	reporter    diagnosticReporter
+	continuationStep <-chan continuationCheck
+	continuationTurn *MasterTurn
+	Comms            *MasterComms
+	Engineering      NativeEngineering
+	diagnostics      *diagnosticBuilder
+	reporter         diagnosticReporter
 }
 
 func (e *Engine) initMaster() error {
@@ -156,9 +158,12 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 	if conversation != nil && nativeActive {
 		return errors.New("conflicting native work")
 	}
-	m.Busy = nativeActive || conversation != nil
+	m.Busy = nativeActive || conversation != nil || r.continuationStep != nil
 	if progress, ok := r.Engineering.(interface{ Progress() NativeProgress }); ok {
 		m.engineeringHeartbeat(progress.Progress())
+	}
+	if r.continuationStep != nil {
+		m.EngineeringState, m.EngineeringReason = "busy", "native_continuation_check"
 	}
 	// Receipts and outbox progress always precede GitHub-dependent work.
 	if err = m.Tick(ctx); err != nil {
@@ -178,6 +183,9 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 			}
 		}
 		return err
+	}
+	if handled, e := r.tickContinuation(ctx); e != nil || handled {
+		return e
 	}
 	if engineeringHeld && !nativeActive {
 		if m.Paused || m.Recovery {
