@@ -44,6 +44,13 @@ type coordState struct {
 	engagement           string
 	self                 c.SelfIdentity
 	team                 []c.Presence
+	teamDetail           *c.Placement
+	teamReport           *c.AgentDiagnostics
+	teamFailure          string
+	teamScroll           int
+	teamFocus            bool
+	teamSelected         string
+	teamSeen             time.Time
 	threads              []c.Thread
 	threadsNext          string // Retained independently of reader and Inbox cursors.
 	threadsCursor        int
@@ -63,6 +70,7 @@ type coordState struct {
 	seen                 time.Time
 	status               string
 	serial               uint64
+	cancel               context.CancelFunc
 	form                 *coordForm
 }
 
@@ -131,8 +139,9 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	q.cancel = cancel
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		out := coordResult{serial: serial, kind: kind}
 		if source == nil {
@@ -160,6 +169,11 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		}
 	}
 	thread, after, receipt, authority := q.thread, q.after, q.receipt, q.authority
+	var placement *c.Placement
+	if q.teamDetail != nil {
+		captured := *q.teamDetail
+		placement = &captured
+	}
 	return m.coordCall("read", func(ctx context.Context, s Coordination) (any, error) {
 		switch {
 		case authority != nil:
@@ -174,6 +188,9 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 			page, err := s.Messages(ctx, thread.ID, after)
 			return coordThreadPage{thread: metadata, page: page}, err
 		case section == "team":
+			if placement != nil {
+				return readTeamDetail(ctx, s, *placement)
+			}
 			return s.Team(ctx)
 		case section == "threads":
 			return s.Threads(ctx, c.ThreadQuery{After: cursor})
@@ -202,7 +219,12 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	q.busy = false
+	q.cancel = nil
 	q.self = r.self
+	if q.teamReport != nil && r.self.RestoreEpoch > 0 && q.teamReport.Report.RestoreEpoch != r.self.RestoreEpoch {
+		q.teamReport = nil
+		q.teamFailure = "master epoch changed; current work unknown"
+	}
 	q.failed = r.err != nil
 	if r.err != nil {
 		q.status = coordError(r.err)
@@ -228,8 +250,28 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	}
 	switch data := r.data.(type) {
 	case []c.Presence:
-		q.team = data
-		q.cursor = max(0, min(q.cursor, len(data)-1))
+		m.setTeamRows(data)
+		q.teamSeen = q.seen
+	case teamSnapshot:
+		m.setTeamRows(data.rows)
+		q.teamSeen = q.seen
+		if data.err == nil && r.self.RestoreEpoch > 0 && data.report.Report.RestoreEpoch != r.self.RestoreEpoch {
+			data.err = c.ErrConflict
+		}
+		if q.teamDetail != nil {
+			if data.err != nil {
+				q.teamFailure = diagnosticFailure(data.err)
+				if errors.Is(data.err, c.ErrConflict) {
+					q.teamReport = nil
+				}
+			} else if data.report.Report.Placement == *q.teamDetail {
+				if q.teamReport == nil || (!data.report.Report.ObservedAt.Before(q.teamReport.Report.ObservedAt) && !data.report.ReceivedAt.Before(q.teamReport.ReceivedAt)) {
+					q.teamReport, q.teamFailure = &data.report, ""
+				} else {
+					q.teamFailure = "out-of-order report ignored; current work unknown"
+				}
+			}
+		}
 	case c.ThreadPage:
 		q.threads, q.next, q.cursor = data.Threads, data.Next, 0
 		q.threadsNext, q.threadsCursor = data.Next, 0
@@ -439,10 +481,29 @@ func (f coordForm) build() (func(context.Context, Coordination) (any, error), er
 func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	q := &m.coordination
 	key := k.String()
+	if key == "esc" && q.teamDetail != nil && q.form == nil {
+		if q.cancel != nil {
+			q.cancel()
+			q.cancel = nil
+		}
+		q.serial++
+		q.busy, q.backgroundRead = false, false
+		q.teamDetail, q.teamReport, q.teamFailure = nil, nil, ""
+		q.status = "Returned to Team"
+		m.scroll = q.teamScroll
+		if q.teamFocus {
+			m.revealTeamSelection()
+		}
+		return m, nil
+	}
 	if q.busy {
 		if q.backgroundRead {
 			q.status = "Refreshing snapshot; controls resume when the read completes"
 		}
+		return m, nil
+	}
+	if q.teamDetail != nil && q.form == nil && slices.Contains([]string{"n", "c", "p", "m", "o", "a", "d", "s"}, key) {
+		q.status = "Read only detail; Esc returns to Team for other commands"
 		return m, nil
 	}
 	if q.form != nil {
@@ -536,6 +597,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		section := map[string]string{"t": "team", "l": "threads", "i": "inbox", "g": "goals"}[key]
 		q.section, q.thread, q.receipt, q.authority, q.messages, q.after, q.next, q.cursor, q.follow = section, nil, nil, nil, nil, 0, "", 0, false
 		q.readReady = false
+		q.teamDetail, q.teamReport, q.teamFailure = nil, nil, ""
 		m.scroll = 0
 		return m, m.coordLoad(false)
 	case "esc":
@@ -596,6 +658,18 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.coordOpen("status")
 	case "enter":
+		if q.section == "team" && q.teamDetail == nil && q.form == nil && q.thread == nil && q.receipt == nil && q.authority == nil {
+			if q.cursor >= 0 && q.cursor < len(q.team) {
+				placement := q.team[q.cursor].Placement
+				q.teamFocus = m.teamSelectionVisible()
+				q.teamDetail, q.teamScroll = &placement, m.scroll
+				q.teamReport, q.teamFailure, q.readReady = nil, "", false
+				m.scroll = 0
+				return m, m.coordLoad(false)
+			}
+			q.status = "No agent selected; select a current Team row"
+			return m, nil
+		}
 		if q.thread != nil && q.receipt == nil {
 			q.readThrough = maps.Clone(q.readThrough)
 			if q.readThrough == nil {
@@ -624,6 +698,14 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "up", "k", "down", "j":
+		if q.teamDetail != nil {
+			if key == "up" || key == "k" {
+				m.scroll = max(0, m.scroll-1)
+			} else {
+				m.scroll++
+			}
+			return m, nil
+		}
 		count := len(q.team)
 		if q.thread != nil {
 			count = len(q.messages)
@@ -642,6 +724,9 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			delta = -1
 		}
 		q.cursor = max(0, min(count-1, q.cursor+delta))
+		if q.section == "team" && q.cursor >= 0 && q.cursor < len(q.team) {
+			q.teamSelected = q.team[q.cursor].AgentID
+		}
 		if q.section == "threads" && q.thread == nil && q.receipt == nil && q.authority == nil {
 			q.threadsCursor = q.cursor
 		}
@@ -663,6 +748,9 @@ func (m fleetModel) coordLines() (lines []string) {
 	lines = []string{"Coordination | Master: " + master + " | Principal: " + q.self.Principal.ID + " (" + q.self.Principal.Kind + ")", "t Team | l Threads | i Inbox (agent only) | g Active approved goals", "n create | c compose | p reply/prompt | m members | s status | a authority | o propose | d decide", "r refresh | f follow/poll | ] next page | Enter open | Esc back/Fleet"}
 	if m.services.Coordination == nil {
 		return append(lines, "Master client unavailable: configure --master-config with a private master-client.toml; Fleet remains available")
+	}
+	if q.section == "team" && q.form == nil && q.thread == nil && q.receipt == nil && q.authority == nil {
+		return m.teamLines(master)
 	}
 	health := "No successful snapshot"
 	if !q.seen.IsZero() {

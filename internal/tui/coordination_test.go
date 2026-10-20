@@ -474,12 +474,12 @@ func TestCoordinationTeamRefreshKeepsSelectionSafe(t *testing.T) {
 	m.coordination.cursor = 1
 	out, _ := m.Update(coordResult{serial: m.coordination.serial, self: m.coordination.self, data: []c.Presence{{Placement: c.Placement{AgentID: "hawk"}}}})
 	m = out.(fleetModel)
-	if m.coordination.cursor < 0 || m.coordination.cursor >= len(m.coordination.team) {
-		t.Fatalf("team refresh left selection %d outside %d rows; prompt would panic", m.coordination.cursor, len(m.coordination.team))
+	if m.coordination.cursor != -1 {
+		t.Fatal("removed selection silently retargeted another agent")
 	}
 	m, _ = coordinationKey(m, "p")
-	if m.coordination.form == nil || m.coordination.form.values[0] != "hawk" {
-		t.Fatal("prompt did not use remaining team member")
+	if m.coordination.form != nil {
+		t.Fatal("prompt silently targeted remaining team member")
 	}
 }
 

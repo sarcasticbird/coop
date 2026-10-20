@@ -56,8 +56,11 @@ type Model struct {
 	failure                          string
 	width, height, offset            int
 	selected                         int
+	selectedAgent                    string
 	detailOpen, detailBusy           bool
 	detailAgent, detailFailure       string
+	detailPlacement                  c.Placement
+	listOffset                       int
 	detail                           *c.AgentDiagnostics
 	detailID                         uint64
 	detailCancel                     context.CancelFunc
@@ -115,13 +118,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.detailNext = msg.at.Add(refreshInterval)
 		m.detailFailure = ""
-		if msg.err == nil && (msg.value.Report.AgentID != m.detailAgent || c.ValidateDiagnostics(msg.value.Report) != nil) {
+		if msg.err == nil && (msg.value.Report.Placement != m.detailPlacement || m.detailPlacement.HostID == "" || m.detailPlacement.InstanceID == "" || m.detailPlacement.Generation < 1 || c.ValidateDiagnostics(msg.value.Report) != nil) {
 			msg.err = c.ErrInvalid
 		}
 		if msg.err == nil {
-			m.detail = &msg.value
+			if m.detail == nil || (!msg.value.Report.ObservedAt.Before(m.detail.Report.ObservedAt) && !msg.value.ReceivedAt.Before(m.detail.ReceivedAt)) {
+				m.detail = &msg.value
+			} else {
+				m.detailFailure = "out-of-order report ignored; current work unknown"
+			}
 		} else {
 			m.detailFailure = "diagnostics unavailable"
+			if errors.Is(msg.err, c.ErrInvalid) {
+				m.detail = nil
+				m.detailFailure = "report placement mismatch; work unknown"
+			}
+			if errors.Is(msg.err, c.ErrForbidden) {
+				m.detailFailure = "diagnostics access denied; work unknown"
+			}
 			if errors.Is(msg.err, c.ErrUnsupported) {
 				m.detailFailure = "diagnostics unsupported by master"
 			}
@@ -135,8 +149,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.nextRefresh = msg.at.Add(refreshInterval)
 		m.failed = msg.err != nil
 		if msg.err == nil {
+			id := m.selectedAgent
+			if m.selected >= 0 && m.selected < len(m.rows) {
+				id = m.rows[m.selected].AgentID
+			}
 			m.rows, m.lastSuccess, m.failure = msg.rows, msg.at, ""
-			m.selected = max(0, min(m.selected, len(m.rows)-1))
+			m.selected = -1
+			current := false
+			for i, p := range m.rows {
+				if p.AgentID == id || id == "" && i == 0 {
+					m.selected = i
+					m.selectedAgent = p.AgentID
+				}
+				current = current || p.Placement == m.detailPlacement
+			}
+			if m.detailOpen && !current {
+				if m.detailCancel != nil {
+					m.detailCancel()
+					m.detailCancel = nil
+				}
+				m.detailID++
+				m.detailBusy, m.detail = false, nil
+				m.detailFailure = "placement changed or removed; work unknown; return and inspect again"
+			}
 		} else {
 			// Never render arbitrary transport errors (URLs, headers or response bodies).
 			m.failure = "master unavailable or invalid response"
@@ -183,6 +218,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					delta = len(m.rows) - 1
 				}
 				m.selected = (m.selected + delta) % len(m.rows)
+				if m.selected < 0 {
+					m.selected = len(m.rows) - 1
+				}
+				m.selectedAgent = m.rows[m.selected].AgentID
 			}
 		case "r":
 			if m.detailOpen {

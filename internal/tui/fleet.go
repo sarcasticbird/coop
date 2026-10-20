@@ -76,6 +76,7 @@ type fleetModel struct {
 	ledgerFocus           bool
 	overlayScroll         int
 	overlayLedgerFocus    bool
+	overlayTeamFocus      bool
 	detailEntry           *hostrouter.InventoryEntry
 	detailInvalid         bool
 	server                hostrouter.Host
@@ -435,8 +436,12 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
+		teamVisible := m.teamSelectionVisible()
 		m.width, m.height = msg.Width, msg.Height
 		m.revealLedgerSelection()
+		if teamVisible {
+			m.revealTeamSelection()
+		}
 	case tea.KeyMsg:
 		return m.keyFleet(msg)
 	}
@@ -481,6 +486,9 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.overlayLedgerFocus {
 				m.revealLedgerSelection()
 			}
+			if m.overlayTeamFocus {
+				m.revealTeamSelection()
+			}
 		}
 		return m, nil
 	}
@@ -490,6 +498,9 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scroll = m.overlayScroll
 			if m.overlayLedgerFocus {
 				m.revealLedgerSelection()
+			}
+			if m.overlayTeamFocus {
+				m.revealTeamSelection()
 			}
 		}
 		return m, nil
@@ -586,6 +597,13 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
 		updated := out.(fleetModel)
+		if updated.teamList() && key == "esc" {
+			return updated, cmd
+		}
+		if updated.teamList() && (key == "up" || key == "down" || key == "k" || key == "j") {
+			updated.revealTeamSelection()
+			return updated, cmd
+		}
 		if key == "up" || key == "down" || key == "k" || key == "j" || key == "tab" || key == "shift+tab" || key == "esc" {
 			_, _, selected := updated.content()
 			if selected >= 0 && updated.height > 0 {
@@ -602,6 +620,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "v":
+		m.overlayTeamFocus = m.teamSelectionVisible()
 		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.runbook, m.scroll = true, 0
 	case "x":
@@ -612,6 +631,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "?":
+		m.overlayTeamFocus = m.teamSelectionVisible()
 		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.help = true
 		m.scroll = 0
@@ -948,7 +968,11 @@ func (m fleetModel) content() ([]string, string, int) {
 	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
-		lines = append(lines, m.coordLines()...)
+		if m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil {
+			lines = m.coordLines()
+		} else {
+			lines = append(lines, m.coordLines()...)
+		}
 		for i, line := range lines {
 			if strings.HasPrefix(line, "> ") {
 				selectedLine = i
@@ -1061,7 +1085,7 @@ func (m fleetModel) content() ([]string, string, int) {
 			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
 				state = current.State
 			}
-			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Agent work / blocker: unknown (not inferred from VM)", "Enter: Connect | x: actions | Esc: Fleet"}
+			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Agent work / blocker: unknown (not inferred from VM)", "Source: host inventory has no authoritative master placement binding", "2 then t: Team diagnostics by master agent/host/worker/generation; no name-based mapping", "Enter: Connect | x: actions | Esc: Fleet"}
 			selectedLine = -1
 			if m.detailInvalid {
 				lines = append(lines, "Target changed or removed; actions blocked. Return to Fleet and select again.")
@@ -1087,6 +1111,9 @@ func (m fleetModel) content() ([]string, string, int) {
 		selectedLine = -1
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc clear")
+		if m.workspace == 1 && m.coordination.section == "team" && m.coordination.form == nil {
+			lines = []string{"Team Help", "Master Team and diagnostics are read-only observations, not VM state or action authority.", "List: up/down or j/k select agent; Enter inspects the captured agent/host/worker/generation.", "Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and viewport.", "r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit", "Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is retained evidence, not current work.", "Heartbeat age is not work progress. Report, receipt, work and wait ages are separate.", "Placement changes invalidate reports; return and inspect again. Reads never wake agents or perform recovery.", "? or Esc returns without changing selection or dispatching an action."}
+		}
 	}
 	if m.operations != nil {
 		lines = m.operationLines()
@@ -1135,6 +1162,12 @@ func (m fleetModel) content() ([]string, string, int) {
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
 	if m.workspace == 1 {
 		footer = "t/l/i/g sections | r refresh | f follow | ] next | ? help | esc back | 1/3 workspace | q quit"
+		if m.teamList() || m.coordination.teamDetail != nil {
+			footer = "Enter inspect | arrows | r refresh | ? | Esc"
+			if m.coordination.teamDetail != nil {
+				footer = "r refresh | j/k/PgUp/PgDn scroll | Esc Team"
+			}
+		}
 		if m.coordination.form != nil {
 			footer = "Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear"
 		}
@@ -1182,7 +1215,7 @@ func (m fleetModel) View() string {
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)
-		if m.workspace == 0 && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
+		if (m.workspace == 0 || m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil) && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
 			pinned := content[0]
 			content = content[1:]
 			limit--
