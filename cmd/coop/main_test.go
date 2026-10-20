@@ -975,7 +975,7 @@ func TestTUIEntryOffersFirstBuild(t *testing.T) {
 	}
 	t.Cleanup(func() { buildImage = oldBuild })
 	oldTUI, oldSession := runTUI, runSession
-	runTUI = func(runtime.Runtime, []string) (tui.Result, error) {
+	runTUI = func(runtime.Runtime, []string, string) (tui.Result, error) {
 		return tui.Result{EnterWorkdir: project}, nil
 	}
 	entered := false
@@ -1380,7 +1380,10 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldTUI, oldSession := runTUI, runSession
-	runTUI = func(_ runtime.Runtime, credentials []string) (tui.Result, error) {
+	runTUI = func(_ runtime.Runtime, credentials []string, masterConfig string) (tui.Result, error) {
+		if masterConfig != "/private/tui-master.toml" {
+			t.Fatalf("launcher master config = %q", masterConfig)
+		}
 		if !slices.Equal(credentials, []string{"aws-dev", "github"}) {
 			t.Fatalf("launcher credentials = %v", credentials)
 		}
@@ -1397,7 +1400,7 @@ func TestCredentialsFlagPropagatesThroughTUIEntry(t *testing.T) {
 	})
 
 	cmd := root()
-	cmd.SetArgs([]string{"--credentials", "aws-dev,github", "tui"})
+	cmd.SetArgs([]string{"--credentials", "aws-dev,github", "--master-config", "/private/tui-master.toml", "tui"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -1415,7 +1418,7 @@ func TestTUIEntryEmitsConfigWarnings(t *testing.T) {
 	}
 
 	oldTUI, oldSession, oldWarnings := runTUI, runSession, warningOutput
-	runTUI = func(runtime.Runtime, []string) (tui.Result, error) {
+	runTUI = func(runtime.Runtime, []string, string) (tui.Result, error) {
 		return tui.Result{EnterWorkdir: project}, nil
 	}
 	runSession = func(*session.Session, string, []string, []string) error { return nil }

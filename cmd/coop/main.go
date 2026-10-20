@@ -305,7 +305,8 @@ settings can add tools through .coop.toml or an optional project flox environmen
 					return err
 				}
 				rt := newRuntime()
-				res, err := runTUI(rt, credentials)
+				masterConfig, _ := cmd.Flags().GetString("master-config")
+				res, err := runTUI(rt, credentials, masterConfig)
 				if err != nil {
 					return err
 				}
