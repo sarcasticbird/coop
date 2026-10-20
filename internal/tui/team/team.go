@@ -288,7 +288,7 @@ func (m *Model) View() string {
 			status = "STALE | " + status + " | " + m.failure
 		}
 	}
-	if m.refreshing {
+	if m.refreshing && m.lastSuccess.IsZero() {
 		status += " | refreshing"
 	}
 	lines := m.lines()
