@@ -24,7 +24,7 @@ type operationSpec struct {
 // This is deliberately a closed menu, not a shell/argv editor. CLI handlers
 // remain the authority for ownership, permissions, locks and prerequisites.
 var operationSpecs = []operationSpec{
-	{name: "enter", scope: "target", state: "running", note: "Attach on a real terminal; return to this browser", foreground: true},
+	{name: "enter", scope: "target", state: "running", note: "Attach on a real terminal; return to Details", confirm: true, foreground: true},
 	{name: "status", scope: "target", note: "Read selected Coop status"},
 	{name: "up", scope: "target", note: "Start selected Coop; may acquire configured credentials", confirm: true, foreground: true},
 	{name: "down", scope: "target", state: "running", note: "Stop selected Coop; persistent state remains", confirm: true},

@@ -37,9 +37,9 @@ or substantive design changes explicitly before using a new baseline.
 | Captured master/principal/context and exact request retries | `internal/tui/coordination.go` and its authority, permission, message-retry tests; reuse `internal/masterclient` and current handlers |
 | Exhaustive command and safety parity | `docs/fleet-tui.md`, `docs/tui-operations.md`; `TestFleetTUICommandCoverageInventory`, `TestTUICommandCoverageExhaustive` |
 
-Stage 0 does not implement B. In particular, the current Fleet selects a target,
-the reader is not masked, Escape clears forms, and integrated placement-aware
-diagnostics/full-page flows remain future work. These are not stage-0 passes.
+Stage 0 did not implement B. Stage 1 below implements only Ledger/Details. The
+reader is not masked, Escape clears forms, and integrated placement-aware
+diagnostics/conversation flows remain future work. These are not stage-1 passes.
 
 ## Stage Acceptance Map
 
@@ -131,3 +131,69 @@ Repeat race validation in a compiler-equipped Go environment before claiming tha
 gate passed. Independent Robin review, Wren QA, live PTY and operator UAT remain
 pending. These author checks are not independent clearance or permission to
 deliver with required checks outstanding.
+
+## Stage 1 Ledger/Details
+
+[Task #116](https://github.com/sarcasticbird/coop/issues/116) starts at delivered
+stage-0 main `0c8db5e`. PR #111 still points to accepted packet
+`5d79a84031045fe8dd8f3eeb345cadea953e0724` as checked on 2026-10-20; the diff from
+reviewed `9fc62de7d7cfe57b6b3dc3444d06f8d5c27d5a2e` has no design-file delta.
+
+- All/no-target startup, grouped local/remote hosts, exact-registration host
+  filter and hidden counts, full-page Details at all widths. Ledger Enter and
+  lifecycle shortcuts never dispatch. Connect requires Details and confirmation,
+  then uses the existing foreground adapter and receiving CLI checks.
+- Stable identity survives reorder/resize/cached reads; removal/placement/path/
+  registration changes invalidate captured intent rather than selecting another
+  row. Failed inventory and registry reads retain cached rows with actions blocked.
+- Ledger scroll/filter/selection survive Details and foreground return. Context
+  and feedback remain visible while paging; long target identities wrap instead
+  of disappearing behind truncation. Lifecycle is labeled separately from unknown
+  work/blocker information; stage 2 supplies actual mapped diagnostics.
+- `ledger_test.go` adds three-size navigation/Connect callback tests, initial
+  loading, blocked controls, shortcut non-dispatch, captured filter identity,
+  invalidation that cannot revive and cached registry failure. Existing tests now
+  explicitly open Details before exercising the same action/authority boundaries.
+
+Author validation on Linux arm64 through Flox: scoped tests and vet above passed;
+`NO_COLOR=1 TERM=dumb` TUI/CLI tests passed. Formatting and `git diff --check`
+passed. Fitting race tests for `./internal/tui/... ./internal/hostrouter` remain
+environment-blocked: default CGO disabled; retry with `CGO_ENABLED=1` fails because
+`gcc` is absent. No race test ran and no environment packages were changed.
+
+For independent stage-1 QA, run the scoped reproduction commands above and
+`flox activate -- go test ./internal/tui -run 'TestLedger|TestFleet' -count=1 -v`
+against the published exact head. Repeat the accepted target-discovery, filter,
+offline/reconnect and resize journeys at 120x40, 80x24, 40x20. Model tests inject
+the foreground callback without attaching a live guest; they do not establish
+real Blackbook/rack-mini PTY behavior. Robin exact-head approval, Wren private
+exact-runtime QA, CI, live operator UAT and rollout remain separate gates. Stage
+4 still owns complete long-confirmation review and the remaining setup/help parity.
+
+Stage-1 review follow-up: Robin's populated-Ledger resize case reproduced on
+`f0a58f5322f9bd7e1819dc725a5ebc07c65c6524`: shrinking from 120x40 to 40x20
+left profile 14 selected but off-screen. Resize now recomputes the selected
+physical row and re-anchors only when its highlight would be outside the viewport;
+visible manual paging is retained. `TestLedgerResizeKeepsSelectedHighlightVisible`
+covers wide/narrow/medium transitions and Details entry for the visible identity;
+`TestLedgerResizePreservesVisibleManualScroll` guards intentional paging. The
+focused reproduction failed before the fix and passed after it. Scoped tests,
+vet, no-color checks, formatting and diff checks passed again. Race testing in
+this author environment is still blocked by disabled CGO / missing `gcc`; Robin's
+previous-head race pass is not a current-head validation result.
+
+Additional author focus regressions cover Details resize followed by Esc/Tab,
+inventory reorder through the actual update handler, and Help/Services return.
+These failed on `caf18883fcd0e803c4d90293734ec7714adbaaa2` before correction.
+The same Ledger viewport calculation now handles resize, refreshed visible focus
+and return reconciliation. Overlay scroll is saved independently; a deliberately
+paged-away target does not steal the viewport on return or cached refresh. Tests
+check both visible stable identity and intentional paging without dispatch.
+
+The focused focus/resize tests passed three repetitions after correction. Scoped
+tests, vet and no-color checks above passed again. Race validation also passed
+using an existing compiler, without installing packages or changing configuration:
+`flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/hostrouter -count=1`.
+Earlier blocked author attempts remain historical results, not the current race
+outcome. Independent current-head engineering review and private exact-artifact
+QA must be renewed; these author regressions do not clear either gate.

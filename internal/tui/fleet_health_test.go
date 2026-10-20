@@ -36,9 +36,24 @@ func TestFleetLongReferenceKeepsFailureAndStaleAgeReadable(t *testing.T) {
 					t.Fatalf("failure or stale state/age was hidden; last viewport: %s", m.View())
 				}
 				m, _ = fleetKey(m, "tab")
-				detail := strings.Join(strings.Fields(m.View()), " ")
-				if !strings.Contains(detail, "Host health: "+code) || !strings.Contains(detail, "stale snapshot 3m") {
-					t.Fatal("failed-host detail hid health/stale age")
+				views.Reset()
+				for range 50 {
+					view := m.View()
+					if maxLineWidth(view) > width || len(strings.Split(view, "\n")) > m.height {
+						t.Fatal("detail view exceeded terminal bounds")
+					}
+					views.WriteString(view)
+					views.WriteString("\n")
+					previousScroll := m.scroll
+					m, _ = fleetKey(m, "pgdown")
+					if m.scroll == previousScroll {
+						break
+					}
+				}
+				// Details can hard-wrap inside health words at narrow widths.
+				detail := strings.Join(strings.Fields(views.String()), "")
+				if !strings.Contains(detail, "Hosthealth:"+code) || !strings.Contains(detail, "stalesnapshot3m") {
+					t.Fatalf("failed-host detail hid health/stale age: %s", detail)
 				}
 				if len(m.hosts[1].entries) != 1 || m.hosts[1].entries[0].State != "running" {
 					t.Fatal("failure erased or misrepresented retained inventory")

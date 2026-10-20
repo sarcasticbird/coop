@@ -163,7 +163,12 @@ func TestTerminalReturnRefreshesWithoutQuittingShell(t *testing.T) {
 	m := fixtureFleet()
 	m.services.Terminal = &fixtureTerminal{}
 	m.selected = m.hosts[1].entries[0].Target
+	m, _ = fleetKey(m, "enter")
 	m, cmd := fleetKey(m, "enter")
+	if cmd != nil || m.pending == nil || m.pending.operation != "enter" {
+		t.Fatal("remote connect did not require confirmation")
+	}
+	m, cmd = fleetKey(m, "y")
 	if cmd == nil || !m.busy || m.result.EnterName != "" {
 		t.Fatal("remote enter did not suspend into terminal")
 	}

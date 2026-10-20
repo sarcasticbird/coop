@@ -95,7 +95,11 @@ func TestFleetConfirmationCapturesHostAndTargetAcrossReorder(t *testing.T) {
 	m := fixtureFleet()
 	m.selected = m.hosts[1].entries[0].Target
 	captured := m.selected
+	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "d")
+	if m.pending == nil || m.pending.entry.Target != captured {
+		t.Fatal("confirmation did not capture the selected target")
+	}
 	m.selected = m.hosts[0].entries[0].Target
 	m.hosts[0], m.hosts[1] = m.hosts[1], m.hosts[0]
 	m, cmd := fleetKey(m, "y")
@@ -117,7 +121,11 @@ func TestFleetConfirmationRejectsChangedRegistryAndStaleInventory(t *testing.T) 
 		t.Run(change, func(t *testing.T) {
 			m := fixtureFleet()
 			m.selected = m.hosts[1].entries[0].Target
+			m, _ = fleetKey(m, "enter")
 			m, _ = fleetKey(m, "d")
+			if m.pending == nil || m.pending.entry.Target != m.selected {
+				t.Fatal("confirmation did not capture the selected target")
+			}
 			switch change {
 			case "address":
 				m.services.Registry.(*fixtureRegistry).hosts[0].Address = "replacement"
@@ -142,6 +150,7 @@ func TestFleetConfirmationRejectsChangedRegistryAndStaleInventory(t *testing.T) 
 func TestFleetDropsRefreshFromBeforeAction(t *testing.T) {
 	m := fixtureFleet()
 	old := m.epoch
+	m, _ = fleetKey(m, "enter")
 	m, cmd := fleetKey(m, "s")
 	if cmd == nil {
 		t.Fatal("action not launched")
@@ -306,8 +315,8 @@ func TestFleetRegistryFailureKeepsLocalAndServerErrorRecovers(t *testing.T) {
 	out, cmd := m.Update(registryLoaded{err: errors.New("private registry unavailable")})
 	m = out.(fleetModel)
 	defer m.cancel()
-	if len(m.hosts) != 1 || m.hosts[0].host != hostrouter.Local || m.registryError == "" {
-		t.Fatal("registry failure lost local")
+	if len(m.hosts) != 2 || m.hosts[0].host != hostrouter.Local || m.registryError == "" {
+		t.Fatal("registry failure lost local or cached remote hosts")
 	}
 	out, _ = m.Update(cmd())
 	if len(out.(fleetModel).hosts[0].entries) != 1 {
@@ -355,8 +364,8 @@ func TestFleetRefreshReconcilesIdentityNotIndex(t *testing.T) {
 	}
 	out, _ = m.Update(hostLoaded{inventory: hostrouter.HostInventory{Host: hostrouter.Local, Entries: []hostrouter.InventoryEntry{a}}})
 	m = out.(fleetModel)
-	if m.selected != a.Target {
-		t.Fatal("removed target selection was not reconciled")
+	if m.selected != (hostrouter.Target{}) {
+		t.Fatal("removed target was not cleared or another target was selected implicitly")
 	}
 }
 
@@ -364,6 +373,7 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	m := fixtureFleet()
 	rt := runtime.NewMock()
 	m.legacy = rt
+	m, _ = fleetKey(m, "enter")
 	m, cmd := fleetKey(m, "s")
 	if cmd == nil {
 		t.Fatal("local stop not launched")
@@ -379,7 +389,12 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	}
 	m = fixtureFleet()
 	m.legacy = rt
+	m, _ = fleetKey(m, "enter")
 	m, cmd = fleetKey(m, "enter")
+	if cmd != nil || m.pending == nil || m.pending.operation != "enter" {
+		t.Fatal("local connect did not require confirmation")
+	}
+	m, cmd = fleetKey(m, "y")
 	if cmd == nil || m.result.EnterWorkdir != "/project" || m.result.EnterName != "same-name" {
 		t.Fatal("local CLI entry result changed")
 	}
@@ -403,6 +418,7 @@ func TestFleetActionCancellationAndRemoteProjectContract(t *testing.T) {
 		<-ctx.Done()
 		return hostrouter.ActionResult{Target: r.Target}, ctx.Err()
 	})
+	m, _ = fleetKey(m, "enter")
 	m, cmd := fleetKey(m, "s")
 	if cmd == nil {
 		t.Fatal("stop not launched")
@@ -429,6 +445,7 @@ func TestFleetNarrowOverlayKeepsConfirmationAndFooter(t *testing.T) {
 	m.width = 30
 	m.height = 10
 	m.selected = m.hosts[1].entries[0].Target
+	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "d")
 	view := m.View()
 	if !strings.Contains(view, "CONFIRM DESTROY") || !strings.Contains(view, "y confirm") || len(strings.Split(view, "\n")) > m.height {

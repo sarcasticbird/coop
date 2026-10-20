@@ -71,6 +71,7 @@ func TestRuntimeBaselineAuthorityAtEverySize(t *testing.T) {
 				m := runtimeBaselineFleet()
 				m.width, m.height = size.Width, size.Height
 				m.selected = m.hosts[1].entries[0].Target
+				m, _ = fleetKey(m, "enter")
 				m, _ = fleetKey(m, "d")
 				if m.pending == nil {
 					t.Fatal("baseline confirmation did not capture the target")

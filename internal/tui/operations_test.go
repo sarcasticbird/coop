@@ -95,6 +95,7 @@ func TestOperationGatingAndCapture(t *testing.T) {
 			t.Fatal("not gated", name)
 		}
 	}
+	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "x")
 	m.operations.index = specIndex(t, "rebuild")
 	m, _ = fleetKey(m, "enter")
@@ -192,6 +193,9 @@ func TestHostOperationsAndRegistrationChanges(t *testing.T) {
 	m.operations.index = specIndex(t, "upgrade")
 	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "enter")
+	if m.pending == nil || m.pending.entry.Target.Host != m.server {
+		t.Fatal("host confirmation did not capture the selected server")
+	}
 	m.services.Registry.(*fixtureRegistry).hosts[0].Address = "replacement"
 	m, cmd := fleetKey(m, "y")
 	if cmd != nil || m.busy {
@@ -202,6 +206,7 @@ func TestHostOperationsAndRegistrationChanges(t *testing.T) {
 func TestOperationFormEditingCancellationAndValidation(t *testing.T) {
 	m := fixtureFleet()
 	m.selected = m.hosts[1].entries[0].Target
+	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "x")
 	m.operations.index = specIndex(t, "ping")
 	m, _ = fleetKey(m, "enter")
