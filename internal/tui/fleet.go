@@ -73,6 +73,9 @@ type fleetModel struct {
 	filterIndex           int
 	filterChoices         []hostrouter.Host
 	ledgerScroll          int
+	ledgerFocus           bool
+	overlayScroll         int
+	overlayLedgerFocus    bool
 	detailEntry           *hostrouter.InventoryEntry
 	detailInvalid         bool
 	server                hostrouter.Host
@@ -254,6 +257,39 @@ func (m *fleetModel) reconcile() {
 	}
 }
 
+// Ledger coordinates exclude the pinned context and the feedback/footer rows.
+func (m fleetModel) ledgerViewport() (line, start, limit, maxScroll int) {
+	if m.workspace != 0 || m.detail || m.filtering || m.help || m.runbook || m.form != nil || m.pending != nil || m.operations != nil || m.height <= 0 {
+		return -1, 0, 0, 0
+	}
+	lines, _, line := m.content()
+	limit = max(1, m.height-2)
+	maxScroll = max(0, len(lines)-limit)
+	if m.height >= 4 {
+		if line >= 0 {
+			line--
+		}
+		limit--
+	}
+	return line, min(m.scroll, maxScroll), limit, maxScroll
+}
+
+func (m fleetModel) ledgerSelectionVisible() bool {
+	line, start, limit, _ := m.ledgerViewport()
+	return line >= 0 && line >= start && line < start+limit
+}
+
+func (m *fleetModel) revealLedgerSelection() {
+	line, start, limit, maxScroll := m.ledgerViewport()
+	if line < 0 {
+		return
+	}
+	m.scroll = start
+	if line < start || line >= start+limit {
+		m.scroll = min(line, maxScroll)
+	}
+}
+
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case coordResult:
@@ -277,6 +313,7 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.epoch != m.epoch {
 			return m, nil
 		}
+		visible := m.ledgerSelectionVisible()
 		m.registryError = ""
 		if msg.err != nil {
 			m.registryError = "registry unavailable: " + msg.err.Error()
@@ -311,6 +348,9 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.hosts = states
 		m.reconcile()
+		if visible {
+			m.revealLedgerSelection()
+		}
 		if m.cancel != nil {
 			m.cancel()
 		}
@@ -329,6 +369,7 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshing = false
 			return m, nil
 		}
+		visible := m.ledgerSelectionVisible()
 		for i := range m.hosts {
 			h := &m.hosts[i]
 			if h.host != msg.inventory.Host {
@@ -356,6 +397,9 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.reconcile()
+		if visible {
+			m.revealLedgerSelection()
+		}
 		return m, nextHost(m.stream, m.epoch)
 	case registryDone:
 		m.busy = false
@@ -392,23 +436,7 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		if m.workspace == 0 && !m.detail && !m.filtering && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && m.height > 0 {
-			lines, _, selectedLine := m.content()
-			if selectedLine >= 0 {
-				limit := max(1, m.height-2)
-				maxScroll := max(0, len(lines)-limit)
-				if m.height >= 4 {
-					selectedLine-- // Match the pinned Fleet context in View.
-					limit--
-				}
-				m.scroll = min(m.scroll, maxScroll)
-				if selectedLine < m.scroll || selectedLine >= m.scroll+limit {
-					// Re-anchor by identity after wrapping changes, not by the
-					// previous physical-line offset. Otherwise leave paging alone.
-					m.scroll = min(selectedLine, maxScroll)
-				}
-			}
-		}
+		m.revealLedgerSelection()
 	case tea.KeyMsg:
 		return m.keyFleet(msg)
 	}
@@ -449,12 +477,20 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.help {
 		if key == "?" || key == "esc" {
 			m.help = false
+			m.scroll = m.overlayScroll
+			if m.overlayLedgerFocus {
+				m.revealLedgerSelection()
+			}
 		}
 		return m, nil
 	}
 	if m.runbook {
 		if key == "esc" || key == "v" {
 			m.runbook = false
+			m.scroll = m.overlayScroll
+			if m.overlayLedgerFocus {
+				m.revealLedgerSelection()
+			}
 		}
 		return m, nil
 	}
@@ -522,6 +558,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter", "tab", "shift+tab", "u", "s", "d", "x":
 			for _, e := range m.rows() {
 				if e.Target == m.selected {
+					m.ledgerFocus = m.ledgerSelectionVisible()
 					m.detail, m.detailEntry, m.detailInvalid = true, &e, false
 					m.ledgerScroll, m.scroll, m.status = m.scroll, 0, ""
 					if key != "enter" && key != "tab" && key != "shift+tab" {
@@ -565,6 +602,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "v":
+		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.runbook, m.scroll = true, 0
 	case "x":
 		return m.openOperations()
@@ -574,6 +612,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "?":
+		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.help = true
 		m.scroll = 0
 	case "1":
@@ -592,13 +631,20 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.workspace == 0 && m.detail {
 			m.detail, m.detailEntry = false, nil
 			m.scroll = m.ledgerScroll
+			if m.ledgerFocus {
+				m.revealLedgerSelection()
+			}
 		}
 	case "esc":
-		if m.workspace == 0 && m.detail {
+		returning := m.workspace == 0 && m.detail
+		if returning {
 			m.scroll = m.ledgerScroll
 		}
 		m.detail = false
 		m.detailEntry = nil
+		if returning && m.ledgerFocus {
+			m.revealLedgerSelection()
+		}
 		m.status = ""
 	case "r":
 		return m, m.refresh()

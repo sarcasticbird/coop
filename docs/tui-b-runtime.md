@@ -181,3 +181,19 @@ focused reproduction failed before the fix and passed after it. Scoped tests,
 vet, no-color checks, formatting and diff checks passed again. Race testing in
 this author environment is still blocked by disabled CGO / missing `gcc`; Robin's
 previous-head race pass is not a current-head validation result.
+
+Additional author focus regressions cover Details resize followed by Esc/Tab,
+inventory reorder through the actual update handler, and Help/Services return.
+These failed on `caf18883fcd0e803c4d90293734ec7714adbaaa2` before correction.
+The same Ledger viewport calculation now handles resize, refreshed visible focus
+and return reconciliation. Overlay scroll is saved independently; a deliberately
+paged-away target does not steal the viewport on return or cached refresh. Tests
+check both visible stable identity and intentional paging without dispatch.
+
+The focused focus/resize tests passed three repetitions after correction. Scoped
+tests, vet and no-color checks above passed again. Race validation also passed
+using an existing compiler, without installing packages or changing configuration:
+`flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/hostrouter -count=1`.
+Earlier blocked author attempts remain historical results, not the current race
+outcome. Independent current-head engineering review and private exact-artifact
+QA must be renewed; these author regressions do not clear either gate.

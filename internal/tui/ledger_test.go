@@ -287,3 +287,91 @@ func TestLedgerResizePreservesVisibleManualScroll(t *testing.T) {
 		t.Fatal("resize disturbed intentional scroll despite a visible selected target")
 	}
 }
+
+func TestLedgerFocusSurvivesReturnAndRefresh(t *testing.T) {
+	for _, journey := range []string{"details-resize-esc", "details-resize-tab", "refresh-reorder", "help-return", "runbook-return"} {
+		t.Run(journey, func(t *testing.T) {
+			m := fixtureFleet()
+			m.hosts = m.hosts[:1]
+			m.hosts[0].entries = nil
+			m.selected = hostrouter.Target{}
+			m.width, m.height = 120, 40
+			for i := range 20 {
+				m.hosts[0].entries = append(m.hosts[0].entries, fixtureRow(hostrouter.Local, hostrouter.Agent, fmt.Sprintf("long-but-valid-agent-profile-%02d", i)))
+			}
+			for range 15 {
+				m, _ = fleetKey(m, "down")
+			}
+			target := m.selected
+			if strings.HasPrefix(journey, "details") {
+				m, _ = fleetKey(m, "enter")
+			}
+			out, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+			m = out.(fleetModel)
+			switch journey {
+			case "details-resize-esc":
+				m, _ = fleetKey(m, "esc")
+			case "details-resize-tab":
+				m, _ = fleetKey(m, "tab")
+			case "refresh-reorder":
+				rows := append([]hostrouter.InventoryEntry(nil), m.hosts[0].entries...)
+				for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+					rows[i], rows[j] = rows[j], rows[i]
+				}
+				out, _ = m.Update(hostLoaded{epoch: m.epoch, inventory: hostrouter.HostInventory{Host: hostrouter.Local, Entries: rows}})
+				m = out.(fleetModel)
+			case "help-return":
+				m, _ = fleetKey(m, "?")
+				m, _ = fleetKey(m, "pgdown")
+				m, _ = fleetKey(m, "esc")
+			case "runbook-return":
+				m, _ = fleetKey(m, "v")
+				m, _ = fleetKey(m, "pgdown")
+				m, _ = fleetKey(m, "esc")
+			}
+			if m.detail || m.selected != target || !strings.Contains(strings.ReplaceAll(m.View(), "\n", ""), "> "+identity(target)) {
+				t.Fatalf("journey hid or replaced selected target %s at scroll %d:\n%s", identity(target), m.scroll, m.View())
+			}
+			m, cmd := fleetKey(m, "enter")
+			if cmd != nil || !m.detail || m.detailEntry.Target != target {
+				t.Fatal("Details did not open the same visible target")
+			}
+		})
+	}
+}
+
+func TestLedgerReturnAndRefreshPreserveIntentionalPaging(t *testing.T) {
+	for _, journey := range []string{"details", "help", "runbook", "refresh"} {
+		t.Run(journey, func(t *testing.T) {
+			m := fixtureFleet()
+			m.width, m.height = 40, 20
+			for i := range 20 {
+				m.hosts = append(m.hosts, hostState{host: hostrouter.Host{Name: fmt.Sprintf("empty-%02d", i)}})
+			}
+			for range 30 {
+				m, _ = fleetKey(m, "pgdown")
+			}
+			scroll, target := m.scroll, m.selected
+			if strings.Contains(m.View(), "> "+identity(target)) {
+				t.Fatal("setup did not page away from the selected target")
+			}
+			switch journey {
+			case "details":
+				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "esc")
+			case "help":
+				m, _ = fleetKey(m, "?")
+				m, _ = fleetKey(m, "esc")
+			case "runbook":
+				m, _ = fleetKey(m, "v")
+				m, _ = fleetKey(m, "esc")
+			case "refresh":
+				out, _ := m.Update(hostLoaded{epoch: m.epoch, inventory: hostrouter.HostInventory{Host: hostrouter.Local, Entries: m.hosts[0].entries}})
+				m = out.(fleetModel)
+			}
+			if m.selected != target || m.scroll != scroll || m.detail || m.help || m.runbook || len(m.services.Actions.(*fixtureActions).requests) != 0 {
+				t.Fatal("return/read stole intentional paging, changed target or dispatched an action")
+			}
+		})
+	}
+}
