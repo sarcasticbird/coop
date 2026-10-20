@@ -118,18 +118,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.detailNext = msg.at.Add(refreshInterval)
 		m.detailFailure = ""
-		if msg.err == nil && (msg.value.Report.Placement != m.detailPlacement || m.detailPlacement.HostID == "" || m.detailPlacement.InstanceID == "" || m.detailPlacement.Generation < 1 || c.ValidateDiagnostics(msg.value.Report) != nil) {
+		if msg.err == nil && (msg.value.Report.Placement != m.detailPlacement || m.detailPlacement.HostID == "" || m.detailPlacement.InstanceID == "" || m.detailPlacement.Generation < 1 || msg.value.ReceivedAt.IsZero() || c.ValidateDiagnostics(msg.value.Report) != nil) {
 			msg.err = c.ErrInvalid
 		}
 		if msg.err == nil {
-			if m.detail == nil || (!msg.value.Report.ObservedAt.Before(m.detail.Report.ObservedAt) && !msg.value.ReceivedAt.Before(m.detail.ReceivedAt)) {
+			if m.detail == nil || msg.value.Report.RestoreEpoch > m.detail.Report.RestoreEpoch || (msg.value.Report.RestoreEpoch == m.detail.Report.RestoreEpoch && !msg.value.Report.ObservedAt.Before(m.detail.Report.ObservedAt) && !msg.value.ReceivedAt.Before(m.detail.ReceivedAt)) {
 				m.detail = &msg.value
 			} else {
 				m.detailFailure = "out-of-order report ignored; current work unknown"
 			}
 		} else {
 			m.detailFailure = "diagnostics unavailable"
-			if errors.Is(msg.err, c.ErrInvalid) {
+			if errors.Is(msg.err, c.ErrInvalid) || errors.Is(msg.err, c.ErrConflict) || errors.Is(msg.err, c.ErrEpoch) {
 				m.detail = nil
 				m.detailFailure = "report placement mismatch; work unknown"
 			}
@@ -329,6 +329,13 @@ func (m *Model) View() string {
 	}
 	if m.refreshing && m.lastSuccess.IsZero() {
 		status += " | refreshing"
+	}
+	if m.detailOpen {
+		if m.failed {
+			status = "STALE/UNKNOWN | " + m.failure
+		} else if diagnostic := DiagnosticFeedback(m.now, m.detail, m.detailFailure); diagnostic != "" {
+			status = diagnostic
+		}
 	}
 	lines := m.lines()
 	start := max(0, min(m.offset, max(0, len(lines)-m.bodyHeight())))

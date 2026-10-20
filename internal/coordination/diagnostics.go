@@ -32,6 +32,25 @@ type AgentDiagnostics struct {
 	Stale      bool              `json:"stale"`
 }
 
+// DiagnosticBinding is an explicit host-owned observation pin for one fleet
+// target. It neither registers placement with master nor authorizes VM actions.
+type DiagnosticBinding struct {
+	MasterID string `json:"master_id" toml:"master_id"`
+	Placement
+}
+
+func ValidateDiagnosticBinding(b DiagnosticBinding) error {
+	if b.Generation < 1 {
+		return ErrInvalid
+	}
+	for _, id := range []string{b.MasterID, b.AgentID, b.HostID, b.InstanceID} {
+		if !diagnosticID.MatchString(id) {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
 type DiagnosticWork struct {
 	Continuation    *TaskContinuationTarget `json:"continuation_target,omitempty"`
 	ObservedAt      time.Time               `json:"observed_at"`

@@ -260,6 +260,31 @@ func TestTeamAuthenticatedEpochAndReadOnlyDetail(t *testing.T) {
 	}
 }
 
+func TestTeamScrolledErrorsRemainVisible(t *testing.T) {
+	for _, size := range tuifixture.Sizes() {
+		for _, failedTeam := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%dx%d/team-%t", size.Width, size.Height, failedTeam), func(t *testing.T) {
+				m, s := teamViewFixture()
+				m.width, m.height = size.Width, size.Height
+				m, cmd := coordinationKey(m, "enter")
+				m = coordinationRun(t, m, cmd)
+				m.scroll = 25
+				if failedTeam {
+					s.teamErr = c.ErrForbidden
+				} else {
+					s.err = c.ErrForbidden
+				}
+				m, cmd = coordinationKey(m, "r")
+				m = coordinationRun(t, m, cmd)
+				view := m.View()
+				if m.scroll != 25 || !strings.Contains(view, "STALE") || !strings.Contains(view, "denied") || maxLineWidth(view) > size.Width || len(strings.Split(view, "\n")) > size.Height {
+					t.Fatal("scrolled error lost feedback or viewport", view)
+				}
+			})
+		}
+	}
+}
+
 func TestTeamDetailAndHelpReturnAfterResize(t *testing.T) {
 	for _, route := range []string{"detail", "help"} {
 		for _, manual := range []bool{false, true} {

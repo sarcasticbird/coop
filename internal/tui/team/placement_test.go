@@ -68,3 +68,39 @@ func TestDetailRejectsWrongPlacementAndOlderReport(t *testing.T) {
 		t.Fatal("report attached to wrong placement")
 	}
 }
+
+func TestDetailOrderingResetsAcrossRestoreEpoch(t *testing.T) {
+	m := New(t.Context(), nil, "fixture-master")
+	defer m.Close()
+	old := teamDetailFixture("hawk")
+	m.detailOpen, m.detailAgent, m.detailPlacement, m.detailID = true, "hawk", old.Report.Placement, 1
+	m.detail = &old
+	current := old
+	current.Report.RestoreEpoch++
+	current.Report.ObservedAt = old.Report.ObservedAt.Add(-time.Minute)
+	current.ReceivedAt = old.ReceivedAt.Add(time.Second)
+	m.Update(diagnosticResultMsg{id: 1, value: current, at: time.Now()})
+	if m.detail.Report.RestoreEpoch != current.Report.RestoreEpoch || m.detailFailure != "" {
+		t.Fatal("previous epoch survived valid current-epoch report", m.detailFailure)
+	}
+	m.Update(diagnosticResultMsg{id: 1, value: old, at: time.Now()})
+	if m.detail.Report.RestoreEpoch != current.Report.RestoreEpoch || !strings.Contains(m.detailFailure, "out-of-order") {
+		t.Fatal("late previous-epoch report replaced current report")
+	}
+}
+
+func TestScrolledDetailFailureRemainsVisible(t *testing.T) {
+	m := New(t.Context(), nil, "fixture-master")
+	defer m.Close()
+	v := teamDetailFixture("hawk")
+	for range c.MaxDiagnosticTransitions {
+		v.Report.Transitions = append(v.Report.Transitions, c.DiagnosticTransition{At: time.Now(), Stage: "implement", Phase: "waiting", Origin: "worker"})
+	}
+	m.detailOpen, m.detailAgent, m.detailPlacement, m.detailID = true, "hawk", v.Report.Placement, 1
+	m.detail = &v
+	m.width, m.height, m.offset = 40, 20, 25
+	m.Update(diagnosticResultMsg{id: 1, err: c.ErrForbidden, at: time.Now()})
+	if m.offset != 25 || !strings.Contains(m.View(), "STALE") || !strings.Contains(m.View(), "denied") {
+		t.Fatal("CLI Team detail hid scrolled diagnostic failure", m.View())
+	}
+}

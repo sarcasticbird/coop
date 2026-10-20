@@ -228,6 +228,9 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	q.failed = r.err != nil
 	if r.err != nil {
 		q.status = coordError(r.err)
+		if errors.Is(r.err, c.ErrConflict) || errors.Is(r.err, c.ErrEpoch) {
+			q.teamReport = nil
+		}
 		if q.form != nil && q.form.frozen {
 			q.status += "; request " + q.form.requestID + "; Ctrl+R retries ONLY this identical request; Esc discards buffer, not the operation"
 		}
@@ -261,11 +264,11 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		if q.teamDetail != nil {
 			if data.err != nil {
 				q.teamFailure = diagnosticFailure(data.err)
-				if errors.Is(data.err, c.ErrConflict) {
+				if errors.Is(data.err, c.ErrConflict) || errors.Is(data.err, c.ErrEpoch) {
 					q.teamReport = nil
 				}
 			} else if data.report.Report.Placement == *q.teamDetail {
-				if q.teamReport == nil || (!data.report.Report.ObservedAt.Before(q.teamReport.Report.ObservedAt) && !data.report.ReceivedAt.Before(q.teamReport.ReceivedAt)) {
+				if q.teamReport == nil || data.report.Report.RestoreEpoch > q.teamReport.Report.RestoreEpoch || (data.report.Report.RestoreEpoch == q.teamReport.Report.RestoreEpoch && !data.report.Report.ObservedAt.Before(q.teamReport.Report.ObservedAt) && !data.report.ReceivedAt.Before(q.teamReport.ReceivedAt)) {
 					q.teamReport, q.teamFailure = &data.report, ""
 				} else {
 					q.teamFailure = "out-of-order report ignored; current work unknown"

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sarcasticbird/coop/internal/coordination"
 )
 
 type TargetKind string
@@ -25,11 +27,12 @@ type Target struct {
 }
 
 type InventoryEntry struct {
-	Target  Target `json:"target"`
-	Name    string `json:"name"`
-	State   string `json:"state"`
-	Project string `json:"project,omitempty"` // a path on Target.Host only
-	Owned   bool   `json:"owned"`             // display information, never mutation authorization
+	Diagnostics *coordination.DiagnosticBinding `json:"diagnostics,omitempty"`
+	Target      Target                          `json:"target"`
+	Name        string                          `json:"name"`
+	State       string                          `json:"state"`
+	Project     string                          `json:"project,omitempty"` // a path on Target.Host only
+	Owned       bool                            `json:"owned"`             // display information, never mutation authorization
 }
 
 type HostInventory struct {
@@ -153,11 +156,18 @@ func (r Router) Inventory(ctx context.Context, hosts []Host) Snapshot {
 
 func ValidateEntries(rows []InventoryEntry) error {
 	seen := map[Target]bool{}
+	bindings := map[coordination.DiagnosticBinding]bool{}
 	for _, row := range rows {
 		t := row.Target
 		t.Host = Local
 		if (t.Kind != Agent && t.Kind != Interactive) || !targetID.MatchString(t.ID) || !safeText(row.Name, 255) || !safeText(row.Project, 4096) || seen[t] {
 			return errors.New("invalid inventory identity")
+		}
+		if row.Diagnostics != nil {
+			if t.Kind != Agent || coordination.ValidateDiagnosticBinding(*row.Diagnostics) != nil || bindings[*row.Diagnostics] {
+				return errors.New("invalid or ambiguous diagnostic binding")
+			}
+			bindings[*row.Diagnostics] = true
 		}
 		switch row.State {
 		case "running", "stopped", "absent":

@@ -33,7 +33,7 @@ func readTeamDetail(ctx context.Context, source Coordination, placement c.Placem
 	} else {
 		result.err = c.ErrUnsupported
 	}
-	if result.err == nil && (placement.HostID == "" || placement.InstanceID == "" || placement.Generation < 1 || result.report.Report.Placement != placement || c.ValidateDiagnostics(result.report.Report) != nil) {
+	if result.err == nil && (placement.HostID == "" || placement.InstanceID == "" || placement.Generation < 1 || result.report.ReceivedAt.IsZero() || result.report.Report.Placement != placement || c.ValidateDiagnostics(result.report.Report) != nil) {
 		result.err = c.ErrConflict
 	}
 	return result, nil

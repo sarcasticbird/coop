@@ -152,6 +152,14 @@ func (c LocalClient) Inventory(ctx context.Context, h Host) ([]InventoryEntry, e
 		runtimeName := "coop-agent-" + name
 		rows = append(rows, InventoryEntry{Target: target, Name: runtimeName, State: state.String(), Owned: owned[target].RuntimeName == runtimeName})
 	}
+	for i := range rows {
+		if rows[i].Target.Kind == Agent {
+			if binding := cfg.Profiles[rows[i].Target.ID].Diagnostics; binding != nil {
+				captured := *binding
+				rows[i].Diagnostics = &captured
+			}
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -309,7 +309,7 @@ func (b *boundedOutput) String() string {
 func (m fleetModel) dispatchOperation(p pendingAction) (tea.Model, tea.Cmd) {
 	if p.entry.Target.Kind != "" {
 		e, ok := m.entry(p.entry.Target)
-		if !ok || e.Project != p.entry.Project || e.Name != p.entry.Name {
+		if !ok || e.Project != p.entry.Project || e.Name != p.entry.Name || !sameBinding(e.Diagnostics, p.entry.Diagnostics) {
 			m.status = "captured identity changed or disconnected; refresh"
 			return m, nil
 		}

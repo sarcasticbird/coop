@@ -75,6 +75,32 @@ func observationAge(now, at time.Time) string {
 	return value
 }
 
+// DiagnosticFeedback is safe to pin outside a scrolled diagnostic viewport.
+// Successful cached refreshes contribute no transient loading feedback.
+func DiagnosticFeedback(now time.Time, report *c.AgentDiagnostics, failure string) string {
+	if failure != "" {
+		if report != nil {
+			return "STALE | " + failure
+		}
+		return "UNKNOWN | " + failure
+	}
+	if report == nil {
+		return ""
+	}
+	for _, at := range []time.Time{report.ReceivedAt, report.Report.ObservedAt, report.Report.Work.ObservedAt, report.Report.Wait.ObservedAt} {
+		if at.After(now) {
+			return "UNKNOWN | diagnostic clock ahead"
+		}
+		if !at.IsZero() && now.Sub(at) >= c.PresenceStale {
+			return "STALE diagnostic observations"
+		}
+	}
+	if report.Stale {
+		return "STALE diagnostic receipt"
+	}
+	return ""
+}
+
 func (m *Model) detailLines() []string {
 	return DetailLines(m.now, m.width, m.detailAgent, m.detail, m.detailBusy, m.detailFailure)
 }

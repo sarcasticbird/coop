@@ -14,6 +14,7 @@ import (
 	textansi "github.com/charmbracelet/x/ansi"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 	"github.com/sarcasticbird/coop/internal/runtime"
+	"github.com/sarcasticbird/coop/internal/tui/team"
 )
 
 // Registry edits configured references only; transport and credentials stay in
@@ -64,6 +65,7 @@ type pendingAction struct {
 
 type fleetModel struct {
 	coordination          coordState
+	diagnostics           fleetDiagnostics
 	services              Services
 	ctx                   context.Context
 	hosts                 []hostState
@@ -219,14 +221,18 @@ func (m *fleetModel) reconcile() {
 				present = true
 			}
 		}
-		if !present || (ok && (e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project)) {
+		if !present || (ok && (e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project || !sameBinding(e.Diagnostics, m.detailEntry.Diagnostics))) {
 			m.detailInvalid = true
+			m.resetFleetDiagnostics()
+			m.diagnostics.failure = "target or diagnostic binding changed; work unknown"
+		} else if !ok {
+			m.diagnostics.failure = "host inventory unavailable; current work unknown"
 		}
 	}
 	if m.pending != nil && m.pending.entry.Target.Kind != "" {
 		present := false
 		for _, row := range m.rows() {
-			if row.Target == m.pending.entry.Target && row.Name == m.pending.entry.Name && row.Project == m.pending.entry.Project {
+			if row.Target == m.pending.entry.Target && row.Name == m.pending.entry.Name && row.Project == m.pending.entry.Project && sameBinding(row.Diagnostics, m.pending.entry.Diagnostics) {
 				present = true
 			}
 		}
@@ -238,7 +244,7 @@ func (m *fleetModel) reconcile() {
 	if m.operations != nil && m.operations.entry.Target.Kind != "" {
 		present := false
 		for _, row := range m.rows() {
-			if row.Target == m.operations.entry.Target && row.Name == m.operations.entry.Name && row.Project == m.operations.entry.Project {
+			if row.Target == m.operations.entry.Target && row.Name == m.operations.entry.Name && row.Project == m.operations.entry.Project && sameBinding(row.Diagnostics, m.operations.entry.Diagnostics) {
 				present = true
 			}
 		}
@@ -293,6 +299,8 @@ func (m *fleetModel) revealLedgerSelection() {
 
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case fleetDiagnosticResult:
+		return m.fleetDiagnosticUpdate(msg)
 	case coordResult:
 		return m.coordUpdate(msg)
 	case operationStarted:
@@ -306,6 +314,10 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, fleetClock())
 	case fleetTick:
 		cmd := m.refresh()
+		if m.workspace == 0 && m.detail && !time.Time(msg).Before(m.diagnostics.next) {
+			diagnostic := m.refreshFleetDiagnostics()
+			return m, tea.Batch(cmd, diagnostic, fleetClock())
+		}
 		if m.workspace == 1 && m.coordination.follow && m.coordination.form == nil && !m.coordination.busy {
 			return m, tea.Batch(cmd, m.coordLoad(false), fleetClock())
 		}
@@ -569,13 +581,19 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter", "tab", "shift+tab", "u", "s", "d", "x":
 			for _, e := range m.rows() {
 				if e.Target == m.selected {
+					if e.Diagnostics != nil {
+						binding := *e.Diagnostics
+						e.Diagnostics = &binding
+					}
 					m.ledgerFocus = m.ledgerSelectionVisible()
 					m.detail, m.detailEntry, m.detailInvalid = true, &e, false
+					m.resetFleetDiagnostics()
 					m.ledgerScroll, m.scroll, m.status = m.scroll, 0, ""
 					if key != "enter" && key != "tab" && key != "shift+tab" {
 						m.status = "Details opened; choose an action explicitly"
 					}
-					return m, nil
+					cmd := m.refreshFleetDiagnostics()
+					return m, cmd
 				}
 			}
 			m.status = "No target selected; use up/down to select, then Enter for Details"
@@ -588,7 +606,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		e, ok := m.entry(m.detailEntry.Target)
-		if !ok || e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project {
+		if !ok || e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project || !sameBinding(e.Diagnostics, m.detailEntry.Diagnostics) {
 			m.status = "selected host inventory is not authoritative or target changed; refresh and select again"
 			return m, nil
 		}
@@ -649,6 +667,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 	case "tab", "shift+tab":
 		if m.workspace == 0 && m.detail {
+			m.resetFleetDiagnostics()
 			m.detail, m.detailEntry = false, nil
 			m.scroll = m.ledgerScroll
 			if m.ledgerFocus {
@@ -658,6 +677,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		returning := m.workspace == 0 && m.detail
 		if returning {
+			m.resetFleetDiagnostics()
 			m.scroll = m.ledgerScroll
 		}
 		m.detail = false
@@ -667,6 +687,10 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.status = ""
 	case "r":
+		if m.workspace == 0 && m.detail {
+			inventory, diagnostic := m.refresh(), m.refreshFleetDiagnostics()
+			return m, tea.Batch(inventory, diagnostic)
+		}
 		return m, m.refresh()
 	case "up", "k", "down", "j":
 		previousTarget, previousHost := m.selected, m.server
@@ -842,7 +866,7 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		return m.dispatchOperation(p)
 	}
 	e, ok := m.entry(p.entry.Target)
-	if !ok || e.Name != p.entry.Name || e.Project != p.entry.Project {
+	if !ok || e.Name != p.entry.Name || e.Project != p.entry.Project || !sameBinding(e.Diagnostics, p.entry.Diagnostics) {
 		m.status = identity(p.entry.Target) + " changed or became stale; action cancelled"
 		return m, nil
 	}
@@ -1085,7 +1109,8 @@ func (m fleetModel) content() ([]string, string, int) {
 			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
 				state = current.State
 			}
-			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Agent work / blocker: unknown (not inferred from VM)", "Source: host inventory has no authoritative master placement binding", "2 then t: Team diagnostics by master agent/host/worker/generation; no name-based mapping", "Enter: Connect | x: actions | Esc: Fleet"}
+			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Enter: Connect | x: actions | Esc: Fleet"}
+			lines = append(lines, m.fleetDiagnosticLines()...)
 			selectedLine = -1
 			if m.detailInvalid {
 				lines = append(lines, "Target changed or removed; actions blocked. Return to Fleet and select again.")
@@ -1233,6 +1258,25 @@ func (m fleetModel) View() string {
 		footer = textansi.Truncate(footer, m.width, "...")
 	}
 	feedback := m.status
+	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook {
+		if diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure); diagnostic != "" {
+			feedback = diagnostic
+		}
+		if m.diagnostics.busy && m.diagnostics.report == nil && m.diagnostics.failure == "" {
+			feedback = "Loading diagnostics..."
+		}
+	}
+	if m.workspace == 1 && m.coordination.teamDetail != nil && m.coordination.form == nil && !m.help && !m.runbook {
+		q := m.coordination
+		if q.failed {
+			feedback = "STALE/UNKNOWN | Team: " + q.status
+			if q.status == "forbidden" {
+				feedback = "STALE/UNKNOWN | Team access denied"
+			}
+		} else if diagnostic := team.DiagnosticFeedback(time.Now(), q.teamReport, q.teamFailure); diagnostic != "" {
+			feedback = diagnostic
+		}
+	}
 	if m.registryError != "" {
 		feedback = m.registryError
 	}

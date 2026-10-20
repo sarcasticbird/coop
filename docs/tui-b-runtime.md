@@ -226,21 +226,60 @@ delta is being adopted.
   verifies full placement, rejects old reports and restores list scroll. CLI/MCP,
   scheduler, report backend, lifecycle and permission contracts are unchanged.
 
-### Fleet Binding Boundary
+### Fleet Binding Contract
 
-The shipped host inventory identifies `Host registration + kind + profile/runtime
-ID`; it does **not** bind that target to a master placement. A profile's optional
-communication AgentID is a message destination, not proof of the current worker's
-host, instance or generation. Host registration names are not coordination HostIDs.
-Consequently, Fleet Details explicitly says work/blocker is **unknown**, identifies
-the missing authoritative binding, and points to the independent Team view. It
-does not guess using duplicate names, addresses, profile names or reason strings.
+The initial artifact `75ff31f` identified a genuine gap: fleet identity (`Host
+registration + kind + profile/runtime ID`) did not bind a target to a master
+placement. Robin's review correctly required resolving this before stage delivery.
+A profile's communication AgentID remains only a message destination; registration
+names remain distinct from coordination HostIDs. Neither supplies an implicit join.
 
-This change supplies placement-aware diagnostics in Team, not mapped work on
-Fleet targets. Populating Fleet work requires an explicit authoritative target to
-placement binding contract and remains an integration gap, not a claimed stage-2
-pass. No new binding/configuration/backend contract is invented here. Review and
-QA must assess this limitation against the stage acceptance before delivery.
+The fix adds one optional **host-owned observation pin** to an existing agent
+profile in the host's global `coop.toml`. For example, on a synthetic host with an
+already-configured `fixture-bird` profile:
+
+```toml
+[profiles.fixture-bird.diagnostics]
+master_id = "fixture-master"
+agent_id = "fixture-principal"
+host_id = "fixture-master-host-id"
+worker_instance_id = "fixture-worker-instance"
+generation = 1
+```
+
+The operator/provisioning source must copy the complete master and placement tuple
+from that machine's actual configured worker, not invent identifiers from VM names,
+SSH destinations or aliases. This explicit target binding is trusted host
+configuration, not a discovery heuristic or proof from a diagnostic report. Update
+it when replacing a worker instance or changing placement generation. The TUI never
+writes it, reads worker configuration/credentials, registers placement or changes
+master configuration. No live profile has been modified as part of these tests.
+
+Local inventory exports only this nonsecret pin on that exact agent target,
+including running, stopped and absent machines. Remote inventory transports the
+same optional `diagnostics` field through the existing validated SSH JSON route;
+transport registration normalization does not rewrite its master placement.
+Unbound profiles retain their existing inventory shape. Partial/invalid pins,
+interactive-target pins and duplicate placement pins within a host are rejected;
+the TUI also refuses ambiguous same-placement claims across hosts.
+
+Details shows VM lifecycle separately from the report's handling, reason,
+work/wait fields and observation ages. Before reading a report, it requires the
+configured master client to match the pin and the master's current Team snapshot
+to contain the exact agent/host/worker-instance/generation. Reports must match
+that tuple and the authenticated restore epoch. A missing, denied, unsupported,
+unreachable, stale or clock-skewed observation remains unknown/stale. Cached
+failures remain visible even while scrolled down. Reads never grant action
+authority; existing dispatch/receiving checks remain final. A changed binding
+invalidates captured Details/confirmation intent and late reads, rather than
+silently moving the view or a control to a replacement worker.
+
+Genuinely unbound targets still show unknown work and explain the missing pin;
+Team remains independently navigable. Existing installations need no migration,
+and no fallback guesses are added. The optional inventory field is additive;
+older strict clients that do not recognize a bound row fail closed as an invalid
+inventory instead of guessing a mapping. CLI flags, MCP actions, the report API,
+scheduler and master placement authority are unchanged.
 
 ### Reproduction
 
@@ -270,3 +309,40 @@ available compiler, with no environment/package changes. Flox's shell-detection
 warning and activation-lock waits did not prevent execution. These results cover
 the implemented Team slice and unknown Fleet boundary, not complete stage-2
 acceptance, independent review/QA or live operator UAT.
+
+### Review Fix Validation
+
+The follow-up adds regressions for Robin's new-epoch/earlier-observation case and
+scrolled Team/diagnostic denial at all three sizes. Epoch ordering compares times
+only within the same restore epoch; older-epoch results cannot replace newer
+evidence. Error/stale feedback uses the existing fixed status row, outside the
+scroll viewport, without inserting cached-refresh loading rows. CLI Team watch
+shares this pinned diagnostic feedback and epoch behavior.
+
+New config/inventory tests cover host-only TOML loading, partial pins, running and
+absent profiles, unbound defaults, invalid/duplicate pins, and SSH JSON transport.
+Fleet model tests cover mapped running-VM/waiting-agent observations at all sizes,
+unknown unbound duplicate names, master and placement mismatch, cross-host
+ambiguity, placement/registration/removal changes, stale cached inventory, scrolled
+faults, pending-intent invalidation, late reads and epoch clock correction. An
+integration test reads a real report through the existing authenticated master
+HTTP handler/client and verifies no lifecycle dispatch.
+
+Author follow-up validation on 2026-10-20 through Flox passed:
+
+- Formatting and `git diff --check`.
+- `go test` and `go vet` for `./internal/tui/... ./internal/config
+  ./internal/hostrouter ./internal/masterclient ./internal/coordination
+  ./internal/master ./internal/agent ./internal/workspace ./internal/fleet
+  ./cmd/coop`; tests used `-count=1`.
+- `go test ./internal/worker -run Diagnostic -count=1`.
+- `NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1`.
+- `CGO_ENABLED=1` with the existing compiler path above, `go test -race
+  ./internal/tui/... ./internal/config ./internal/hostrouter
+  ./internal/masterclient ./internal/master -count=1`.
+
+No environment/package changes were needed. Flox emitted its existing shell
+warning and occasional activation-lock waits, not test failures. These fix results
+supersede the initial artifact's mapped-Fleet gap, not the need for independent
+Robin review, private Wren exact-artifact QA, CI or operator UAT. No live pin,
+fleet, service, credentials, deployment or release state was changed.
