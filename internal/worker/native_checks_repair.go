@@ -27,7 +27,7 @@ func (d *NativeDispatcher) retireRecoveredChecksRepair(ctx context.Context, x *N
 	if _, err := nativeCurrentGoal(ctx, d.config, d.master, x.Goal); err != nil {
 		return false, err
 	}
-	catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
+	catalog, err := nativeValidationSnapshot(ctx, d.config, d.master, d.github, x.Job)
 	if err != nil {
 		return false, err
 	}

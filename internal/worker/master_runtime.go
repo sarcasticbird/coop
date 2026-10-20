@@ -20,6 +20,8 @@ type NativeEngineering interface {
 type MasterRuntime struct {
 	Comms       *MasterComms
 	Engineering NativeEngineering
+	diagnostics *diagnosticBuilder
+	reporter    diagnosticReporter
 }
 
 func (e *Engine) initMaster() error {
@@ -70,6 +72,9 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 	}
 	r := e.MasterRuntime
 	m := r.Comms
+	if r.diagnostics == nil {
+		r.diagnostics = newDiagnosticBuilder(m.Clock.Now())
+	}
 	defer func() {
 		if writer, ok := e.Store.(interface{ WriteStatus(Status) error }); ok {
 			state := "idle"
@@ -104,6 +109,21 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 			}
 			if result != nil {
 				status.LastError = errorCategory(result)
+			}
+			if sender, ok := m.Client.(diagnosticSender); ok && m.connection.Epoch > 0 {
+				var gh, oc coordination.DiagnosticService
+				if client, ok := e.GitHub.(*GitHubClient); ok {
+					gh = client.observation.snapshot()
+				}
+				if client, ok := e.OpenCode.(*OpenCodeClient); ok {
+					oc = client.observation.snapshot()
+				}
+				report := r.diagnostics.snapshot(e.Config, m.connection.Epoch, status, result, gh, oc, m.Clock.Now())
+				if err := coordination.ValidateDiagnostics(report); err != nil {
+					slog.Warn("worker diagnostics invalid", "category", "invalid_report")
+				} else {
+					r.reporter.tick(ctx, sender, report, m.Clock.Now())
+				}
 			}
 			if err := writer.WriteStatus(status); result == nil {
 				result = err

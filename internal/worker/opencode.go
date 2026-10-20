@@ -31,8 +31,9 @@ type OpenCodeError struct {
 func (e *OpenCodeError) Error() string { return "OpenCode: " + e.Category }
 
 type OpenCodeClient struct {
-	config OpenCodeConfig
-	http   *http.Client
+	observation *serviceObservation
+	config      OpenCodeConfig
+	http        *http.Client
 }
 
 // Native messages include diff summaries and tool output even when callers
@@ -51,13 +52,15 @@ func NewOpenCodeClient(c OpenCodeConfig, client *http.Client) (*OpenCodeClient, 
 	copy := *client
 	copy.Timeout = c.RequestTimeout
 	copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &OpenCodeClient{config: c, http: &copy}, nil
+	return &OpenCodeClient{config: c, http: &copy, observation: &serviceObservation{}}, nil
 }
 func (c *OpenCodeClient) request(ctx context.Context, method, path, dir string, body any, output any) error {
 	return c.requestBounded(ctx, method, path, dir, body, output, MaxAPIPage)
 }
 
-func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir string, body any, output any, responseLimit int) error {
+func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir string, body any, output any, responseLimit int) (resultErr error) {
+	started := time.Now()
+	defer func() { c.observation.record(started, resultErr) }()
 	var input io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)

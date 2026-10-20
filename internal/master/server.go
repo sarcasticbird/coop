@@ -169,6 +169,21 @@ func NewHandler(service *Service, policy *Policy) http.Handler {
 	mux.HandleFunc("GET /api/v1/team", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.Team(r.Context(), p)
 	}))
+	mux.HandleFunc("GET /api/v1/team/{agent_id}/diagnostics", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		return s.AgentDiagnostics(r.Context(), p, r.PathValue("agent_id"))
+	}))
+	mux.HandleFunc("POST /api/v1/diagnostics", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, c.MaxDiagnosticsBytes))
+		if err != nil {
+			return nil, c.ErrSize
+		}
+		var in c.WorkerDiagnostics
+		if err = c.DecodeJSON(raw, &in); err != nil {
+			return nil, err
+		}
+		err = s.ReportDiagnostics(r.Context(), p, in)
+		return map[string]bool{"ok": err == nil}, err
+	}))
 	mux.HandleFunc("POST /api/v1/goals", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		var in c.GoalProposal
 		if err := decode(w, r, &in); err != nil {

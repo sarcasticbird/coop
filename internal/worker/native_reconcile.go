@@ -313,14 +313,15 @@ func (d *NativeDispatcher) reconcileDeliveryReadiness(ctx context.Context, x *Na
 	if !pending {
 		return false, nil
 	}
-	catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
-	if err != nil {
+	catalog, err := nativeValidationSnapshot(ctx, d.config, d.master, d.github, x.Job, nativeWaitReferences(*x)...)
+	stale := errors.Is(err, errNativeCandidateStale)
+	if err != nil && !stale {
 		return false, err
 	}
-	if !catalog.Complete {
+	if !stale && !catalog.Complete {
 		return false, c.ErrUnavailable
 	}
-	obsolete := nativeScopeChanged(*x, catalog)
+	obsolete := stale || nativeScopeChanged(*x, catalog)
 	for _, candidate := range NativeCandidates(d.config, catalog, nil, d.clock.Now()) {
 		if candidate.Job.ID == x.Job.ID {
 			return false, nil

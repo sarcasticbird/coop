@@ -78,7 +78,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `mcp register` | Advanced host form with private config path and canonical existing-project path; existing ownership validation |
 | `mcp inspect` | Advanced host form with config reference and operation ID; structured metadata result |
 | `mcp serve`, `mcp stdio`, `master serve` | Services runbook, never started/daemonized by the browser; private configuration and operator-managed service lifetime |
-| `team`, `inbox` | Coordination slice #94; Team presence and pending delivery views |
+| `team`, `team inspect`, `inbox` | Team presence and selected-agent diagnostics are available through `team --watch`; unified coordination and pending delivery views belong to #94 |
 | `thread list`, `thread create`, `thread read`, `thread members` | Coordination slice #94; thread navigation, compose/context and owner-authorized exact-set membership |
 | `message send`, `message status` | Coordination slice #94; private compose/reply and durable receipt status |
 | `goal propose`, `goal list`, `goal authority` | Coordination slice #94; structured proposals and exact revision authority |

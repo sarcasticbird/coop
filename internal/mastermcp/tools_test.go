@@ -55,6 +55,10 @@ func TestMasterMCPIdentity(t *testing.T) {
 	if !found {
 		t.Fatal("missing conversation tool")
 	}
+	status, statusErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "coop_master_agent_status", Arguments: map[string]any{"agent_id": "unowned"}})
+	if statusErr != nil || !status.IsError || status.Content[0].(*mcp.TextContent).Text != "not_found" {
+		t.Fatal("missing safe status read", status, statusErr)
+	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "coop_master_send", Arguments: map[string]any{"thread_id": "unowned", "body": "message", "request_id": "req"}})
 	if err == nil && result != nil && !result.IsError {
 		t.Fatal("read principal sent a message")

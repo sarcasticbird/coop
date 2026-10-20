@@ -20,6 +20,14 @@ func teamCommand() *cobra.Command {
 		return printMaster(cmd, v, e)
 	}}
 	cmd.Flags().BoolVar(&watch, "watch", false, "Open the read-only Team screen (r refresh, ? help, q quit)")
+	cmd.AddCommand(&cobra.Command{Use: "inspect AGENT", Short: "Read one agent's diagnostic snapshot without waking it", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		cl, err := masterClient(cmd)
+		if err != nil {
+			return err
+		}
+		v, err := cl.AgentDiagnostics(cmd.Context(), args[0])
+		return printMaster(cmd, v, err)
+	}})
 	return cmd
 }
 func inboxCommand() *cobra.Command {

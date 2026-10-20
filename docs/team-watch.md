@@ -17,15 +17,18 @@ output is unchanged. Run this command in a terminal. No new service is needed.
 | Key | Read-only behavior |
 | --- | --- |
 | `r` | Refresh now; ignored while a read is already in flight |
+| Tab, Shift-Tab | Select the next/previous agent |
+| Enter | Inspect the selected agent's diagnostic snapshot |
 | Up/Down, `k`/`j` | Scroll one line |
 | PgUp/PgDn, Space | Scroll a page (Space scrolls down) |
 | Home/End, `g`/`G` | Top/end of the view |
 | `?` | Toggle contextual help |
-| `q`, Escape, Ctrl-C | Quit and cancel the outstanding read |
+| Escape | Return from detail, or quit from the list |
+| `q`, Ctrl-C | Quit and cancel outstanding reads |
 
 Reads time out after ten seconds. Automatic refresh starts five seconds after
-the previous read completes. Age labels update every second. At most one request
-is in flight; navigation and resize remain local and responsive during it.
+the previous read completes. Age labels update every second. Each view permits
+one request in flight; navigation and resize remain responsive during reads.
 
 The screen shows agent ID/alias, host, worker instance, placement generation,
 returned availability, and last heartbeat age. It does not equate a running VM
@@ -33,8 +36,8 @@ with an agent working. The current Team API supplies diagnostic heartbeat reason
 not a complete task catalog: task, stage, phase, blocker and `depends_on` tokens
 are displayed when present in those diagnostics. Repeated fields remain visible;
 they are not combined into an invented job. Diagnostics may be truncated by the
-producer, and dependencies may therefore be incomplete. No other endpoint is
-queried to fill gaps. Missing fields and timestamps are **unknown**; future
+producer, and dependencies may therefore be incomplete. Enter explicitly reads
+the selected agent's structured diagnostics. Missing fields and timestamps are **unknown**; future
 timestamps are marked unknown with a clock-ahead warning.
 
 An initial error is **OFFLINE; no snapshot**. Subsequent errors retain the last
@@ -43,7 +46,7 @@ category. A successful reconnect clears that marker. Returned agent `stale`
 availability is separate from a stale screen snapshot. Status labels are reported
 observations, not progress estimates. Raw transport errors are not shown.
 
-All keys and refreshes only read Team. There are no message, ping, lifecycle,
+All keys and refreshes only read Team or selected-agent diagnostics. There are no message, ping, lifecycle,
 goal, scheduler or model-wake operations, and no private message reads.
 
 ## Integration Handoff
@@ -54,7 +57,9 @@ of native goal `goal_SGYSDUPHMYNP67EDX4ANUU2D7W`, not completion of the broader 
 
 `internal/tui/team.New(ctx, source, masterID)` returns a Bubble Tea `*Model` with
 `Init`, `Update` and `View`; `Source` exposes only
-`Team(context.Context) ([]coordination.Presence, error)`. Call `Close` on unmount
+`Team(context.Context) ([]coordination.Presence, error)`. The optional
+`DiagnosticSource` adds `AgentDiagnostics(context.Context, string) (coordination.AgentDiagnostics, error)`.
+Older sources continue to work and show unsupported when inspected. Call `Close` on unmount
 to cancel reads. `Run` supplies the standalone alternate-screen adapter. A parent
 shell should intercept navigation/quit keys before forwarding messages if it
 wants to switch tabs instead of exiting. Task #94 should integrate this view,

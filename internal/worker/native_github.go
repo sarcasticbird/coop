@@ -141,6 +141,7 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 		return PR{}, ghError("invalid_native_PR_target")
 	}
 	reader := NewGitHubClient(g.runner)
+	reader.observation = g.observation
 	reader.config = cfg
 	parts := strings.Split(repo, "/")
 	query := `query WorkerNativePR($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){url body createdAt lastEditedAt state merged headRefOid headRefName baseRefName baseRef{name target{oid}} updatedAt mergeStateStatus author{` + actorFields + `} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}`

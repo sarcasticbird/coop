@@ -27,7 +27,7 @@ func prepareNativeWait(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	if x.Job.Kind != "implement" && x.Job.Kind != "fix" || len(in.DependsOn) == 0 || len(in.DependsOn) > 20 || in.Body == "" || len(in.Body) > 1024 || !validSession(x.Job.SessionID) || !validMessage(x.Job.MessageID) {
 		return nil, c.ErrInvalid
 	}
-	catalog, err := g.NativeSnapshot(ctx, cfg, m)
+	catalog, err := nativeValidationSnapshot(ctx, cfg, m, g, x.Job, in.DependsOn...)
 	if err != nil {
 		return nil, err
 	}

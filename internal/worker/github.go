@@ -39,17 +39,20 @@ func (e *GitHubError) Error() string { return "GitHub: " + e.Category }
 func ghError(category string) error  { return &GitHubError{Category: category} }
 
 type GitHubClient struct {
-	runner   CommandRunner
-	config   Config
-	snapshot Snapshot
-	goalIDs  map[string]string
+	observation *serviceObservation
+	runner      CommandRunner
+	config      Config
+	snapshot    Snapshot
+	goalIDs     map[string]string
 }
 
 func NewGitHubClient(runner CommandRunner) *GitHubClient {
-	return &GitHubClient{runner: runner, goalIDs: map[string]string{}}
+	return &GitHubClient{runner: runner, goalIDs: map[string]string{}, observation: &serviceObservation{}}
 }
 
-func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, body any) ([]byte, http.Header, error) {
+func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, body any) (_ []byte, _ http.Header, resultErr error) {
+	started := time.Now()
+	defer func() { g.observation.record(started, resultErr) }()
 	if !slug.MatchString(owner) || strings.ContainsAny(endpoint, "\x00\r\n") || strings.HasPrefix(endpoint, "/") || strings.Contains(endpoint, "://") {
 		return nil, nil, ghError("invalid_target")
 	}

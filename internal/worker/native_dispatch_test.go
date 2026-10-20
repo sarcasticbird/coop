@@ -65,6 +65,9 @@ type dispatchCatalog struct {
 func (g *dispatchCatalog) NativeSnapshot(context.Context, Config, NativeMaster) (NativeCatalog, error) {
 	return g.catalog, g.err
 }
+func (g *dispatchCatalog) NativeTaskSnapshot(ctx context.Context, cfg Config, m NativeMaster, _ Job, _ ...string) (NativeCatalog, error) {
+	return g.NativeSnapshot(ctx, cfg, m)
+}
 func dispatchFixture(t *testing.T) (Config, *dispatchMaster, *dispatchCatalog, *fakeOpenCode) {
 	t.Helper()
 	cfg, cat, _ := nativeWorkFixture(t)
@@ -90,6 +93,10 @@ func saveNativeFixtureConnection(t *testing.T, cfg Config) {
 type budgetedNativeCatalog struct {
 	catalog   NativeCatalog
 	remaining int
+}
+
+func (g *budgetedNativeCatalog) NativeTaskSnapshot(ctx context.Context, cfg Config, m NativeMaster, _ Job, _ ...string) (NativeCatalog, error) {
+	return g.NativeSnapshot(ctx, cfg, m)
 }
 
 func (g *budgetedNativeCatalog) NativeSnapshot(context.Context, Config, NativeMaster) (NativeCatalog, error) {

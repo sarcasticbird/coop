@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -89,10 +90,16 @@ func (cl *Client) open(ctx context.Context, method, path string, in any) (*http.
 	}
 	if r.Header.Get("X-Coop-Master-ID") != cl.cfg.MasterID {
 		_ = r.Body.Close()
+		if r.StatusCode == http.StatusNotFound && r.Header.Get("X-Coop-Master-ID") == "" && (path == "/api/v1/diagnostics" || strings.HasPrefix(path, "/api/v1/team/") && strings.HasSuffix(path, "/diagnostics")) {
+			return nil, errDiagnosticRoute
+		}
 		return nil, c.ErrConflict
 	}
 	return r, nil
 }
+
+var errDiagnosticRoute = errors.New("diagnostic_route_missing")
+
 func (cl *Client) call(ctx context.Context, method, path string, in, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

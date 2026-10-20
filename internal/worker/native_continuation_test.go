@@ -14,6 +14,10 @@ type slowNativeCatalog struct {
 	clock *fakeClock
 }
 
+func (g slowNativeCatalog) NativeTaskSnapshot(ctx context.Context, cfg Config, m NativeMaster, _ Job, _ ...string) (NativeCatalog, error) {
+	return g.NativeSnapshot(ctx, cfg, m)
+}
+
 type continuationCheckouts struct {
 	fakeCheckouts
 	calls int

@@ -209,6 +209,7 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `server update` | UI | Edit captured registration; changed address invalidates pending selection |
 | `server remove` | UI | Confirm reference removal, not remote deletion |
 | `team` | UI | Coordination Team presence/placement; CLI --watch remains read-only |
+| `team inspect` | CLI/runbook | Read one agent's diagnostics; Team --watch opens the same detail with Enter |
 | `inbox` | UI | Authenticated agent's pending delivery page; owner denial is not an empty inbox |
 | `thread list` | UI | Threads with continuation cursor |
 | `thread create` | UI | New thread, engagement and stable member set, preview/submit |

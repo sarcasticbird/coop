@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"os"
 	"path/filepath"
@@ -9,6 +11,47 @@ import (
 	"testing"
 	"time"
 )
+
+type staleRecoveryCatalog struct {
+	*dispatchCatalog
+	failure error
+}
+
+func (g staleRecoveryCatalog) NativeTaskSnapshot(context.Context, Config, NativeMaster, Job, ...string) (NativeCatalog, error) {
+	return NativeCatalog{}, g.failure
+}
+
+func TestNativeDeliveryRecoveryCancelsReboundUnstartedAction(t *testing.T) {
+	for _, test := range []struct {
+		name, step string
+		failure    error
+		cancel     bool
+	}{
+		{"rebound", "", errNativeCandidateStale, true},
+		{"transport", "", context.DeadlineExceeded, false},
+		{"started", "merge", errNativeCandidateStale, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, m, cat, _ := dispatchFixture(t)
+			v := NativeCandidates(cfg, cat.catalog, nil, time.Now())[0]
+			x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: 1, Goal: v.Goal.Revision.Ref, Binding: &v.Task.Binding, Job: v.Job, Phase: "blocked"}
+			x.Job.Kind = "deliver"
+			if err := saveNativeExecution(cfg, x); err != nil {
+				t.Fatal(err)
+			}
+			d := &NativeDispatcher{config: cfg, master: m, github: staleRecoveryCatalog{cat, test.failure}, clock: RealClock{}}
+			done, err := d.reconcileDeliveryReadiness(t.Context(), &x, []nativeActionRecord{{State: "prepared", Operation: "deliver", Step: test.step}})
+			if test.cancel {
+				saved, readErr := loadNativeExecution(cfg, x.Job.ID)
+				if err != nil || !done || readErr != nil || saved.Phase != "cancelled" || saved.Reason != "native_delivery_superseded" {
+					t.Fatal("superseded delivery retained its reservation", done, err, readErr, saved.Phase)
+				}
+			} else if done || x.Phase != "blocked" || test.step == "" && !errors.Is(err, test.failure) {
+				t.Fatal("unsafe cancellation", done, err, x.Phase)
+			}
+		})
+	}
+}
 
 func TestNativeWorkerAutomaticallyRecoversAcknowledgedTaskRegistration(t *testing.T) {
 	cfg, m, _, code := dispatchFixture(t)

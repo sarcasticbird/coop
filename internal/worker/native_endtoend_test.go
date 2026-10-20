@@ -133,6 +133,12 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			data = map[string]any{"updateProjectV2ItemFieldValue": map[string]any{"projectV2Item": map[string]any{"id": "item"}}}
 		case strings.Contains(req.Query, "WorkerProjectFields"):
 			data = map[string]any{"node": map[string]any{"fields": page([]any{map[string]any{"id": "status", "name": "Status", "options": []any{map[string]any{"id": "ready", "name": "Ready"}, map[string]any{"id": "progress", "name": "In Progress"}, map[string]any{"id": "done", "name": "Done"}}}}, 1)}}
+		case strings.Contains(req.Query, "WorkerNativeTaskProjectItems"):
+			items := []any{}
+			if s.projectAdded {
+				items = append(items, map[string]any{"id": "item", "project": map[string]any{"id": "project"}, "content": map[string]any{"__typename": "Issue", "url": taskURL}})
+			}
+			data = map[string]any{"repository": map[string]any{"issue": map[string]any{"projectItems": page(items, len(items))}}}
 		case strings.Contains(req.Query, "WorkerProjectItems"):
 			items := []any{}
 			if s.projectAdded {
@@ -295,6 +301,21 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 		candidate := candidates[0]
+		if kind != "plan" {
+			selected, err := g.NativeTaskSnapshot(ctx, cfg, m, candidate.Job)
+			if err != nil {
+				t.Fatal("selected-task evidence", kind, err)
+			}
+			matched := false
+			for _, v := range NativeCandidates(cfg, selected, nil, time.Now()) {
+				if v.Job.ID == candidate.Job.ID {
+					matched = true
+				}
+			}
+			if !matched || selected.TaskScope != candidate.Job.TaskURL {
+				t.Fatal("selected read changed stage/peer/QA eligibility", kind)
+			}
+		}
 		x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: 1, Goal: candidate.Goal.Revision.Ref, Job: candidate.Job, Phase: "selected"}
 		if candidate.Task != nil {
 			x.Binding = &candidate.Task.Binding

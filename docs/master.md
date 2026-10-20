@@ -490,6 +490,40 @@ The legacy top-level `server_healthy` field is not populated by the native v3
 worker; its default `false` does not establish an OpenCode outage. Use the
 authenticated OpenCode health endpoint to check the server itself.
 
+### Structured agent diagnostics
+
+`coop team inspect hawk` and MCP `coop_master_agent_status` with `agent_id: "hawk"`
+read the same bounded snapshot without waking an agent. In `coop team --watch`,
+Tab selects an agent and Enter opens its detail. Escape returns to the list.
+These reads use existing master authentication and Team engagement visibility.
+
+The report separates stage, task/PR/head, model selection, wait reason, retry,
+deadline and cached GitHub/OpenCode observations. Handling is `working`, `waiting`,
+`auto_retry`, `action_required` or `unknown`. Unknown reasons remain unknown.
+Each service has its own observation time; a heartbeat or successful contact is
+not proof of model or VM health. GitHub request counts are observed calls since
+worker start, and duration is the last observed request. No probes or model turns
+run to collect these observations.
+
+A paused worker reports `waiting` with reason `local_pause` and no automatic
+retry time, even if its last observed catalog or dependency read failed.
+
+Workers optionally POST `/api/v1/diagnostics` at heartbeat cadence. Reporting has
+a separate five-second deadline and one in-flight request. The master stores one
+report per agent, at most 32 KiB with 32 recent transitions since worker start.
+GET `/api/v1/team/{agent_id}/diagnostics` returns the report, master `received_at`
+and `stale`. A receipt becomes stale after 45 seconds on the master's clock;
+worker observation timestamps remain separate. Reports from retired placements
+or restore epochs are unavailable. Diagnostics never authorize work or recovery.
+
+Reports contain typed metadata, not prompts, message bodies, raw errors, logs,
+environment variables, credentials or local paths. Partial service failures do
+not hide other sections. Ordinary Team and heartbeat contracts are unchanged.
+Deploy master support before workers. Older workers have no report. An older
+master's unsupported route disables worker reporting until restart, after an
+identity-pinned check; normal work continues. Clients distinguish unsupported
+diagnostics from an unavailable report and never invent a healthy result.
+
 Workers also post `[COOP BLOCKED]` notices in the affected work thread, with the
 task, last recorded action, blocker and required next step. Set
 `master.blocker_recipient` to the owner's master principal ID for an addressed

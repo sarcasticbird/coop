@@ -203,6 +203,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, c.ErrForbidden
 	}
 	reader := NewGitHubClient(g.runner)
+	reader.observation = g.observation
 	reader.config = cfg
 	// Reject correctable local Project choices before binding an immutable
 	// request. Dynamic discovery and authority reads still retain exact intent.
@@ -587,7 +588,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			return empty, err
 		}
 		if record.Step == "" {
-			catalog, e := reader.NativeSnapshot(ctx, cfg, m)
+			catalog, e := nativeValidationSnapshot(ctx, cfg, m, reader, x.Job)
 			if e != nil {
 				return empty, e
 			}
@@ -778,7 +779,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			return empty, c.ErrForbidden
 		}
 		if !pr.Merged {
-			catalog, e := reader.NativeSnapshot(ctx, cfg, m)
+			catalog, e := nativeValidationSnapshot(ctx, cfg, m, reader, x.Job)
 			if e != nil {
 				return empty, e
 			}

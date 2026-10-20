@@ -76,6 +76,7 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 	sort.Slice(p.Blocked, func(i, j int) bool { return p.Blocked[i].JobID < p.Blocked[j].JobID })
 	if d.active != nil {
 		x := d.active
+		p.PrimaryJobID = x.Job.ID
 		p.SessionID, p.SubmissionState = x.Job.SessionID, x.Job.SubmissionState
 		p.Current = currentWork(d.config, Snapshot{}, x.Job, d.clock.Now())
 		p.Current.Phase = x.Phase
