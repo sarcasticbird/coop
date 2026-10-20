@@ -404,10 +404,10 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		return m.keyForm(k)
 	}
-	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q")) {
+	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
 		updated := out.(fleetModel)
-		if key == "up" || key == "down" || key == "k" || key == "j" || key == "tab" || key == "shift+tab" {
+		if key == "up" || key == "down" || key == "k" || key == "j" || key == "tab" || key == "shift+tab" || key == "esc" {
 			_, _, selected := updated.content()
 			if selected >= 0 && updated.height > 0 {
 				limit := max(1, updated.height-2)

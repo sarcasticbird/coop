@@ -45,6 +45,8 @@ type coordState struct {
 	self                 c.SelfIdentity
 	team                 []c.Presence
 	threads              []c.Thread
+	threadsNext          string // Retained independently of reader and Inbox cursors.
+	threadsCursor        int
 	inbox                []c.Delivery
 	goals                []c.GoalAuthority
 	thread               *c.Thread
@@ -223,6 +225,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		q.cursor = max(0, min(q.cursor, len(data)-1))
 	case c.ThreadPage:
 		q.threads, q.next, q.cursor = data.Threads, data.Next, 0
+		q.threadsNext, q.threadsCursor = data.Next, 0
 	case c.DeliveryPage:
 		q.inbox, q.next, q.cursor = data.Deliveries, data.Next, 0
 		if data.Quiescent {
@@ -231,6 +234,9 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	case c.GoalPage:
 		q.goals, q.next, q.cursor = data.Goals, data.Next, 0
 	case c.Thread:
+		if q.section == "threads" && q.thread == nil {
+			q.threadsCursor = q.cursor
+		}
 		q.section, q.next = "threads", ""
 		q.thread, q.messages, q.after, q.cursor, q.receipt = &data, nil, 0, 0, nil
 		q.authority, m.scroll = nil, 0
@@ -526,7 +532,8 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if q.authority != nil {
 			q.authority = nil
 		} else if q.thread != nil {
-			q.thread, q.messages, q.after, q.cursor, q.follow = nil, nil, 0, 0, false
+			q.thread, q.messages, q.after, q.follow = nil, nil, 0, false
+			q.next, q.cursor = q.threadsNext, max(0, min(q.threadsCursor, len(q.threads)-1))
 		} else {
 			m.workspace = 0
 		}
@@ -621,6 +628,9 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			delta = -1
 		}
 		q.cursor = max(0, min(count-1, q.cursor+delta))
+		if q.section == "threads" && q.thread == nil && q.receipt == nil && q.authority == nil {
+			q.threadsCursor = q.cursor
+		}
 	}
 	return m, nil
 }

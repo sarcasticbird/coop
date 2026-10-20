@@ -91,7 +91,9 @@ terminal settings are restored and the browser refreshes the same host/target.
 ### Conversations
 
 Open Threads, page with `]`, select a thread and read/follow its committed
-messages. Create a thread with a title, authorized engagement and complete stable
+messages. Escape from the reader restores the retained thread-list page,
+selection and continuation, so `]` still advances after reading a thread.
+Create a thread with a title, authorized engagement and complete stable
 member IDs. Compose a root message with explicit recipients, or reply with the
 selected parent ID. With no explicit recipients a reply addresses its parent
 author excluding the sender; a root message with no recipients is a note and

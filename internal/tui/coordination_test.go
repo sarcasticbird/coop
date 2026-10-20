@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -644,6 +645,111 @@ func coordinationMasterFixture(t *testing.T, engagements ...string) (*masterclie
 		return cl
 	}
 	return client("owner"), client("hawk")
+}
+
+func TestCoordinationHTTPThreadReadBackPreservesPagination(t *testing.T) {
+	owner, _ := coordinationMasterFixture(t)
+	ctx := context.Background()
+	for i := 0; i < 101; i++ {
+		_, err := owner.CreateThread(ctx, c.CreateThread{Title: "Pagination fixture", Engagement: "coop", Members: []string{"hawk"}, RequestID: fmt.Sprintf("pagination-thread-%d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, _ := coordinationFixture()
+	m.services.Coordination = owner
+	m.width, m.height = 40, 20
+	m, cmd := coordinationKey(m, "l")
+	m = coordinationRun(t, m, cmd)
+	if m.coordination.failed || len(m.coordination.threads) != 100 || m.coordination.next == "" {
+		t.Fatal("fixture did not produce a paginated thread list")
+	}
+	firstPage := slices.Clone(m.coordination.threads)
+	next := m.coordination.next
+	for i := 0; i < 37; i++ {
+		m, _ = coordinationKey(m, "j")
+	}
+	m, cmd = coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	if m.coordination.failed || m.coordination.thread == nil || m.coordination.thread.ID != firstPage[37].ID {
+		t.Fatal("selected thread did not open")
+	}
+	m, _ = coordinationKey(m, "esc")
+	if !reflect.DeepEqual(m.coordination.threads, firstPage) || m.coordination.next != next || m.coordination.cursor != 37 {
+		t.Fatalf("read/back lost thread page: rows=%d next=%q selection=%d", len(m.coordination.threads), m.coordination.next, m.coordination.cursor)
+	}
+	if !strings.Contains(m.View(), "> "+firstPage[37].ID) {
+		t.Fatal("restored selection is off-screen in a small terminal")
+	}
+	m, cmd = coordinationKey(m, "]")
+	if cmd == nil {
+		t.Fatal("read/back made continuation unavailable")
+	}
+	m = coordinationRun(t, m, cmd)
+	if m.coordination.failed || len(m.coordination.threads) != 1 || m.coordination.next != "" || slices.ContainsFunc(firstPage, func(thread c.Thread) bool { return thread.ID == m.coordination.threads[0].ID }) {
+		t.Fatal("continuation did not load the remaining thread")
+	}
+	lastID := m.coordination.threads[0].ID
+	m, cmd = coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	m, _ = coordinationKey(m, "esc")
+	if len(m.coordination.threads) != 1 || m.coordination.threads[0].ID != lastID || m.coordination.next != "" {
+		t.Fatal("last-page read/back reverted to first page")
+	}
+	m, cmd = coordinationKey(m, "]")
+	if cmd != nil {
+		t.Fatal("terminal page unexpectedly has continuation")
+	}
+}
+
+func TestCoordinationServicesShortcut(t *testing.T) {
+	m, _ := coordinationFixture()
+	m, cmd := coordinationKey(m, "v")
+	if cmd != nil || !m.runbook || !strings.Contains(m.View(), "ADVANCED / SERVICES / ABOUT") {
+		t.Fatal("Coordination swallowed Services shortcut")
+	}
+	m, _ = coordinationKey(m, "esc")
+	if m.runbook || m.workspace != 1 || m.coordination.section != "threads" {
+		t.Fatal("Services back did not retain Coordination")
+	}
+	m, _ = coordinationKey(m, "o")
+	m, _ = coordinationKey(m, "v")
+	if m.runbook || m.coordination.form == nil || m.coordination.form.values[0] != "v" {
+		t.Fatal("Services shortcut stole literal form input")
+	}
+}
+
+func TestCoordinationInboxReaderRestoresThreadListSnapshot(t *testing.T) {
+	m, s := coordinationFixture()
+	s.threads = func(query c.ThreadQuery) (c.ThreadPage, error) {
+		if query.After != "thread-next" {
+			t.Fatalf("Inbox cursor leaked into Threads: %q", query.After)
+		}
+		return c.ThreadPage{}, nil
+	}
+	s.pending = func(c.PendingQuery) (c.DeliveryPage, error) {
+		return c.DeliveryPage{Deliveries: []c.Delivery{{MessageID: "inbox-message"}}, Next: "inbox-next"}, nil
+	}
+	s.message = func(id string) (c.Message, error) { return c.Message{ID: id, ThreadID: "inbox-thread"}, nil }
+	s.thread = func(id string) (c.Thread, error) { return c.Thread{ID: id}, nil }
+	s.messages = func(string, int64) (c.MessagePage, error) { return c.MessagePage{}, nil }
+	rows := []c.Thread{{ID: "first-thread"}, {ID: "second-thread"}}
+	out, _ := m.Update(coordResult{serial: m.coordination.serial, self: s.self, data: c.ThreadPage{Threads: rows, Next: "thread-next"}})
+	m = out.(fleetModel)
+	m, _ = coordinationKey(m, "j")
+	m, cmd := coordinationKey(m, "i")
+	m = coordinationRun(t, m, cmd)
+	m, cmd = coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	m, _ = coordinationKey(m, "esc")
+	if m.coordination.next != "thread-next" || m.coordination.cursor != 1 || !reflect.DeepEqual(m.coordination.threads, rows) {
+		t.Fatal("Inbox reader back mixed list snapshots")
+	}
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	if m.coordination.failed {
+		t.Fatal("restored thread continuation failed")
+	}
 }
 
 func coordinationSubmit(t *testing.T, m fleetModel) fleetModel {
