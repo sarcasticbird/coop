@@ -534,6 +534,11 @@ stalled admissions, overdue turns and exhausted branch refreshes are reported;
 catalog failures get a five-minute grace period. Dependency waits name their
 prerequisites and say when continuation is automatic.
 
+Full native catalog discovery runs in the background with a five-minute budget;
+read-only native preflight uses the same budget. Per-action authority revalidation
+retains its one-minute budget, and individual GitHub requests retain their
+30-second timeout. Discovery still requires a complete verified snapshot.
+
 Notice checks run at the heartbeat interval, with one bounded background send
 at a time so network delays do not hold the worker loop. Notices are deduplicated
 across polls and restarts. A changed blocker gets an

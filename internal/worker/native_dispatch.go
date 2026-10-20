@@ -258,7 +258,7 @@ func (d *NativeDispatcher) poll() {
 		d.refresh = make(chan nativeRefresh, 1)
 		ch := d.refresh
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), githubRevalidationTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), NativeCatalogTimeout)
 			defer cancel()
 			catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
 			ch <- nativeRefresh{catalog, err}
