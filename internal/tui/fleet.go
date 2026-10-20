@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -27,10 +29,13 @@ type Inventory interface {
 }
 
 type Services struct {
+	Version   string
 	Inventory Inventory
 	Registry  Registry
 	Actions   hostrouter.ActionClient
 	Terminal  hostrouter.TerminalClient
+	// Foreground uses the existing CLI on the released controlling terminal.
+	Foreground func(context.Context, hostrouter.ActionRequest) (*exec.Cmd, error)
 }
 
 type hostState struct {
@@ -49,8 +54,11 @@ type serverForm struct {
 }
 
 type pendingAction struct {
-	entry     hostrouter.InventoryEntry
-	operation string
+	entry      hostrouter.InventoryEntry
+	operation  string
+	args       []string
+	directory  string
+	foreground bool
 }
 
 type fleetModel struct {
@@ -72,6 +80,12 @@ type fleetModel struct {
 	form                  *serverForm
 	pending               *pendingAction
 	result                Result
+	operations            *operationForm
+	runbook               bool
+	actionSequence        uint64
+	activeTarget          hostrouter.Target
+	active                bool
+	output                string
 	// legacy is the compatibility adapter for local lifecycle and CLI attachment.
 	legacy runtime.Runtime
 }
@@ -92,6 +106,8 @@ type fleetActionDone struct {
 	target    hostrouter.Target
 	operation string
 	err       error
+	request   uint64
+	output    string
 }
 type registryDone struct{ err error }
 
@@ -190,6 +206,12 @@ func (m *fleetModel) reconcile() {
 
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case operationStarted:
+		if !m.active || msg.request != m.actionSequence || msg.target != m.activeTarget {
+			return m, nil
+		}
+		m.status = identity(msg.target) + " " + msg.operation + " running; esc cancels; no automatic retries"
+		return m, msg.run
 	case fleetRefresh:
 		cmd := m.refresh()
 		return m, tea.Batch(cmd, fleetClock())
@@ -286,14 +308,25 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		return m, m.refresh()
 	case fleetActionDone:
+		if msg.request != 0 && (!m.active || msg.request != m.actionSequence) {
+			return m, nil
+		}
+		if m.active && (msg.request != m.actionSequence || msg.target != m.activeTarget) {
+			return m, nil
+		}
+		m.active = false
 		m.busy = false
+		m.output = msg.output
 		if m.actionCancel != nil {
 			m.actionCancel()
 			m.actionCancel = nil
 		}
-		m.status = identity(msg.target) + " " + msg.operation + " complete"
+		m.status = identity(msg.target) + " " + msg.operation + " succeeded"
 		if msg.err != nil {
-			m.status = identity(msg.target) + " " + msg.operation + " failed: " + msg.err.Error()
+			m.status = identity(msg.target) + " " + msg.operation + " failed: " + msg.err.Error() + "; refresh and inspect before retrying"
+		}
+		if errors.Is(msg.err, context.Canceled) {
+			m.status = identity(msg.target) + " " + msg.operation + " cancelled; outcome may be unknown; refresh before retrying"
 		}
 		m.refreshing = false
 		return m, m.refresh()
@@ -340,6 +373,15 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.runbook {
+		if key == "esc" || key == "v" {
+			m.runbook = false
+		}
+		return m, nil
+	}
+	if m.operations != nil {
+		return m.keyOperation(k)
+	}
 	if m.pending != nil {
 		p := *m.pending
 		if key == "esc" || key == "n" {
@@ -356,6 +398,10 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyForm(k)
 	}
 	switch key {
+	case "v":
+		m.runbook, m.scroll = true, 0
+	case "x":
+		return m.openOperations()
 	case "q":
 		if m.cancel != nil {
 			m.cancel()
@@ -440,7 +486,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if key == "d" && m.workspace == 0 {
 			if e, ok := m.entry(m.selected); ok {
-				m.pending = &pendingAction{e, "destroy"}
+				m.pending = &pendingAction{entry: e, operation: "destroy"}
 				m.scroll = 0
 			} else {
 				m.status = "selected host inventory is not authoritative; refresh"
@@ -460,7 +506,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = identity(e.Target) + " is not running"
 			return m, nil
 		}
-		return m.dispatch(pendingAction{e, op})
+		return m.dispatch(pendingAction{entry: e, operation: op})
 	}
 	return m, nil
 }
@@ -537,6 +583,9 @@ func (m fleetModel) saveServer(f serverForm) (tea.Model, tea.Cmd) {
 }
 
 func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
+	if p.args != nil || m.services.Foreground != nil {
+		return m.dispatchOperation(p)
+	}
 	e, ok := m.entry(p.entry.Target)
 	if !ok || e.Name != p.entry.Name || e.Project != p.entry.Project {
 		m.status = identity(p.entry.Target) + " changed or became stale; action cancelled"
@@ -564,7 +613,7 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 				ctx = context.Background()
 			}
 			command := &terminalCommand{ctx: ctx, client: m.services.Terminal, target: e.Target, registry: m.services.Registry}
-			return m, tea.Exec(command, func(err error) tea.Msg { return fleetActionDone{e.Target, "terminal", err} })
+			return m, tea.Exec(command, func(err error) tea.Msg { return fleetActionDone{target: e.Target, operation: "terminal", err: err} })
 		}
 		if e.Target.Host != hostrouter.Local || m.legacy == nil {
 			m.status = identity(e.Target) + ": terminal backend unavailable"
@@ -605,7 +654,7 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 	services, rt := m.services, m.legacy
 	return m, func() tea.Msg {
 		if _, err := services.Registry.ResolveTarget(e.Target); err != nil {
-			return fleetActionDone{e.Target, p.operation, err}
+			return fleetActionDone{target: e.Target, operation: p.operation, err: err}
 		}
 		var err error
 		if services.Actions != nil && (e.Target.Host != hostrouter.Local || rt == nil) {
@@ -623,6 +672,9 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 			}
 			result, actionErr := services.Actions.Execute(ctx, hostrouter.ActionRequest{Target: e.Target, Operation: "command", Args: args, Directory: directory}, input, io.Discard, io.Discard)
 			err = actionErr
+			if result.Target != e.Target {
+				err = fmt.Errorf("mismatched action response; refresh before retry")
+			}
 			if err == nil && result.ExitCode != 0 {
 				err = fmt.Errorf("exit status %d", result.ExitCode)
 			}
@@ -646,7 +698,7 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 				err = out.(model).err
 			}
 		}
-		return fleetActionDone{e.Target, p.operation, err}
+		return fleetActionDone{target: e.Target, operation: p.operation, err: err}
 	}
 }
 
@@ -737,7 +789,15 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.help {
 		selectedLine = -1
-		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | tab: focus detail", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: u up | s stop | d destroy | enter terminal", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | tab: focus detail", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: u up | s stop | d destroy | enter terminal", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+	}
+	if m.operations != nil {
+		lines = m.operationLines()
+		selectedLine = -1
+	}
+	if m.runbook {
+		lines = append([]string{"Coop build: " + valueOr(m.services.Version, "unknown (embedded caller)")}, serviceRunbook()...)
+		selectedLine = -1
 	}
 	if m.form != nil {
 		selectedLine = -1
@@ -751,7 +811,17 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.pending != nil {
 		selectedLine = -1
-		lines = []string{"CONFIRM DESTROY", "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Remove this Coop and its state volumes? [y/N; esc cancels]"}
+		impact := "Run the selected operation using this host's configuration and paths?"
+		if m.pending.operation == "destroy" {
+			impact = "Remove this Coop and its persistent state volumes?"
+		}
+		lines = []string{"CONFIRM " + strings.ToUpper(m.pending.operation), "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: " + valueOr(m.pending.entry.Project, "-"), impact + " [y/N; esc cancels]"}
+		if m.pending.directory != "" {
+			lines = append(lines, "Captured host directory: "+m.pending.directory)
+		}
+		if m.pending.args != nil {
+			lines = append(lines, "Exact CLI arguments: "+fmt.Sprintf("%q", m.pending.args))
+		}
 	}
 	if m.registryError != "" {
 		lines = append(lines, m.registryError)
@@ -759,7 +829,10 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.status != "" {
 		lines = append(lines, m.status)
 	}
-	footer := "1/2/3 workspace | tab focus | r refresh | ? help | q quit"
+	if m.output != "" {
+		lines = append(lines, strings.Split(m.output, "\n")...)
+	}
+	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
 	if m.workspace == 0 {
 		footer += " | u up / s stop / d destroy / enter terminal"
 	}

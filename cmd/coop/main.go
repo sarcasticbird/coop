@@ -27,7 +27,6 @@ import (
 	"github.com/sarcasticbird/coop/internal/releasetool"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/session"
-	"github.com/sarcasticbird/coop/internal/tui"
 )
 
 var version = "dev"
@@ -71,7 +70,7 @@ var (
 	runSession = func(s *session.Session, cwd string, argv, credentials []string) error {
 		return s.Run(cwd, argv, credentials)
 	}
-	runTUI     = tui.Run
+	runTUI     = runOperationalTUI
 	buildImage = func(args []string, stdout, stderr io.Writer) error {
 		build := exec.Command("container", args...)
 		build.Stdout, build.Stderr = stdout, stderr
@@ -165,6 +164,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	rootCmd.PersistentFlags().SetInterspersed(false)
 	rootCmd.Flags().SetInterspersed(false)
 	installMasterCommands(rootCmd)
+	rootCmd.AddCommand(tuiExecCommand())
 	rejectCredentials := func(cmd *cobra.Command) error {
 		if cmd.Flags().Changed("credentials") {
 			return errors.New("--credentials is only valid when entering a coop or using tui")
@@ -305,7 +305,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 					return err
 				}
 				rt := newRuntime()
-				res, err := runTUI(rt)
+				res, err := runTUI(rt, credentials)
 				if err != nil {
 					return err
 				}

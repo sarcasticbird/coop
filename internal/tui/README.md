@@ -8,11 +8,12 @@ remain visible but cannot dispatch actions.
 Host health and stale age wrap on their own lines, independently of clipped SSH
 references; retained failed-host target rows are also marked `[stale]`.
 
-`RunWithServices` accepts inventory, registry, action, and terminal dependencies.
-`Run(runtime.Runtime)` preserves the existing CLI entry point and local session
-lifecycle safeguards. The local compatibility adapter delegates to the existing
-TUI lifecycle code, including session locks, profile checks, and project identity
-checks. Remote actions use #95's `SSH.Execute` command contract, including the
+`RunWithServices` accepts inventory, registry, action, terminal, and foreground
+CLI dependencies. The production launch adapter in `cmd/coop/tui.go` reexecutes
+the same binary through the validated CLI receiver for local operations, isolating
+Cobra globals and cwd from the event loop. `Run(runtime.Runtime)` retains its
+local compatibility adapter for embedded callers. Remote actions use #95's
+`SSH.Execute` command contract, including the
 captured target and server-side project path. Agents pass their exact profile
 selector instead of a controller project path. A confirmed destroy supplies the
 answer to the existing receiving CLI confirmation; no new force-delete handler
@@ -20,14 +21,17 @@ or ownership bypass exists. Cancellation and connection failure can leave an
 unknown remote outcome: refresh and inspect before retrying. No mutation retries
 automatically.
 
-Remote terminal entry suspends Bubble Tea through `tea.Exec`, invokes the backend
-`TerminalClient`, forwards resize events, and reserves `Ctrl+]` for local detach.
+Production terminal entry suspends Bubble Tea through `tea.Exec`, invoking the
+normal local CLI attachment or #95's remote CLI/PTTY bridge. The remote bridge
+forwards resize events and reserves `Ctrl+]` for local detach.
 Ctrl+C is sent to the remote application. Normal exit drains output before
 returning the remote status. Detach/cancellation closes and reaps the attachment;
 raw terminal mode is restored and the browser redraws and refreshes on return.
-PTY output can include private SSH diagnostics; keep transcripts private. Existing
-local entry still returns `Result` to the CLI's normal session/agent entry path,
-preserving its credential and first-build handling; it exits this TUI instance.
+PTY output can include private SSH diagnostics; keep transcripts private. Local
+entry now returns to the browser rather than exiting it. The exec wrapper restores
+the controlling terminal even when a child changes settings before exit. Existing
+credential and first-build handling remains in the receiving CLI. Explicit grant
+names from `coop --credentials ... tui` are forwarded to applicable entry actions.
 
 Selection and confirmation capture the complete comparable `hostrouter.Target`,
 including the configured SSH address. Refresh results cannot replace it with a
@@ -50,16 +54,21 @@ updated or removed reference before submitting an edit.
 | `PgUp`, `PgDn` | Scroll all host/status rows, details, confirmations and forms |
 | `u`, `s`, `d`, `enter` | Fleet start, stop, destroy confirmation, terminal |
 | `a`, `e`, `d` | Server add, update, remove confirmation |
+| `x` | Capability/state-gated target actions in Fleet; host actions in Servers |
+| `v` | Advanced Services, About, completion and command-coverage runbook |
 
 Forms use `tab` to switch fields, `backspace` to edit, `enter` to save, and `esc`
 to cancel. Server names cannot be renamed by an update. Removal and destroy
 identify the captured host and destination and require `y`. Busy mutations
 serialize further mutations; Escape requests cancellation when supported and
 Ctrl+C quits. Inventory results from before an action are dropped.
-Coordination is explicitly a later workflow slice, not a functioning screen.
-Bootstrap, services, diagnostics, worker controls and maintenance belong to the
-follow-on complete-action workflow and command-coverage documentation, not to this
-Fleet/Servers shell slice.
+Coordination is explicitly the #94 workflow slice, not a functioning screen yet.
+Operational forms, safeguards, command coverage and fixture UAT are documented in
+[`docs/tui-operations.md`](../../docs/tui-operations.md). Forms never accept raw
+shell commands or credential values. Config and archive paths are host-owned.
+Permissions and configured worker/grant prerequisites remain server-authoritative;
+the inventory contract does not advertise those permissions. CLI denials are
+reported, never bypassed or interpreted as permission to retry.
 
 ## Fixture Validation
 
