@@ -19,11 +19,13 @@ type NativeMaster interface {
 	Send(context.Context, c.SendMessage) (c.MessageReceipt, error)
 }
 type NativeCatalog struct {
-	Goals    []c.GoalAuthority
-	Tasks    []NativeTask
-	Reports  map[string]c.Message
-	Complete bool
-	ReadAt   time.Time
+	// TaskScope is nonempty for a validation-only view; never cache it as discovery.
+	TaskScope string
+	Goals     []c.GoalAuthority
+	Tasks     []NativeTask
+	Reports   map[string]c.Message
+	Complete  bool
+	ReadAt    time.Time
 }
 
 func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master NativeMaster) (NativeCatalog, error) {
@@ -32,6 +34,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		return out, errors.New("native catalog requires v3 configuration")
 	}
 	reader := NewGitHubClient(g.runner)
+	reader.observation = g.observation
 	reader.config = cfg
 	links := []c.ArtifactLink{}
 	byGoal := map[c.GoalRef]c.GoalAuthority{}
@@ -140,8 +143,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 			return out, err
 		}
 		var tracking Snapshot
+		_, selectedOnly := master.(*taskSnapshotMaster)
 		for _, p := range refs {
-			if err = reader.readProject(ctx, p, projectTasks, &tracking, true); err != nil {
+			if err = reader.readProjectView(ctx, p, projectTasks, &tracking, true, selectedOnly); err != nil {
 				return out, err
 			}
 		}

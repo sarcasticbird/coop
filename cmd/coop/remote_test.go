@@ -409,7 +409,7 @@ func TestRemoteCommandClassificationExhaustive(t *testing.T) {
 	remote = append(remote,
 		"credentials refresh", "credentials watch", "worker status", "worker pause", "worker resume", "worker requests",
 		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover",
-		"thread list", "thread create", "thread read", "thread members", "message send", "message status",
+		"thread list", "thread create", "thread read", "thread members", "message send", "message status", "team inspect",
 		"goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register")
 	// Inventory/ls aggregate on the controller rather than executing a remote CLI.

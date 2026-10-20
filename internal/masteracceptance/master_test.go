@@ -61,6 +61,9 @@ type hungCatalog struct {
 	once             sync.Once
 }
 
+func (h *hungCatalog) NativeTaskSnapshot(ctx context.Context, cfg worker.Config, m worker.NativeMaster, _ worker.Job, _ ...string) (worker.NativeCatalog, error) {
+	return h.NativeSnapshot(ctx, cfg, m)
+}
 func (h *hungCatalog) NativeSnapshot(ctx context.Context, _ worker.Config, _ worker.NativeMaster) (worker.NativeCatalog, error) {
 	h.once.Do(func() { close(h.started) })
 	select {

@@ -21,6 +21,7 @@ type NativeEngineeringMaster interface {
 }
 type NativeCatalogReader interface {
 	NativeSnapshot(context.Context, Config, NativeMaster) (NativeCatalog, error)
+	NativeTaskSnapshot(context.Context, Config, NativeMaster, Job, ...string) (NativeCatalog, error)
 }
 type nativeRefresh struct {
 	catalog NativeCatalog
@@ -452,7 +453,7 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 		}
 		return NativeCandidate{}, err
 	}
-	catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
+	catalog, err := nativeValidationSnapshot(ctx, d.config, d.master, d.github, x.Job, nativeWaitReferences(x)...)
 	if err != nil {
 		return NativeCandidate{}, err
 	}

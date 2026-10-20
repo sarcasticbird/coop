@@ -1,5 +1,39 @@
 # Controlled scheduler acceptance packet
 
+## Reliability regression checks
+
+Run `scripts/uat-master.sh` for offline master, worker, CLI, MCP and Team screen
+acceptance. It uses disposable local fixtures and does not restart the birds.
+`TestNativeProductionDeliveryEndToEnd` compares selected-task eligibility with
+complete discovery across implementation, independent review, QA and delivery.
+Existing exact-session, uncertain-write, dependency wait and quota-recovery
+tests run through the selected-task validation path too.
+
+The deterministic no-Project fixture in `TestNativeTaskSnapshotIgnoresUnrelatedWork`
+uses 11 GitHub requests for the selected task with either 1 or 101 registered
+tasks. Complete discovery of those 101 tasks uses 506 requests. These are fixture
+counts, not a live latency benchmark. Selected validation reads Project membership
+and values through each relevant issue's bounded `projectItems` connection.
+`TestNativeTaskSnapshotTargetsProjectMembership` rejects a whole-board scan and
+an inaccessible unrelated board item. Discovery and plan creation keep complete
+catalog reads and own board ordering.
+
+DraftIssue links and private cross-owner Projects keep the bounded Project-side
+reader when issue memberships are absent or inaccessible. Repository reads use
+the repository owner's installation. Quota/transport errors retain their retry
+instead of triggering this compatibility fallback. Regression fixtures cover
+both representations and cancellation of an unstarted delivery after a rebind.
+
+The targeted membership fields follow GitHub's [Issue GraphQL reference](https://docs.github.com/en/graphql/reference/issues)
+and [Project item reference](https://docs.github.com/en/graphql/reference/projects).
+Schema introspection confirmed these read-only fields during implementation.
+
+Diagnostics tests exercise engagement visibility, retired placement/epoch
+reports, bounded metadata, independent sections, mixed versions, nonblocking
+reporting and canceled/stale TUI reads. A successful report or heartbeat is not
+proof of VM/provider health. Live acceptance and deployment need a separate
+reviewed packet with the final source and artifact identities.
+
 This is a preparation checklist, not an executable rollout authorization. Keep
 the populated engagement packet in an authorized private destination. Do not put
 customer inventories, actual identities, deployment topology, credential paths,

@@ -727,6 +727,10 @@ type projectField struct {
 }
 
 func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[string]Task, s *Snapshot, verifiedOnly bool) error {
+	return g.readProjectView(ctx, p, tasks, s, verifiedOnly, false)
+}
+
+func (g *GitHubClient) readProjectView(ctx context.Context, p ProjectRef, tasks map[string]Task, s *Snapshot, verifiedOnly, selectedOnly bool) error {
 	query := `query WorkerProject($owner:String!,$number:Int!){` + projectFragment(`projectV2(number:$number){id}`) + `}`
 	data, err := g.graphql(ctx, p.Owner, query, map[string]any{"owner": p.Owner, "number": p.Number})
 	if err != nil {
@@ -771,7 +775,19 @@ func (g *GitHubClient) readProject(ctx context.Context, p ProjectRef, tasks map[
 		return ghError("project_status_options_missing")
 	}
 	itemsQuery := `query WorkerProjectItems($id:ID!,$after:String){node(id:$id){... on ProjectV2{items(first:100,after:$after){nodes{id isArchived content{__typename ... on Issue{url} ... on PullRequest{url} ... on DraftIssue{body}}} pageInfo{hasNextPage endCursor}}}}}`
-	items, err := g.connection(ctx, p.Owner, itemsQuery, map[string]any{"id": project.ID}, []string{"node", "items"})
+	var items []json.RawMessage
+	if selectedOnly {
+		items, err = g.nativeProjectMemberships(ctx, p, project.ID, tasks)
+		if err != nil && !nativeProjectMembershipUnavailable(err) {
+			return err
+		}
+	}
+	// DraftIssue URL links and private cross-owner Projects may not be visible
+	// through an issue's memberships. Preserve the bounded Project-side reader
+	// for those cases; a quota/transport failure must retain its original retry.
+	if !selectedOnly || err != nil || len(items) < len(tasks) {
+		items, err = g.connection(ctx, p.Owner, itemsQuery, map[string]any{"id": project.ID}, []string{"node", "items"})
+	}
 	if err != nil {
 		return err
 	}

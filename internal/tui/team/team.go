@@ -24,11 +24,22 @@ type Source interface {
 	Team(context.Context) ([]c.Presence, error)
 }
 
+// DiagnosticSource is optional; existing presence-only sources remain usable.
+type DiagnosticSource interface {
+	AgentDiagnostics(context.Context, string) (c.AgentDiagnostics, error)
+}
+
 type tickMsg time.Time
 type resultMsg struct {
 	rows []c.Presence
 	err  error
 	at   time.Time
+}
+type diagnosticResultMsg struct {
+	id    uint64
+	value c.AgentDiagnostics
+	err   error
+	at    time.Time
 }
 
 // Model can be embedded in a later unified TUI. Call Close when unmounting it.
@@ -44,6 +55,13 @@ type Model struct {
 	refreshing, failed, help, closed bool
 	failure                          string
 	width, height, offset            int
+	selected                         int
+	detailOpen, detailBusy           bool
+	detailAgent, detailFailure       string
+	detail                           *c.AgentDiagnostics
+	detailID                         uint64
+	detailCancel                     context.CancelFunc
+	detailNext                       time.Time
 }
 
 func New(ctx context.Context, source Source, masterID string) *Model {
@@ -86,6 +104,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case diagnosticResultMsg:
+		if !m.detailOpen || msg.id != m.detailID {
+			return m, nil
+		}
+		m.detailBusy = false
+		if m.detailCancel != nil {
+			m.detailCancel()
+			m.detailCancel = nil
+		}
+		m.detailNext = msg.at.Add(refreshInterval)
+		m.detailFailure = ""
+		if msg.err == nil && (msg.value.Report.AgentID != m.detailAgent || c.ValidateDiagnostics(msg.value.Report) != nil) {
+			msg.err = c.ErrInvalid
+		}
+		if msg.err == nil {
+			m.detail = &msg.value
+		} else {
+			m.detailFailure = "diagnostics unavailable"
+			if errors.Is(msg.err, c.ErrUnsupported) {
+				m.detailFailure = "diagnostics unsupported by master"
+			}
+			if errors.Is(msg.err, c.ErrNotFound) {
+				m.detailFailure = "no visible diagnostic report"
+			}
+		}
 	case resultMsg:
 		m.refreshing = false
 		m.now = msg.at
@@ -93,6 +136,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.failed = msg.err != nil
 		if msg.err == nil {
 			m.rows, m.lastSuccess, m.failure = msg.rows, msg.at, ""
+			m.selected = max(0, min(m.selected, len(m.rows)-1))
 		} else {
 			// Never render arbitrary transport errors (URLs, headers or response bodies).
 			m.failure = "master unavailable or invalid response"
@@ -105,18 +149,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tickMsg:
 		m.now = time.Time(msg)
-		if m.now.Before(m.nextRefresh) {
-			return m, tick()
+		var detailCmd tea.Cmd
+		if m.detailOpen && !m.now.Before(m.detailNext) {
+			detailCmd = m.refreshDetail()
 		}
-		return m, tea.Batch(m.refresh(), tick())
+		if m.now.Before(m.nextRefresh) {
+			return m, tea.Batch(detailCmd, tick())
+		}
+		return m, tea.Batch(m.refresh(), detailCmd, tick())
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "esc":
+			if m.detailOpen {
+				m.closeDetail()
+				return m, nil
+			}
 			m.Close()
 			return m, tea.Quit
+		case "q", "ctrl+c":
+			m.Close()
+			return m, tea.Quit
+		case "enter":
+			if m.detailOpen {
+				return m, nil
+			}
+			return m, m.openDetail()
+		case "tab", "shift+tab":
+			if len(m.rows) > 0 && !m.detailOpen {
+				delta := 1
+				if msg.String() == "shift+tab" {
+					delta = len(m.rows) - 1
+				}
+				m.selected = (m.selected + delta) % len(m.rows)
+			}
 		case "r":
+			if m.detailOpen {
+				return m, m.refreshDetail()
+			}
 			return m, m.refresh()
 		case "?":
 			m.help = !m.help
@@ -163,16 +234,22 @@ func age(now, then time.Time) string {
 }
 
 func (m *Model) lines() []string {
+	if m.detailOpen {
+		return m.detailLines()
+	}
 	var text strings.Builder
 	if m.help {
-		text.WriteString("READ ONLY: GET Team only. No messages, pings, model wakes or fleet changes.\nAutomatic refresh: every 5s after a completed read; timeout: 10s.\nr refresh | up/down or j/k scroll | PgUp/PgDn page | g/G top/end\n? toggle help | q / Esc / Ctrl-C quit and cancel read\nUnknown means not supplied. Availability is returned by master, not inferred from VM state.\nSTALE retains the last successful snapshot after a read error. Last seen is heartbeat age, not progress.\n\n")
+		text.WriteString("READ ONLY: Team and selected-agent diagnostics. No messages, pings, model wakes or fleet changes.\nAutomatic refresh: every 5s after a completed read; timeout: 10s.\nr refresh | Tab select agent | Enter inspect | up/down or j/k scroll\nPgUp/PgDn page | g/G top/end | ? help | q / Ctrl-C quit\nEsc returns from detail or quits the list and cancels reads.\nUnknown means not supplied. Availability is returned by master, not inferred from VM state.\nSTALE retains the last successful snapshot after a read error. Last seen is heartbeat age, not progress.\n\n")
 	}
 	if m.lastSuccess.IsZero() {
 		text.WriteString("No successful Team snapshot yet.\n")
 	} else if len(m.rows) == 0 {
 		text.WriteString("No visible agents returned by master.\n")
 	}
-	for _, row := range m.rows {
+	for i, row := range m.rows {
+		if i == m.selected {
+			text.WriteString("> ")
+		}
 		fmt.Fprintf(&text, "%s [%s]\n  Host: %s | Worker: %s | Generation: ", clean(row.Alias), clean(row.AgentID), clean(row.HostID), clean(row.InstanceID))
 		if row.Generation == 0 {
 			text.WriteString("unknown\n")
@@ -221,7 +298,7 @@ func (m *Model) View() string {
 	if m.height > 3 {
 		out = append(out, lines[start:end]...)
 	}
-	out = append(out, "r refresh | j/k scroll | ? help | q quit")
+	out = append(out, "r refresh | Tab select | Enter inspect | j/k scroll | Esc back | q quit")
 	if len(out) > m.height {
 		out = out[:m.height]
 	}

@@ -26,6 +26,7 @@ var (
 	ErrSize        = errors.New("size_exceeded")
 	ErrEpoch       = errors.New("restore_reconciliation_required")
 	ErrUnavailable = errors.New("master_unavailable")
+	ErrUnsupported = errors.New("unsupported_operation")
 )
 
 type Principal struct {

@@ -19,6 +19,9 @@ type threadInput struct {
 type messageInput struct {
 	MessageID string `json:"message_id"`
 }
+type agentStatusInput struct {
+	AgentID string `json:"agent_id"`
+}
 type goalListInput struct {
 	Engagement string `json:"engagement"`
 	After      string `json:"after,omitempty"`
@@ -47,6 +50,9 @@ func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "coop-master", Version: "1"}, nil)
 	if slices.Contains(p.Capabilities, "read") {
 		bind(server, s, "coop_master_team", "Read scoped agent presence and placement.", true, func(ctx context.Context, _ empty) (any, error) { return s.Team(ctx, p) })
+		bind(server, s, "coop_master_agent_status", "Read one visible agent's bounded diagnostic snapshot and freshness. Does not wake it or authorize work.", true, func(ctx context.Context, in agentStatusInput) (any, error) {
+			return s.AgentDiagnostics(ctx, p, in.AgentID)
+		})
 		bind(server, s, "coop_master_threads", "Read member threads.", true, func(ctx context.Context, in c.ThreadQuery) (any, error) { return s.Threads(ctx, p, in) })
 		bind(server, s, "coop_master_read_thread", "Read a bounded message page.", true, func(ctx context.Context, in threadInput) (any, error) {
 			return s.Messages(ctx, p, in.ThreadID, in.After)

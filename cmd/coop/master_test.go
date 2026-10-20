@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMasterConversationCLI(t *testing.T) {
@@ -44,6 +45,14 @@ func TestMasterCLIAuthenticatedRoundTrip(t *testing.T) {
 	if err = s.Configure(ctx, []c.Principal{owner, bot}, nil); err != nil {
 		t.Fatal(err)
 	}
+	place := c.Placement{AgentID: bot.ID, HostID: "fixture-host", InstanceID: "fixture-worker", Generation: 1}
+	if err = s.Configure(ctx, nil, []c.Placement{place}); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := c.WorkerDiagnostics{Version: 1, Placement: place, RestoreEpoch: 1, StartedAt: time.Now().UTC(), ObservedAt: time.Now().UTC(), Wait: c.DiagnosticWait{Handling: "auto_retry", Reason: "native_dependency_retry"}}
+	if err = s.ReportDiagnostics(ctx, bot, diagnostic); err != nil {
+		t.Fatal(err)
+	}
 	hash := sha256.Sum256([]byte("local-owner-test-token"))
 	ts := httptest.NewServer(master.NewHandler(&master.Service{Store: s}, &master.Policy{AllowedHosts: []string{"127.0.0.1"}, Tokens: []master.Token{{PrincipalID: owner.ID, SHA256: hex.EncodeToString(hash[:])}}}))
 	defer ts.Close()
@@ -65,6 +74,10 @@ func TestMasterCLIAuthenticatedRoundTrip(t *testing.T) {
 		return out.Bytes()
 	}
 	var th c.Thread
+	var detail c.AgentDiagnostics
+	if err = json.Unmarshal(invoke("team", "inspect", "agent"), &detail); err != nil || detail.Report.Wait.Handling != "auto_retry" {
+		t.Fatal("missing diagnostic snapshot", err)
+	}
 	if err = json.Unmarshal(invoke("thread", "create", "--title", "Round trip", "--engagement", "test", "--member", "agent", "--request-id", "cli-thread"), &th); err != nil || th.ID == "" {
 		t.Fatal("missing thread", err)
 	}
