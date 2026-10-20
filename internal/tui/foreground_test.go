@@ -18,16 +18,29 @@ import (
 
 type foregroundHarness struct {
 	fleetModel
-	initial  tea.Cmd
-	returned chan fleetModel
+	initial     tea.Cmd
+	returned    chan fleetModel
+	windowSizes int
+	finished    bool
 }
 
-func (m foregroundHarness) Init() tea.Cmd { return m.initial }
+func (m foregroundHarness) Init() tea.Cmd { return nil }
 func (m foregroundHarness) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	out, cmd := m.fleetModel.Update(msg)
 	m.fleetModel = out.(fleetModel)
-	if _, ok := msg.(fleetActionDone); ok {
+	switch msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowSizes++
+		if m.windowSizes == 1 {
+			return m, m.initial
+		}
+	case fleetActionDone:
 		m.returned <- m.fleetModel
+		m.finished = true
+		cmd = nil
+	}
+	// Consume both startup and post-exec resize checks before closing their TTY.
+	if m.finished && m.windowSizes >= 2 {
 		return m, tea.Quit
 	}
 	return m, cmd
