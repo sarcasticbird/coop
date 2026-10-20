@@ -243,6 +243,9 @@ func validActor(a Actor, kind string) bool {
 }
 
 func ValidateConfig(c Config) error {
+	if err := validateGitHubCacheWorker(c); err != nil {
+		return err
+	}
 	if c.Version == 3 {
 		return validateMasterConfig(c)
 	}

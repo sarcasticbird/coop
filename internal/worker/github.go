@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	c "github.com/sarcasticbird/coop/internal/coordination"
 	"io"
 	"net/http"
 	"strconv"
@@ -40,11 +42,13 @@ func (e *GitHubError) Error() string { return "GitHub: " + e.Category }
 func ghError(category string) error  { return &GitHubError{Category: category} }
 
 type GitHubClient struct {
-	observation *serviceObservation
-	runner      CommandRunner
-	config      Config
-	snapshot    Snapshot
-	goalIDs     map[string]string
+	sourceArtifacts     map[string]QAArtifact
+	cacheRegisteredOnly bool
+	observation         *serviceObservation
+	runner              CommandRunner
+	config              Config
+	snapshot            Snapshot
+	goalIDs             map[string]string
 }
 
 func NewGitHubClient(runner CommandRunner) *GitHubClient {
@@ -70,6 +74,9 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	result, runErr := g.runner.Run(ctx, argv, nil, input)
+	if errors.Is(runErr, c.ErrCapacity) || errors.Is(runErr, c.ErrSize) {
+		return nil, nil, runErr
+	}
 	if len(result.Stdout) > MaxAPIPage+(64<<10) {
 		return nil, nil, ghError("response_too_large")
 	}

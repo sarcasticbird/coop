@@ -146,6 +146,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	goals := map[c.GoalRef]c.GoalAuthority{}
 	for _, a := range catalog.Goals {
+		if catalog.Cache != nil && catalog.Cache.OutOfScope[a.Revision.Ref] {
+			continue
+		}
 		if a.Valid && a.State == "approved" && a.ActiveRevisionSHA256 == a.Revision.Ref.RevisionSHA256 && a.Revision.Ref.MasterID == cfg.Master.MasterID {
 			goals[a.Revision.Ref] = a
 		}
@@ -209,6 +212,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	if cfg.Name == cfg.Team.Planner && memberCapability(self, "plan") {
 		for ref, a := range goals {
 			exists, needsRebind := false, false
+			if catalog.Cache != nil && catalog.Cache.Registered[ref] > 0 {
+				exists = true
+			}
 			for _, t := range catalog.Tasks {
 				if t.Binding.Goal == ref && t.Binding.ApprovalSequence == a.ApprovalSequence {
 					exists = true
@@ -224,6 +230,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	for _, value := range catalog.Tasks {
 		t := value
+		if !nativeCacheTaskReady(catalog, t.Task.URL, now) {
+			continue
+		}
 		a, ok := goals[t.Binding.Goal]
 		if !ok || t.Binding.ApprovalSequence != a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA || t.Task.Closed || t.Task.Completed {
 			continue
@@ -232,7 +241,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		for _, ref := range t.Binding.DependsOn {
 			done := false
 			for _, d := range catalog.Tasks {
-				if d.Task.URL == ref && d.Binding.Goal == t.Binding.Goal && d.Task.Completed {
+				if d.Task.URL == ref && d.Binding.Goal == t.Binding.Goal && d.Task.Completed && nativeCacheTaskReady(catalog, ref, now) {
 					done = true
 				}
 			}

@@ -101,7 +101,11 @@ func nativePreview(args []string, out io.Writer) error {
 		return err
 	}
 	github := worker.NewGitHubClient(worker.ExecRunner{})
-	dispatcher, err := worker.NewNativeDispatcher(cfg, master, github, code, worker.NewCheckouts(cfg, worker.ExecRunner{}), worker.RealClock{})
+	var reader worker.NativeCatalogReader = github
+	if cfg.GitHubCache != nil && cfg.GitHubCache.Enabled {
+		reader = worker.NewCachedNativeReader(cfg, reader, master, worker.RealClock{})
+	}
+	dispatcher, err := worker.NewNativeDispatcher(cfg, master, reader, code, worker.NewCheckouts(cfg, worker.ExecRunner{}), worker.RealClock{})
 	if err != nil {
 		return err
 	}

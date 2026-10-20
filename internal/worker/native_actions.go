@@ -155,7 +155,11 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 		return empty, err
 	}
 	defer release()
-	return runNativeActionLocked(ctx, cfg, m, g, jobID, in)
+	result, err := runNativeActionLocked(ctx, cfg, m, g, jobID, in)
+	if err == nil {
+		notifyGitHubCacheAction(ctx, cfg, m, jobID, in.RequestID)
+	}
+	return result, err
 }
 
 // Caller owns the native producer lock. Automatic recovery runs in the worker;

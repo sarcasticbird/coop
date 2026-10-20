@@ -21,7 +21,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type StoreConfig struct{ Path, MasterID, EpochPath string }
+type StoreConfig struct {
+	Path, MasterID, EpochPath string
+	Now                       func() time.Time
+}
 type Store struct {
 	db              *sql.DB
 	path, epochPath string
@@ -107,6 +110,9 @@ func OpenStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db, id: cfg.MasterID, now: time.Now, path: cfg.Path, epochPath: epochPath, lock: lock, databaseLock: databaseLock}
+	if cfg.Now != nil {
+		s.now = cfg.Now
+	}
 	if err = s.initialize(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -138,8 +144,11 @@ func OpenStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	return s, nil
 }
 func (s *Store) initialize(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, schema+recoverySchema); err != nil {
+	if _, err := s.db.ExecContext(ctx, schema+recoverySchema+githubCacheSchema); err != nil {
 		return fmt.Errorf("initialize master schema: %w", err)
+	}
+	if err := s.initializeGitHubCache(ctx); err != nil {
+		return err
 	}
 	if _, err := s.db.ExecContext(ctx, "INSERT OR IGNORE INTO meta(key,value) VALUES('master_id',?),('epoch','1'),('quiescent','0')", s.id); err != nil {
 		return err

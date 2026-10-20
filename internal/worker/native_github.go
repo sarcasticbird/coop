@@ -141,6 +141,7 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 		return PR{}, ghError("invalid_native_PR_target")
 	}
 	reader := NewGitHubClient(g.runner)
+	reader.sourceArtifacts = g.sourceArtifacts
 	reader.observation = g.observation
 	reader.config = cfg
 	parts := strings.Split(repo, "/")

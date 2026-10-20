@@ -6,6 +6,10 @@ their Coops. Their existing OpenCode servers, GitHub Apps, workspaces and provid
 logins remain inside the guests. GitHub keeps the code, tasks, Projects, PRs,
 checks and formal reviews.
 
+Optional [shared GitHub observations](github-cache.md) let authorized workers
+on multiple hosts reuse the master's SQLite index for discovery. The feature
+defaults to off and retains live validation before consequential actions.
+
 The master runs inside the `coop` CLI. It does not control remote VM lifecycle or
 forward shell execution. Keep each host's existing MCP server for those actions.
 The master exposes coordination through `/api/v1`, `/events` and `/mcp`.

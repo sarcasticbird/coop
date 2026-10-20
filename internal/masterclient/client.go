@@ -90,6 +90,9 @@ func (cl *Client) open(ctx context.Context, method, path string, in any) (*http.
 	}
 	if r.Header.Get("X-Coop-Master-ID") != cl.cfg.MasterID {
 		_ = r.Body.Close()
+		if r.StatusCode == http.StatusNotFound && r.Header.Get("X-Coop-Master-ID") == "" && strings.HasPrefix(path, "/api/v1/github-cache/") {
+			return nil, errGitHubCacheRoute
+		}
 		if r.StatusCode == http.StatusNotFound && r.Header.Get("X-Coop-Master-ID") == "" && (path == "/api/v1/diagnostics" || strings.HasPrefix(path, "/api/v1/team/") && strings.HasSuffix(path, "/diagnostics")) {
 			return nil, errDiagnosticRoute
 		}

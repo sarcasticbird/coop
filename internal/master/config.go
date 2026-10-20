@@ -10,15 +10,16 @@ import (
 )
 
 type Config struct {
-	MasterID    string        `toml:"master_id"`
-	EpochPath   string        `toml:"epoch_path"`
-	Database    string        `toml:"database"`
-	Listen      string        `toml:"listen"`
-	TLSCertFile string        `toml:"tls_cert_file"`
-	TLSKeyFile  string        `toml:"tls_key_file"`
-	Policy      Policy        `toml:"policy"`
-	Principals  []c.Principal `toml:"principals"`
-	Placements  []c.Placement `toml:"placements"`
+	GitHubCache GitHubCacheConfig `toml:"github_cache"`
+	MasterID    string            `toml:"master_id"`
+	EpochPath   string            `toml:"epoch_path"`
+	Database    string            `toml:"database"`
+	Listen      string            `toml:"listen"`
+	TLSCertFile string            `toml:"tls_cert_file"`
+	TLSKeyFile  string            `toml:"tls_key_file"`
+	Policy      Policy            `toml:"policy"`
+	Principals  []c.Principal     `toml:"principals"`
+	Placements  []c.Placement     `toml:"placements"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -40,6 +41,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if !validID(out.MasterID) || !filepath.IsAbs(out.Database) || len(out.Policy.AllowedHosts) == 0 || len(out.Policy.Tokens) == 0 {
 		return out, c.ErrInvalid
+	}
+	if err := validateGitHubCacheConfig(out.GitHubCache, out.Principals); err != nil {
+		return out, err
 	}
 	host, _, err := net.SplitHostPort(out.Listen)
 	if err != nil {

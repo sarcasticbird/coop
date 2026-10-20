@@ -53,6 +53,8 @@ func remoteCommandAllowed(parts []string) bool {
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team", "team inspect", "inbox", "goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register":
 		return true
+	case "cache status":
+		return true
 	}
 	return false
 }
