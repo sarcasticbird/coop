@@ -46,6 +46,9 @@ func (d *NativeDispatcher) Preview(ctx context.Context) (NativePreview, error) {
 	if err := verifyNativePlacement(ctx, d.config, d.master); err != nil {
 		return out, err
 	}
+	if d.coordinationOnly() {
+		return out, nil
+	}
 	catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
 	if err != nil {
 		return out, err
@@ -215,7 +218,21 @@ func (d *NativeDispatcher) ObserveOnly(ctx context.Context) (bool, error) {
 	}
 	return d.Tick(ctx)
 }
+
+// A coordinator with no engineering capabilities or history has no engineering
+// catalog to discover. Retained work must still reconcile after capabilities change.
+func (d *NativeDispatcher) coordinationOnly() bool {
+	if d.config.Team == nil || len(d.history) != 0 || d.active != nil || d.step != nil {
+		return false
+	}
+	self, ok := TeamMemberForActor(*d.config.Team, d.config.Self)
+	return ok && len(self.Capabilities) == 0
+}
+
 func (d *NativeDispatcher) poll() {
+	if d.coordinationOnly() {
+		return
+	}
 	if d.refresh != nil {
 		select {
 		case result := <-d.refresh:
