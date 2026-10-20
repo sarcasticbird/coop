@@ -12,6 +12,7 @@ runtime QA clearance, rollout or release authorization.
 | Input | Immutable revision and disposition |
 | --- | --- |
 | Implementation starting main | `255e0029a57ff4c039b2561356ebd4c007b579b0`, verified against origin main on 2026-10-20 |
+| Assigned base refresh | `0888eb6c0bcc212ce0692e9e35ea49d7a699ac62`, fetched and verified against origin main on 2026-10-20, then merged without conflicts; adds only #122 catalog discovery's separate read budget, worker regression test and master documentation, with no TUI/design changes |
 | Quiet cached refresh | `7e6fd1d19df601310819987036eae6961dedfb4e` (#112), ancestor of the starting main |
 | Successor changes | #113 (`172f01d`) scoped worker continuations; #114 (`255e002`) coordination-only worker discovery; neither changes the TUI design |
 | Accepted B packet | [handoff.md](https://github.com/sarcasticbird/coop/blob/5d79a84031045fe8dd8f3eeb345cadea953e0724/docs/design/quiet-tui/handoff.md), [source.md](https://github.com/sarcasticbird/coop/blob/5d79a84031045fe8dd8f3eeb345cadea953e0724/docs/design/quiet-tui/source.md) and sibling interaction/viewport artifacts in PR #111 |
@@ -110,6 +111,9 @@ do not imply synthetic tests established live transport or production behavior.
 ### Author Baseline Results
 
 Executed on 2026-10-20, Linux arm64, Go `go1.26.9` through `flox activate`:
+repeated after merging assigned base `0888eb6c0bcc212ce0692e9e35ea49d7a699ac62`
+with the same results below. The new base's regression test also passed with
+`flox activate -- go test ./internal/worker -run '^TestNativeDiscoveryHasBudgetForMultiGoalCatalog$' -count=1`.
 
 | Check | Actual result |
 | --- | --- |
