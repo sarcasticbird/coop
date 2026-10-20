@@ -18,6 +18,11 @@ type NativeMaster interface {
 	Message(context.Context, string) (c.Message, error)
 	Send(context.Context, c.SendMessage) (c.MessageReceipt, error)
 }
+
+// NativeCatalogTimeout bounds full discovery across approved goals and their
+// artifacts. Per-action authority revalidation keeps its separate, shorter limit.
+const NativeCatalogTimeout = 5 * time.Minute
+
 type NativeCatalog struct {
 	// TaskScope is nonempty for a validation-only view; never cache it as discovery.
 	TaskScope string

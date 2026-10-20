@@ -105,7 +105,7 @@ func nativePreview(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), worker.NativeCatalogTimeout)
 	defer cancel()
 	preview, err := dispatcher.Preview(ctx)
 	if err != nil {
