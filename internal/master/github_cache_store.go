@@ -483,7 +483,3 @@ func (svc *Service) GitHubCacheStatus(ctx context.Context, actor c.Principal, en
 	}
 	return out, nil
 }
-func cacheRepository(ref c.GitHubObjectRef) string {
-	p := strings.Split(strings.TrimPrefix(ref.URL, "https://github.com/"), "/")
-	return p[0] + "/" + p[1]
-}
