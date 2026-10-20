@@ -16,20 +16,25 @@ If a value itself exceeds the viewport, its labeled detail is horizontally
 independent of the list and wraps/scrolls vertically; actions remain disabled
 until the complete captured identity and required consequences have been shown.
 
-On each launch: open H host chooser, default focus on All, with no selected
-target and no pending action. Enter commits a scope, not a target. The operator
-then moves to a row explicitly; Enter on the untouched list is a no-op with
-`Choose a target with arrows`. All includes local and every registered host;
-it is never replaced by the first reachable host. A per-launch picker costs one
-step deliberately. From no target, either Up or Down selects the first visible
-row (not the second); no rows means neither key selects anything. No persisted
-default, running-first sort or inferred retirement.
-Return from attach restores the session's explicitly chosen scope/target.
+Selected direction: B, Fleet Ledger With Full-Page Drill-In. Open F0, a
+fleet-wide ledger grouped by host, on every launch. Scope defaults to All, state
+filter to all, with no target or pending action. No mandatory host picker.
+The operator explicitly selects a target with arrows; Enter on an untouched
+list explains `Choose a target with arrows`. First Up/Down selects the first
+visible target, not a group heading or empty-host row. All includes this local
+controller and every registered SSH host; never pick only reachable/running hosts.
+No persisted default, running-first sort or inferred retirement. Return restores
+the session's scope, target and ledger position. Selection of B is settled;
+product implementation still requires approval of this revised packet.
 
-`h` opens chooser; arrows then Enter commit; Escape leaves previous scope.
+`h` optionally opens H host filter; arrows then Enter commit; Escape leaves scope.
+H's initial highlighted filter is the current scope, not an action target.
 Local means this controller, not the master host. `All` rows are grouped by host,
-with one host health heading, plus a mandatory HOST column even on compact
-screens. A single-host view omits repeated host prefixes on rows. Stable ordering
+with a host health heading and sticky selected host/kind/ID on compact screens.
+When a group heading scrolls away, pin its host above that group's rows; no row
+loses its host context. Successful zero-target hosts retain a host row labeled
+`0 targets`; unknown/loading/unreachable hosts never become successful empties.
+A single-host filter still displays its host heading. Stable ordering
 uses registered host order and stable target IDs, not activity or refresh age.
 The optional state filter (`/` opens filters) defaults to all, shows hidden count,
 and can explicitly hide stopped VMs. Stopped is not retired; no deletion or
@@ -58,12 +63,12 @@ helpers; test them before shipping. No custom font or box-drawing dependency.
 
 | Width/height | Fleet/Team | Threads | Forms/help |
 | --- | --- | --- | --- |
-| 120x40 | Left 43-cell list, 1-cell divider, 1-cell gap, up to 75-cell inspector; two focusable regions | Thread list beside reader; composer replaces reader | Captured context above a scrollable form; footer below |
-| 80x24 | Full-width list plus short selected summary; Tab/Enter diagnostics opens detail page | List and reader are separate pages | Full page, sticky context/footer, scrolling body |
-| 40x20 | Full-page list then full-page detail; mandatory context on both | Separate list/reader/compose; no squeezed side rail | Full page; sticky context/footer; field/identity wrap |
+| 120x40 | Full-width grouped ledger; Enter/Tab replaces it with full-page detail | List, reader and composer are separate full pages | Captured context above a scrollable form; footer below |
+| 80x24 | Same drill-in; fewer columns, selected activity summary if needed | Separate full pages; no side rail | Sticky context/footer and scrolling body |
+| 40x20 | Same drill-in; grouped rows scroll, selected host/kind/ID pinned | Separate full pages; no squeezed panes | Sticky context/footer; long values wrap in body |
 
-At intermediate widths use 100 cells as split threshold, provided height >=28;
-otherwise use stacked/drill-in. Below 40x20 show `Terminal too small; resize`
+No width switches back to A's split inspector. Extra width gives aligned columns,
+not another navigation model. Below 40x20 show `Terminal too small; resize`
 with no mutation shortcuts, preserve state, and allow safe quit. At 40x20 the
 first four/five context lines and final two action/status lines are reserved;
 the body alone scrolls. Long confirmations expand vertically, never truncate
@@ -71,10 +76,10 @@ identity/argv or hide a consequence behind a fixed-height dialog. Read through
 required content before enabling confirmation; show `review remaining lines`.
 Long argv wraps as literal text, not a shell command to copy/execute.
 
-`Tab`/`Shift+Tab` cycle the visible list/inspector or form fields; the focus label
-is explicit and a bold region heading is redundant decoration. On compact
-Fleet, Tab opens detail; Escape restores list position. On Team, Enter opens
-diagnostics. On Threads, Enter opens reader. Lists: arrows/j/k select, PgUp/PgDn
+`Tab` on Fleet is a Details alias for Enter; in forms Tab/Shift+Tab cycles fields.
+There is one content focus, named explicitly; no hidden inspector focus. On
+Fleet, Enter/Tab opens D Details; Escape restores ledger position. On Team,
+Enter opens diagnostics. On Threads, Enter opens reader. Lists: arrows/j/k select, PgUp/PgDn
 move one visible page. Detail: arrows/j/k scroll, PgUp/PgDn page. Reader:
 arrows/j/k select the previous/next loaded message by stable ID and reveal that
 message's start; PgUp/PgDn scroll without changing that reply/receipt selection.
@@ -82,9 +87,8 @@ message's start; PgUp/PgDn scroll without changing that reply/receipt selection.
 line scrolled into view. If selection is offscreen show its ID/author in a sticky
 reader status line. Home/End scroll within the focused region, not the global
 document; End intentionally goes to latest but does not change the reply target.
-No scroll wheel or mouse required. On resize preserve focus by semantic region; collapsed inspector
-becomes detail, never a new selected row. On widening preserve current reader or
-composer, do not forcibly focus the newly visible list.
+No scroll wheel or mouse required. On resize retain the same semantic page,
+target/message key and logical scroll anchor; reflow within that page only.
 
 ## Keyboard And Discovery
 
@@ -99,6 +103,16 @@ message bodies. `x` opens all eligible operations, with disabled reasons, so
 shortcuts are accelerators rather than required memory. `v` preserves About,
 Services, administration/recovery and shell-completion runbooks.
 
+| Page | Key | Proposed B behavior |
+| --- | --- | --- |
+| Fleet ledger | Enter or Tab | Open Details for explicitly selected native key; no Start/Connect |
+| Fleet ledger | u/s/d/x | Open Details with the corresponding action/menu highlighted, not dispatched; no selection gives a visible reason |
+| Details | Enter | Open captured Connect preflight only when inventory is authoritative and VM running |
+| Details | u/s/d/x | Existing action/menu and consent path, same captured identity and backend checks |
+| Preflight/confirmation | Escape | Return to the same Details key; no mutation |
+| Details | Escape | Restore ledger scope, selected key and logical scroll anchor |
+| Loading/read-blocked page | Action key | Visible blocked reason; not ignored, retargeted or queued for later |
+
 Editors treat letters, digits, `?` and Enter as literal text; Tab/Shift+Tab moves
 fields. A visible `Help` field/button is focusable; Enter on that button opens
 editor help (not submit). `Ctrl+S` previews then `Ctrl+S` submits Coordination
@@ -112,8 +126,9 @@ is not rollback. Proposed quit guard warns about an unsent in-memory draft.
 
 ## Attach And Return
 
-Fleet Enter remains Connect, not Start on a stopped duplicate. It opens A
-preflight with captured host/address/kind/ID, VM state, runtime/project, literal
+Fleet Enter opens Details, never starts or connects a VM. Only D Details exposes
+Connect via Enter; it opens A preflight with captured host/address/kind/ID,
+VM state, runtime/project, literal
 entry argv and return instructions. `Enter Continue` uses the existing entry
 handler; Connect remains disabled for stopped targets, as it is today. Starting
 requires explicit Start, its credential/grant warning and existing consent.
@@ -121,8 +136,8 @@ No new remote transport. Remote `Ctrl+]` detaches transport; `Ctrl+D` quits the
 OpenCode frontend, not the same operation. Ctrl+C reaches the foreground app.
 Local entry uses the application's exit/detach convention. Suspend Bubble Tea,
 release the real terminal, restore terminal settings and resume the same key,
-scope, scroll and draft. Refresh after return without focus theft. A missing
-target returns a tombstone, not another Hawk. Retained tmux cleanup remains a
+scope, detail page, retained ledger scroll and draft. Refresh after return without
+focus theft. A missing target returns a tombstone, not another Hawk. Retained tmux cleanup remains a
 separate follow-up; design does not promise transport/session cleanup.
 
 ## Honest States And Freshness
@@ -150,6 +165,7 @@ show report/receipt times; if unavailable label freshness unknown, not a new
 invented TTL. Host inventory shows last success and error; after a failed read
 disable mutations pending authoritative validation, even if cached VM was running.
 All-scope banners retain every failed host, including one with no retained rows.
+Successful empty-host rows persist as navigation context, but cannot be targeted.
 No cross-host Fleet-to-Team join by alias alone: match explicit stable agent,
 placement host/instance/generation; an unresolved mapping shows `work unknown`.
 Presence/diagnostics are observations, never admission or permission evidence.
@@ -163,6 +179,12 @@ results from superseded scopes and pre-action epochs. Keep row key, focus,
 scroll offset/anchor, reader position, reveal setting and draft buffer on refresh.
 Relative ages update in coarse text buckets, not a flashing second counter.
 Resize reflows by message/field identity and logical offset, not physical row.
+Preserve #112 at baseline `7e6fd1d19df601310819987036eae6961dedfb4e`:
+initial loads, explicit navigation, writes and failures have visible status;
+only routine cached background reads stay quiet. If a read temporarily prevents
+a control, show `Reading <source>; action not accepted, try again when complete`.
+Do not silently ignore it or queue an action to fire later. Show writing/queued,
+success/failed/uncertain feedback distinctly. Empty-host rows must survive reads.
 
 Thread follow is an explicit read-only mode. New messages increment `+N new`
 without moving a scrolled reader; End intentionally jumps to latest. Marking read
@@ -236,14 +258,16 @@ cancelled/suppressed stay distinct. Accepted is not delivered, worked or approve
 
 ## Target-Safety Storyboard
 
-At every size: H -> F0 (scope chosen, no target) -> Down -> F (remote Hawk
-explicitly selected) -> F-offline (same key retained, actions disabled) ->
+At every size: F0 (All scope, no target) -> arrows to work-node Hawk -> F ->
+D Details -> Enter -> A preflight -> foreground -> B return to D. Optional H
+filter changes ledger scope but never selects a target. F -> F-offline (same key
+retained, actions disabled) ->
 F-reconnect (same validated key, operator must press an action again). Refresh
 may reorder rows but never changes the selected key or dispatches a queued click.
 Reconnection does not resolve any prior uncertain operation or imply its success.
 If the host address/runtime identity changed, use M unavailable rather than
 F-reconnect; require explicit re-selection and new captured intent. The compact
-M frame illustrates that state; larger layouts render it in the inspector.
+M frame illustrates that state; larger layouts render it on the full Details page.
 
 ## Servers And First Use
 

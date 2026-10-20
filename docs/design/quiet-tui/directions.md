@@ -2,15 +2,16 @@
 
 Both directions use the same sanitized inventory: four stopped local targets
 (including Hawk), three running agents on `work-node`, and an unreachable `lab`
-host with retained evidence. Coordination uses `design-master` independently.
+host with retained evidence. `spare` is a successfully read empty host retained
+as a row. Coordination uses `design-master` independently.
 All mockup diagnostics are illustrative observations, not authority.
 
-## A: Host-Scoped Workspace (Recommended)
+## A: Host-Scoped Workspace (Alternative, Not Selected)
 
 Choose a host scope, then a target, then an action. Persistent context anchors
 the screen; at wide widths the inspector uses the otherwise wasted right side.
 At narrow widths the same list drills into detail without losing its selection.
-The complete recommended set is in the three dimension files.
+This records the original alternative only; it is not the selected interaction.
 
 ### A Comparison / 120x40
 
@@ -38,7 +39,7 @@ Cross-host comparison requires choosing All; that choice is visible, reversible
 and never inferred from master placement. No host is privileged just because it
 is reachable or has running VMs.
 
-## B: Fleet Ledger With Full-Page Drill-In
+## B: Fleet Ledger With Full-Page Drill-In (Selected)
 
 Start with one grouped, fleet-wide ledger. A single full-page detail replaces
 the ledger on Enter; only the detail page offers Connect. Host headings carry
@@ -50,7 +51,7 @@ and every inspection/action requires a page transition, even on a wide screen.
 
 ```text
 COOP  [1 Fleet]  2 Coordination  3 Servers                         ? Help
-SSH scope: All / no target selected     Master: design-master   As: demo-owner
+SSH scope: All / explicit target below  Master: design-master   As: demo-owner
 FLEET LEDGER [FOCUS]   State: all (0 hidden)
 -------------------------------------------------------------------------------
 desk (local)                         Inventory ok, 2s old
@@ -64,9 +65,10 @@ work-node / ops@work.example          Inventory ok, 3s old
     Wren         agent               running
 lab / ops@lab.example                OFFLINE; retained snapshot 12m old
     Build        interactive         unknown (last: stopped)
+spare / ops@spare.example            ok, 4s old / 0 targets
 -------------------------------------------------------------------------------
 Selection: work-node / agent / hawk   [not connected]
-Enter Inspect  h Filter hosts  x Actions  ? Help
+Enter Details  h Filter hosts  ? Help
 ```
 
 ### B Detail / 80x24
@@ -181,16 +183,19 @@ These full-page B forms use the same captured-request, privacy, membership and
 uncertainty contract as A; B never adds a new messaging backend. A keeps the
 thread ledger visible at wide sizes, while B deliberately removes it until Back.
 
-## Recommendation
+## Selected Recommendation
 
-Choose A. It separates the two questions the current presentation conflates:
-"which SSH host?" and "which agent?" A short contextual footer and aligned VM
-rows improve scanning without pretending that VM running means agent working.
-An initial host picker prevents a default selected stopped local duplicate.
-All remains a deliberate option, preserving fleet-wide operations and visibility
-of failed hosts. The deliberate first-use choice is preferable to guessing from
-running state, a wrapper name, master placement or a remembered remote alias.
+Proceed with B as the design direction. The owner selected it because multiple
+hosts and their birds need to be visible together; this supersedes the initial
+A recommendation. The three dimension files now specify B, not A with a renamed
+heading. All sizes use a fleet-wide grouped ledger and full-page drill-in; no
+automatic target, mandatory host picker or wide split pane. Only Details offers
+Connect. Optional host/state filters remain visible, reversible and non-authorizing.
 
-Decision requested from Chris: accept explicit per-launch host choice, or later
-authorize an opt-in remembered scope with the same no-auto-target rule. This
-packet recommends the former; it does not silently introduce persistence.
+The tradeoff is one extra Details transition before connecting, in exchange for
+whole-fleet visibility and a consistent model across widths. Explicit selection,
+host context and captured confirmations address the stopped-local duplicate risk
+without hiding it or selecting a running target automatically. Empty and failed
+hosts stay visible. Master identity stays separate from SSH filtering; B is not
+cross-master routing. Do not ask Chris to choose A/B again. Approval to implement
+the revised packet and the separate release/UAT gate remain outstanding.

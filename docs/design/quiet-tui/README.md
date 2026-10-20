@@ -1,4 +1,4 @@
-# Quiet Coop: Design Packet v2
+# Quiet Coop: Design Packet v3
 
 Status: author proposal, awaiting independent Robin review and Wren journey QA.
 Design only. No production implementation, merge, deployment, service change,
@@ -13,9 +13,9 @@ Environment revision: `coop-tui-design-v1`.
 
 ## Read This Packet
 
-1. [Directions](directions.md): two information architectures and recommendation.
+1. [Directions](directions.md): two information architectures and selected B.
 2. [120x40](120x40.md), [80x24](80x24.md), [40x20](40x20.md): recommended
-   workspace, same sanitized fixture and labeled journey frames.
+   fleet ledger, same sanitized fixture and labeled journey frames.
 3. [Interaction contract](interaction.md): focus, safety, states, refresh, privacy,
    theme and responsive rules. These rules also govern the alternate direction.
 4. [Source and coverage](source.md): inspected baseline, existing capabilities,
@@ -41,6 +41,15 @@ competes with the content, and available width does not clarify selection.
 The recommendation addresses these observed problems, not an invented before UI.
 Private provenance and independent findings stay in the originating thread.
 
+## Selected Direction
+
+B, Fleet Ledger With Full-Page Drill-In, is the owner-selected direction and
+supersedes the initial A recommendation. Default to the whole fleet grouped by
+host, with no selected target. Host filtering is optional. Fleet -> Details ->
+Connect is consistent at every width; Team, threads, readers and forms also use
+full pages. A remains only as a comparison, not an open decision. This records
+the selected experience, not approval to implement, merge or release it.
+
 ## How To Read The Frames
 
 Each fenced `text` block is a static terminal viewport. Its heading declares the
@@ -61,3 +70,11 @@ All frames show no-color rendering. Dark/light treatment is specified in the
 interaction contract; identical text, selection and state labels survive both.
 The richest frame is not a promise that every data source is available: missing
 diagnostics must render `unknown`, not a plausible invented work summary.
+
+Frame IDs `A` (attach preflight) and `B` (return) are journey labels, not layout
+direction choices. Every frame in the dimension files now belongs to selected
+layout direction B. Run the setup-coverage regression guard as well:
+
+```sh
+flox activate -- env PYTHONDONTWRITEBYTECODE=1 python3 docs/design/quiet-tui/test_validate.py
+```

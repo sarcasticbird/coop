@@ -7,17 +7,20 @@ import re
 ROOT = Path(__file__).resolve().parent
 COMMON = {
     "H", "F0", "F", "F-offline", "F-reconnect", "T-list", "T",
-    "L", "R", "R-select", "N", "C-root", "C", "P", "Q", "X", "A",
+    "D", "L", "R", "R-select", "N", "C-root", "C", "P", "Q", "X", "A",
+    "S-master", "S-host", "G", "B",
 }
 
 
-def validate(path, default_size=None):
+def validate(path, default_size=None, text=None):
     heading = ""
     size = default_size
     lines = None
     frames = set()
     errors = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    if text is None:
+        text = path.read_text(encoding="utf-8")
+    for number, line in enumerate(text.splitlines(), 1):
         if line.startswith("##") and lines is None:
             heading = line.lstrip("# ")
             if default_size is None:

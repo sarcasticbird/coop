@@ -1,9 +1,13 @@
 # Inspected Source And Coverage
 
 Read-only baseline: `c10925823b23b0964c416fcf931e37aba55afb14` on `main`.
-This packet changes documentation and static validation only. The privately
-reported quiet-render repair is uncommitted elsewhere; it was not inspected,
-copied, overwritten or assumed present in this baseline.
+This packet changes documentation and static validation only. Initial inspection
+predated the published quiet-render repair. Approved main baseline
+`7e6fd1d19df601310819987036eae6961dedfb4e` (#112) was subsequently merged in
+`92e10f3e03bfce98690f76680f33cbe20d926a79`; it is the future implementation
+starting point. No old UAT overlay or unpublished commit is required. Preserve
+its quiet cached reads, visible loading/navigation/write/failure feedback,
+empty-host rows and explicit feedback when reads temporarily block controls.
 
 ## Contracts Inspected
 
@@ -29,8 +33,8 @@ completion forecast or cross-agent job graph is inferred.
 
 ## Proposed, Not Implemented
 
-Host/filter picker, no automatic target, persistent context strip, aligned
-split workspace, focus-owned viewports, full-page compact drill-in, integrated
+Optional host filter, no automatic target, persistent context strip, aligned
+grouped ledger, focus-owned viewports, full-page drill-in at every width, integrated
 diagnostics, private reader masking and in-session draft suspension are proposed
 UI work. Current reader bodies are unmasked even though forms default masked;
 the global masking proposal must not be mistaken for a current privacy guarantee.
@@ -48,8 +52,8 @@ that test passing and update representation, not silently drop leaves.
 
 | Families | Proposed discovery location; existing handlers retained |
 | --- | --- |
-| default entry, shell, tui, ls, inventory, status | Fleet, Connect, status result, About launch/runbook |
-| up, down, destroy | x Actions and retained u/s/d shortcuts; existing confirmations |
+| default entry, shell, tui, ls, inventory, status | Fleet -> Details -> Connect; status result; About launch/runbook |
+| up, down, destroy | Details x Actions and retained u/s/d shortcuts; existing confirmations; ledger shortcuts open Details with the action highlighted, never dispatch |
 | rebuild, apply, sync, backup | x Target maintenance; state/kind/path/ownership checks |
 | upgrade, restore, init, doctor | Servers x Host actions; explicit captured host, no local fallback |
 | credentials refresh/watch | Foreground configured-reference actions; no secret values in UI |
