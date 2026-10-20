@@ -757,7 +757,12 @@ func (m fleetModel) content() ([]string, string, int) {
 		for _, h := range m.hosts {
 			state := "loading"
 			if !h.updated.IsZero() {
-				state = "ok; snapshot " + time.Since(h.updated).Round(time.Second).String() + " old"
+				age := time.Since(h.updated)
+				freshness := age.Round(time.Second).String()
+				if age >= 0 && age < 5*time.Second {
+					freshness = "<5s"
+				}
+				state = "ok; snapshot " + freshness + " old"
 			}
 			if h.errorCode != "" {
 				state = h.errorCode
@@ -765,7 +770,7 @@ func (m fleetModel) content() ([]string, string, int) {
 					state += "; stale snapshot " + time.Since(h.updated).Round(time.Second).String() + " old"
 				}
 			}
-			if h.loading {
+			if h.loading && h.updated.IsZero() && h.errorCode == "" {
 				state += "; refreshing"
 			}
 			if h.host == m.selected.Host {
@@ -786,7 +791,7 @@ func (m fleetModel) content() ([]string, string, int) {
 			if m.workspace != 0 {
 				continue
 			}
-			if len(h.entries) == 0 && !h.loading && h.errorCode == "" {
+			if len(h.entries) == 0 && (!h.loading || !h.updated.IsZero()) && h.errorCode == "" {
 				body = append(body, "  (no Coops)")
 			}
 			for _, e := range h.entries {
@@ -872,7 +877,7 @@ func (m fleetModel) content() ([]string, string, int) {
 		if m.coordination.form != nil {
 			footer = "Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear"
 		}
-		if m.coordination.busy {
+		if m.coordination.busy && !m.coordination.backgroundRead {
 			footer = "Coordination request in progress; no automatic mutation retries | Ctrl+C quit"
 		}
 	}

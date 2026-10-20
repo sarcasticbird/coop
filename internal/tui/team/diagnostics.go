@@ -60,7 +60,7 @@ func diagnosticTime(t time.Time) string {
 func (m *Model) detailLines() []string {
 	var text strings.Builder
 	fmt.Fprintf(&text, "Agent: %s\n", clean(m.detailAgent))
-	if m.detailBusy {
+	if m.detailBusy && m.detail == nil {
 		text.WriteString("Refreshing diagnostics...\n")
 	}
 	if m.detailFailure != "" {

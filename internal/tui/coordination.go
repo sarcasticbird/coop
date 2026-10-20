@@ -58,6 +58,8 @@ type coordState struct {
 	after                int64
 	cursor               int
 	follow, busy, failed bool
+	backgroundRead       bool
+	readReady            bool
 	seen                 time.Time
 	status               string
 	serial               uint64
@@ -120,7 +122,11 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 		return nil
 	}
 	q.serial++
-	q.busy, q.status = true, "Loading "+kind+"..."
+	q.busy = true
+	q.backgroundRead = kind == "read" && q.readReady
+	if !q.backgroundRead {
+		q.status = "Loading " + kind + "..."
+	}
 	serial, source, ctx := q.serial, m.services.Coordination, m.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -206,6 +212,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	q.seen, q.status = time.Now(), "Snapshot refreshed"
+	q.readReady = true
 	if r.kind == "write" || r.kind == "inspect" {
 		q.form = nil
 		q.status = "Completed; refresh to inspect current state"
@@ -239,6 +246,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		}
 		q.section, q.next = "threads", ""
 		q.thread, q.messages, q.after, q.cursor, q.receipt = &data, nil, 0, 0, nil
+		q.readReady = false
 		q.authority, m.scroll = nil, 0
 		return m, m.coordLoad(false)
 	case c.Message:
@@ -432,6 +440,9 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	q := &m.coordination
 	key := k.String()
 	if q.busy {
+		if q.backgroundRead {
+			q.status = "Refreshing snapshot; controls resume when the read completes"
+		}
 		return m, nil
 	}
 	if q.form != nil {
@@ -524,9 +535,11 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t", "l", "i", "g":
 		section := map[string]string{"t": "team", "l": "threads", "i": "inbox", "g": "goals"}[key]
 		q.section, q.thread, q.receipt, q.authority, q.messages, q.after, q.next, q.cursor, q.follow = section, nil, nil, nil, nil, 0, "", 0, false
+		q.readReady = false
 		m.scroll = 0
 		return m, m.coordLoad(false)
 	case "esc":
+		q.readReady = false
 		if q.receipt != nil {
 			q.receipt = nil
 		} else if q.authority != nil {
@@ -549,6 +562,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			q.engagement = engagements[(slices.Index(engagements, q.engagement)+1)%len(engagements)]
 			q.goals, q.next, q.cursor = nil, "", 0
+			q.readReady = false
 			m.scroll = 0
 			return m, m.coordLoad(false)
 		}
@@ -657,7 +671,7 @@ func (m fleetModel) coordLines() (lines []string) {
 	if q.failed {
 		health = "STALE/OFFLINE | " + health
 	}
-	if q.busy {
+	if q.busy && !q.backgroundRead {
 		health += " | in progress"
 	}
 	lines = append(lines, health, q.status)

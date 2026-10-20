@@ -134,7 +134,7 @@ func canonicalPath(p string) string {
 }
 
 // sharesAncestor walks projectRoot upward comparing by inode. macOS is
-// case-insensitive, so /Users/CDolan and /Users/cdolan name the same directory
+// case-insensitive, so /Users/Example and /Users/example name the same directory
 // while comparing unequal as strings.
 func sharesAncestor(projectRoot, match string) bool {
 	wantInfo, err := os.Stat(match)
