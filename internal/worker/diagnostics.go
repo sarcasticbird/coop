@@ -77,9 +77,9 @@ func diagnosticHandling(s Status) string {
 		return "waiting"
 	}
 	switch s.WaitReason {
-	case "local_pause", "native_dependency_wait", "native_task_wait":
+	case "local_pause", "native_dependency_wait", "native_task_wait", "native_branch_refresh_wait":
 		return "waiting"
-	case "native_dependency_retry", "native_catalog_unavailable":
+	case "native_dependency_retry", "native_catalog_unavailable", "cache_refresh_wait":
 		return "auto_retry"
 	case "native_recovery_required", "native_dependency_recovery_required", "native_admission_stalled", "native_turn_overdue", "native_branch_refresh_limit", "native_branch_refresh_no_progress", "native_checks_repair_limit", "native_checks_repair_no_progress":
 		return "action_required"

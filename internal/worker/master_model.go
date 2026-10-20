@@ -43,6 +43,7 @@ func validateMasterConfig(c Config) error {
 		return errors.New("invalid master blocker recipient")
 	}
 	legacy := c
+	legacy.GitHubCache = nil
 	legacy.Version = 2
 	legacy.Master = nil
 	return ValidateConfig(legacy)

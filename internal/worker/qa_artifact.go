@@ -121,6 +121,9 @@ func (g *GitHubClient) bindQAArtifact(ctx context.Context, t Task, p *PR, candid
 	}
 	owner := strings.Split(t.Repo, "/")[0]
 	if candidate == nil || candidate.Kind == "source" {
+		if reused, err := sourceArtifactReuse(g, t.Repo, p, candidate); reused || err != nil {
+			return err
+		}
 		raw, _, err := g.api(ctx, owner, "GET", "repos/"+t.Repo+"/tarball/"+p.HeadSHA, nil)
 		if err != nil {
 			return err

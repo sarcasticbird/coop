@@ -128,7 +128,7 @@ func nativeAutomaticRecovery(cfg Config, x NativeExecution) (bool, error) {
 func (d *NativeDispatcher) automaticRecoveries() ([]NativeExecution, error) {
 	out := []NativeExecution{}
 	// Recovery needs the same concrete GitHub client used by the guarded helper.
-	if _, ok := d.github.(*GitHubClient); !ok {
+	if nativeActionClient(d.github) == nil {
 		return out, nil
 	}
 	for _, x := range d.history {
@@ -156,6 +156,10 @@ func nativeRecoveryBackoff(failures int) time.Duration {
 }
 
 func (d *NativeDispatcher) reconcileNativeAction(ctx context.Context, x *NativeExecution) (done bool, err error) {
+	client := nativeActionClient(d.github)
+	if client == nil {
+		return false, c.ErrInvalid
+	}
 	defer func() {
 		if err != nil && x.Phase == "blocked" {
 			x.Job.ReconcileFailures++
@@ -245,7 +249,7 @@ func (d *NativeDispatcher) reconcileNativeAction(ctx context.Context, x *NativeE
 		if e = saveNativeExecution(d.config, active); e != nil {
 			return false, e
 		}
-		_, actionErr := runNativeActionLocked(ctx, d.config, d.master, d.github.(*GitHubClient), x.Job.ID, in)
+		_, actionErr := runNativeActionLocked(ctx, d.config, d.master, client, x.Job.ID, in)
 		// Persist the original terminal checkpoint even when an effect became
 		// uncertain. A crash before this write is observed normally on restart.
 		if e = saveNativeExecution(d.config, *x); e != nil {
