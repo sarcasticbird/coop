@@ -68,6 +68,60 @@ func TestTUILaunchPreservesImmutableHostAndArgv(t *testing.T) {
 	}
 }
 
+func TestTUIForegroundCredentialForwarding(t *testing.T) {
+	for _, host := range []hostrouter.Host{hostrouter.Local, {Name: "remote", Address: "trusted-alias"}} {
+		for _, tc := range []struct {
+			name    string
+			kind    hostrouter.TargetKind
+			args    []string
+			forward bool
+		}{
+			{name: "project-up", kind: hostrouter.Interactive, args: []string{"up"}},
+			{name: "agent-up", kind: hostrouter.Agent, args: []string{"--agent", "selected", "up"}, forward: true},
+			{name: "project-entry", kind: hostrouter.Interactive, args: []string{"--"}, forward: true},
+			{name: "agent-entry", kind: hostrouter.Agent, args: []string{"--agent", "selected", "--"}, forward: true},
+			{name: "agent-sync", kind: hostrouter.Agent, args: []string{"--agent", "selected", "sync"}, forward: true},
+			{name: "agent-refresh", kind: hostrouter.Agent, args: []string{"--agent", "selected", "credentials", "refresh"}, forward: true},
+			{name: "explicit-grants", kind: hostrouter.Agent, args: []string{"--agent", "selected", "--credentials=explicit", "credentials", "refresh"}},
+			{name: "agent-watch", args: []string{"credentials", "watch", "--profile=selected"}},
+			{name: "project-init", args: []string{"init"}},
+		} {
+			t.Run(host.Name+"/"+tc.name, func(t *testing.T) {
+				originalArgs := append([]string(nil), tc.args...)
+				req := hostrouter.ActionRequest{Target: hostrouter.Target{Host: host, Kind: tc.kind}, Operation: "command", Args: tc.args}
+				if tc.kind != "" {
+					req.Target.ID = "selected"
+				}
+				if tc.kind == hostrouter.Interactive || tc.name == "project-init" {
+					req.Directory = "/selected/project"
+				}
+				cmd, err := tuiForegroundCommand(context.Background(), req, []string{"github", "comma,name"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, err := base64.RawURLEncoding.DecodeString(cmd.Args[2])
+				if err != nil {
+					t.Fatal(err)
+				}
+				var v hostrouter.Invocation
+				if err := json.Unmarshal(b, &v); err != nil {
+					t.Fatal(err)
+				}
+				want := tc.args
+				if tc.forward {
+					want = append([]string{"--credentials=github,\"comma,name\""}, want...)
+				}
+				if !reflect.DeepEqual(v.Args, want) || v.Target != req.Target || v.Directory != req.Directory {
+					t.Fatalf("foreground invocation = %+v, want args %q and original identity/path", v, want)
+				}
+				if !reflect.DeepEqual(req.Args, originalArgs) {
+					t.Fatal("request argv mutated")
+				}
+			})
+		}
+	}
+}
+
 func TestTUIReceiverRejectsChangedHostAndNestedRouting(t *testing.T) {
 	r := serverTestRegistry(t)
 	if err := r.Change("add", "remote", "replacement"); err != nil {

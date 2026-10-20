@@ -70,31 +70,38 @@ func (tuiActions) Execute(ctx context.Context, req hostrouter.ActionRequest, inp
 	return result, nil
 }
 
+func tuiForegroundCommand(ctx context.Context, req hostrouter.ActionRequest, credentials []string) (*exec.Cmd, error) {
+	if len(credentials) > 0 && req.Target.Kind != "" {
+		args := req.Args
+		if len(args) >= 2 && args[0] == "--agent" {
+			args = args[2:]
+		}
+		entry := len(args) > 0 && (args[0] == "--" || args[0] == "shell")
+		agentAction := req.Target.Kind == hostrouter.Agent && len(args) > 0 &&
+			(args[0] == "up" || args[0] == "sync" || (len(args) > 1 && args[0] == "credentials" && args[1] == "refresh"))
+		if entry || agentAction {
+			var b bytes.Buffer
+			w := csv.NewWriter(&b)
+			if err := w.Write(credentials); err != nil {
+				return nil, err
+			}
+			w.Flush()
+			if err := w.Error(); err != nil {
+				return nil, err
+			}
+			req.Args = append([]string{"--credentials=" + strings.TrimSuffix(b.String(), "\n")}, req.Args...)
+		}
+	}
+	return tuiCommand(ctx, req)
+}
+
 func runOperationalTUI(_ runtime.Runtime, credentials []string) (tui.Result, error) {
 	r, err := hostrouter.DefaultRegistry()
 	if err != nil {
 		return tui.Result{}, err
 	}
 	foreground := func(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
-		if len(credentials) > 0 && req.Target.Kind != "" {
-			args := req.Args
-			if len(args) >= 2 && args[0] == "--agent" {
-				args = args[2:]
-			}
-			if len(args) > 0 && (args[0] == "--" || args[0] == "up" || args[0] == "sync" || args[0] == "credentials") {
-				var b bytes.Buffer
-				w := csv.NewWriter(&b)
-				if err := w.Write(credentials); err != nil {
-					return nil, err
-				}
-				w.Flush()
-				if err := w.Error(); err != nil {
-					return nil, err
-				}
-				req.Args = append([]string{"--credentials=" + strings.TrimSuffix(b.String(), "\n")}, req.Args...)
-			}
-		}
-		return tuiCommand(ctx, req)
+		return tuiForegroundCommand(ctx, req, credentials)
 	}
 	return tui.RunWithServices(tui.Services{Registry: r, Version: resolvedVersion(),
 		Inventory: hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
