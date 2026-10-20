@@ -1,9 +1,9 @@
-# Quiet Coop: Design Packet v1
+# Quiet Coop: Design Packet v2
 
 Status: author proposal, awaiting independent Robin review and Wren journey QA.
 Design only. No production implementation, merge, deployment, service change,
 release or Homebrew publication is authorized by this packet. Static review is
-not operator UAT success. Colin's design decision and release UAT gate remain open.
+not operator UAT success. Chris's design decision and release UAT gate remain open.
 
 Task: https://github.com/sarcasticbird/coop/issues/110
 Native goal: `goal_6XFLKYPBU7N7OYL4GHQRFJTBKT`, approved revision
@@ -15,13 +15,13 @@ Environment revision: `coop-tui-design-v1`.
 
 1. [Directions](directions.md): two information architectures and recommendation.
 2. [120x40](120x40.md), [80x24](80x24.md), [40x20](40x20.md): recommended
-   workspace, same sanitized fixture and numbered journey frames.
+   workspace, same sanitized fixture and labeled journey frames.
 3. [Interaction contract](interaction.md): focus, safety, states, refresh, privacy,
    theme and responsive rules. These rules also govern the alternate direction.
 4. [Source and coverage](source.md): inspected baseline, existing capabilities,
    command retention and explicit proposed-only changes.
 5. [Handoff](handoff.md): acceptance map, independent walkthrough script, staged
-   future proposal, risks and decisions for Colin.
+   future proposal, risks and decisions for Chris.
 
 All names, addresses, work references and message content in the mockups are
 invented fixtures, not snapshots of customer activity. `design-master`, `desk`,

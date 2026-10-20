@@ -50,7 +50,7 @@ and every inspection/action requires a page transition, even on a wide screen.
 
 ```text
 COOP  [1 Fleet]  2 Coordination  3 Servers                         ? Help
-SSH scope: All / no target selected     Master: design-master / demo-owner
+SSH scope: All / no target selected     Master: design-master   As: demo-owner
 FLEET LEDGER [FOCUS]   State: all (0 hidden)
 -------------------------------------------------------------------------------
 desk (local)                         Inventory ok, 2s old
@@ -72,7 +72,7 @@ Enter Inspect  h Filter hosts  x Actions  ? Help
 ### B Detail / 80x24
 
 ```text
-COOP / Fleet / Detail       Master: design-master / demo-owner
+COOP / Fleet / Detail       Master: design-master   As: demo-owner
 SSH target: work-node / agent / hawk
 DETAIL [FOCUS]                 Inventory: SSH, ok, 3s old
 VM: running                    Runtime: coop-agent-hawk
@@ -86,7 +86,7 @@ Enter Connect   x Operations   Esc Fleet   ? Help
 ### B Coordination / 80x24
 
 ```text
-COOP / Coordination       Master: design-master / demo-owner
+COOP / Coordination       Master: design-master   As: demo-owner
 SSH scope: All (no bearing on this page)
 [t Team]  l Threads  i Inbox  g Goals
 TEAM LEDGER [FOCUS]
@@ -99,7 +99,7 @@ Enter Diagnostics (full page)   p Prompt   ? Help
 ### B Threads / 80x24
 
 ```text
-COOP / Coordination / Threads   Master: design-master / demo-owner
+COOP / Coordination / Threads   Master: design-master   As: demo-owner
 SSH scope: All (not message routing)
 THREADS [FOCUS]                 Content: masked
 > Design check    members: demo-owner, hawk, robin, wren
@@ -146,6 +146,41 @@ Mitigation is no automatic initial target and Enter-to-inspect, not sorting by
 running state. At 40 columns, B uses the same full-page forms and confirmation
 contract as A. Its weakness is more transitions, not insufficient terminal width.
 
+### B Reader / 80x24
+
+```text
+COOP / Coordination / Reader   Master: design-master   As: demo-owner
+SSH scope: All (not message routing) / Engagement: demo
+Thread: demo-design / Design check
+READER [FOCUS] / Content: masked / full page even on wide terminals
+Selected: msg-demo-18 / hawk -> demo-owner
+Body: [hidden] / deliberate Ctrl+V reveal
+Arrows select message; PgUp/PgDn scroll without changing selection.
++2 new below / follow on / loaded 20 of bounded pages / retained limit 500
+p Reply selected  c Root compose  s Receipt  Esc Thread ledger  ? Help
+```
+
+### B Composer / 80x24
+
+```text
+COOP / Coordination / Reply   Master: design-master   As: demo-owner
+SSH scope: All (not message routing) / Engagement: demo
+Thread: demo-design / Design check
+COMPOSE [FOCUS] / Content: masked / no ledger pane while composing
+To: hawk / stable member ID
+Parent: msg-demo-18 / author hawk
+Request: req-demo-reply-1 / not submitted
+Body: [hidden, 32 bytes]
+Tab fields: To / Body / Help; Enter inserts newline in Body.
+Ctrl+S previews, second Ctrl+S submits; no automatic mutation retries.
+Escape: Keep / Discard / Return, draft retained only in memory.
+Ctrl+S Preview  Ctrl+V Reveal  Tab Field  Esc Draft guard
+```
+
+These full-page B forms use the same captured-request, privacy, membership and
+uncertainty contract as A; B never adds a new messaging backend. A keeps the
+thread ledger visible at wide sizes, while B deliberately removes it until Back.
+
 ## Recommendation
 
 Choose A. It separates the two questions the current presentation conflates:
@@ -156,6 +191,6 @@ All remains a deliberate option, preserving fleet-wide operations and visibility
 of failed hosts. The deliberate first-use choice is preferable to guessing from
 running state, a wrapper name, master placement or a remembered remote alias.
 
-Decision requested from Colin: accept explicit per-launch host choice, or later
+Decision requested from Chris: accept explicit per-launch host choice, or later
 authorize an opt-in remembered scope with the same no-auto-target rule. This
 packet recommends the former; it does not silently introduce persistence.

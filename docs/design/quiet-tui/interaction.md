@@ -21,7 +21,9 @@ target and no pending action. Enter commits a scope, not a target. The operator
 then moves to a row explicitly; Enter on the untouched list is a no-op with
 `Choose a target with arrows`. All includes local and every registered host;
 it is never replaced by the first reachable host. A per-launch picker costs one
-step deliberately. No persisted default, running-first sort or inferred retirement.
+step deliberately. From no target, either Up or Down selects the first visible
+row (not the second); no rows means neither key selects anything. No persisted
+default, running-first sort or inferred retirement.
 Return from attach restores the session's explicitly chosen scope/target.
 
 `h` opens chooser; arrows then Enter commit; Escape leaves previous scope.
@@ -56,7 +58,7 @@ helpers; test them before shipping. No custom font or box-drawing dependency.
 
 | Width/height | Fleet/Team | Threads | Forms/help |
 | --- | --- | --- | --- |
-| 120x40 | Left 44-cell list, divider and right inspector; two focusable regions | Thread list beside reader; composer replaces reader | Captured context above a scrollable form; footer below |
+| 120x40 | Left 43-cell list, 1-cell divider, 1-cell gap, up to 75-cell inspector; two focusable regions | Thread list beside reader; composer replaces reader | Captured context above a scrollable form; footer below |
 | 80x24 | Full-width list plus short selected summary; Tab/Enter diagnostics opens detail page | List and reader are separate pages | Full page, sticky context/footer, scrolling body |
 | 40x20 | Full-page list then full-page detail; mandatory context on both | Separate list/reader/compose; no squeezed side rail | Full page; sticky context/footer; field/identity wrap |
 
@@ -73,9 +75,14 @@ Long argv wraps as literal text, not a shell command to copy/execute.
 is explicit and a bold region heading is redundant decoration. On compact
 Fleet, Tab opens detail; Escape restores list position. On Team, Enter opens
 diagnostics. On Threads, Enter opens reader. Lists: arrows/j/k select, PgUp/PgDn
-move one visible page. Detail/reader: arrows/j/k scroll, PgUp/PgDn page. Home/End
-move within the focused region, not the global document. No scroll wheel or
-mouse required. On resize preserve focus by semantic region; collapsed inspector
+move one visible page. Detail: arrows/j/k scroll, PgUp/PgDn page. Reader:
+arrows/j/k select the previous/next loaded message by stable ID and reveal that
+message's start; PgUp/PgDn scroll without changing that reply/receipt selection.
+`p` and `s` always target the visibly labeled selected message, never the last
+line scrolled into view. If selection is offscreen show its ID/author in a sticky
+reader status line. Home/End scroll within the focused region, not the global
+document; End intentionally goes to latest but does not change the reply target.
+No scroll wheel or mouse required. On resize preserve focus by semantic region; collapsed inspector
 becomes detail, never a new selected row. On widening preserve current reader or
 composer, do not forcibly focus the newly visible list.
 
@@ -83,8 +90,9 @@ composer, do not forcibly focus the newly visible list.
 
 Keep `1 Fleet`, `2 Coordination`, `3 Servers`; Coordination `t Team`, `l Threads`,
 `i Inbox`, `g Goals`. Do not add a fourth top-level key and displace existing
-commands. The footer shows at most four contextual hints at 40 columns and
-roughly six when wider; `? Help` is always available outside literal editors.
+commands. At 40 columns the footer uses at most two short lines, prioritizing
+the primary action, Back and Help over secondary accelerators. Wider views can
+show roughly six hints; `? Help` is always available outside literal editors.
 Help is a scrollable page, grouped as navigation, safe reads, actions and advanced
 CLI/runbook. It names the current focus and exact action target without revealing
 message bodies. `x` opens all eligible operations, with disabled reasons, so
@@ -178,6 +186,24 @@ composer masks on focus loss; returning requires deliberate reveal. Metadata can
 also be sensitive: masking is not screenshot safety or encryption. No logging,
 disk draft cache or new telemetry is authorized. Never enter credentials.
 
+From Threads, `n` opens N New thread: title, authorized engagement, complete
+stable member IDs and a Help field. Ctrl+S previews the captured member set,
+engagement, title and request ID; second Ctrl+S creates the thread, not a message.
+Success opens the new masked empty reader with the returned stable thread ID.
+No wake/message occurs merely because a thread was created. Failure retains
+the form; an uncertain creation freezes input and offers identical Ctrl+R retry,
+just like an uncertain message. Never create another thread to bypass uncertainty.
+`c` in a reader opens C-root (no parent); `p` opens C reply using the selected
+message ID/author. Opening a reader initially selects the first loaded message;
+Down then selects the next. No loaded messages disables reply and receipt.
+Pressing c/p without a reader explains `Open a thread first`, not an implicit
+new thread. Thread/engagement changes never retarget an open form.
+Before a thread exists, Keep retains the creation form at session level: the
+Threads list shows `New thread draft retained; n Resume`. `n` resumes that
+same form/request, not another creation. A frozen uncertain creation likewise
+reopens its status on n and prevents duplicate creation. This is separate from
+per-thread message drafts; K's thread-specific c route is not used for N.
+
 Compose captures master, authenticated principal, engagement, thread, recipients,
 parent and new request ID. Preview shows the full captured identity with the
 body still masked unless deliberately revealed; the body remains in immutable
@@ -192,6 +218,12 @@ Keep restores a visible `Draft retained in memory` affordance on the thread;
 unsubmitted draft per active thread/session in this proposal; switching to a new
 draft requires explicit keep/discard choice. Quit warns memory-only drafts are
 lost. No promise of process-crash recovery. Poll/resize never modifies typed text.
+Any workspace/section switch, host chooser or opening another form while editing
+uses the same draft guard; text keys are never intercepted as navigation. On
+return from Keep, C-resume renders the retained-draft route on the reader; c
+resumes that draft and does not make a fresh request ID. While a frozen uncertain
+request exists, c instead reopens its U status; new compose is blocked until its
+outcome is established. The session can close the status view, not forget it.
 
 After Ctrl+S submit, freeze payload/request ID. If response is lost, display
 `Uncertain; inspect receipt; Ctrl+R identical retry` and forbid editing/reuse of
@@ -201,6 +233,17 @@ rejection can return to edit with new reviewed request identity only after
 backend confirms no commit; denial is not a retry hint. No automatic resend.
 Commit shows message ID and receipt; queued/received/running/replied/blocked/
 cancelled/suppressed stay distinct. Accepted is not delivered, worked or approved.
+
+## Target-Safety Storyboard
+
+At every size: H -> F0 (scope chosen, no target) -> Down -> F (remote Hawk
+explicitly selected) -> F-offline (same key retained, actions disabled) ->
+F-reconnect (same validated key, operator must press an action again). Refresh
+may reorder rows but never changes the selected key or dispatches a queued click.
+Reconnection does not resolve any prior uncertain operation or imply its success.
+If the host address/runtime identity changed, use M unavailable rather than
+F-reconnect; require explicit re-selection and new captured intent. The compact
+M frame illustrates that state; larger layouts render it in the inspector.
 
 ## Servers And First Use
 

@@ -9,7 +9,7 @@
 | Host/master/agent context, safe defaults/filtering, aligned rows/actions | interaction.md Context; H/F/D/X/A frames; F-all/F-filter/M | Proposed, not implemented |
 | Running/work/stale/offline/empty, evidence, quiet refresh | interaction.md state table; T/S-fail/E/B frames | Static semantics only; no runtime flicker evidence |
 | Current commands, safety, privacy, attach and reply | source.md retention matrix; interaction.md; A/C/P/U/K/V frames | Existing handler inventory preserved in proposal |
-| Independent Robin feasibility and Wren journeys | Exact-head native review/QA, private originating thread | Not performed by author; required before ready for Colin |
+| Independent Robin feasibility and Wren journeys | Exact-head native review/QA, private originating thread | Not performed by author; required before ready for Chris |
 | Concise packet and staged proposal, owner boundary | README index; this document | Owner design decision open; implementation unauthorized |
 
 The publication head is the artifact identity. Robin must review that exact head,
@@ -41,6 +41,22 @@ transition frames to expose the hardest constraints instead of hiding them.
 | Empty/unknown | E, S-fail, M; diagnostics denied/unsupported per contract | Empty is successful filtered read, offline retains evidence, missing report not idle |
 | Discovery/no-color | Q from Fleet, Tab Help inside C; every journey without color at 40x20 | No wall-of-shortcuts requirement; focused scroll owns keys; editor ? is literal, Help field works |
 
+Additional v2 paths, at all three sizes:
+
+- H -> Enter work-node -> F0 -> first Up/Down -> F. F0 has no target or action.
+- F -> F-offline -> F-reconnect. Reordering preserves the key; reconnect never
+  dispatches or establishes a prior action's success. Changed identity uses M.
+- T-list -> Enter -> T; at 120x40 Tab can also focus the inspector without
+  opening diagnostics. At 80x24 Fleet Tab -> D; at 40x20 Fleet Tab -> D.
+- S-list -> a -> S at 120/80; S -> a -> S-add at 40. Server reference and master
+  setup remain separate, with no invented registry fields.
+- L -> n -> N -> Ctrl+S preview -> second Ctrl+S create -> new masked empty
+  reader. The compact N-preview illustrates captured thread creation, not a send.
+- Reader -> c -> C-root (no parent); reader Down selects msg-demo-18, p -> C.
+  R-select demonstrates PgDn leaving the chosen reply parent unchanged/offscreen.
+- C -> Escape -> K -> Keep -> C-resume -> c -> original C. These compact
+  transition frames govern the same memory-only behavior at larger sizes.
+
 For 120x40, traverse list/inspector with Tab; for 80x24 use full-page detail;
 for 40x20 use D/T and top/end pages. Repeat reader/draft resize in both directions.
 Run dark, light, low-color and no-color interpretation against the theme contract.
@@ -57,10 +73,10 @@ no new server, framework, scheduler, credentials or transport rewrite.
 | Future stage | Small outcome | Dependencies and acceptance/tests |
 | --- | --- | --- |
 | 0. Baseline reconciliation | Establish integrated source including separately owned quiet-render repair | Coordinate its actual branch/head; peer review it separately; verify cached-read/render tests without inventing a published commit |
-| 1. Context and host selection | Sticky host/master/principal context, explicit chooser, no automatic target, visible filter counts | Colin chooses default; key-based selection tests for duplicate names, removal, address edit, offline and no-result filters; existing handler tests unchanged |
+| 1. Context and host selection | Sticky host/master/principal context, explicit chooser, no automatic target, visible filter counts | Chris chooses default; key-based selection tests for duplicate names, removal, address edit, offline and no-result filters; existing handler tests unchanged |
 | 2. Layout and focus | Aligned Fleet, split inspector, compact drill-in, contextual help and scroll | Stage 1; golden cell snapshots at three sizes plus wide/combining/control input; focus/anchor/resize property tests; command coverage test still exhaustive |
 | 3. Honest Team integration | Existing diagnostics read contract in Coordination, lifecycle versus work labels | Stable placement join and read interface adaptation; stale/unsupported/denied/no-report/clock-skew fixtures; no new authority contract or inferred busy state |
-| 4. Conversations and privacy | Reader/list/composer navigation, per-buffer masking and protected memory-only drafts | Colin accepts masking/draft choices; backend request semantics unchanged; follow while scrolled, resize/draft, exact retry, cancellation, no-content leakage tests |
+| 4. Conversations and privacy | Reader/list/composer navigation, per-buffer masking and protected memory-only drafts | Chris accepts masking/draft choices; backend request semantics unchanged; follow while scrolled, resize/draft, exact retry, cancellation, no-content leakage tests |
 | 5. Setup and action clarity | Separate master/SSH setup guidance, contextual actions, complete confirmation/preflight | Existing forms and safety handlers; long-identity/argv scroll review gate, retarget/race/cancel tests; real PTY detach/return tests separately authorized |
 | 6. Integrated acceptance | Exact-artifact peer review and Wren journeys on authorized runtime fixture | Prior stages; light/dark/NO_COLOR, three sizes, quiet refresh under faults, permission and privacy checks; owner operator UAT explicitly recorded |
 
@@ -97,7 +113,7 @@ fleet state. The inspected source revision is in source.md; actual artifact SHA
 is derived on publication, not a guessed SHA embedded into its own contents.
 Private review and QA records remain authoritative for their own conclusions.
 
-Author checks on 2026-10-20:
+Initial v1 author checks on 2026-10-20 (superseded artifact, not v2 clearance):
 
 - `flox activate -- python3 docs/design/quiet-tui/validate.py`: passed, 55 static
   ASCII frames within declared cell viewports, including 7 comparison frames.
@@ -109,3 +125,20 @@ Author checks on 2026-10-20:
 No live host/master mutations, runtime UI test, service changes, product UAT,
 independent peer conclusion or independent QA clearance were performed by the
 author. Missing runtime validation is intentional for this static design scope.
+
+## v2 Author Revision
+
+The author expanded literal entry/transition coverage and clarified the reader
+selection/scroll contract, new-thread versus root/reply behavior, draft/frozen
+request re-entry, reconnect safety and the owner name. These are proposed design
+changes, not product implementation. Independent exact-head review and required
+QA must be renewed; no previous result is carried forward as clearance. Private
+independent findings/resolutions remain in their approved private destination,
+not this public artifact. The author does not infer resolution of feedback that
+has not been handed off.
+
+v2 author checks on 2026-10-20: the same Flox validator passes 84 frames,
+including 9 direction-comparison frames, with common interaction entry frames
+now required at all three sizes. Both command-inventory tests pass again, and
+`git diff --check` passes. These checks still establish only static fit and
+retention of the existing command inventories, not independent acceptance.

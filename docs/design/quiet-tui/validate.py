@@ -5,7 +5,10 @@ import re
 
 
 ROOT = Path(__file__).resolve().parent
-COMMON = {"H", "F", "T", "L", "R", "C", "S", "Q", "X", "A"}
+COMMON = {
+    "H", "F0", "F", "F-offline", "F-reconnect", "T-list", "T",
+    "L", "R", "R-select", "N", "C-root", "C", "P", "Q", "X", "A",
+}
 
 
 def validate(path, default_size=None):
@@ -44,10 +47,11 @@ def validate(path, default_size=None):
     if lines is not None:
         errors.append(f"{path.name}: unclosed frame")
     if default_size is not None:
-        for key in sorted(COMMON - frames):
+        required = COMMON | {"S" if default_size == (40, 20) else "S-list"}
+        for key in sorted(required - frames):
             errors.append(f"{path.name}: missing frame {key}")
-    elif len(frames) != 7:
-        errors.append(f"{path.name}: expected 7 direction comparison frames")
+    elif len(frames) != 9:
+        errors.append(f"{path.name}: expected 9 direction comparison frames")
     return errors, len(frames)
 
 
