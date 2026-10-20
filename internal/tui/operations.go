@@ -102,16 +102,17 @@ func (m fleetModel) operationReason(s operationSpec, e hostrouter.InventoryEntry
 
 func (m fleetModel) openOperations() (tea.Model, tea.Cmd) {
 	var e hostrouter.InventoryEntry
-	if m.workspace == 0 {
+	switch m.workspace {
+	case 0:
 		var ok bool
 		e, ok = m.entry(m.selected)
 		if !ok {
 			m.status = "selected host inventory is not authoritative; refresh"
 			return m, nil
 		}
-	} else if m.workspace == 2 {
+	case 2:
 		e.Target.Host = m.server
-	} else {
+	default:
 		return m, nil
 	}
 	m.operations = &operationForm{entry: e}
