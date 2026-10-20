@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const MaxDiagnosticsBytes = 32 << 10
@@ -40,10 +42,10 @@ type DiagnosticBinding struct {
 }
 
 func ValidateDiagnosticBinding(b DiagnosticBinding) error {
-	if b.Generation < 1 {
+	if b.Generation < 1 || !ValidMasterID(b.MasterID) || !utf8.ValidString(b.MasterID) || strings.ContainsFunc(b.MasterID, func(r rune) bool { return !unicode.IsPrint(r) }) {
 		return ErrInvalid
 	}
-	for _, id := range []string{b.MasterID, b.AgentID, b.HostID, b.InstanceID} {
+	for _, id := range []string{b.AgentID, b.HostID, b.InstanceID} {
 		if !diagnosticID.MatchString(id) {
 			return ErrInvalid
 		}

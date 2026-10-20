@@ -1254,16 +1254,18 @@ func (m fleetModel) View() string {
 			footer += " | PgUp/PgDn scroll"
 		}
 	}
-	if m.width > 0 {
-		footer = textansi.Truncate(footer, m.width, "...")
-	}
 	feedback := m.status
 	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook {
-		if diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure); diagnostic != "" {
-			feedback = diagnostic
-		}
+		diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure)
 		if m.diagnostics.busy && m.diagnostics.report == nil && m.diagnostics.failure == "" {
-			feedback = "Loading diagnostics..."
+			diagnostic = "Loading diagnostics..."
+		}
+		if feedback == "" {
+			feedback = diagnostic
+		} else if diagnostic != "" {
+			// Keep immediate control outcomes in the status row, with diagnostic
+			// truth in the other fixed row rather than moving the viewport.
+			footer = diagnostic + " | " + footer
 		}
 	}
 	if m.workspace == 1 && m.coordination.teamDetail != nil && m.coordination.form == nil && !m.help && !m.runbook {
@@ -1283,6 +1285,7 @@ func (m fleetModel) View() string {
 	feedback = strings.Join(strings.Fields(feedback), " ")
 	if m.width > 0 {
 		feedback = textansi.Truncate(feedback, m.width, "...")
+		footer = textansi.Truncate(footer, m.width, "...")
 	}
 	return strings.Join(append(content, feedback, footer), "\n")
 }

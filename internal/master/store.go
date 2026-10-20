@@ -38,7 +38,7 @@ type queryer interface {
 }
 
 func OpenStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
-	if cfg.Path == "" || !filepath.IsAbs(cfg.Path) || !validID(cfg.MasterID) {
+	if cfg.Path == "" || !filepath.IsAbs(cfg.Path) || !c.ValidMasterID(cfg.MasterID) {
 		return nil, c.ErrInvalid
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0700); err != nil {

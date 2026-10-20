@@ -346,3 +346,30 @@ warning and occasional activation-lock waits, not test failures. These fix resul
 supersede the initial artifact's mapped-Fleet gap, not the need for independent
 Robin review, private Wren exact-artifact QA, CI or operator UAT. No live pin,
 fleet, service, credentials, deployment or release state was changed.
+
+### Feedback And Identity Follow-Up
+
+Robin's review of `2d18ec8` found that pinned diagnostic feedback could overwrite
+an immediate lifecycle/control outcome. Details now keeps the action outcome in
+the fixed status row and, when both are present, puts diagnostic truth first in
+the existing fixed footer. This adds no viewport rows or scroll movement. The
+regression exercises actual cancellation and stale-registration refusal with
+denied, stale and initially loading diagnostics at all three required sizes,
+checking both fixed rows rather than merely finding text in the scrolled body.
+
+The review also reproduced a supported `master@rack` identity being rejected by
+the new binding's worker-ID grammar. Master-store identity validation is now a
+shared coordination contract, used by both store opening and diagnostic binding.
+Store acceptance is unchanged; the binding additionally rejects non-printable or
+invalid UTF-8 identity text at its presentation boundary. Worker placement IDs
+retain their stricter grammar. Tests open real fixture stores with supported
+punctuation, printable Unicode and the 128-byte boundary, verify matching pins,
+reject unsafe values, and load/transport `master@rack` through profile/inventory
+fixtures. No live master configuration changed.
+
+Both findings reproduced before correction. Focused regressions passed afterward;
+the full scoped ordinary/vet, no-color and worker-diagnostic commands above passed
+again on 2026-10-20. The race lane also passed, now including
+`./internal/coordination` with the same already-available compiler. Formatting and
+diff checks passed. These remain author results; the new head still needs Robin's
+independent review, Wren's private exact-artifact QA and CI before source delivery.

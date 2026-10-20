@@ -12,7 +12,7 @@ func TestProfileDiagnosticBindingIsExplicitAndHostOwned(t *testing.T) {
 	const body = `[profiles.bird]
 command = ["tool"]
 [profiles.bird.diagnostics]
-master_id = "fixture-master"
+master_id = "master@rack"
 agent_id = "different-agent-id"
 host_id = "coordination-host-not-ssh-alias"
 worker_instance_id = "fixture-instance"
@@ -35,7 +35,7 @@ generation = 2
 				}
 				return
 			}
-			want := c.DiagnosticBinding{MasterID: "fixture-master", Placement: c.Placement{AgentID: "different-agent-id", HostID: "coordination-host-not-ssh-alias", InstanceID: "fixture-instance", Generation: 2}}
+			want := c.DiagnosticBinding{MasterID: "master@rack", Placement: c.Placement{AgentID: "different-agent-id", HostID: "coordination-host-not-ssh-alias", InstanceID: "fixture-instance", Generation: 2}}
 			if err != nil || p.Diagnostics == nil || *p.Diagnostics != want {
 				t.Fatalf("binding=%+v error=%v", p.Diagnostics, err)
 			}

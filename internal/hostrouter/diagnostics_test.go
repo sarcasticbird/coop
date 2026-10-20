@@ -13,7 +13,7 @@ import (
 )
 
 func testDiagnosticBinding() c.DiagnosticBinding {
-	return c.DiagnosticBinding{MasterID: "fixture-master", Placement: c.Placement{AgentID: "principal-not-profile", HostID: "host-not-ssh-alias", InstanceID: "worker", Generation: 3}}
+	return c.DiagnosticBinding{MasterID: "master@rack", Placement: c.Placement{AgentID: "principal-not-profile", HostID: "host-not-ssh-alias", InstanceID: "worker", Generation: 3}}
 }
 
 func TestLocalInventoryExportsOnlyExplicitDiagnosticBinding(t *testing.T) {

@@ -237,3 +237,51 @@ func TestFleetWrappedIdentityConflictInvalidatesCache(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetDiagnosticFeedbackPreservesControlOutcomes(t *testing.T) {
+	for _, size := range tuifixture.Sizes() {
+		for _, diagnostic := range []string{"denied", "stale", "loading"} {
+			for _, action := range []string{"cancel", "refuse"} {
+				t.Run(fmt.Sprintf("%dx%d/%s/%s", size.Width, size.Height, diagnostic, action), func(t *testing.T) {
+					m, source := boundFleetFixture()
+					m.width, m.height = size.Width, size.Height
+					m, cmd := fleetKey(m, "enter")
+					switch diagnostic {
+					case "denied":
+						m = runFleetDiagnostic(t, m, cmd)
+						source.err = c.ErrForbidden
+						cmd = m.refreshFleetDiagnostics()
+						m = runFleetDiagnostic(t, m, cmd)
+					case "stale":
+						m = runFleetDiagnostic(t, m, cmd)
+						m.diagnostics.report.Stale = true
+					case "loading":
+						t.Cleanup(m.diagnostics.cancel)
+					}
+					want := "action cancelled"
+					if action == "cancel" {
+						m, _ = fleetKey(m, "d")
+						m, _ = fleetKey(m, "n")
+					} else {
+						m.services.Registry.(*fixtureRegistry).hosts = nil
+						m, cmd = fleetKey(m, "s")
+						if cmd != nil {
+							t.Fatal("stale registration dispatched")
+						}
+						want = "stale target"
+					}
+					m.scroll = 25
+					view := m.View()
+					lines := strings.Split(view, "\n")
+					if m.scroll != 25 || !strings.Contains(lines[len(lines)-2], want) {
+						t.Fatal("diagnostics hid fixed control outcome or moved viewport", view)
+					}
+					truth := map[string]string{"denied": "denied", "stale": "STALE", "loading": "Loading diagnostics"}[diagnostic]
+					if !strings.Contains(lines[len(lines)-1], truth) || maxLineWidth(view) > size.Width || len(lines) > size.Height {
+						t.Fatal("fixed diagnostic truth lost or bounds exceeded", view)
+					}
+				})
+			}
+		}
+	}
+}
