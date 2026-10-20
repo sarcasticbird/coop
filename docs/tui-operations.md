@@ -71,6 +71,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `credentials watch` | Agent foreground watcher; explicit single-profile selection, Ctrl+C stops watcher, no unowned daemon |
 | `worker status`, `worker requests` | Agent worker panel output; requires running guest and existing configured worker |
 | `worker pause`, `worker resume` | Confirmed agent worker controls; existing ownership/policy checks |
+| `message continue` | Coordinator CLI/MCP control using an exact scoped target and handoff; no chat or lifecycle action; dedicated TUI form deferred |
 | `ping` | Literal prompt composer and stable request ID; CLI/master receipt output, no assumed delivery or approval |
 | `init` | Servers host bootstrap form with absolute project directory; existing interactive CLI and its consent prompts |
 | `doctor` | Servers host diagnostics; bounded output preserves `[warn]` versus `[fail]` labels and nonzero failure status |

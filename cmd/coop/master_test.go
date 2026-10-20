@@ -94,4 +94,21 @@ func TestMasterCLIAuthenticatedRoundTrip(t *testing.T) {
 	if err != nil || len(page.Messages) != 1 {
 		t.Fatal("CLI retry duplicated message", err)
 	}
+	target := c.TaskContinuationTarget{JobID: strings.Repeat("a", 64), TaskURL: "https://github.com/code/repo/issues/1", SessionID: "ses_saved", MessageID: "msg_saved", InstanceID: place.InstanceID, Generation: place.Generation}
+	targetFile := filepath.Join(t.TempDir(), "target.json")
+	raw, err := json.Marshal(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(targetFile, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var continuation c.MessageReceipt
+	if err = json.Unmarshal(invoke("message", "continue", th.ID, "--to", "bird", "--target-file", targetFile, "--source-message", receipt.MessageID, "--body-file", body, "--request-id", "cli-continue"), &continuation); err != nil || continuation.Deliveries[0].State != "queued" {
+		t.Fatal("missing typed continuation", err)
+	}
+	page, err = s.Messages(ctx, owner, th.ID, 0)
+	if err != nil || len(page.Messages) != 2 || page.Messages[1].Continuation == nil {
+		t.Fatal("CLI discarded control target", err)
+	}
 }

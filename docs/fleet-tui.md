@@ -215,6 +215,7 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `thread create` | UI | New thread, engagement and stable member set, preview/submit |
 | `thread read` | UI | Thread detail, committed messages, pagination and follow |
 | `thread members` | UI | Owner-only exact old/new member sets |
+| `message continue` | CLI/runbook | Exact task continuation uses a captured diagnostic target and source handoff; inspect its durable receipt. |
 | `message send` | UI | Private compose/reply and immutable request retry; no TUI body-file import |
 | `message status` | UI | Exact message receipt lookup |
 | `goal propose` | UI | Structured JSON editor, immutable revision; no TUI file import |

@@ -88,6 +88,15 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 		m.Recipients = append(m.Recipients, recipient.ID)
 	}
 	m.Recipients = normalized(m.Recipients)
+	if in.Continuation != nil {
+		m.Continuation = in.Continuation
+		if in.ParentMessageID != "" {
+			return out, c.ErrInvalid
+		}
+		if err := validateContinuation(ctx, tx, m); err != nil {
+			return out, err
+		}
+	}
 	for _, id := range m.Recipients {
 		r, err := principal(ctx, tx, id)
 		if err != nil {
@@ -102,7 +111,7 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 			d.Reason = "peer_hop_limit"
 		} else {
 			var pending int
-			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('queued','received','running')", id).Scan(&pending); err != nil {
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('queued','received','running','admitted')", id).Scan(&pending); err != nil {
 				return out, err
 			}
 			if pending >= c.MaxPending {
@@ -241,6 +250,9 @@ func (s *Store) SetDelivery(ctx context.Context, actor c.Principal, in c.Deliver
 	if d.State == in.State && digest(d.Intent) == digest(in.Intent) && d.Reason == in.Reason {
 		return nil
 	}
+	if m.Continuation != nil {
+		return s.setContinuationDelivery(ctx, tx, m, d, in)
+	}
 	allowed := d.State == "queued" && in.State == "received" || d.State == "received" && in.State == "running" || (d.State == "queued" || d.State == "received" || d.State == "running") && (in.State == "blocked" || in.State == "cancelled")
 	allowed = allowed || d.State == "blocked" && in.State == "cancelled"
 	allowed = allowed || d.State == "blocked" && d.Reason == "native_observation_unavailable" && in.State == "running" && d.Intent != nil
@@ -332,7 +344,7 @@ func (s *Store) Pending(ctx context.Context, actor c.Principal, in c.PendingQuer
 	// At most MaxPending active records exist per agent. Read that bounded set
 	// before filtering engagements, so revoked scopes cannot leak receipts or
 	// hide a later authorized delivery behind the page boundary.
-	rows, err := s.db.QueryContext(ctx, "SELECT d.body,t.engagement FROM deliveries d JOIN messages m ON m.id=d.message_id JOIN threads t ON t.id=m.thread_id JOIN members x ON x.thread_id=m.thread_id AND x.principal_id=d.agent_id WHERE d.agent_id=? AND d.id>? AND d.state IN ('queued','received','running') ORDER BY d.id LIMIT ?", p.ID, in.After, c.MaxPending+1)
+	rows, err := s.db.QueryContext(ctx, "SELECT d.body,t.engagement FROM deliveries d JOIN messages m ON m.id=d.message_id JOIN threads t ON t.id=m.thread_id JOIN members x ON x.thread_id=m.thread_id AND x.principal_id=d.agent_id WHERE d.agent_id=? AND d.id>? AND d.state IN ('queued','received','running','admitted') ORDER BY d.id LIMIT ?", p.ID, in.After, c.MaxPending+1)
 	if err != nil {
 		return out, err
 	}

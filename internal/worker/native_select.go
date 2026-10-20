@@ -10,19 +10,30 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
+// NativeContinuation retains request ownership across subsequent native turns.
+// Its accepted successor remains in Turns even after a later request is admitted.
+type NativeContinuation struct {
+	RequestID string
+	SessionID string
+	MessageID string
+}
+
 type NativeExecution struct {
-	PendingContinuation    *Job `json:",omitempty"`
-	Wait                   *NativeDependencyWait
-	SelectedAt             time.Time
-	Version                int
-	MasterID, InstanceID   string
-	Generation             int64
-	Goal                   c.GoalRef
-	Binding                *NativeTaskBinding
-	Job                    Job
-	Phase, Reason          string
-	Turns                  []Job
-	PausedDecisionSequence int64
+	Continuations               []NativeContinuation `json:",omitempty"`
+	ContinuationSourceMessageID string               `json:",omitempty"`
+	ContinuationRequestID       string               `json:",omitempty"`
+	PendingContinuation         *Job                 `json:",omitempty"`
+	Wait                        *NativeDependencyWait
+	SelectedAt                  time.Time
+	Version                     int
+	MasterID, InstanceID        string
+	Generation                  int64
+	Goal                        c.GoalRef
+	Binding                     *NativeTaskBinding
+	Job                         Job
+	Phase, Reason               string
+	Turns                       []Job
+	PausedDecisionSequence      int64
 }
 type NativeCandidate struct {
 	Job         Job

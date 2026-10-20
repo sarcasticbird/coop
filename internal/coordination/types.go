@@ -57,11 +57,12 @@ type Thread struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 type SendMessage struct {
-	ThreadID        string   `json:"thread_id"`
-	Recipients      []string `json:"recipients,omitempty"`
-	ParentMessageID string   `json:"parent_message_id,omitempty"`
-	Body            string   `json:"body"`
-	RequestID       string   `json:"request_id"`
+	Continuation    *TaskContinuation `json:"task_continuation,omitempty"`
+	ThreadID        string            `json:"thread_id"`
+	Recipients      []string          `json:"recipients,omitempty"`
+	ParentMessageID string            `json:"parent_message_id,omitempty"`
+	Body            string            `json:"body"`
+	RequestID       string            `json:"request_id"`
 }
 
 type Ping struct {
@@ -71,19 +72,20 @@ type Ping struct {
 	RequestID  string `json:"request_id"`
 }
 type Message struct {
-	ID              string    `json:"id"`
-	ThreadID        string    `json:"thread_id"`
-	AuthorID        string    `json:"author_id"`
-	AuthorKind      string    `json:"author_kind"`
-	Recipients      []string  `json:"recipients"`
-	ParentMessageID string    `json:"parent_message_id,omitempty"`
-	Body            string    `json:"body"`
-	RequestID       string    `json:"request_id"`
-	Sequence        int64     `json:"sequence"`
-	ChainID         string    `json:"chain_id"`
-	Hop             int       `json:"hop"`
-	CreatedAt       time.Time `json:"created_at"`
-	Imported        bool      `json:"imported,omitempty"`
+	Continuation    *TaskContinuation `json:"task_continuation,omitempty"`
+	ID              string            `json:"id"`
+	ThreadID        string            `json:"thread_id"`
+	AuthorID        string            `json:"author_id"`
+	AuthorKind      string            `json:"author_kind"`
+	Recipients      []string          `json:"recipients"`
+	ParentMessageID string            `json:"parent_message_id,omitempty"`
+	Body            string            `json:"body"`
+	RequestID       string            `json:"request_id"`
+	Sequence        int64             `json:"sequence"`
+	ChainID         string            `json:"chain_id"`
+	Hop             int               `json:"hop"`
+	CreatedAt       time.Time         `json:"created_at"`
+	Imported        bool              `json:"imported,omitempty"`
 }
 type NativeIntent struct {
 	SessionID string `json:"session_id"`

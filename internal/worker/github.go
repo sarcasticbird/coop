@@ -31,8 +31,9 @@ type CommandRunner interface {
 	Run(context.Context, []string, []string, io.Reader) (CommandResult, error)
 }
 type GitHubError struct {
-	Category string
-	RetryAt  time.Time
+	StatusCode int
+	Category   string
+	RetryAt    time.Time
 }
 
 func (e *GitHubError) Error() string { return "GitHub: " + e.Category }
@@ -97,7 +98,7 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 		case 404:
 			category = "not_found"
 		}
-		return nil, res.Header, ghError(category)
+		return nil, res.Header, &GitHubError{Category: category, StatusCode: res.StatusCode}
 	}
 	return raw, res.Header, nil
 }

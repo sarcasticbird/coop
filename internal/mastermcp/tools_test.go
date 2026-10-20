@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,11 +84,12 @@ func TestMasterMCPAuthenticatedHTTP(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 	owner := c.Principal{ID: "owner", Kind: "owner", Alias: "owner", Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "manage", "decide"}}
-	chief := c.Principal{ID: "chief", Kind: "service", Alias: "chief", Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "decide"}}
-	if err = s.Configure(ctx, []c.Principal{owner, chief}, nil); err != nil {
+	chief := c.Principal{ID: "chief", Kind: "service", Alias: "chief", Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "decide", "task_continue"}}
+	bird := c.Principal{ID: "bird", Alias: "bird", Kind: "agent", Engagements: []string{"coop"}, Capabilities: []string{"read", "send"}, GitHubBotID: 42}
+	if err = s.Configure(ctx, []c.Principal{owner, chief, bird}, []c.Placement{{AgentID: bird.ID, HostID: "host", InstanceID: "instance", Generation: 1}}); err != nil {
 		t.Fatal(err)
 	}
-	th, err := s.CreateThread(ctx, owner, c.CreateThread{Title: "Private", Engagement: "coop", Members: []string{chief.ID}, RequestID: "thread"})
+	th, err := s.CreateThread(ctx, owner, c.CreateThread{Title: "Private", Engagement: "coop", Members: []string{chief.ID, bird.ID}, RequestID: "thread"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +124,14 @@ func TestMasterMCPAuthenticatedHTTP(t *testing.T) {
 	page, err := s.Messages(ctx, owner, th.ID, 0)
 	if err != nil || len(page.Messages) != 1 || page.Messages[0].AuthorID != chief.ID {
 		t.Fatal("MCP principal binding failed", err)
+	}
+	control, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "coop_master_continue_task", Arguments: map[string]any{"thread_id": th.ID, "agent_id": bird.ID, "source_message_id": page.Messages[0].ID, "body": "Resume the approved task", "request_id": "mcp-continue", "target": map[string]any{"job_id": strings.Repeat("a", 64), "task": "https://github.com/code/repo/issues/1", "session_id": "ses_saved", "message_id": "msg_saved", "worker_instance_id": "instance", "generation": 1}}})
+	if err != nil || control.IsError {
+		t.Fatal("authorized continuation MCP missing", err, control)
+	}
+	page, err = s.Messages(ctx, owner, th.ID, 0)
+	if err != nil || len(page.Messages) != 2 || page.Messages[1].Continuation == nil {
+		t.Fatal("MCP lost typed target", err)
 	}
 	denied, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "coop_master_decide_goal", Arguments: map[string]any{}})
 	if err == nil && denied != nil && !denied.IsError {

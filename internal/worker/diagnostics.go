@@ -140,6 +140,10 @@ func (b *diagnosticBuilder) snapshot(cfg Config, epoch int64, s Status, err erro
 	}
 	if p := s.Native; p != nil {
 		d.Wait.Deadline = p.Deadline
+		if p.Continuation != nil && c.ValidateContinuationTarget(*p.Continuation) == nil && diagnosticReference(cfg, p.Continuation.TaskURL) != "" {
+			target := *p.Continuation
+			d.Work.Continuation = &target
+		}
 		if hexSHA.MatchString(p.PrimaryJobID) {
 			d.Work.JobID = p.PrimaryJobID
 		}

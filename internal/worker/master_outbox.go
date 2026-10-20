@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
@@ -42,11 +43,32 @@ func lockMasterProducer(cfg Config) (func(), error) {
 	}
 	return func() { _ = f.Close() }, nil
 }
+
+// A periodic flush can briefly hold the shared producer while a native turn
+// queues its prepared reply. Wait only for that contention, before any writes.
+func lockMasterReplyProducer(cfg Config) (func(), error) {
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	retry := time.NewTicker(50 * time.Millisecond)
+	defer retry.Stop()
+	for {
+		release, err := lockMasterProducer(cfg)
+		if !errors.Is(err, errNativeProducerBusy) {
+			return release, err
+		}
+		select {
+		case <-timeout.C:
+			return nil, err
+		case <-retry.C:
+		}
+	}
+}
+
 func QueueMasterReply(cfg Config, deliveryID, body string) error {
 	if cfg.Version != 3 || cfg.Master == nil || strings.TrimSpace(body) == "" || len(body) > c.MaxText {
 		return c.ErrInvalid
 	}
-	release, e := lockMasterProducer(cfg)
+	release, e := lockMasterReplyProducer(cfg)
 	if e != nil {
 		return e
 	}

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	c "github.com/sarcasticbird/coop/internal/coordination"
 	"sort"
 	"strings"
 	"time"
@@ -15,16 +16,17 @@ type NativeBlocker struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 }
 type NativeProgress struct {
-	SessionID       string          `json:"session_id,omitempty"`
-	SubmissionState string          `json:"submission_state,omitempty"`
-	Current         *CurrentWork    `json:"current,omitempty"`
-	SelectedAt      time.Time       `json:"selected_at,omitempty"`
-	Deadline        time.Time       `json:"deadline,omitempty"`
-	Reason          string          `json:"reason,omitempty"`
-	PrimaryJobID    string          `json:"primary_job_id,omitempty"`
-	Blocked         []NativeBlocker `json:"blocked,omitempty"`
-	LastCatalogRead time.Time       `json:"last_catalog_read,omitempty"`
-	NextCatalogRead time.Time       `json:"next_catalog_read,omitempty"`
+	Continuation    *c.TaskContinuationTarget `json:"continuation_target,omitempty"`
+	SessionID       string                    `json:"session_id,omitempty"`
+	SubmissionState string                    `json:"submission_state,omitempty"`
+	Current         *CurrentWork              `json:"current,omitempty"`
+	SelectedAt      time.Time                 `json:"selected_at,omitempty"`
+	Deadline        time.Time                 `json:"deadline,omitempty"`
+	Reason          string                    `json:"reason,omitempty"`
+	PrimaryJobID    string                    `json:"primary_job_id,omitempty"`
+	Blocked         []NativeBlocker           `json:"blocked,omitempty"`
+	LastCatalogRead time.Time                 `json:"last_catalog_read,omitempty"`
+	NextCatalogRead time.Time                 `json:"next_catalog_read,omitempty"`
 }
 
 // Progress reads only event-loop-owned snapshots. It never touches the model,
@@ -132,6 +134,12 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.Blocked = p.Blocked[:16]
 	}
 
+	if x, ok := d.history[p.PrimaryJobID]; ok && x.Phase == "blocked" && (x.Reason == "native_completed_without_result" || x.Reason == "native_dependency_wait") && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
+		target := c.TaskContinuationTarget{JobID: x.Job.ID, TaskURL: x.Job.TaskURL, SessionID: x.Job.SessionID, MessageID: x.Job.MessageID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation}
+		if c.ValidateContinuationTarget(target) == nil {
+			p.Continuation = &target
+		}
+	}
 	return p
 }
 func (p NativeProgress) heartbeatReason() string {

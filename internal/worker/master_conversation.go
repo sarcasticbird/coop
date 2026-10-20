@@ -163,6 +163,9 @@ func (m *MasterComms) Active() (*MasterTurn, error) {
 	}
 	var active *MasterTurn
 	for _, v := range records {
+		if v.Message.Continuation != nil {
+			continue
+		}
 		retired, e := retiredTurn(m.Config, v)
 		if e != nil {
 			return nil, e
@@ -212,7 +215,7 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 		if retired {
 			continue
 		}
-		if turn.Phase != "received" {
+		if turn.Phase != "received" || turn.Message.Continuation != nil {
 			continue
 		}
 		if retired, e := m.retireUnsubmitted(ctx, &turn); e != nil {
