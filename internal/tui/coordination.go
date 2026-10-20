@@ -41,6 +41,7 @@ type Coordination interface {
 
 type coordState struct {
 	section              string
+	engagement           string
 	self                 c.SelfIdentity
 	team                 []c.Presence
 	threads              []c.Thread
@@ -81,6 +82,16 @@ type coordResult struct {
 	self   c.SelfIdentity
 	data   any
 	err    error
+}
+
+type coordThreadPage struct {
+	thread c.Thread
+	page   c.MessagePage
+}
+
+type coordGoalPage struct {
+	c.GoalPage
+	engagement string
 }
 
 func coordError(err error) string {
@@ -133,7 +144,7 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 	if q.section == "" {
 		q.section = "team"
 	}
-	section, cursor := q.section, ""
+	section, cursor, engagement := q.section, "", q.engagement
 	if next && q.thread == nil && q.receipt == nil && q.authority == nil {
 		cursor = q.next
 		if cursor == "" {
@@ -148,7 +159,12 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		case receipt != nil:
 			return s.MessageStatus(ctx, receipt.MessageID)
 		case thread != nil:
-			return s.Messages(ctx, thread.ID, after)
+			metadata, err := s.Thread(ctx, thread.ID)
+			if err != nil {
+				return nil, err
+			}
+			page, err := s.Messages(ctx, thread.ID, after)
+			return coordThreadPage{thread: metadata, page: page}, err
 		case section == "team":
 			return s.Team(ctx)
 		case section == "threads":
@@ -156,7 +172,18 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		case section == "inbox":
 			return s.Pending(ctx, c.PendingQuery{After: cursor})
 		default:
-			return s.ApprovedGoals(ctx, "", cursor)
+			identity, err := s.Self(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !slices.Contains(identity.Principal.Engagements, engagement) {
+				if len(identity.Principal.Engagements) == 0 {
+					return nil, c.ErrForbidden
+				}
+				engagement, cursor = identity.Principal.Engagements[0], ""
+			}
+			page, err := s.ApprovedGoals(ctx, engagement, cursor)
+			return coordGoalPage{GoalPage: page, engagement: engagement}, err
 		}
 	})
 }
@@ -181,6 +208,15 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		q.form = nil
 		q.status = "Completed; refresh to inspect current state"
 	}
+	// Metadata and messages are committed together only after both reads succeed.
+	if data, ok := r.data.(coordThreadPage); ok {
+		q.thread = &data.thread
+		r.data = data.page
+	}
+	if data, ok := r.data.(coordGoalPage); ok {
+		q.engagement = data.engagement
+		r.data = data.GoalPage
+	}
 	switch data := r.data.(type) {
 	case []c.Presence:
 		q.team = data
@@ -195,10 +231,11 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	case c.GoalPage:
 		q.goals, q.next, q.cursor = data.Goals, data.Next, 0
 	case c.Thread:
+		q.section, q.next = "threads", ""
 		q.thread, q.messages, q.after, q.cursor, q.receipt = &data, nil, 0, 0, nil
+		q.authority, m.scroll = nil, 0
 		return m, m.coordLoad(false)
 	case c.Message:
-		q.section = "threads"
 		return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return s.Thread(ctx, data.ThreadID) })
 	case c.MessagePage:
 		for _, message := range data.Messages {
@@ -271,14 +308,14 @@ func (m *fleetModel) coordOpen(kind string) {
 		}
 		f.labels = []string{"Recipient IDs (comma separated; blank reply defaults to parent author)", "Private body"}
 		if kind == "reply" {
-			if len(q.messages) == 0 {
+			if q.cursor < 0 || q.cursor >= len(q.messages) {
 				q.status = "Select a message first"
 				return
 			}
 			f.parent = q.messages[q.cursor].ID
 		}
 	case "ping":
-		if len(q.team) == 0 {
+		if q.cursor < 0 || q.cursor >= len(q.team) {
 			return
 		}
 		f.labels = []string{"Agent ID", "Engagement", "Private prompt (distinct from durable messaging)"}
@@ -496,6 +533,18 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 	case "r":
 		return m, m.coordLoad(false)
+	case "e":
+		if q.section == "goals" && q.thread == nil && q.authority == nil && q.receipt == nil {
+			engagements := q.self.Principal.Engagements
+			if len(engagements) == 0 {
+				q.status = "No authorized engagements; refresh identity"
+				return m, nil
+			}
+			q.engagement = engagements[(slices.Index(engagements, q.engagement)+1)%len(engagements)]
+			q.goals, q.next, q.cursor = nil, "", 0
+			m.scroll = 0
+			return m, m.coordLoad(false)
+		}
 	case "]":
 		return m, m.coordLoad(true)
 	case "f":
@@ -520,7 +569,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.coordOpen("decision")
 	case "s":
-		if q.thread != nil && len(q.messages) > 0 {
+		if q.thread != nil && q.cursor >= 0 && q.cursor < len(q.messages) {
 			id := q.messages[q.cursor].ID
 			return m, m.coordCall("receipt", func(ctx context.Context, s Coordination) (any, error) { return s.MessageStatus(ctx, id) })
 		}
@@ -537,17 +586,17 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if q.thread == nil && q.receipt == nil {
 			switch q.section {
 			case "threads":
-				if len(q.threads) > 0 {
+				if q.cursor >= 0 && q.cursor < len(q.threads) {
 					id := q.threads[q.cursor].ID
 					return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return s.Thread(ctx, id) })
 				}
 			case "inbox":
-				if len(q.inbox) > 0 {
+				if q.cursor >= 0 && q.cursor < len(q.inbox) {
 					id := q.inbox[q.cursor].MessageID
 					return m, m.coordCall("message", func(ctx context.Context, s Coordination) (any, error) { return s.Message(ctx, id) })
 				}
 			case "goals":
-				if len(q.goals) > 0 {
+				if q.cursor >= 0 && q.cursor < len(q.goals) {
 					ref := q.goals[q.cursor].Revision.Ref
 					return m, m.coordCall("authority", func(ctx context.Context, s Coordination) (any, error) { return s.ResolveGoal(ctx, ref) })
 				}
@@ -602,6 +651,9 @@ func (m fleetModel) coordLines() (lines []string) {
 		health += " | in progress"
 	}
 	lines = append(lines, health, q.status)
+	if q.section == "goals" {
+		lines = append(lines, "Goals engagement: "+valueOr(q.engagement, "not selected")+" | e: next authorized engagement (resets page)")
+	}
 	if q.form != nil {
 		f := q.form
 		lines = append(lines, "Form: "+f.kind, "Request: "+f.requestID, "Thread: "+f.thread.ID+" | parent: "+f.parent)

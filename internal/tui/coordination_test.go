@@ -75,7 +75,7 @@ func (s *coordinationMock) ResolveGoal(_ context.Context, ref c.GoalRef) (c.Goal
 }
 
 func coordinationFixture() (fleetModel, *coordinationMock) {
-	s := &coordinationMock{self: c.SelfIdentity{Principal: c.Principal{ID: "owner", Kind: "owner", Capabilities: []string{"read", "send", "manage", "decide"}}}}
+	s := &coordinationMock{self: c.SelfIdentity{Principal: c.Principal{ID: "owner", Kind: "owner", Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "manage", "decide"}}}}
 	m := fleetModel{workspace: 1, ctx: context.Background(), services: Services{Coordination: s}, coordination: coordState{section: "threads", self: s.self, seen: time.Now()}}
 	return m, s
 }
@@ -136,7 +136,7 @@ func TestCoordinationPaginationAndInboxOpen(t *testing.T) {
 				return c.DeliveryPage{Deliveries: []c.Delivery{{MessageID: "message"}}, Next: next(q.After)}, nil
 			}
 			s.goals = func(engagement, after string) (c.GoalPage, error) {
-				if engagement != "" {
+				if engagement != "coop" {
 					t.Fatal("unexpected engagement filter")
 				}
 				return c.GoalPage{Goals: []c.GoalAuthority{{State: "approved"}}, Next: next(after)}, nil
@@ -177,8 +177,43 @@ func TestCoordinationPaginationAndInboxOpen(t *testing.T) {
 	}
 }
 
+func TestCoordinationInboxThreadFailurePreservesNavigation(t *testing.T) {
+	m, s := coordinationFixture()
+	m.coordination.section = "inbox"
+	m.coordination.threads = []c.Thread{{ID: "cached-thread"}}
+	m.coordination.inbox = []c.Delivery{{MessageID: "one"}, {MessageID: "two"}, {MessageID: "three"}}
+	m.coordination.cursor = 2
+	s.message = func(id string) (c.Message, error) { return c.Message{ID: id, ThreadID: "inbox-thread"}, nil }
+	fail := true
+	s.thread = func(id string) (c.Thread, error) {
+		if fail {
+			return c.Thread{}, c.ErrUnavailable
+		}
+		return c.Thread{ID: id}, nil
+	}
+	s.messages = func(id string, after int64) (c.MessagePage, error) { return c.MessagePage{}, nil }
+	m, cmd := coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	if !m.coordination.failed || m.coordination.section != "inbox" || m.coordination.cursor != 2 || m.coordination.thread != nil {
+		t.Fatalf("failed lookup changed navigation: %+v", m.coordination)
+	}
+	// Retry the same Inbox selection after recovery, without touching model state.
+	fail = false
+	m, cmd = coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	if m.coordination.failed || m.coordination.section != "threads" || m.coordination.thread.ID != "inbox-thread" || m.coordination.cursor != 0 {
+		t.Fatalf("recovered lookup did not open reader: %+v", m.coordination)
+	}
+	m, _ = coordinationKey(m, "esc")
+	m, _ = coordinationKey(m, "esc")
+	if m.workspace != 0 {
+		t.Fatal("navigation did not return to Fleet")
+	}
+}
+
 func TestCoordinationFollowAndReceiptPolling(t *testing.T) {
 	m, s := coordinationFixture()
+	s.thread = func(id string) (c.Thread, error) { return c.Thread{ID: id, Members: []string{"owner", "robin"}}, nil }
 	m.coordination.thread = &c.Thread{ID: "thread"}
 	m.coordination.messages = []c.Message{{ID: "old", Sequence: 2}}
 	m.coordination.after = 2
@@ -204,6 +239,9 @@ func TestCoordinationFollowAndReceiptPolling(t *testing.T) {
 	m = coordinationRun(t, m, batch[0])
 	if len(m.coordination.messages) != 2 || m.coordination.after != 5 {
 		t.Fatalf("follow lost cursor/deduplication: %+v", m.coordination)
+	}
+	if !reflect.DeepEqual(m.coordination.thread.Members, []string{"owner", "robin"}) {
+		t.Fatal("follow did not refresh metadata")
 	}
 	var polls int
 	s.status = func(id string) (c.MessageReceipt, error) {
@@ -231,6 +269,44 @@ func TestCoordinationFollowAndReceiptPolling(t *testing.T) {
 	m, _ = coordinationKey(m, "esc")
 	if m.workspace != 0 {
 		t.Fatal("back did not return to Fleet")
+	}
+}
+
+func TestCoordinationThreadRefreshCommitsCoherentSnapshot(t *testing.T) {
+	for _, failure := range []string{"metadata", "messages"} {
+		t.Run(failure, func(t *testing.T) {
+			m, s := coordinationFixture()
+			m.coordination.thread = &c.Thread{ID: "thread", Members: []string{"owner"}}
+			m.coordination.messages = []c.Message{{ID: "existing", Sequence: 9}}
+			m.coordination.after = 9
+			failed := true
+			s.thread = func(id string) (c.Thread, error) {
+				if failed && failure == "metadata" {
+					return c.Thread{}, c.ErrUnavailable
+				}
+				return c.Thread{ID: id, Members: []string{"owner", "robin"}}, nil
+			}
+			s.messages = func(id string, after int64) (c.MessagePage, error) {
+				if id != "thread" || after != 9 {
+					t.Fatalf("refresh lost cursor: %s/%d", id, after)
+				}
+				if failed {
+					return c.MessagePage{}, c.ErrUnavailable
+				}
+				return c.MessagePage{Messages: []c.Message{{ID: "new", Sequence: 10}}}, nil
+			}
+			m, cmd := coordinationKey(m, "r")
+			m = coordinationRun(t, m, cmd)
+			if !m.coordination.failed || len(m.coordination.thread.Members) != 1 || len(m.coordination.messages) != 1 || m.coordination.after != 9 {
+				t.Fatal("failed refresh committed partial metadata/history")
+			}
+			failed = false
+			m, cmd = coordinationKey(m, "r")
+			m = coordinationRun(t, m, cmd)
+			if m.coordination.failed || len(m.coordination.thread.Members) != 2 || len(m.coordination.messages) != 2 || m.coordination.after != 10 {
+				t.Fatal("recovered refresh lost metadata/history")
+			}
+		})
 	}
 }
 
@@ -530,8 +606,11 @@ func TestCoordinationHTTPRetryAfterCommitPreservesRequest(t *testing.T) {
 	}
 }
 
-func coordinationMasterFixture(t *testing.T) (*masterclient.Client, *masterclient.Client) {
+func coordinationMasterFixture(t *testing.T, engagements ...string) (*masterclient.Client, *masterclient.Client) {
 	t.Helper()
+	if len(engagements) == 0 {
+		engagements = []string{"coop"}
+	}
 	ctx := context.Background()
 	store, err := master.OpenStore(ctx, master.StoreConfig{Path: filepath.Join(t.TempDir(), "master.db"), MasterID: "test-master"})
 	if err != nil {
@@ -539,9 +618,9 @@ func coordinationMasterFixture(t *testing.T) (*masterclient.Client, *masterclien
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	principals := []c.Principal{
-		{ID: "owner", Kind: "owner", Alias: "owner", Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "manage", "decide"}},
-		{ID: "hawk", Kind: "agent", Alias: "hawk", GitHubBotID: 101, Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "manage", "decide"}},
-		{ID: "robin", Kind: "agent", Alias: "robin", GitHubBotID: 102, Engagements: []string{"coop"}, Capabilities: []string{"read", "send"}},
+		{ID: "owner", Kind: "owner", Alias: "owner", Engagements: engagements, Capabilities: []string{"read", "send", "manage", "decide"}},
+		{ID: "hawk", Kind: "agent", Alias: "hawk", GitHubBotID: 101, Engagements: engagements, Capabilities: []string{"read", "send", "manage", "decide"}},
+		{ID: "robin", Kind: "agent", Alias: "robin", GitHubBotID: 102, Engagements: engagements, Capabilities: []string{"read", "send"}},
 	}
 	if err = store.Configure(ctx, principals, []c.Placement{{AgentID: "hawk", HostID: "test-host", InstanceID: "hawk-instance", Generation: 1}}); err != nil {
 		t.Fatal(err)
@@ -621,13 +700,15 @@ func TestCoordinationHTTPThreadMembershipLifecycle(t *testing.T) {
 		t.Fatalf("conflict overwrote concurrent members: %+v %v", actual, err)
 	}
 	m, _ = coordinationKey(m, "esc")
-	// Open the new snapshot and successfully replace the full set, including a removal.
-	m.coordination.thread = &actual
-	cmd := m.coordLoad(false)
+	// Refresh through the keyboard and replace the full set, including a removal.
+	m, cmd := coordinationKey(m, "r")
 	m = coordinationRun(t, m, cmd)
 	m, _ = coordinationKey(m, "m")
 	if m.coordination.form == nil {
 		t.Fatalf("membership form unavailable after refresh: %s", m.coordination.status)
+	}
+	if !reflect.DeepEqual(m.coordination.form.thread.Members, actual.Members) {
+		t.Fatalf("refresh retained stale expected members: %v, want %v", m.coordination.form.thread.Members, actual.Members)
 	}
 	m.coordination.form.values[0] = "owner, hawk"
 	m = coordinationSubmit(t, m)
@@ -717,6 +798,87 @@ func TestCoordinationHTTPGoalLifecycleAndStaleAuthority(t *testing.T) {
 	actual, err := owner.ResolveGoal(ctx, revision.Ref)
 	if err != nil || !actual.Valid || actual.DecisionSequence != newAuthority.DecisionSequence {
 		t.Fatalf("denied stale revision changed active authority: %+v %v", actual, err)
+	}
+}
+
+func TestCoordinationHTTPGoalsScreenUsesAuthorizedEngagement(t *testing.T) {
+	owner, _ := coordinationMasterFixture(t, "coop", "other")
+	ctx := context.Background()
+	refs := map[string]c.GoalRef{}
+	for _, engagement := range []string{"coop", "other"} {
+		thread, err := owner.CreateThread(ctx, c.CreateThread{Title: "Goals screen fixture", Engagement: engagement, Members: []string{"hawk", "robin"}, RequestID: "screen-thread-" + engagement})
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision, err := owner.ProposeGoal(ctx, c.GoalProposal{ThreadID: thread.ID, Purpose: "Goals screen fixture", Scope: "disposable", Repositories: []c.RepositoryScope{{Name: "fixture/repo", BaseBranches: []string{"main"}}}, Acceptance: []string{"visible in UI"}, AuthorID: "hawk", PeerID: "robin", RequestID: "screen-proposal-" + engagement})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = owner.DecideGoal(ctx, c.GoalDecisionInput{GoalID: revision.Ref.GoalID, RevisionSHA256: revision.Ref.RevisionSHA256, Action: "approve", RequestID: "screen-approval-" + engagement}); err != nil {
+			t.Fatal(err)
+		}
+		refs[engagement] = revision.Ref
+	}
+	m, _ := coordinationFixture()
+	m.services.Coordination = owner
+	m, cmd := coordinationKey(m, "g")
+	m = coordinationRun(t, m, cmd)
+	for _, engagement := range []string{"coop", "other", "coop"} {
+		if m.coordination.failed || m.coordination.engagement != engagement || len(m.coordination.goals) != 1 || m.coordination.goals[0].Revision.Ref != refs[engagement] || !strings.Contains(m.View(), "Goals engagement: "+engagement) {
+			t.Fatalf("Goals keyboard screen failed authorized query: %s; engagement=%s; goals=%v", m.coordination.status, m.coordination.engagement, m.coordination.goals)
+		}
+		m, cmd = coordinationKey(m, "e")
+		m = coordinationRun(t, m, cmd)
+	}
+}
+
+func TestCoordinationGoalsPaginationStaysWithinEngagement(t *testing.T) {
+	m, s := coordinationFixture()
+	s.self.Principal.Engagements = []string{"coop", "other"}
+	var queries []string
+	s.goals = func(engagement, after string) (c.GoalPage, error) {
+		queries = append(queries, engagement+":"+after)
+		return c.GoalPage{Next: "page-2"}, nil
+	}
+	m, cmd := coordinationKey(m, "g")
+	m = coordinationRun(t, m, cmd)
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	m, cmd = coordinationKey(m, "e")
+	m = coordinationRun(t, m, cmd)
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	// Revoked engagement: even a continuation must restart an authorized query.
+	s.self.Principal.Engagements = []string{"coop"}
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	if !reflect.DeepEqual(queries, []string{"coop:", "coop:page-2", "other:", "other:page-2", "coop:"}) || m.coordination.engagement != "coop" {
+		t.Fatalf("engagement/cursor crossed queries: %v", queries)
+	}
+	s.self.Principal.Engagements = nil
+	m, cmd = coordinationKey(m, "r")
+	m = coordinationRun(t, m, cmd)
+	if !m.coordination.failed || len(queries) != 5 {
+		t.Fatal("empty authorization reached Goals query")
+	}
+}
+
+func TestCoordinationSelectionBounds(t *testing.T) {
+	for _, section := range []string{"threads", "inbox", "goals", "team"} {
+		for _, cursor := range []int{-1, 2} {
+			for _, key := range []string{"enter", "p", "s"} {
+				m, _ := coordinationFixture()
+				m.coordination.section, m.coordination.cursor = section, cursor
+				m.coordination.threads = []c.Thread{{ID: "thread"}}
+				m.coordination.inbox = []c.Delivery{{MessageID: "message"}}
+				m.coordination.goals = []c.GoalAuthority{{}}
+				m.coordination.team = []c.Presence{{}}
+				_, cmd := coordinationKey(m, key)
+				if cmd != nil {
+					t.Fatalf("%s selection %d dispatched %s", section, cursor, key)
+				}
+			}
+		}
 	}
 }
 

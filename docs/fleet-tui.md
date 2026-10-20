@@ -75,6 +75,7 @@ text is literal. Use `?` for the integrated runtime's contextual help.
 | Coordination | `m`, `s`, `a` | Exact membership form, message receipt, exact goal authority |
 | Coordination | `o`, `d` | Structured JSON proposal editor, goal decision form |
 | Coordination | `r`, `f`, `]`, `esc` | Refresh, thread follow, next bounded page, back |
+| Goals list | `e` | Cycle authorized engagements; reset the goal page/cursor |
 | Coordination form | `tab`, `enter` | Move fields, insert newline; Enter is not mutation consent |
 | Coordination form | `Ctrl+S` twice | Preview captured request, then explicitly submit it |
 | Coordination | `Ctrl+R` | Retry the identical retained uncertain request, not a new mutation |
@@ -100,7 +101,10 @@ a new chain. Do not interpret suppression as a transport error.
 
 Membership replacement requires the complete observed old member set and the
 complete desired set. A conflict requires a fresh read and a newly reviewed
-change, not overwriting concurrent membership. Revocation removes read access
+change, not overwriting concurrent membership. Cancel the conflicted form with
+Escape, press `r` in the reader, then open a new `m` form. Reader refresh/follow
+loads current thread metadata along with the next message page; failed reads
+retain the last coherent snapshot and message cursor. Revocation removes read access
 and cancels unstarted deliveries; it does not prove a running model has stopped.
 
 Receipt states are `queued`, `received`, `running`, `replied`, `blocked`,
@@ -117,7 +121,11 @@ Use `r` or `]` to load the next message page, and `f` for two-second polling.
 ### Goals
 
 Goals lists a bounded page of active approved goals, not every draft or rejected
-revision. Use exact authority to inspect a known goal/revision. Proposal JSON
+revision. It defaults to the authenticated identity's first authorized engagement
+and displays that filter explicitly. Press `e` in the list to cycle authorized
+engagements; pagination stays within the selected engagement and changing it
+resets the page. An empty engagement is not an all-engagement query. Use exact
+authority to inspect a known goal/revision. Proposal JSON
 can be typed or pasted into the structured editor; there is no TUI file import.
 CLI `goal propose --file` and `message send --body-file` remain CLI-only input
 mechanisms, not implied browser file pickers.
