@@ -51,7 +51,7 @@ func (s *Store) SetMembers(ctx context.Context, actor c.Principal, in c.SetMembe
 		if slices.Contains(next, id) {
 			continue
 		}
-		rows, err := tx.QueryContext(ctx, "SELECT d.body FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE m.thread_id=? AND d.agent_id=? AND d.state IN ('queued','received','running')", out.ID, id)
+		rows, err := tx.QueryContext(ctx, "SELECT d.body FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE m.thread_id=? AND d.agent_id=? AND d.state IN ('queued','received','running','admitted')", out.ID, id)
 		if err != nil {
 			return out, err
 		}

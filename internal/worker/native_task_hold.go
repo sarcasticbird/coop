@@ -11,6 +11,16 @@ import (
 // A verified terminal turn without its expected result holds that task, not
 // unrelated work. A retained acknowledged action can recover automatically.
 func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
+	held, err := nativeExecutionRecoveryCheck(cfg, x)
+	if errors.Is(err, errNativeProducerBusy) {
+		return true, nil
+	}
+	return held, err
+}
+
+// Admission needs the underlying busy error to retry; general hold
+// classification remains conservative while another producer is active.
+func nativeExecutionRecoveryCheck(cfg Config, x NativeExecution) (bool, error) {
 	if x.Phase != "blocked" {
 		return false, nil
 	}
@@ -18,9 +28,6 @@ func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 		return true, nil
 	}
 	release, err := lockNativeProducer(cfg)
-	if errors.Is(err, errNativeProducerBusy) {
-		return true, nil // A live producer cannot be classified as a safe task wait.
-	}
 	if err != nil {
 		return true, err
 	}

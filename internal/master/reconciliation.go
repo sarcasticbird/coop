@@ -249,7 +249,7 @@ func (s *Store) ResolveRecovery(ctx context.Context, p c.Principal, in c.Recover
 			if d.AgentID != in.AgentID {
 				return c.ErrForbidden
 			}
-			if d.State != "replied" && d.State != "cancelled" && d.State != "suppressed" {
+			if d.State != "replied" && d.State != "cancelled" && d.State != "suppressed" && d.State != "resumed" && d.State != "refused" {
 				d.State = "cancelled"
 				d.Reason = "operator_restore_resolution"
 				if e = saveDelivery(ctx, tx, d); e != nil {

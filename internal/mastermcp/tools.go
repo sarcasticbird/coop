@@ -65,6 +65,9 @@ func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 	if slices.Contains(p.Capabilities, "send") {
 		bind(server, s, "coop_master_send", "Send an immutable addressed message using a stable request ID.", false, func(ctx context.Context, in c.SendMessage) (any, error) { return s.Send(ctx, p, in) })
 	}
+	if slices.Contains(p.Capabilities, "send") && (p.Kind == "owner" || slices.Contains(p.Capabilities, "task_continue")) {
+		bind(server, s, "coop_master_continue_task", "Queue a deduplicated continuation of an exact held approved task. Requires task_continue permission. Check message_status for admitted, resumed or refused; queued is not execution.", false, func(ctx context.Context, in c.ContinueTaskRequest) (any, error) { return s.ContinueTask(ctx, p, in) })
+	}
 	if p.Kind == "owner" && slices.Contains(p.Capabilities, "manage") {
 		bind(server, s, "coop_master_set_members", "Replace thread membership using an exact observed member set.", false, func(ctx context.Context, in c.SetMembers) (any, error) { return s.SetMembers(ctx, p, in) })
 		bind(server, s, "coop_master_create_thread", "Create a private engagement thread with existing principals.", false, func(ctx context.Context, in c.CreateThread) (any, error) { return s.CreateThread(ctx, p, in) })

@@ -260,7 +260,8 @@ func (d *NativeDispatcher) Ready() bool {
 	}
 	candidates, err := d.candidates(d.catalog)
 	recovery, recoveryErr := d.automaticRecoveries()
-	return err != nil || recoveryErr != nil || len(recovery) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0
+	stale, staleErr := d.staleRetirements()
+	return err != nil || recoveryErr != nil || staleErr != nil || len(recovery) > 0 || len(stale) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0
 }
 func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	d.poll()
@@ -327,6 +328,11 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			return false, err
 		}
 		waiting = append(waiting, recovery...)
+		stale, err := d.staleRetirements()
+		if err != nil {
+			return false, err
+		}
+		waiting = append(waiting, stale...)
 		for _, x := range waiting {
 			jobs = append(jobs, x.Job)
 		}
@@ -571,6 +577,13 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		return false, saveNativeExecution(d.config, *x)
 	}
 	if x.Phase == "blocked" && x.Reason == "native_completed_without_result" {
+		eligible, err := nativeStaleRetirementEligible(d.config, *x)
+		if err != nil {
+			return false, err
+		}
+		if eligible {
+			return d.retireStaleTerminalAttempt(ctx, x)
+		}
 		return d.reconcileNativeAction(ctx, x)
 	}
 	if x.Phase == "blocked" && x.Reason == "native_dependency_wait" {
@@ -792,6 +805,9 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	if nativeIsChecksRepair(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix repairs failed checks for exact PR head " + x.Job.HeadSHA + ". Inspect the failed GitHub check runs and logs for that head, identify the cause, and make the smallest repair within the existing approved task. Run the failed checks locally, checkpoint a new head, and publish through publish-pr with artifact omitted to regenerate immutable source metadata. Do not create empty commits or rerun unchanged failures in a loop. Fresh CI, independent peer review and required exact-artifact QA remain mandatory. If an infrastructure or permission problem prevents a scoped code repair, checkpoint and report the concrete blocker. No new goal approval is required for this repair."
 	}
+	if x.ContinuationRequestID != "" && x.ContinuationSourceMessageID != "" {
+		prompt += "\nCoordinator continuation: read exact message " + x.ContinuationSourceMessageID + " in the approved private thread " + x.Job.Master.ThreadID + ". Read that handoff before editing; it contains the coordination context for this retained task. Continue only the existing approved assignment and stage; this continuation grants no new goal, review, QA or merge authority."
+	}
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")
 	}
@@ -838,6 +854,9 @@ func (d *NativeDispatcher) resumableBlocked() *NativeExecution {
 	return nil
 }
 func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution) (bool, error) {
+	return d.resumeBlockedWithRequest(ctx, x, "", "", nil)
+}
+func (d *NativeDispatcher) resumeBlockedWithRequest(ctx context.Context, x *NativeExecution, requestID, sourceMessageID string, check func(context.Context) error) (bool, error) {
 	a, e := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
 	if e != nil {
 		return false, e
@@ -860,6 +879,17 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 		return false, e
 	}
 	defer release()
+	if requestID != "" {
+		records, err := loadNativeJobActions(d.config, *x)
+		if err != nil {
+			return false, err
+		}
+		for _, r := range records {
+			if r.State != "completed" {
+				return false, errContinuationActions
+			}
+		}
+	}
 	if uncertain, e := nativeJobActionUncertain(d.config, x.Job.ID); e != nil {
 		return false, e
 	} else if uncertain {
@@ -892,6 +922,15 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 		if pending.ID != x.Job.ID || pending.SessionID != x.Job.SessionID || pending.Master == nil || pending.Master.AssignmentSHA != x.Job.Master.AssignmentSHA || pending.ContinuationMessageID != x.Job.MessageID || pending.SubmissionState != "" && pending.SubmissionState != "prepared" {
 			return false, c.ErrConflict
 		}
+		if requestID != "" {
+			if check == nil {
+				return false, c.ErrForbidden
+			}
+			if err := check(ctx); err != nil {
+				return false, err
+			}
+			recordContinuation(x, requestID, sourceMessageID)
+		}
 		x.Job = *pending
 		x.Job.ReconcileFailures = 0
 		x.Job.ReconcileError = ""
@@ -910,6 +949,15 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 			return false, e
 		}
 		return false, errors.New("native continuation limit reached")
+	}
+	if requestID != "" {
+		if check == nil {
+			return false, c.ErrForbidden
+		}
+		if err := check(ctx); err != nil {
+			return false, err
+		}
+		recordContinuation(x, requestID, sourceMessageID)
 	}
 	x.Turns = append(x.Turns, x.Job)
 	x.Job.ContinuationMessageID = x.Job.MessageID

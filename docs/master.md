@@ -570,3 +570,59 @@ coop-worker native retain-action --config CONFIG --job JOB --input ORIGINAL.json
 
 This command checks the original journal's input hash and records only a
 private intent. It performs no remote action and does not relax any approval.
+
+## Coordinator task continuations
+
+A conversation reply does not resume a held engineering task. An owner with
+`send`, or a coordinator explicitly granted both `send` and `task_continue`, can
+request continuation of one exact approved task through the existing durable
+message queue. This permission grants no goal approval, merge, QA clearance or
+host control.
+
+Read fresh scoped diagnostics with `coop team inspect AGENT`. When a terminal
+task supports continuation, `report.work.continuation_target` contains the exact
+job, task URL, native session/message and worker placement. Save that object to
+a private JSON file, then reference the existing same-thread handoff:
+
+```sh
+coop message continue THREAD --to AGENT \
+  --target-file /absolute/private/continuation-target.json \
+  --source-message HANDOFF_MESSAGE_ID \
+  --body-file /absolute/private/reason.txt --request-id stable-continuation-1
+coop message status REQUEST_MESSAGE_ID
+```
+
+MCP exposes `coop_master_continue_task` to the same narrowly authorized callers.
+It accepts `thread_id`, `agent_id`, `target`, `source_message_id`, `body` and a
+stable `request_id`. Ordinary messages retain their conversation behavior.
+
+Receipts progress from `queued` to `received`, then `admitted` and finally
+`resumed` or `refused`. Admission only means the request entered the scheduler;
+`resumed` names the actual newly accepted native message, not task completion.
+A refusal includes a safe reason. Reusing the same request ID returns the same
+receipt; changed input conflicts. A new request targeting an already continued
+native message is refused instead of silently retargeting it.
+
+The worker serializes continuation with native work, preserves the session and
+checkout, and rechecks current coordinator permission, thread membership, goal,
+assignment, placement, exact terminal evidence, mutation journals and the
+existing continuation limit. Slow GitHub validation runs outside the receipt
+and heartbeat loop. Paused or occupied workers wait; transient producer or
+transport failures back off. Uncertain writes require operator inspection. The
+resumed engineering prompt explicitly points to the source handoff.
+
+An action-free terminal attempt whose inputs are conclusively obsolete can
+retire automatically when a fresh same-task replacement is eligible. The worker
+rechecks authority and terminal/idle evidence under the producer lock and keeps
+all historical native identities and checkout data. Unchanged missing-result
+tasks do not automatically loop or consume more model turns.
+
+Queuing a prepared conversation reply retries brief producer-lock contention
+for up to five seconds, with the same deterministic outbox identity. Other
+errors and longer contention remain explicit; publication is never duplicated.
+
+Upgrade the master and all recipient workers before granting `task_continue`.
+Older workers deliberately reject unknown typed inbox data; do not send typed
+controls into a mixed-version fleet. Downgrading after controls are persisted
+also requires preserving and reconciling those records. Enable coordinator
+permission only after the upgraded protocol passes acceptance.
