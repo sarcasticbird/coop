@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +24,7 @@ func TestRuntimeCapture(t *testing.T) {
 	source.self.RestoreEpoch = 1
 	m.coordination, m.services.Coordination = coord.coordination, source
 	m.coordination.section = "threads"
+	stress := os.Getenv("COOP_TUI_CAPTURE_STRESS") == "1"
 	m.coordination.threads = []c.Thread{{ID: "fixture-thread", Title: "Design check", Members: []string{"owner", "hawk"}}}
 	source.threads = func(c.ThreadQuery) (c.ThreadPage, error) {
 		return c.ThreadPage{Threads: m.coordination.threads}, nil
@@ -30,7 +33,13 @@ func TestRuntimeCapture(t *testing.T) {
 		return c.Thread{ID: id, Title: "Design check", Members: []string{"owner", "hawk"}}, nil
 	}
 	source.messages = func(id string, _ int64) (c.MessagePage, error) {
-		return c.MessagePage{Messages: []c.Message{{ID: "fixture-message", ThreadID: id, AuthorID: "hawk", Sequence: 1, Body: "Synthetic fixture: waiting for dependency review."}}}, nil
+		page := c.MessagePage{Messages: []c.Message{{ID: "fixture-message", ThreadID: id, AuthorID: "hawk", Sequence: 1, Body: "Synthetic fixture: waiting for dependency review."}}}
+		if stress {
+			for i := 2; i <= 30; i++ {
+				page.Messages = append(page.Messages, c.Message{ID: fmt.Sprintf("fixture-message-%02d", i), ThreadID: id, AuthorID: "hawk", Sequence: int64(i), Body: "Synthetic private stress body."})
+			}
+		}
+		return page, nil
 	}
 	source.status = func(id string) (c.MessageReceipt, error) {
 		if id != "fixture-message" {
@@ -49,6 +58,22 @@ func TestRuntimeCapture(t *testing.T) {
 					e.Diagnostics = &c.DiagnosticBinding{MasterID: source.MasterID(), Placement: p.Placement}
 				}
 			}
+		}
+	}
+	if stress {
+		label := "\u754c e\u0301 " + strings.Repeat("long-label-", 5)
+		for i := range source.rows {
+			source.rows[i].Alias = label
+		}
+		for i := range m.hosts {
+			for j := range m.hosts[i].entries {
+				m.hosts[i].entries[j].Name = label
+			}
+		}
+		for i := range 30 {
+			e := m.hosts[0].entries[0]
+			e.Target.ID, e.Diagnostics = fmt.Sprintf("stress-agent-%02d", i), nil
+			m.hosts[0].entries = append(m.hosts[0].entries, e)
 		}
 	}
 	m.selected = hostrouter.Target{}

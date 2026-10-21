@@ -33,6 +33,7 @@ def main():
     parser.add_argument("binary", type=Path, help="already-built native TestRuntimeCapture executable")
     parser.add_argument("output", type=Path, help="new directory under an existing parent")
     parser.add_argument("--source", required=True, help="source revision used to build the executable")
+    parser.add_argument("--stress", action="store_true", help="use duplicate long Unicode labels and 30-message/target fixture")
     args = parser.parse_args()
     binary = args.binary.resolve(strict=True)
     if not binary.is_file() or not os.access(binary, os.X_OK):
@@ -56,6 +57,7 @@ def main():
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "replay_sha256": hashlib.sha256(replay_path.read_bytes()).hexdigest(),
         "fixture": "TestRuntimeCapture / synthetic only; fixture rejects action dispatch and sends",
+        "stress": args.stress,
         "method": "native Bubble Tea on real PTY; fixed 0.8s input boundaries; ioctl + SIGWINCH resize",
         "source_limit": "source is caller-supplied build provenance, not proof of an unmodified checkout",
         "raw_policy": (
@@ -69,8 +71,7 @@ def main():
         "limits": [
             "No quiet-refresh content equality inferred from timestamps or fixed waits.",
             "Selection identity is checked wherever rendered; hidden internal state is not observable.",
-            "Single-message fixture cannot demonstrate preservation among multiple reply candidates.",
-            "Fleet paging uses actual fixture rows only; no long-name or Unicode data is injected.",
+            "Multi-candidate/long/Unicode runtime coverage requires --stress; ordinary fixture has one message.",
             "Replay covers the existing capture script's CSI/Unicode subset, not a full terminal emulator.",
             "No live transport, sends, confirmations, owner UAT or visual-parity verdict.",
         ],
@@ -171,6 +172,7 @@ def main():
                 try:
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
                     env = dict(os.environ, COOP_TUI_CAPTURE="1", COOP_TUI_CAPTURE_MODE="", TERM="xterm-256color")
+                    env["COOP_TUI_CAPTURE_STRESS"] = "1" if args.stress else "0"
                     if no_color:
                         env["NO_COLOR"] = "1"
                     else:
@@ -204,6 +206,8 @@ def main():
                     key("open reader", b"\r")
                     checkpoint("reader-masked", "Threads > fixture-thread", reader=True, masked=True)
                     key("explicit message selection down", b"\x1b[B")
+                    if args.stress:
+                        key("restore first message selection up", b"\x1b[A")
                     checkpoint("reader-selected", "Threads > fixture-thread", reader=True, masked=True)
                     key("reader PgDn (no reselection)", b"\x1b[6~")
                     checkpoint("reader-pgdown", "Threads > fixture-thread", reader=True)
