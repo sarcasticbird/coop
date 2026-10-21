@@ -138,3 +138,61 @@ the manifests and the exact built identities for integrated evidence and the
 reproducible owner journey. Rook consolidates the actual gates for Chris/Hark.
 This implement stage performs no self-review, QA clearance, source merge,
 service restart/deployment, permissions expansion, release or Homebrew publication.
+
+## Exact-Identity Review Fix
+
+Robin's changes-needed review of `672cbfd8183da320fb0fdb833eb7d7ba66a852b5`
+found that compact Team and Details headers discarded the only complete master
+and principal IDs. An unbound Fleet target had no diagnostic-master fallback;
+neither view retained the full principal in the scrollable body. This was a
+presentation defect, not a reason to relax any identity or binding checks.
+
+The new three-size regression reproduced the loss before the fix. Both detail
+bodies now include labeled `Exact Master` and `Exact Principal` values while
+preserving the three compact pinned context lines and work-first overview.
+Tests cover two long IDs sharing the clipped prefix but differing in their
+suffix, Team detail and unbound Fleet Details, complete content preservation,
+scroll reachability, bounded headers and terminal geometry. They pass ten runs.
+The production fix adds two rendering lines; no routing, report binding,
+credential, request, privacy or action authority changes are made.
+
+Build checkpoint: `f551e45a63869d86b9494c9a7306a2823ba6b0e8`.
+Fixture binary `/tmp/opencode/hawk-136-context.test` SHA-256:
+`76c59b62463567b84b30dff98f02e1939cb85b09d997a35d8489aa3512103dde`.
+Native CLI `/tmp/opencode/hawk-136-context-coop` SHA-256:
+`56f0553c7c6dc2693b9731695ef6e84aad7056692f22262cb4f55b246cab5ab1`.
+The later evidence commit changes only capture navigation/documentation and
+adds generated evidence; the fixture executable uses this checkpoint's source.
+
+`exact-context-fix/` contains 54 actual PTY checkpoints at all three sizes,
+color and NO_COLOR, including six real PgDn keys to reach the full identities
+in each affected view. The fixture uses long synthetic master/principal values
+and deliberately leaves Fleet diagnostic bindings absent. The runner verifies
+both exact IDs in the scrolled native render, not just the model's content.
+The compact scrolled captures visibly retain distinct full `second` suffixes
+behind the clipped header. Raw ANSI and the manifest preserve provenance.
+
+The ordinary 132-page extended PTY matrix was rebuilt and rerun successfully
+with the same binary at `/tmp/opencode/hawk-136-context-pages/manifest.json`;
+the earlier committed matrices remain historical and are not relabeled as new
+artifact evidence. One initial exact-context harness run used j keys, which
+Details intentionally does not use for scrolling; it failed its visibility
+assertion and is preserved at `/tmp/opencode/hawk-136-exact-context`. The
+verified runner sends actual PgDn keys. No application change was needed for
+that harness error.
+
+Reproduction with this checkpoint's launcher and the updated capture runner:
+
+```sh
+flox activate -- go test -c -o /tmp/opencode/coop-136-context.test ./internal/tui
+flox activate -- python3 scripts/capture-tui.py /tmp/opencode/coop-136-context.test /tmp/opencode/coop-136-context --exact-context --source f551e45
+```
+
+Flox scoped TUI/hostrouter/masterclient/mastermcp/CLI tests, repository vet,
+golangci-lint v2.12.2 (0 issues), NO_COLOR TUI/CLI, uncached fitting race
+TUI/hostrouter/masterclient/master using the existing compiler, native builds,
+Go formatting and source/script/document whitespace checks passed again.
+Raw terminal captures contain normal CR/padding; no unfiltered whitespace-clean
+claim is made for them. No full-suite, live transport, independent QA or owner
+UAT pass is claimed. Renew Robin's changed-head review, Wren's exact-artifact
+runtime/visual QA in `coop-tui-b-runtime-v1` and hosted checks before delivery.

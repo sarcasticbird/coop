@@ -126,8 +126,8 @@ def main():
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
             if args.exact_context:
-                pages.insert(3, ("details-exact-context", b"jjjjjj"))
-                pages.append(("team-exact-context", b"jjjjjj"))
+                pages.insert(3, ("details-exact-context", [b"\x1b[6~"] * 6))
+                pages.append(("team-exact-context", [b"\x1b[6~"] * 6))
                 expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
