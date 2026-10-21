@@ -665,3 +665,28 @@ still pending, not inferred from these fixtures. Robin exact-head approval,
 private Wren QA and required CI precede source delivery. No source merge, service
 deployment/restart, production mutation, release, tap update or rollout is performed
 by this author implementation stage.
+
+## Stage 5 Integrated Handoff
+
+[Task #121](https://github.com/sarcasticbird/coop/issues/121) starts at delivered
+stage-4 main `7f14381`. Accepted PR #111 remains at
+`5d79a84031045fe8dd8f3eeb345cadea953e0724`, verified on 2026-10-21; no design
+delta is adopted. [The owner UAT packet](tui-b-uat.md) links the delivered stage
+sources, acceptance matrix, reproducible build/evidence commands and explicitly
+pending Blackbook/rack-mini operator journey. Historical results above are not
+rewritten or treated as current-head independent clearance.
+
+`runtime_integration_test.go` adds actual-key cross-workspace journeys at all three
+sizes: a kept private reply survives explicit Fleet Connect callback return and
+Servers/help without losing its captured request, parent, buffer or cursor; delayed
+reader failure/recovery cannot hijack Fleet/Servers or reveal cached bodies.
+An explicit light/dark/ANSI/Ascii renderer matrix compares bounded text semantics,
+Unicode/control sanitization and privacy across pages. Real terminal contrast and
+live guest behavior are not inferred from model rendering.
+
+`scripts/uat-tui-b.sh` refuses a dirty or mismatched source head, builds twice,
+compares the bytes and writes a private manifest with exact source, build metadata,
+binary digest and synthetic validation transcript. It runs no live guest action.
+Robin exact-head review, Wren private exact-artifact QA, required CI and actual
+owner/operator UAT remain separate gates. Production rollout, service restart,
+release and tap publication remain excluded.
