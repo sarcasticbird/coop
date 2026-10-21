@@ -425,3 +425,29 @@ reveal -> select -> root/reply/receipt -> return, scrolled follow, reconnect,
 denial, Help and resize at 120x40, 80x24 and 40x20. Robin's exact-head review,
 Wren's private exact-runtime-artifact QA in `coop-tui-b-runtime-v1`, required CI
 and source delivery remain separate gates. No live service/fleet/release changed.
+
+### Stage 3a Review Fixes
+
+Robin's review of `9c683daa150372c58331c1743065af2f77e6df38` identified two
+reproducible gaps. Both new regression tests failed on that head before correction.
+
+- Reader-bound calls now compare fresh authenticated principal ID/kind, master
+  and restore epoch with the captured context **before invoking the handler**,
+  not just when consuming its result. A conflict dispatches no write and retains
+  the original frozen request, parent, body and request ID. Tests cover root and
+  reply submission, uncertain-send retry, repeated blocked retry, all four context
+  changes after scheduling, and identical retry after original authority returns.
+- Thread lists retain the successful page's query cursor separately from its
+  Next cursor. Refresh/follow reads that page, including after reader return.
+  Failed or cancelled advances cannot replace the retained query cursor. The
+  regression exercises page two, explicit refresh, the actual follow tick,
+  reader return and recovery after a failed page-three read.
+
+Follow-up author validation on 2026-10-21 through Flox passed: scoped ordinary
+tests for TUI, masterclient, coordination, master and `cmd/coop`; repository-wide
+vet; no-color TUI/CLI tests; fitting race tests for TUI/masterclient/coordination
+with the existing compiler above; formatting and diff checks. The full-suite
+baseline/environment failures described above remain classified, not waived or
+reported as a green full suite. These are author checks only; Robin must review
+the new exact head and Wren must renew private exact-artifact runtime QA before
+delivery with required CI. No merge, deployment or release is part of this fix.

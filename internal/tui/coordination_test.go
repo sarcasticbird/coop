@@ -28,6 +28,7 @@ import (
 // Embedding keeps unexpected calls fatal rather than silently returning success.
 type coordinationMock struct {
 	Coordination
+	master   string
 	self     c.SelfIdentity
 	selfErr  error
 	threads  func(c.ThreadQuery) (c.ThreadPage, error)
@@ -42,7 +43,12 @@ type coordinationMock struct {
 	resolve  func(c.GoalRef) (c.GoalAuthority, error)
 }
 
-func (s *coordinationMock) MasterID() string                             { return "test-master" }
+func (s *coordinationMock) MasterID() string {
+	if s.master != "" {
+		return s.master
+	}
+	return "test-master"
+}
 func (s *coordinationMock) Self(context.Context) (c.SelfIdentity, error) { return s.self, s.selfErr }
 func (s *coordinationMock) Threads(_ context.Context, q c.ThreadQuery) (c.ThreadPage, error) {
 	return s.threads(q)

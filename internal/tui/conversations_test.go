@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	textansi "github.com/charmbracelet/x/ansi"
@@ -277,5 +279,149 @@ func TestConversationResizeRetainsVisibleSelection(t *testing.T) {
 			t.Fatal("resize hid previously visible selected message")
 		}
 		assertConversationBounds(t, m)
+	}
+}
+
+func TestConversationWriteRejectsChangedIdentityBeforeDispatch(t *testing.T) {
+	for _, key := range []string{"c", "p"} {
+		for _, phase := range []string{"submit", "retry"} {
+			for _, change := range []string{"principal", "kind", "epoch", "master"} {
+				t.Run(key+"/"+phase+"/"+change, func(t *testing.T) {
+					m, s := coordinationFixture()
+					s.self.RestoreEpoch = 7
+					original := s.self
+					m.coordination.self = original
+					m.coordination.thread = &c.Thread{ID: "captured-thread"}
+					m.coordination.readerSelf, m.coordination.readerMaster = original, s.MasterID()
+					m.coordination.messages = []c.Message{{ID: "selected-parent"}}
+					var sent []c.SendMessage
+					s.send = func(in c.SendMessage) (c.MessageReceipt, error) {
+						sent = append(sent, in)
+						return c.MessageReceipt{}, c.ErrUnavailable
+					}
+					m, _ = coordinationKey(m, key)
+					m, _ = coordinationKey(m, "tab")
+					m, _ = coordinationKey(m, "synthetic-private-body")
+					m, _ = coordinationKey(m, "ctrl+s")
+					requestID, parent := m.coordination.form.requestID, m.coordination.form.parent
+					if phase == "retry" {
+						var cmd tea.Cmd
+						m, cmd = coordinationKey(m, "ctrl+s")
+						m = coordinationRun(t, m, cmd)
+						if len(sent) != 1 {
+							t.Fatal("initial uncertain send did not dispatch")
+						}
+					}
+					trigger := "ctrl+s"
+					if phase == "retry" {
+						trigger = "ctrl+r"
+					}
+					m, cmd := coordinationKey(m, trigger)
+					// Change authority after scheduling, so the command must validate fresh Self.
+					switch change {
+					case "principal":
+						s.self.Principal.ID = "another-principal"
+					case "kind":
+						s.self.Principal.Kind = "agent"
+					case "epoch":
+						s.self.RestoreEpoch++
+					case "master":
+						s.master = "another-master"
+					}
+					before := len(sent)
+					m = coordinationRun(t, m, cmd)
+					m, cmd = coordinationKey(m, "ctrl+r")
+					m = coordinationRun(t, m, cmd)
+					f := m.coordination.form
+					if len(sent) != before || !m.coordination.failed || !strings.HasPrefix(m.coordination.status, coordError(c.ErrConflict)) || f == nil || !f.frozen || f.requestID != requestID || f.parent != parent || f.thread.ID != "captured-thread" || f.values[1] != "synthetic-private-body" || !reflect.DeepEqual(m.coordination.readerSelf, original) || m.coordination.readerMaster != "test-master" {
+						t.Fatal("changed authority dispatched or rebound the frozen request")
+					}
+					// Only the original authority may retry the original immutable intent.
+					s.self, s.master = original, "test-master"
+					m, cmd = coordinationKey(m, "ctrl+r")
+					m = coordinationRun(t, m, cmd)
+					if len(sent) != before+1 || sent[before].RequestID != requestID || sent[before].ThreadID != "captured-thread" || sent[before].ParentMessageID != parent {
+						t.Fatal("restored authority could not retry the captured request")
+					}
+					if before > 0 && !reflect.DeepEqual(sent[0], sent[before]) {
+						t.Fatal("retry changed the original uncertain request")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestConversationRefreshRetainsCurrentThreadPage(t *testing.T) {
+	m, s := coordinationFixture()
+	m.width, m.height = 40, 20
+	var cursors []string
+	failNext := false
+	s.threads = func(q c.ThreadQuery) (c.ThreadPage, error) {
+		cursors = append(cursors, q.After)
+		switch q.After {
+		case "":
+			return c.ThreadPage{Threads: []c.Thread{{ID: "first-page-thread"}}, Next: "page-two"}, nil
+		case "page-two":
+			return c.ThreadPage{Threads: []c.Thread{{ID: "second-page-thread"}}, Next: "page-three"}, nil
+		case "page-three":
+			if failNext {
+				return c.ThreadPage{}, c.ErrUnavailable
+			}
+			return c.ThreadPage{Threads: []c.Thread{{ID: "third-page-thread"}}}, nil
+		default:
+			t.Fatalf("unexpected page: %q", q.After)
+			return c.ThreadPage{}, nil
+		}
+	}
+	s.thread = func(id string) (c.Thread, error) { return c.Thread{ID: id}, nil }
+	s.messages = func(id string, after int64) (c.MessagePage, error) { return c.MessagePage{}, nil }
+	cmd := m.coordLoad(false)
+	m = coordinationRun(t, m, cmd)
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo := func() {
+		t.Helper()
+		if len(m.coordination.threads) != 1 || m.coordination.threads[0].ID != "second-page-thread" || m.coordination.cursor != 0 || m.coordination.next != "page-three" {
+			t.Fatalf("lost current thread page: rows=%v cursor=%d next=%q", m.coordination.threads, m.coordination.cursor, m.coordination.next)
+		}
+	}
+	m, cmd = coordinationKey(m, "r")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo()
+	m, _ = coordinationKey(m, "f")
+	m.refreshing = true // Isolate coordination follow from fleet reads.
+	out, cmd := m.Update(fleetTick(time.Now()))
+	m = out.(fleetModel)
+	batch := cmd().(tea.BatchMsg)
+	m = coordinationRun(t, m, batch[0])
+	assertPageTwo()
+	m, cmd = coordinationKey(m, "enter")
+	m = coordinationRun(t, m, cmd)
+	m, _ = coordinationKey(m, "esc")
+	assertPageTwo()
+	m, cmd = coordinationKey(m, "r")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo()
+	// A cancelled advance and its late result must leave page two current.
+	m, cmd = coordinationKey(m, "]")
+	late := cmd()
+	m, _ = coordinationKey(m, "esc")
+	out, _ = m.Update(late)
+	m = out.(fleetModel)
+	assertPageTwo()
+	m, cmd = coordinationKey(m, "r")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo()
+	// A failed page advance must not change the page used by refresh/reconnect.
+	failNext = true
+	m, cmd = coordinationKey(m, "]")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo()
+	m, cmd = coordinationKey(m, "r")
+	m = coordinationRun(t, m, cmd)
+	assertPageTwo()
+	if !reflect.DeepEqual(cursors, []string{"", "page-two", "page-two", "page-two", "page-two", "page-three", "page-two", "page-three", "page-two"}) {
+		t.Fatalf("refresh/follow changed page query: %v", cursors)
 	}
 }

@@ -53,6 +53,7 @@ type coordState struct {
 	teamSeen             time.Time
 	threads              []c.Thread
 	threadsNext          string // Retained independently of reader and Inbox cursors.
+	threadsAfter         string // Query cursor of the successfully loaded thread-list page.
 	threadsCursor        int
 	threadsSelected      string
 	threadsScroll        int
@@ -111,6 +112,11 @@ type coordThreadPage struct {
 	page   c.MessagePage
 }
 
+type coordThreadsPage struct {
+	c.ThreadPage
+	after string
+}
+
 type coordGoalPage struct {
 	c.GoalPage
 	engagement string
@@ -142,6 +148,10 @@ func coordReadThread(ctx context.Context, source Coordination, id string) (c.Thr
 	return thread, err
 }
 
+func coordSameContext(self, captured c.SelfIdentity, master, capturedMaster string) bool {
+	return self.Principal.ID == captured.Principal.ID && self.Principal.Kind == captured.Principal.Kind && self.RestoreEpoch == captured.RestoreEpoch && master == capturedMaster
+}
+
 func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordination) (any, error)) tea.Cmd {
 	q := &m.coordination
 	if q.busy {
@@ -154,6 +164,8 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 		q.status = "Loading " + kind + "..."
 	}
 	serial, source, ctx := q.serial, m.services.Coordination, m.ctx
+	readerSelf, readerMaster := q.readerSelf, q.readerMaster
+	readerBound := q.thread != nil && readerSelf.Principal.ID != ""
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -167,6 +179,10 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 			return out
 		}
 		out.self, out.err = source.Self(ctx)
+		// A result-time check cannot undo a write made as another principal/epoch.
+		if out.err == nil && readerBound && !coordSameContext(out.self, readerSelf, source.MasterID(), readerMaster) {
+			out.err = c.ErrConflict
+		}
 		if out.err == nil {
 			out.data, out.err = run(ctx, source)
 		}
@@ -184,6 +200,9 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		q.section = "team"
 	}
 	section, cursor, engagement := q.section, "", q.engagement
+	if section == "threads" {
+		cursor = q.threadsAfter
+	}
 	if next && q.thread == nil && q.receipt == nil && q.authority == nil {
 		cursor = q.next
 		if cursor == "" {
@@ -220,7 +239,8 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 			}
 			return s.Team(ctx)
 		case section == "threads":
-			return s.Threads(ctx, c.ThreadQuery{After: cursor})
+			page, err := s.Threads(ctx, c.ThreadQuery{After: cursor})
+			return coordThreadsPage{ThreadPage: page, after: cursor}, err
 		case section == "inbox":
 			return s.Pending(ctx, c.PendingQuery{After: cursor})
 		default:
@@ -247,7 +267,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	}
 	q.busy = false
 	q.cancel = nil
-	if r.err == nil && q.thread != nil && q.readerSelf.Principal.ID != "" && (r.self.Principal.ID != q.readerSelf.Principal.ID || r.self.Principal.Kind != q.readerSelf.Principal.Kind || r.self.RestoreEpoch != q.readerSelf.RestoreEpoch || m.services.Coordination.MasterID() != q.readerMaster) {
+	if r.err == nil && q.thread != nil && q.readerSelf.Principal.ID != "" && !coordSameContext(r.self, q.readerSelf, m.services.Coordination.MasterID(), q.readerMaster) {
 		r.err = c.ErrConflict
 	}
 	q.self = r.self
@@ -285,6 +305,10 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	if data, ok := r.data.(coordGoalPage); ok {
 		q.engagement = data.engagement
 		r.data = data.GoalPage
+	}
+	if data, ok := r.data.(coordThreadsPage); ok {
+		q.threadsAfter = data.after
+		r.data = data.ThreadPage
 	}
 	switch data := r.data.(type) {
 	case []c.Presence:
