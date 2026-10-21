@@ -450,11 +450,20 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		teamVisible := m.teamSelectionVisible()
 		conversationVisible := m.conversationSelectionVisible()
+		formVisible := false
+		if f := m.coordination.form; f != nil && !f.preview && !f.frozen && !m.help && !m.runbook {
+			probe := m
+			probe.revealComposeCursor()
+			formVisible = probe.scroll == m.scroll
+		}
 		anchor, offset := m.conversationAnchor()
 		m.width, m.height = msg.Width, msg.Height
 		m.restoreConversationAnchor(anchor, offset)
 		if conversationVisible {
 			m.revealConversationSelection()
+		}
+		if formVisible {
+			m.revealComposeCursor()
 		}
 		m.revealLedgerSelection()
 		if teamVisible {
@@ -470,6 +479,18 @@ func identity(t hostrouter.Target) string { return t.Host.Name + " / " + string(
 
 func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
+	if m.coordination.leaving != "" {
+		return m.coordLeaveKey(k)
+	}
+	if key == "ctrl+c" || key == "q" && m.coordination.form == nil {
+		if m.coordination.form != nil || len(m.coordination.drafts) > 0 {
+			m.coordination.leaving = "quit"
+			m.coordination.leaveScroll = m.scroll
+			m.workspace = 1
+			m.scroll = 0
+			return m, nil
+		}
+	}
 	if key == "ctrl+c" {
 		if m.cancel != nil {
 			m.cancel()
@@ -629,6 +650,12 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
 		updated := out.(fleetModel)
+		if updated.coordination.form != nil && !updated.coordination.form.preview && !updated.coordination.form.frozen && key != "esc" && key != "f1" {
+			updated.revealComposeCursor()
+		}
+		if updated.coordination.form != nil || updated.coordination.leaving != "" {
+			return updated, cmd
+		}
 		if updated.conversationPage() {
 			if key == "up" || key == "down" || key == "k" || key == "j" {
 				updated.revealConversationSelection()
@@ -1012,7 +1039,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
-		if m.teamList() || m.conversationPage() || m.coordination.teamDetail != nil && m.coordination.form == nil {
+		if m.teamList() || m.conversationPage() || m.composePage() || m.coordination.teamDetail != nil && m.coordination.form == nil {
 			lines = m.coordLines()
 		} else {
 			lines = append(lines, m.coordLines()...)
@@ -1155,12 +1182,15 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.help {
 		selectedLine = -1
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
-		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc clear")
+		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc draft options")
 		if m.workspace == 1 && m.coordination.section == "team" && m.coordination.form == nil {
 			lines = []string{"Team Help", "Master Team and diagnostics are read-only observations, not VM state or action authority.", "List: up/down or j/k select agent; Enter inspects the captured agent/host/worker/generation.", "Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and viewport.", "r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit", "Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is retained evidence, not current work.", "Heartbeat age is not work progress. Report, receipt, work and wait ages are separate.", "Placement changes invalidate reports; return and inspect again. Reads never wake agents or perform recovery.", "? or Esc returns without changing selection or dispatching an action."}
 		}
 		if m.conversationPage() {
-			lines = []string{"Threads Help", "Enter opens a thread with private bodies masked; Ctrl+V explicitly reveals/masks this reader only.", "Up/down or j/k select a stable message. PgUp/PgDn scroll without changing the reply target.", "c composes a root message (no parent); p replies to the selected message; s inspects its receipt.", "Enter marks loaded messages read in this TUI session only; f toggles follow; r refreshes; ] loads next page.", "Esc returns to the retained thread-list viewport. Each newly opened reader starts masked.", "n creates a thread; m manages membership; t Team | l Threads | i Inbox | g Goals.", "a authority | o propose | d decide | 1 Fleet | 3 Servers | q quit", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear", "? or Esc returns without changing selection or revealing private bodies."}
+			lines = []string{"Threads Help", "Enter opens a thread with private bodies masked; Ctrl+V explicitly reveals/masks this reader only.", "Up/down or j/k select a stable message. PgUp/PgDn scroll without changing the reply target.", "c composes a root message (no parent); p replies to the selected message; s inspects its receipt.", "Enter marks loaded messages read in this TUI session only; f toggles follow; r refreshes; ] loads next page.", "Esc returns to the retained thread-list viewport. Each newly opened reader starts masked.", "n creates a thread; m manages membership; t Team | l Threads | i Inbox | g Goals.", "a authority | o propose | d decide | 1 Fleet | 3 Servers | q quit", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc draft options", "? or Esc returns without changing selection or revealing private bodies."}
+		}
+		if m.coordination.form != nil {
+			lines = []string{"Composer Help", "Tab/Shift+Tab changes field; arrows/Home/End move the rune cursor; Enter inserts a literal newline.", "Ctrl+V reveals/masks this buffer only. F1 opens this help; Esc returns without changing the buffer.", "Ctrl+S previews, then submits after the complete preview is reviewed with PgDn.", "Esc in the form offers Keep in memory, Discard, or Return. Reopen the same intent to resume.", "Ctrl+C warns before quitting: all active and kept drafts are lost when this process exits.", "Submitted requests freeze. Ctrl+R retries only the identical payload and request ID, never automatically.", "Ctrl+L rechecks original identity without sending or changing the buffer. Changed authority fails closed.", "A receipt reports server-supported delivery state, not proof of execution or wake.", "Creation sends no message and performs no wake. Master, principal, thread, parent and membership stay captured."}
 		}
 	}
 	if m.operations != nil {
@@ -1229,7 +1259,19 @@ func (m fleetModel) content() ([]string, string, int) {
 			}
 		}
 		if m.coordination.form != nil {
-			footer = "Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear"
+			footer = "^S preview/send | ^V view | F1 | Esc"
+			if m.coordination.form.frozen {
+				footer = "^R identical retry | Esc draft options"
+			}
+		}
+		if m.coordination.receipt != nil {
+			footer = "r status | f poll | Esc reader"
+		}
+		if m.coordination.leaving != "" {
+			footer = "k Keep | d Discard | r/Esc Return"
+			if m.coordination.leaving == "quit" {
+				footer = "d Discard all and quit | r/Esc Return"
+			}
 		}
 		if m.coordination.busy && !m.coordination.backgroundRead {
 			footer = "Coordination request in progress; no automatic mutation retries | Ctrl+C quit"
@@ -1275,13 +1317,13 @@ func (m fleetModel) View() string {
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)
-		if (m.workspace == 0 || m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil) && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
+		if (m.workspace == 0 || m.teamList() || m.coordination.leaving != "" || m.coordination.teamDetail != nil && m.coordination.form == nil && !m.composePage()) && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
 			pinned := content[0]
 			content = content[1:]
 			limit--
 			start := min(m.scroll, max(0, len(content)-limit))
 			content = append([]string{pinned}, content[start:min(len(content), start+limit)]...)
-		} else if m.conversationPage() && !m.help && !m.runbook && m.height >= conversationHeader+3 && len(content) >= conversationHeader {
+		} else if (m.conversationPage() || m.composePage()) && !m.help && !m.runbook && m.height >= conversationHeader+3 && len(content) >= conversationHeader {
 			pinned := append([]string(nil), content[:conversationHeader]...)
 			content = content[conversationHeader:]
 			limit = max(1, limit-conversationHeader)
@@ -1296,7 +1338,7 @@ func (m fleetModel) View() string {
 		}
 	}
 	feedback := m.status
-	if m.conversationPage() && !m.help && !m.runbook {
+	if (m.conversationPage() || m.composePage()) && !m.help && !m.runbook {
 		q := m.coordination
 		feedback = q.status
 		if q.failed {

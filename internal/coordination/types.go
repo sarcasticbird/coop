@@ -57,6 +57,7 @@ type Thread struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 type SendMessage struct {
+	ExpectedMembers []string          `json:"expected_members,omitempty"`
 	Continuation    *TaskContinuation `json:"task_continuation,omitempty"`
 	ThreadID        string            `json:"thread_id"`
 	Recipients      []string          `json:"recipients,omitempty"`

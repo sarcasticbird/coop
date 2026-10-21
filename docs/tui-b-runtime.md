@@ -39,8 +39,8 @@ or substantive design changes explicitly before using a new baseline.
 
 Stage 0 did not implement B. Stage 1 below implements only Ledger/Details. Stage 2
 adds the Team diagnostics flow described below. Stage 3a adds full-page threads
-and masked readers. Escape still clears conversation forms; composer/draft
-protection remains the dependent stage 3b, not an implied guarantee here.
+and masked readers. Stage 3b adds the full-page forms and memory-only protection
+described below; these are source behaviors pending independent exact-head gates.
 
 ## Stage Acceptance Map
 
@@ -475,3 +475,87 @@ the unchanged CI vulnerability scanner; formatting and diff checks. No new
 full-suite pass is claimed. Robin must independently review the new exact head,
 and Wren must perform renewed private exact-artifact runtime QA before delivery
 with required CI. No live service, fleet, release or deployment was changed.
+
+## Stage 3b Composer And Receipts
+
+[Task #119](https://github.com/sarcasticbird/coop/issues/119) starts on delivered
+#118 at `94e23f7`. Accepted design PR #111 still has head
+`5d79a84031045fe8dd8f3eeb345cadea953e0724`, verified 2026-10-21; no design delta
+is adopted. This stage reuses the masterclient, creation, membership, message,
+status and idempotency handlers, without any wake or fleet lifecycle action.
+
+- Creation, root/reply composition, preview, frozen uncertainty and receipts are
+  full-page at 120x40, 80x24 and 40x20. Master/principal remain pinned; complete
+  identities, epoch, request, engagement, thread, stable parent and membership
+  wrap in the reviewable body. Creation preview includes the implicit owner in
+  its full membership and creation opens an empty masked reader, not a message.
+- Arrows/Home/End edit a rune cursor; Tab/Shift+Tab retain independent field
+  positions. Literal Unicode/newlines are preserved in the payload, while
+  terminal controls are sanitized in views. Ctrl+V affects only that buffer.
+  F1 opens contextual help without including private input; Ctrl+L rechecks the
+  original identity without sending. Resize retains visible cursor focus and
+  does not change buffer, selected parent or request identity.
+- Esc on nonempty/frozen forms offers Keep/Discard/Return. Kept buffers live only
+  in process memory, including focus, scroll, reveal state, captured context and
+  immutable built request. Reopening the same intent resumes it; a frozen send
+  takes precedence over another root/reply in the same thread. Ctrl+C, or quitting
+  elsewhere with kept drafts, warns before explicit discard-and-quit. Completed
+  and discarded buffers are removed from owned state. There is no draft file,
+  persistence, automatic send, automatic retry or restart recovery promise.
+- Preview never dispatches. The second Ctrl+S submits only after the complete
+  preview can be reviewed; long views require PgDn. Uncertainty freezes input and
+  request ID. Ctrl+R reuses the identical closure/payload, including after Keep;
+  fresh principal/kind/master/epoch/capability checks precede dispatch. Known
+  authority failure masks buffers and cannot retarget their context. The original
+  authority can recheck and resume; a replacement cannot reveal the old buffer.
+- `SendMessage.expected_members` is optional for existing CLI/MCP callers. The
+  TUI includes its captured exact member set. The existing Send handler checks it
+  atomically before insertion or idempotent replay, closing the membership-change
+  race without a new transport or endpoint. This requires the matching source
+  master in runtime fixtures; an older server rejecting the field is a refusal,
+  not permission for an unguarded fallback. Nil legacy inputs keep their existing
+  request JSON and behavior.
+- Receipt views show committed message ID, master, epoch, backend, sequence and
+  server-provided delivery state/reply linkage. No state implies execution or
+  wake. Status checks reject mismatched message/master identity; serialized
+  requests reject late results. Failures mark retained receipts stale/unknown.
+  Model/form diagnostic formatting omits private buffers, including debug formats.
+
+### Stage 3b Reproduction
+
+Use the exact published source head, not a static packet or another build. Run:
+
+```sh
+flox activate -- go test ./internal/tui/... ./internal/master ./internal/masterclient ./internal/mastermcp ./cmd/coop -count=1
+flox activate -- go test ./internal/tui -run 'TestCompose|TestCoordinationHTTPRetryAfterCommitPreservesRequest' -count=1 -v
+flox activate -- go vet ./...
+flox activate -- env NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1
+flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/masterclient ./internal/master -count=1
+git diff --check
+```
+
+`compose_test.go` covers the dimension matrix, creation/no-message, draft lifecycle,
+quit warnings, literal cursor editing, resize/pinned identity, synthetic diagnostic/
+log/user-state-directory privacy, identity/permission refusal, complete preview,
+HTTP exact-membership conflict and mismatched status. The real TLS/store retry
+test now suspends and resumes after response loss before recovering one original
+message with byte-identical requests. `send_membership_test.go` covers atomic
+stale-set refusal, replay after membership change/restoration, normalization and
+unchanged nil-input behavior. Existing reader/follow/privacy/late-result and
+CLI/MCP coverage remains in the scoped suite.
+
+Author validation on Linux arm64, Go 1.26.10 through Flox: scoped tests, repository
+vet and fitting race tests passed with the existing compiler above. Initial race
+attempts were blocked by disabled CGO, then missing `gcc` on PATH; no compiler was
+installed or environment configuration changed. Full `go test ./...` is not green:
+image PATH expectations, projectinit unreadable-directory/file-mode assumptions,
+seed mode preservation and worker migration snapshot-failure assertions all
+reproduce on unchanged baseline `94e23f7` in this root-run environment. These are
+classified baseline/environment failures, not a full-suite pass or a waiver.
+
+These author model/HTTP checks are not independent customer QA or interactive
+PTY/operator UAT. Robin must review the exact published head and Wren must perform
+private exact-artifact QA in `coop-tui-b-runtime-v1`, including create, root/reply,
+preview, mask/help, draft/resume/quit and uncertain retry at all three sizes.
+Required CI remains a delivery gate. No deployment, service restart, production
+fleet mutation, rollout, release or tap publication is included.
