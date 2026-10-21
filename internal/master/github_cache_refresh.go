@@ -91,9 +91,9 @@ func (svc *Service) ClaimGitHubRefresh(ctx context.Context, actor c.Principal, i
 		if v.Object.RouteID != route.ID {
 			continue
 		}
-		var due, retry, header string
+		var due, retry, header, updated string
 		var epoch int64
-		if err = tx.QueryRowContext(ctx, "SELECT due,retry,header_revision,epoch FROM github_cache_objects WHERE key=?", cacheKey(v.Object)).Scan(&due, &retry, &header, &epoch); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT due,retry,header_revision,epoch,updated FROM github_cache_objects WHERE key=?", cacheKey(v.Object)).Scan(&due, &retry, &header, &epoch, &updated); err != nil {
 			return out, err
 		}
 		dueAt, _ := time.Parse(time.RFC3339Nano, due)
@@ -109,6 +109,12 @@ func (svc *Service) ClaimGitHubRefresh(ctx context.Context, actor c.Principal, i
 			continue
 		}
 		v.Header.Revision = header
+		if due == "" {
+			// Invalidations clear the deadline, not the age of the last
+			// successful observation. Keep the oldest-first turn meaningful.
+			due = updated
+			dueAt, _ = time.Parse(time.RFC3339Nano, due)
+		}
 		if chosen == nil || rounds%10 == 9 && due < cacheCoverageDue(*chosen) || rounds%10 != 9 && header == "" && chosen.Header.Revision != "" {
 			chosen = v
 			chosen.NextRetry = dueAt
