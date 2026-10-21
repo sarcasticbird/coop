@@ -237,7 +237,7 @@ separate handling column to fit, retaining truthful unknown work. These residual
 differences and real light/dark contrast remain for independent QA/owner judgment,
 not silently waived. Editor wrapping is intentionally unchanged for cursor safety.
 
-### Final Build And Captures
+### Repair Checkpoint
 
 Linux arm64, Flox Go 1.26.10; source checkpoint above:
 
@@ -297,3 +297,45 @@ Rook coordinates the corrected candidate and independent jobs; the operator owns
 preparing assistance once that candidate is ready. Owner UAT stays FAILED/PENDING.
 This author fix performs no self-review, QA verdict, merge, deployment/restart,
 release, Homebrew or host/configuration/credential changes.
+
+### Integrated Candidate
+
+After the separately delivered base changes landed, this branch merged current
+main `96ca3911640b5715a6539ae73070d3d871e3b524` without conflicts at
+`2cc746084dc8b66739b5d5e19cc42ce672c6ba7a`. The merge adds #131/#138 only;
+`internal/tui`, the fixture and capture harnesses are byte-unchanged from the
+repair checkpoint above. No unrelated cache implementation is authored by #134.
+
+Both executables were rebuilt on that clean integrated source, and every runtime
+matrix was repeated rather than relabeling the pre-base-refresh executable:
+
+| Integrated build | SHA-256 |
+| --- | --- |
+| Native fixture executable | `8859948b18cbd246b1625094ad049f6dfbee5242a5a1d3b29be9a5467c8c4566` |
+| Shipping CLI, two byte-identical builds | `9cd3410993a6a00d4a8bfd14c84646e84a3c93c9bc08fdcd391269b282096163` |
+
+`integrated-pages/manifest.json` (150), `integrated-extra/manifest.json` (42),
+`integrated-context/manifest.json` (54) and `integrated-stress/manifest.json` (156,
+six sessions) all passed at all three geometries, color and NO_COLOR, using this
+same integrated source/binary. The six-group resolution evidence paths above have
+equivalent fresh screens under these `integrated-*` directories. These are the
+latest author runtime evidence, and the earlier `presentation-*` matrices retain
+their distinct true identities. No capture submits or consents.
+
+On this integrated checkpoint the full scoped validation runner passed again,
+including byte-identical repeat CLI builds, formatting, regression/CLI/MCP/PTY
+fixtures, ten-repeat integrated/foreground/terminal tests, NO_COLOR, repository
+build/vet and fitting uncached race checks with the existing compiler. Pinned
+golangci-lint v2.12.2 again reports zero issues. Source/script/doc whitespace
+checks pass; raw terminal CR/padding is not treated as source whitespace. No
+fresh full-repository test-suite or live-fleet result is implied.
+
+Final publication adds only this documentation and generated sanitized evidence
+after the integrated build checkpoint. Robin and Wren must assess the published
+exact head/source artifact afresh; this author's build/capture packet does not
+replace their gates. Rook receives the actual updated PR/head for renewed
+independent review, matching-artifact runtime/visual QA and hosted CI. The owner
+prepares the separate both-host operator assistance after this corrected candidate
+is ready. No deployment, installation, service restart, live action or source
+merge is performed by the author job; the base merge above is local integration,
+not delivery of PR #137. Owner UAT remains FAILED/PENDING.

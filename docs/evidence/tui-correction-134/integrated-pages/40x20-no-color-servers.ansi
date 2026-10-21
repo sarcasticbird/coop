@@ -1,0 +1,286 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name        agent        running 
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+  same-name        agent        absent  
+[K
+[K
+[K
+Enter Details | h filter | ? help[K[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: same-name[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local [K
+pause[K
+Presence: idle | heartbeat: 2s ago (not 
+work progress)[K
+Source: master diagnostics | report: 2s 
+ago | receipt: 2s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: same-name[K
+Project: -[K
+Exact Master: test-master[K
+
+Esc Fleet | Enter Connect | x | ? | PgDn[20;H[H
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 4s ago (not 
+
+Source: master diagnostics | report: 4s 
+ago | receipt: 4s ago[K
+
+
+
+
+
+
+[20;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: waiting / work unknown / ...
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+  same-name        agent        absent  
+[K
+[K
+
+Enter Details | h filter | ? help[K[20;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Threads / masked on opening; no body [K
+previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+
+
+
+Enter open | n new | ? help | Esc[K[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[20;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk [K
+(page keys do not reselect)[K
+> [unread this session] fixture-message 
+| seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+
+
+
+
+
+
+
+
+Esc Threads | p reply | ^V reveal | ?[K[20;H[HThreads[K
+
+
+Threads / masked on opening; no body [K
+previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+
+
+
+
+
+
+
+Returned to Threads[K
+Enter open | n new | ? help | Esc[K[20;H[HTeam[K
+
+Principal: owner[K
+Source: master Team presence | Team [K
+snapshot age: 0s ago[K
+Read only; heartbeat is not work [K
+progress[K
+  AGENT / HOST[K
+> same-name         / local             
+  Presence: idle[K
+  Handling/work: unknown[K
+  same-name         / fixture-remote    
+  Presence: paused[K
+  Handling/work: unknown[K
+  same-name         / fixture-remote    
+  Presence: unknown[K
+  Handling/work: unknown[K
+
+Snapshot refreshed[K
+Esc Fleet | Enter inspect | r | ?[K[20;H[HTeam > Agent[K
+
+
+Agent: same-name[K
+Host: local[K
+Presence: idle | heartbeat: 11s ago[K
+Handling: waiting[K
+Work / blocker: work unknown / local [K
+pause[K
+Source: master Team presence | Team [K
+snapshot age: 0s ago[K
+Read only; heartbeat is not work [K
+progress[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+AgentID: fixture-a[K
+Captured Host: local | Worker: [K
+fixture-worker-1 | Generation: 1[K
+
+Esc Team | r refresh | PgDn more | ?[K[20;H[H
+
+
+
+
+Presence: idle | heartbeat: 12s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HTeam Help[K
+Master Team and diagnostics are [K
+read-only observations, not VM state or 
+action authority.[K
+List: up/down or j/k select agent; [K
+Enter inspects the captured [K
+agent/host/worker/generation.[K
+Detail: j/k or PgUp/PgDn scroll; Esc [K
+returns to the same Team selection and [K
+viewport.[K
+r refresh | f follow/poll | t/l/i/g [K
+sections | 1 Fleet | 3 Servers | q quit[K
+Missing, denied, unsupported and [K
+clock-skewed evidence is unknown. STALE 
+is retained evidence, not current work.[K
+Heartbeat age is not work progress. [K
+Report, receipt, work and wait ages are 
+separate.[K
+[K
+F1/Esc return | PgUp/PgDn scroll[K[20;H[HTeam > Agent[K
+Master: test-master[K
+Principal: owner[K
+Agent: same-name[K
+Host: local[K
+Presence: idle | heartbeat: 14s ago[K
+Handling: waiting[K
+Work / blocker: work unknown / local [K
+pause[K
+Source: master Team presence | Team [K
+snapshot age: 3s ago[K
+Read only; heartbeat is not work [K
+progress[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+AgentID: fixture-a[K
+Captured Host: local | Worker: [K
+fixture-worker-1 | Generation: 1[K
+Snapshot refreshed[K
+Esc Team | r refresh | PgDn more | ?[K[20;H[HServers | SSH references[K
+
+
+HOST   CONFIGURED SSH REFERENCE[K
+Master configuration is separate; [K
+removing a reference does not delete [K
+VMs.[K
+> local (this machine)[K
+    [ok; snapshot <5s old][K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-offline [K
+(fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+[K
+[K
+[K
+a add | e edit | d remove | v | ?[K[20;H

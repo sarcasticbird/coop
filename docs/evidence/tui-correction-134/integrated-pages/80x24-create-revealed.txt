@@ -1,0 +1,24 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Content: revealed
+Title: Synthetic capture
+Engagement: coop
+Members (owner included): hawk,owner
+Request: TB67CAXQ5BAJPY6OD7YZKWHKHJ
+Exact Master: test-master
+Exact Principal: owner (owner) | epoch: 1
+Creates a thread only; no message or wake.
+Not created; review all pages before Ctrl+S creates.
+Esc edits; input changes require a new preview.
+
+
+
+
+
+
+
+
+
+PgDn review | Ctrl+S creates
+Esc edit | ^S create | ^V mask | F1 help
