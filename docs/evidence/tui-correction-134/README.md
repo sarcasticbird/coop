@@ -92,6 +92,35 @@ literal global numbered navigation bar, separator lines and FOCUS captions.
 Workspace keys and contextual help remain available; this is a visible residual
 presentation difference for independent QA and Chris, not a claim of pixel parity.
 
+### Explicit Residuals
+
+The broad rows above did not enumerate all visible differences. That omission
+is corrected here using the already committed sanitized native captures, not
+private QA captures or report content. These are **remaining discrepancies**, not
+resolved behavior, accepted design changes or a claim that the source now matches
+every B frame. The following six groups must remain in the owner handoff:
+
+| Group | Reproduce in this public packet | Actual difference and disposition |
+| --- | --- | --- |
+| Shared hierarchy and density | `after/120x40-fleet.txt`, `after/80x24-team.txt` | Global numbered navigation, FOCUS captions and separators from B are absent from the compact route headers; host health takes a separate line. Medium Team uses stacked AGENT / HOST, presence and unknown-work rows rather than B's ledger treatment. Keys still work, but literal hierarchy/density parity is not established. Unchanged; owner-visible. |
+| Compact wrapping and controls | `after/40x20-details.txt`, `after/40x20-team-detail.txt`, `after/40x20-reader.txt` | Work/blocker, age/source and reply-target explanations hard-wrap inside words; compact feedback/footer strings can end with an ellipsis. This is not merely different fixture text. Full scrollable evidence and contextual help remain, but readability and key discoverability differ from B. Unchanged; owner-visible. |
+| Creation preview labels and repetition | `after/120x40-create-preview.txt`, `after/40x20-create-preview.txt` | Preview retains editable-field markers and the long Stable member IDs label. It repeats blank Engagement and Captured members metadata after the masked input summary and includes editing instructions plus generic second-Ctrl+S submission prose. The control footer does distinguish create, but generic feedback still says submits and calls Esc draft rather than B's preview/edit wording. Explicit masking and owner-included membership are preserved; copy/density differences remain unresolved. |
+| Confirmation consent copy | `after/40x20-connect-reviewed.txt`, `supplemental/40x20-destroy-reviewed.txt` | Connect body includes generic y-confirms/n-cancels prose as well as Enter-after-review guidance; its footer uses Enter. Destroy retains y consent. Both accepted keys are functional, but Connect's mixed vocabulary differs from B's dedicated Enter continuation copy. Complete-review and exact-target gates are retained; copy remains unchanged. |
+| Draft guard feedback | `after/40x20-draft-guard.txt` | Keep/Discard/Return body and contextual footer are present, but the fixed feedback row still carries preview review-input/PgDn guidance underneath the guard. Thus one contextual control footer does not mean every feedback line is contextual. Memory-only protection is retained; leftover preview feedback is an unresolved presentation discrepancy. |
+| Details Help context | `after/40x20-details-help.txt` | Help identifies full captured target, destination and runtime, but does not show labeled master/principal context as B's Q frame does. Details and confirmation identity preservation does not establish Help identity parity. Action authority remains unchanged; this missing Help context remains unresolved. |
+
+This amendment changes documentation only. It does not repair or waive these
+presentation differences, replace the accepted packet, or turn functional fixture
+assertions into visual clearance. Historical binaries/captures keep their original
+source/digest attribution; no new runtime capture or product change is claimed.
+
+Amendment validation on 2026-10-21: inspected the named public terminal replays,
+confirmed the diff is this document only, and passed `git diff --check` and
+`flox activate -- go test ./internal/tui/... -count=1` on Linux arm64. No new
+build/vet/race/full-suite run or new runtime/visual clearance is claimed by this
+documentation fix. The published amended head still requires renewed independent
+Robin review, Wren's matching-artifact environment assessment and required CI.
+
 ## Binding And Operator Limit
 
 Fleet consumes diagnostics only through the existing host-owned exact pin:
@@ -106,6 +135,18 @@ operator; author synthetic success cannot establish installed fleet binding.
 Rook owns coordinating this prerequisite with the operator and reporting the
 exact limit privately. Do not invent pins, read worker secrets, upgrade/restart
 a service or deploy this build as a shortcut. Public evidence stays synthetic.
+
+The required environment has two lanes: native synthetic fixtures **and**
+operator-assisted Blackbook/rack-mini acceptance. A fixture-only pass cannot
+clear the combined requirement. The outstanding input is an operator-assisted
+session or artifact-bound observation packet identifying the exact candidate
+source, built/installed binary, actual host-owned placement binding and current
+access/freshness, with explicitly authorized disposable attach/return and
+messaging/retry journeys. No such live access or journey permission was supplied
+to this author checkout; this is an unavailable prerequisite, not a denial
+observed by an attempted live probe. Rook owns obtaining and verifying that input
+with the operator and arranging Wren's independent recheck. No replacement task
+or guessed dependency is introduced to manufacture clearance.
 
 ## Reproduction
 
