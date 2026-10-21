@@ -1,0 +1,18 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        running    waiting          work unknown / local pause                               
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        stopped    stale            old diagnostic report                                    
+  same-name           agent        absent     unknown          no visible diagnostic report                             
+[K
+Enter Details | h filter | ? help[K[18;H

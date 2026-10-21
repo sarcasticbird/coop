@@ -1,0 +1,20 @@
+Fleet > Details
+Name: same-name
+VM lifecycle: running
+Activity: waiting
+Work / blocker: work unknown / local pau
+se
+Selected: local / agent / fixture-a
+Host destination: this machine
+Runtime: same-name
+Project: -
+Host health: ok; snapshot <5s old
+Diagnostic master: test-master | source:
+ host-owned target binding
+Bound host: local | worker: fixture-work
+er-1 | generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master |
+epoch: 1
+
+Enter Connect | x actions | Esc | ? h...

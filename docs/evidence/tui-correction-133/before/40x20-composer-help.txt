@@ -1,0 +1,20 @@
+Composer Help
+Tab/Shift+Tab changes field; arrows/Home
+/End move the rune cursor; Enter inserts
+ a literal newline.
+Ctrl+V reveals/masks this buffer only. F
+1 opens this help; Esc returns without c
+hanging the buffer.
+Ctrl+S previews, then submits after the
+complete preview is reviewed with PgDn.
+Esc in the form offers Keep in memory, D
+iscard, or Return. Reopen the same inten
+t to resume.
+Ctrl+C warns before quitting: all active
+ and kept drafts are lost when this proc
+ess exits.
+Submitted requests freeze. Ctrl+R retrie
+s only the identical payload and request
+ ID, never automatically.
+
+F1/Esc return | PgUp/PgDn scroll

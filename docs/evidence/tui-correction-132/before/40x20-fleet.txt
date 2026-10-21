@@ -1,0 +1,20 @@
+Fleet | 0H/0T hidden | Filter: All
+
+Fleet Ledger | Filter: All
+Hidden: 0 hosts / 0 cached targets
+No target selected
+  local (this machine)
+    [ok; snapshot <5s old]
+  local / agent / fixture-a   VM: runnin
+g
+  fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  (no Coops)
+  fixture-offline (fixture-offline-al...
+    [unreachable]
+  fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+  fixture-remote / agent / fixture-b   V
+M: stopped
+
+Enter Details | h filter | ? help | P...

@@ -1,0 +1,210 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+[K
+Enter Details | h filter | ? help | P...[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: 界 é long-label-long-label-long-la
+bel-long-label-long-label-[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: unknown[K
+Work / blocker: no visible report[K
+Presence: unknown (no current bound obse
+rvation)[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long
+-label-long-label-long-label-[K
+Project: -[K
+Diagnostic master: test-master | source:
+ host-owned target binding[K
+Loading diagnostics...[K
+Esc Fleet | Enter Connect | x | ? | P...[20;H[H
+
+
+
+
+
+
+Activity: waiting[K
+Work / blocker: work unknown / local pau
+se[K
+Presence: idle | heartbeat: 1s ago (not 
+work progress)[K
+Source: master diagnostics | report: 1s 
+ago | receipt: 1s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long
+-label-long-label-long-label-[K
+[K
+[20;H[H
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago (not 
+
+Source: master diagnostics | report: 2s 
+ago | receipt: 2s ago[K
+
+
+
+
+
+[20;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+
+Enter Details | h filter | ? help | P...[20;H[H
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H

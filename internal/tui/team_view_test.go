@@ -163,14 +163,14 @@ func TestTeamStableSelectionReorderResizeRemove(t *testing.T) {
 	for _, size := range tuifixture.Sizes() {
 		out, _ := m.Update(tea.WindowSizeMsg{Width: size.Width, Height: size.Height})
 		m = out.(fleetModel)
-		if !strings.Contains(m.View(), "> "+id) {
+		if !m.teamSelectionVisible() || !strings.Contains(m.View(), "> duplicate name") || m.coordination.team[m.coordination.cursor].AgentID != id {
 			t.Fatal("resize hid selected agent", m.View())
 		}
 	}
 	rows := slices.Clone(m.coordination.team)
 	slices.Reverse(rows)
 	m.setTeamRows(rows)
-	if m.coordination.team[m.coordination.cursor].AgentID != id || !strings.Contains(m.View(), "> "+id) {
+	if m.coordination.team[m.coordination.cursor].AgentID != id || !m.teamSelectionVisible() || !strings.Contains(m.View(), "> duplicate name") {
 		t.Fatal("refresh retargeted selection or hid it", m.View())
 	}
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p c.Presence) bool { return p.AgentID == id })
@@ -291,13 +291,13 @@ func TestTeamDetailAndHelpReturnAfterResize(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/manual-%t", route, manual), func(t *testing.T) {
 				m, s := teamViewFixture()
 				m.width, m.height = 120, 40
-				for i := range 24 {
+				for i := range 60 {
 					p := s.rows[0]
 					p.AgentID = fmt.Sprintf("long-bird-%02d", i)
 					m.coordination.team = append(m.coordination.team, p)
 				}
-				m.coordination.cursor = 20
-				id := m.coordination.team[20].AgentID
+				m.coordination.cursor = 50
+				id := m.coordination.team[50].AgentID
 				m.revealTeamSelection()
 				if manual {
 					m.scroll = 0
@@ -314,7 +314,7 @@ func TestTeamDetailAndHelpReturnAfterResize(t *testing.T) {
 				if m.coordination.team[m.coordination.cursor].AgentID != id {
 					t.Fatal("return changed identity")
 				}
-				if manual && m.scroll != saved || !manual && !strings.Contains(m.View(), "> "+id) {
+				if manual && m.scroll != saved || !manual && !m.teamSelectionVisible() {
 					t.Fatal("return lost intentional paging or visible focus", m.View())
 				}
 			})

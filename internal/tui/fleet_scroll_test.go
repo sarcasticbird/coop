@@ -84,14 +84,14 @@ func TestFleetEntrylessHostsRemainReachable(t *testing.T) {
 				out, _ := m.Update(hostLoaded{epoch: m.epoch, inventory: hostrouter.HostInventory{Host: h, Entries: []hostrouter.InventoryEntry{e}}})
 				m = out.(fleetModel)
 				m, _ = fleetKey(m, "down")
-				if m.selected != e.Target || !strings.Contains(m.View(), "> "+identity(e.Target)) {
+				if m.selected != e.Target || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 					t.Fatal("reconnected target selection was not revealed")
 				}
 				if m.hosts[len(m.hosts)-1].errorCode != "" || m.hosts[len(m.hosts)-1].loading {
 					t.Fatal("reconnect retained failure/loading state")
 				}
 				m, _ = fleetKey(m, "up")
-				if m.selected != selected || !strings.Contains(m.View(), "> "+identity(selected)) {
+				if m.selected != selected || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 					t.Fatal("returning local selection was not revealed")
 				}
 			})

@@ -1,0 +1,20 @@
+Coordination | Master setup
+Master client unavailable | As: unavaila
+ble
+Fleet remains available; master and SSH
+setup are separate.
+Setup runbook: press v (read only).
+Use an existing private master-client.to
+ml with configured endpoint, identity an
+d credential references.
+Configure token_file or token_env refere
+nces outside this TUI; never enter token
+s here.
+Exit and relaunch: coop --master-config
+/private/master-client.toml tui
+This TUI does not accept token input, sw
+itch masters, or start a master service.
+SSH setup is separate: Servers manages e
+xisting configured SSH references only.
+
+1 Fleet | 3 Servers | v runbook | ?

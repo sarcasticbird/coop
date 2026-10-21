@@ -1,0 +1,24 @@
+Team > Agent
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared...
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-...
+Agent: same-name
+Host: local
+Presence: idle | heartbeat: 18s ago
+Handling: waiting
+Work / blocker: work unknown / local pause
+Source: master Team presence | Team snapshot age: 0s ago
+Read only; heartbeat is not work progress
+Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-shared-prefix-second
+Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-second
+AgentID: fixture-a
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master | epoch: 1
+fresh receipt | received: 2026-10-21T17:40:21Z
+Report age: 18s ago | receipt age: 18s ago
+Work observation age: unknown
+Wait observation age: 18s ago
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll

@@ -1,0 +1,20 @@
+Team
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Source: master Team presence | Team snap
+shot age: 0s ago
+Read only; heartbeat is not work progres
+s
+  AGENT / HOST
+> same-name         / local
+  Presence: idle
+  Handling/work: unknown
+  same-name         / fixture-remote
+  Presence: paused
+  Handling/work: unknown
+  same-name         / fixture-remote
+  Presence: unknown
+  Handling/work: unknown
+
+Snapshot refreshed
+Esc Fleet | Enter inspect | r | ?

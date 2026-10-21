@@ -1,0 +1,20 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Request: SOZGOH7NNAMM4F2ZXSEHYUUTPJ
+Thread: new | parent: none (root)
+Engagement:
+Captured members:
+Creation members (owner included): hawk,
+owner
+  Title: Synthetic capture
+  Engagement: coop
+> Stable member IDs (comma separated): o
+wner,hawk
+Creates a thread only; no message or wak
+e.
+Tab field | arrows cursor | Enter newlin
+Review captured context and input; Pg...
+^S preview/send | ^V view | F1 | Esc ...

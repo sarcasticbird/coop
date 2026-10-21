@@ -1,0 +1,93 @@
+2[?25l[?1049h[2J[H[?25l[?2004h[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+Enter open | n new | ? help | Esc[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[24;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc Threads | p reply | ^V reveal | ?[K[24;H[HThreads > Composer (reply)[K
+
+Principal: owner[K
+Blank recipients use captured parent author: hawk[K
+> To IDs (comma separated): |[K
+  Body: [hidden, 0 bytes][K
+Thread: fixture-thread | parent: fixture-message[K
+Request: JI4YED3SIJVOTEDU7LJFIN4LUZ[K
+Captured master: test-master[K
+Principal: owner (owner) | epoch: 1[K
+Engagement: [K
+Captured members: owner,hawk[K
+Enter inserts newline, never sends. Tab changes field.[K
+Not submitted; preview and review all before a second Ctrl+S submits.[K
+
+
+
+
+
+
+
+
+[K
+Esc draft | ^S preview | ^V view | F1[K[24;H

@@ -1,0 +1,20 @@
+Draft protection
+Private buffers exist only in this proce
+ss.
+k Keep in memory | d Discard | r/Esc Ret
+urn
+Review captured context and input; Pg...
+k Keep | d Discard | r/Esc Return
+
+
+
+
+
+
+
+
+
+
+
+
+

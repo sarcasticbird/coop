@@ -10,6 +10,50 @@ import (
 	"testing"
 )
 
+func TestConfigureHeadlessInputUsesIsolatedProcessGroup(t *testing.T) {
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := input.Close(); err != nil {
+			t.Errorf("close headless input: %v", err)
+		}
+	})
+	cmd := exec.Command("/usr/bin/true")
+	terminal, err := Configure(cmd, input)
+	if err != nil {
+		t.Fatalf("headless command requires a terminal: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := terminal.Restore(); err != nil {
+			t.Errorf("restore headless terminal: %v", err)
+		}
+	})
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Foreground || terminal.restoreNeeded {
+		t.Fatalf("headless command attempted terminal ownership: %#v", cmd.SysProcAttr)
+	}
+}
+
+func TestConfigureZeroForegroundDoesNotRequireTerminalOwnership(t *testing.T) {
+	cmd := exec.Command("/usr/bin/true")
+	terminal := &Terminal{getForeground: func() (int, error) { return 0, nil }}
+	if _, err := configureCommand(cmd, terminal); err != nil {
+		t.Fatalf("unowned headless terminal rejected: %v", err)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Foreground || terminal.restoreNeeded {
+		t.Fatalf("headless command attempted terminal ownership: %#v", cmd.SysProcAttr)
+	}
+}
+
+func TestConfigureStillRejectsForeignForegroundGroup(t *testing.T) {
+	cmd := exec.Command("/usr/bin/true")
+	terminal := &Terminal{getForeground: func() (int, error) { return syscall.Getpgrp() + 1, nil }}
+	if _, err := configureCommand(cmd, terminal); err == nil {
+		t.Fatal("command stole another process group's terminal")
+	}
+}
+
 func TestMonitorKillsStoppedChildWhenInspectionFails(t *testing.T) {
 	inspectErr := errors.New("inspect failed")
 	changes := make(chan os.Signal, 1)

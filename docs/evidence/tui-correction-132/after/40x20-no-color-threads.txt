@@ -1,0 +1,20 @@
+Threads
+Master: test-master
+Principal: owner (owner)
+Enter opens masked reader | n new thread
+t Team | i Inbox | g Goals | ] next page
+> fixture-thread | Design check |
+Next page: none
+Snapshot refreshed
+Enter open | n new | ? help | Esc
+
+
+
+
+
+
+
+
+
+
+

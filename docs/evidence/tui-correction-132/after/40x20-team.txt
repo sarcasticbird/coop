@@ -1,0 +1,20 @@
+Team | Master: test-master
+Read only observations; heartbeat is not
+ work progress
+Team snapshot age: 1s ago
+Snapshot refreshed
+Enter inspect | arrows select | PgUp/PgD
+n scroll | Esc Fleet
+> fixture-a (same-name)
+  Host: local | Worker: fixture-worker-1
+ | Generation: 1
+  Availability (master): idle | heartbea
+t: 10s ago
+  Work/blocker: inspect diagnostics (not
+ inferred)
+  fixture-b (same-name)
+  Host: fixture-remote | Worker: fixture
+-worker-1 | Generation: 1
+  Availability (master): paused | heartb
+
+Enter inspect | arrows | r refresh | ...

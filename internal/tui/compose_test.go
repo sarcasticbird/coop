@@ -73,6 +73,7 @@ func TestComposeCreationFullPageAndCapturedPreview(t *testing.T) {
 			if cmd != nil || !m.coordination.form.preview {
 				t.Fatal("creation preview dispatched")
 			}
+			m, _ = coordinationKey(m, "ctrl+v")
 			preview := strings.Join(m.composeLines(), "\n")
 			for _, want := range []string{"test-master", "owner (owner)", "owner,hawk,robin", "coop", id, "no message or wake"} {
 				if !strings.Contains(preview, want) {

@@ -1,0 +1,20 @@
+Team > Agent: fixture-a | Master: test-m
+aster
+Read only observations; heartbeat is not
+ work progress
+Team snapshot age: 0s ago
+Snapshot refreshed
+Availability (master): idle | heartbeat:
+ 12s ago
+Agent: fixture-a
+Source: worker diagnostics via master |
+epoch: 1
+fresh receipt | received: 2026-10-21T16:
+06:01Z
+Report age: 12s ago | receipt age: 12s a
+go
+Work observation age: unknown
+Wait observation age: 12s ago
+Reported observations below are not curr
+
+r refresh | j/k/PgUp/PgDn scroll | Es...

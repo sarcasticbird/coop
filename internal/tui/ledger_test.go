@@ -61,7 +61,10 @@ func TestLedgerDetailsConnectReturn(t *testing.T) {
 			if cmd != nil || m.pending == nil || m.pending.operation != "enter" || calls != 0 {
 				t.Fatal("Connect must capture a confirmation before foreground dispatch")
 			}
-			m, cmd = fleetKey(m, "y")
+			for range 10 {
+				m, _ = fleetKey(m, "pgdown")
+			}
+			m, cmd = fleetKey(m, "enter")
 			if cmd == nil || calls != 1 || !m.detail || !m.busy {
 				t.Fatalf("confirmed Connect did not use foreground adapter: %s", m.status)
 			}
@@ -124,7 +127,7 @@ func TestLedgerFilterCapturesRegistrationAndClearsSelection(t *testing.T) {
 	// The filter picker retains identities, not mutable list indices.
 	m.hosts[0], m.hosts[1] = m.hosts[1], m.hosts[0]
 	m, _ = fleetKey(m, "enter")
-	if m.filter != remote || m.selected != (hostrouter.Target{}) || len(m.rows()) != 1 || !strings.Contains(m.View(), "Hidden: 1 hosts / 1 cached targets") {
+	if m.filter != remote || m.selected != (hostrouter.Target{}) || len(m.rows()) != 1 || !strings.Contains(m.View(), "1H/1T hidden") {
 		t.Fatal("filter retargeted, selected implicitly or hid its scope")
 	}
 	m, _ = fleetKey(m, "down")
@@ -212,14 +215,17 @@ func TestLedgerLongIdentitiesRemainDistinct(t *testing.T) {
 	a := fixtureRow(h, hostrouter.Agent, "duplicate-prefix-target-one")
 	b := fixtureRow(h, hostrouter.Agent, "duplicate-prefix-target-two")
 	m.hosts[1] = hostState{host: h, entries: []hostrouter.InventoryEntry{a, b}, updated: m.hosts[0].updated}
-	lines, _, _ := m.content()
-	// Remove physical wrapping, not identity characters. Both stable IDs and
-	// lifecycle labels must survive narrow rendering despite identical names.
-	text := strings.Join(strings.Fields(strings.Join(lines, "")), "")
+	// The ledger favors labels and bounded cells. Exact identities remain in
+	// drill-in, including duplicate labels with identical truncated prefixes.
 	for _, e := range []hostrouter.InventoryEntry{a, b} {
-		if !strings.Contains(text, strings.Join(strings.Fields(identity(e.Target)+" VM: running"), "")) {
-			t.Fatal("narrow ledger truncated a stable identity or its lifecycle")
+		m.selected = e.Target
+		m, _ = fleetKey(m, "enter")
+		lines, _, _ := m.content()
+		text := strings.Join(strings.Fields(strings.Join(lines, "")), "")
+		if !strings.Contains(text, strings.Join(strings.Fields(identity(e.Target)), "")) || m.detailEntry.Target != e.Target || !strings.Contains(text, "VMlifecycle:running") {
+			t.Fatal("duplicate label lost its exact drill-in identity or lifecycle")
 		}
+		m, _ = fleetKey(m, "esc")
 	}
 }
 
@@ -250,16 +256,13 @@ func TestLedgerResizeKeepsSelectedHighlightVisible(t *testing.T) {
 		m, _ = fleetKey(m, "down")
 	}
 	target := m.selected
-	if target.ID != "long-but-valid-agent-profile-14" || !strings.Contains(m.View(), "> "+identity(target)) {
+	if target.ID != "long-but-valid-agent-profile-14" || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 		t.Fatal("wide Ledger did not show the selected target")
 	}
 	for _, size := range []struct{ width, height int }{{40, 20}, {80, 24}, {120, 40}, {40, 20}} {
 		out, cmd := m.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
 		m = out.(fleetModel)
-		// Join physical lines to check the complete stable identity, not just
-		// some other visible selection marker or an off-screen model value.
-		view := strings.Join(strings.Split(m.View(), "\n"), "")
-		if cmd != nil || m.selected != target || !strings.Contains(view, "> "+identity(target)) {
+		if cmd != nil || m.selected != target || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 			t.Fatalf("resize to %dx%d hid or changed the selected target:\n%s", size.width, size.height, m.View())
 		}
 		if maxLineWidth(m.View()) > size.width || len(strings.Split(m.View(), "\n")) > size.height {
@@ -283,7 +286,7 @@ func TestLedgerResizePreservesVisibleManualScroll(t *testing.T) {
 	scroll, target := m.scroll, m.selected
 	out, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = out.(fleetModel)
-	if scroll == 0 || m.scroll != scroll || m.selected != target || !strings.Contains(m.View(), "> "+identity(target)) {
+	if scroll == 0 || m.scroll != scroll || m.selected != target || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 		t.Fatal("resize disturbed intentional scroll despite a visible selected target")
 	}
 }
@@ -329,7 +332,7 @@ func TestLedgerFocusSurvivesReturnAndRefresh(t *testing.T) {
 				m, _ = fleetKey(m, "pgdown")
 				m, _ = fleetKey(m, "esc")
 			}
-			if m.detail || m.selected != target || !strings.Contains(strings.ReplaceAll(m.View(), "\n", ""), "> "+identity(target)) {
+			if m.detail || m.selected != target || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 				t.Fatalf("journey hid or replaced selected target %s at scroll %d:\n%s", identity(target), m.scroll, m.View())
 			}
 			m, cmd := fleetKey(m, "enter")
@@ -352,7 +355,7 @@ func TestLedgerReturnAndRefreshPreserveIntentionalPaging(t *testing.T) {
 				m, _ = fleetKey(m, "pgdown")
 			}
 			scroll, target := m.scroll, m.selected
-			if strings.Contains(m.View(), "> "+identity(target)) {
+			if m.ledgerSelectionVisible() || strings.Contains(m.View(), "> ") {
 				t.Fatal("setup did not page away from the selected target")
 			}
 			switch journey {

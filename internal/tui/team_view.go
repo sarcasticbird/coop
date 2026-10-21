@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
+	textansi "github.com/charmbracelet/x/ansi"
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/tui/team"
 )
@@ -23,10 +25,14 @@ func readTeamDetail(ctx context.Context, source Coordination, placement c.Placem
 	if err != nil {
 		return nil, err
 	}
+	return readTeamReport(ctx, source, placement, rows), nil
+}
+
+func readTeamReport(ctx context.Context, source Coordination, placement c.Placement, rows []c.Presence) teamSnapshot {
 	result := teamSnapshot{rows: rows}
 	if !slices.ContainsFunc(rows, func(p c.Presence) bool { return p.Placement == placement }) {
 		result.err = c.ErrConflict
-		return result, nil
+		return result
 	}
 	if source, ok := source.(team.DiagnosticSource); ok {
 		result.report, result.err = source.AgentDiagnostics(ctx, placement.AgentID)
@@ -36,7 +42,7 @@ func readTeamDetail(ctx context.Context, source Coordination, placement c.Placem
 	if result.err == nil && (placement.HostID == "" || placement.InstanceID == "" || placement.Generation < 1 || result.report.ReceivedAt.IsZero() || result.report.Report.Placement != placement || c.ValidateDiagnostics(result.report.Report) != nil) {
 		result.err = c.ErrConflict
 	}
-	return result, nil
+	return result
 }
 
 func (m *fleetModel) setTeamRows(rows []c.Presence) {
@@ -72,7 +78,7 @@ func (m fleetModel) teamSelectionVisible() bool {
 		return false
 	}
 	_, _, line := m.content()
-	return line > m.scroll && line <= m.scroll+max(1, m.height-3)
+	return line >= conversationHeader+m.scroll && line < m.scroll+max(conversationHeader+1, m.height-2)
 }
 
 func (m *fleetModel) revealTeamSelection() {
@@ -83,17 +89,29 @@ func (m *fleetModel) revealTeamSelection() {
 	if line < 0 {
 		return
 	}
-	limit := max(1, m.height-3)
-	m.scroll = min(m.scroll, max(0, len(lines)-1-limit))
-	line-- // The context header is pinned outside the scrolling body.
+	limit := max(1, m.height-conversationHeader-2)
+	m.scroll = min(m.scroll, max(0, len(lines)-conversationHeader-limit))
+	line -= conversationHeader
 	if line < m.scroll || line >= m.scroll+limit {
-		m.scroll = min(line, max(0, len(lines)-1-limit))
+		m.scroll = min(line, max(0, len(lines)-conversationHeader-limit))
 	}
 }
 
 func (m fleetModel) teamLines(master string) []string {
 	q := m.coordination
-	lines := []string{"Team | Master: " + master, "Read only observations; heartbeat is not work progress"}
+	title := "Team"
+	if q.teamDetail != nil {
+		title = "Team > Agent"
+	}
+	if m.width > 0 {
+		title = textansi.Truncate(strings.ReplaceAll(coordClean(title), "\n", " "), m.width, "...")
+	}
+	lines := []string{title, "Master: " + master, "Principal: " + valueOr(q.self.Principal.ID, "unknown")}
+	for i := range lines {
+		if m.width > 0 {
+			lines[i] = textansi.Truncate(coordClean(lines[i]), m.width, "...")
+		}
+	}
 	status := "No successful Team snapshot"
 	if !q.teamSeen.IsZero() {
 		status = "Team snapshot age: " + teamAge(q.teamSeen)
@@ -101,20 +119,42 @@ func (m fleetModel) teamLines(master string) []string {
 	if q.failed {
 		status = "STALE/OFFLINE | " + status
 	}
-	lines = append(lines, status, q.status)
+	context := []string{"Source: master Team presence | " + status, "Read only; heartbeat is not work progress"}
 	if q.teamDetail != nil {
-		lines[0] = "Team > Agent: " + q.teamDetail.AgentID + " | Master: " + master
-		presence := "Availability / heartbeat: unknown (placement not in current Team snapshot)"
+		name := q.teamDetail.AgentID
+		presence := "Presence / heartbeat: unknown"
 		for _, p := range q.team {
 			if p.Placement == *q.teamDetail {
-				presence = "Availability (master): " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen)
+				name = valueOr(p.Alias, p.AgentID)
+				presence = "Presence: " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen)
 			}
 		}
-		lines = append(lines, presence)
+		if q.failed {
+			presence = "STALE | " + presence
+		}
+		failure := q.teamFailure
+		if q.failed && failure == "" {
+			failure = "Team snapshot unavailable; work unknown"
+		}
+		activity, work := diagnosticSummary(time.Now(), q.teamReport, failure)
+		agent, host := "Agent: "+strings.ReplaceAll(coordClean(name), "\n", " "), "Host: "+strings.ReplaceAll(coordClean(valueOr(q.teamDetail.HostID, "unknown")), "\n", " ")
+		if m.width > 0 {
+			agent = textansi.Truncate(agent, m.width, "...")
+			host = textansi.Truncate(host, m.width, "...")
+		}
+		lines = append(lines, agent, host, presence, "Handling: "+activity, "Work / blocker: "+work)
+		lines = append(lines, context...)
+		lines = append(lines, "Exact Master: "+master, "Exact Principal: "+valueOr(q.self.Principal.ID, "unknown"))
+		lines = append(lines, "AgentID: "+q.teamDetail.AgentID, fmt.Sprintf("Captured Host: %s | Worker: %s | Generation: %d", valueOr(q.teamDetail.HostID, "unknown"), valueOr(q.teamDetail.InstanceID, "unknown"), q.teamDetail.Generation))
 		lines = append(lines, team.DetailLines(time.Now(), 0, q.teamDetail.AgentID, q.teamReport, q.busy, q.teamFailure)...)
 		return lines
 	}
-	lines = append(lines, "Enter inspect | arrows select | PgUp/PgDn scroll | Esc Fleet")
+	lines = append(lines, context...)
+	if m.width >= 100 || m.width <= 0 {
+		lines = append(lines, teamLedgerRow(m.width, "  ", "AGENT", "HOST", "PRESENCE", "HANDLING", "WORK / BLOCKER"))
+	} else {
+		lines = append(lines, "  AGENT / HOST")
+	}
 	if len(q.team) == 0 {
 		lines = append(lines, "No visible agents; work unknown")
 	}
@@ -123,9 +163,20 @@ func (m fleetModel) teamLines(master string) []string {
 		if i == q.cursor {
 			prefix = "> "
 		}
-		lines = append(lines, prefix+p.AgentID+" ("+p.Alias+")", fmt.Sprintf("  Host: %s | Worker: %s | Generation: %d", valueOr(p.HostID, "unknown"), valueOr(p.InstanceID, "unknown"), p.Generation), "  Availability (master): "+valueOr(p.State, "unknown")+" | heartbeat: "+teamAge(p.LastSeen), "  Work/blocker: inspect diagnostics (not inferred)")
+		name, host := valueOr(p.Alias, p.AgentID), valueOr(p.HostID, "unknown")
+		if m.width >= 100 || m.width <= 0 {
+			lines = append(lines, teamLedgerRow(m.width, prefix, name, host, valueOr(p.State, "unknown"), "unknown", "unknown"))
+		} else {
+			width := max(1, m.width)
+			nameWidth := max(1, (width-5)/2)
+			lines = append(lines, prefix+ledgerCell(name, nameWidth)+" / "+ledgerCell(host, max(1, width-5-nameWidth)), textansi.Truncate("  Presence: "+coordClean(valueOr(p.State, "unknown")), width, "..."), textansi.Truncate("  Handling/work: unknown", width, "..."))
+		}
 	}
 	return lines
+}
+
+func teamLedgerRow(width int, prefix, name, host, presence, handling, work string) string {
+	return prefix + ledgerCell(name, 18) + "  " + ledgerCell(host, 16) + "  " + ledgerCell(presence, 12) + "  " + ledgerCell(handling, 12) + "  " + ledgerCell(work, max(14, width-68))
 }
 
 func teamAge(at time.Time) string {
@@ -135,7 +186,11 @@ func teamAge(at time.Time) string {
 	if at.After(time.Now()) {
 		return "unknown (clock ahead)"
 	}
-	return time.Since(at).Truncate(time.Second).String() + " ago"
+	label := time.Since(at).Truncate(time.Second).String() + " ago"
+	if time.Since(at) >= c.PresenceStale {
+		label = "STALE " + label
+	}
+	return label
 }
 
 func diagnosticFailure(err error) string {

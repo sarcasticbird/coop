@@ -1,0 +1,10 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HCOOP   [1 Fleet]   [2 Coordination]   [3 Servers][K
+[K
+HOST   CONFIGURED SSH REFERENCE[K
+SSH setup: no SSH servers registered. Press a to add an existing reference from ~/.ssh/config.[K
+SSH registration is separate from master setup. It does not provision a host, enter tokens, bypass trust, or start servi
+ces.[K
+> local (this machine)[K
+    [ok; snapshot <5s old][K
+[K
+a add | e edit | d remove | x | ? help[K[10;H

@@ -1,0 +1,40 @@
+Threads > Composer (create)
+Master: test-master
+Principal: owner
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Request: CY2OCHIA2PPVAP5CK7IMPGJX2K
+Thread: new | parent: none (root)
+Engagement:
+Captured members:
+> Title: [hidden, 0 bytes]
+  Engagement: [hidden, 0 bytes]
+  Stable member IDs (comma separated): [hidden, 0 bytes]
+Creates a thread only; no message or wake.
+Tab field | arrows cursor | Enter newline
+Ctrl+V reveal/mask | F1 help | Esc draft options
+Ctrl+S preview, then review all and Ctrl+S submit
+action cancelled
+
+^S preview/send | ^V view | F1 | Esc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

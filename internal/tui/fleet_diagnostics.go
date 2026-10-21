@@ -13,12 +13,13 @@ import (
 )
 
 type fleetDiagnostics struct {
-	serial  uint64
-	busy    bool
-	cancel  context.CancelFunc
-	next    time.Time
-	report  *c.AgentDiagnostics
-	failure string
+	serial   uint64
+	busy     bool
+	cancel   context.CancelFunc
+	next     time.Time
+	report   *c.AgentDiagnostics
+	presence *c.Presence
+	failure  string
 }
 
 type fleetDiagnosticResult struct {
@@ -119,14 +120,19 @@ func (m fleetModel) fleetDiagnosticUpdate(r fleetDiagnosticResult) (tea.Model, t
 	}
 	q.busy, q.cancel = false, nil
 	q.next = time.Now().Add(5 * time.Second)
+	m.acceptFleetDiagnostic(q, r)
+	return m, nil
+}
+
+func (m fleetModel) acceptFleetDiagnostic(q *fleetDiagnostics, r fleetDiagnosticResult) {
 	e, ok := m.entry(r.target)
 	if !ok {
 		q.failure = "host inventory unavailable; current work unknown"
-		return m, nil
+		return
 	}
 	if !sameBinding(e.Diagnostics, &r.binding) || !m.diagnosticBindingUnique(r.binding) {
 		q.report, q.failure = nil, "diagnostic binding changed or ambiguous; work unknown"
-		return m, nil
+		return
 	}
 	if q.report != nil && r.epoch > 0 && q.report.Report.RestoreEpoch != r.epoch {
 		q.report = nil
@@ -136,7 +142,7 @@ func (m fleetModel) fleetDiagnosticUpdate(r fleetDiagnosticResult) (tea.Model, t
 		if errors.Is(r.err, c.ErrConflict) || errors.Is(r.err, c.ErrEpoch) {
 			q.report = nil
 		}
-		return m, nil
+		return
 	}
 	s := r.snapshot
 	if s.err != nil {
@@ -144,18 +150,32 @@ func (m fleetModel) fleetDiagnosticUpdate(r fleetDiagnosticResult) (tea.Model, t
 		if errors.Is(s.err, c.ErrConflict) || errors.Is(s.err, c.ErrEpoch) {
 			q.report = nil
 		}
-		return m, nil
+		return
 	}
 	if s.report.Report.Placement != r.binding.Placement || r.epoch < 1 || s.report.Report.RestoreEpoch != r.epoch {
 		q.report, q.failure = nil, "report identity/epoch mismatch; work unknown"
-		return m, nil
+		return
 	}
 	if q.report == nil || s.report.Report.RestoreEpoch > q.report.Report.RestoreEpoch || (s.report.Report.RestoreEpoch == q.report.Report.RestoreEpoch && !s.report.Report.ObservedAt.Before(q.report.Report.ObservedAt) && !s.report.ReceivedAt.Before(q.report.ReceivedAt)) {
 		q.report, q.failure = &s.report, ""
+		q.presence = nil
+		for _, p := range s.rows {
+			if p.Placement == r.binding.Placement {
+				q.presence = &p
+			}
+		}
 	} else {
 		q.failure = "out-of-order report ignored; current work unknown"
 	}
-	return m, nil
+}
+
+func (m fleetModel) fleetPresenceLine() string {
+	q := m.diagnostics
+	if q.failure != "" || q.presence == nil || m.detailInvalid {
+		return "Presence: unknown (no current bound observation)"
+	}
+	p := q.presence
+	return "Presence: " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen) + " (not work progress)"
 }
 
 func (m fleetModel) fleetDiagnosticLines() []string {

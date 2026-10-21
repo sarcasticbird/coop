@@ -1,0 +1,24 @@
+Fleet Ledger | Filter: All
+No target selected
+Master: test-master | As: owner
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER
+  local (this machine)
+    [ok; snapshot <5s old]
+  界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+  界 é long-lab...  agent        running    unknown / not bound
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll
