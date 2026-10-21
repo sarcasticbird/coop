@@ -71,6 +71,7 @@ type pendingAction struct {
 type fleetModel struct {
 	coordination          coordState
 	diagnostics           fleetDiagnostics
+	ledgerDiagnostics     ledgerDiagnostics
 	services              Services
 	ctx                   context.Context
 	hosts                 []hostState
@@ -208,6 +209,7 @@ func (m fleetModel) entry(t hostrouter.Target) (hostrouter.InventoryEntry, bool)
 }
 
 func (m *fleetModel) reconcile() {
+	m.reconcileLedgerDiagnostics()
 	found := false
 	for _, e := range m.rows() {
 		if e.Target == m.selected {
@@ -309,6 +311,8 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case fleetDiagnosticResult:
 		return m.fleetDiagnosticUpdate(msg)
+	case ledgerDiagnosticResult:
+		return m.ledgerDiagnosticUpdate(msg)
 	case coordResult:
 		return m.coordUpdate(msg)
 	case operationStarted:
@@ -322,14 +326,15 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, fleetClock())
 	case fleetTick:
 		cmd := m.refresh()
+		ledger := m.refreshLedgerDiagnostics()
 		if m.workspace == 0 && m.detail && !time.Time(msg).Before(m.diagnostics.next) {
 			diagnostic := m.refreshFleetDiagnostics()
-			return m, tea.Batch(cmd, diagnostic, fleetClock())
+			return m, tea.Batch(cmd, diagnostic, ledger, fleetClock())
 		}
 		if m.workspace == 1 && m.coordination.follow && m.coordination.form == nil && !m.coordination.busy {
-			return m, tea.Batch(cmd, m.coordLoad(false), fleetClock())
+			return m, tea.Batch(cmd, m.coordLoad(false), ledger, fleetClock())
 		}
-		return m, tea.Batch(cmd, fleetClock())
+		return m, tea.Batch(cmd, ledger, fleetClock())
 	case registryLoaded:
 		if msg.epoch != m.epoch {
 			return m, nil
@@ -388,7 +393,7 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.done {
 			m.refreshing = false
-			return m, nil
+			return m, m.refreshLedgerDiagnostics()
 		}
 		visible := m.ledgerSelectionVisible()
 		for i := range m.hosts {
@@ -1112,14 +1117,25 @@ func (m fleetModel) content() ([]string, string, int) {
 					}
 				}
 			}
-			lines = append(lines, "Fleet Ledger | Filter: "+scope, fmt.Sprintf("Hidden: %d hosts / %d cached targets", hiddenHosts, hiddenTargets))
-			lines[0] = fmt.Sprintf("Fleet | %dH/%dT hidden | Filter: %s", hiddenHosts, hiddenTargets, scope)
+			lines = []string{"Fleet Ledger | Filter: " + scope}
+			if hiddenHosts > 0 || hiddenTargets > 0 {
+				lines[0] += fmt.Sprintf(" | %dH/%dT hidden", hiddenHosts, hiddenTargets)
+			}
 			if m.width > 0 {
 				lines[0] = textansi.Truncate(lines[0], m.width, "...")
 			}
 			if m.selected == (hostrouter.Target{}) && !m.detail {
 				lines = append(lines, "No target selected")
 			}
+			master, principal := "not configured", "unavailable"
+			if m.services.Coordination != nil {
+				master = m.services.Coordination.MasterID()
+				if m.ledgerDiagnostics.master == master {
+					principal = valueOr(m.ledgerDiagnostics.self.Principal.ID, "unknown")
+				}
+			}
+			lines = append(lines, "Master: "+coordClean(master)+" | As: "+coordClean(principal))
+			lines = append(lines, ledgerRow(m.width, "  ", "NAME", "KIND", "VM", "ACTIVITY", "WORK / BLOCKER"))
 		} else {
 			lines = append(lines, "HOST   CONFIGURED SSH REFERENCE")
 			if len(m.hosts) == 1 && m.hosts[0].host == hostrouter.Local {
@@ -1164,7 +1180,7 @@ func (m fleetModel) content() ([]string, string, int) {
 				prefix = "> "
 				selectedLine = len(lines) + len(body)
 			}
-			body = append(body, prefix+h.host.Name+" ("+valueOr(h.host.Address, "this machine")+")")
+			body = append(body, prefix+coordClean(h.host.Name)+" ("+coordClean(valueOr(h.host.Address, "this machine"))+")")
 			// Health must remain readable even when a long SSH reference is clipped.
 			health := "    [" + state + "]"
 			if m.width > 0 {
@@ -1183,14 +1199,15 @@ func (m fleetModel) content() ([]string, string, int) {
 					prefix = "> "
 					selectedLine = len(lines) + len(body)
 				}
-				if h.errorCode != "" {
-					prefix += "[stale] "
+				vm := e.State
+				activity, work := m.ledgerSummary(e)
+				if _, ok := m.entry(e.Target); !ok {
+					vm, work = "unknown", "[stale] last VM: "+e.State
 				}
-				row := prefix + identity(e.Target) + "   VM: " + e.State
-				if m.width > 0 {
-					row = textansi.Hardwrap(row, m.width, true)
+				body = append(body, ledgerRow(m.width, prefix, ledgerName(e), string(e.Target.Kind), vm, activity, work))
+				if m.width > 0 && m.width < 65 && e.Target == m.selected {
+					body = append(body, textansi.Truncate("  Activity: "+activity+" / "+work, m.width, "..."))
 				}
-				body = append(body, strings.Split(row, "\n")...)
 			}
 		}
 		for _, line := range body {
@@ -1208,7 +1225,8 @@ func (m fleetModel) content() ([]string, string, int) {
 			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
 				state = current.State
 			}
-			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Enter: Connect | x: actions | Esc: Fleet"}
+			activity, work := diagnosticSummary(time.Now(), m.diagnostics.report, m.diagnostics.failure)
+			lines = []string{"Fleet > Details", "Name: " + ledgerName(e), "VM lifecycle: " + state, "Activity: " + activity, "Work / blocker: " + work, "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Runtime: " + e.Name, "Project: " + valueOr(e.Project, "-"), "Host health: " + valueOr(selectedHealth, "unknown; target removed")}
 			lines = append(lines, m.fleetDiagnosticLines()...)
 			selectedLine = -1
 			if m.detailInvalid {
@@ -1410,7 +1428,7 @@ func (m fleetModel) View() string {
 			start := min(m.scroll, max(0, len(content)-limit))
 			content = content[start:min(len(content), start+limit)]
 		}
-		if total > limit {
+		if total > limit && !strings.Contains(footer, "PgUp/PgDn") {
 			footer += " | PgUp/PgDn scroll"
 		}
 	}
