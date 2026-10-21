@@ -665,3 +665,49 @@ still pending, not inferred from these fixtures. Robin exact-head approval,
 private Wren QA and required CI precede source delivery. No source merge, service
 deployment/restart, production mutation, release, tap update or rollout is performed
 by this author implementation stage.
+
+## Stage 5 Integrated Handoff
+
+[Task #121](https://github.com/sarcasticbird/coop/issues/121) starts at delivered
+stage-4 main `7f14381`. Accepted PR #111 remains at
+`5d79a84031045fe8dd8f3eeb345cadea953e0724`, verified on 2026-10-21; no design
+delta is adopted. [The owner UAT packet](tui-b-uat.md) links the delivered stage
+sources, acceptance matrix, reproducible build/evidence commands and explicitly
+pending Blackbook/rack-mini operator journey. Historical results above are not
+rewritten or treated as current-head independent clearance.
+
+`runtime_integration_test.go` adds actual-key cross-workspace journeys at all three
+sizes: a kept private reply survives explicit Fleet Connect callback return and
+Servers/help without losing its captured request, parent, buffer or cursor; delayed
+reader failure/recovery cannot hijack Fleet/Servers or reveal cached bodies.
+An explicit light/dark/ANSI/Ascii renderer matrix compares bounded text semantics,
+Unicode/control sanitization and privacy across pages. Real terminal contrast and
+live guest behavior are not inferred from model rendering.
+
+`scripts/uat-tui-b.sh` refuses a dirty or mismatched source head, builds twice,
+compares the bytes and writes a private manifest with exact source, build metadata,
+binary digest and synthetic validation transcript. It runs no live guest action.
+Robin exact-head review, Wren private exact-artifact QA, required CI and actual
+owner/operator UAT remain separate gates. Production rollout, service restart,
+release and tap publication remain excluded.
+
+### Stage 5 Acceptance-Evidence Corrections
+
+Author reproduction on `12ec20d` confirmed that the integrated draft test's combined
+valid text and prohibited control input was rejected as a whole, leaving its
+later snapshot with only `X`. A positive assertion for the intended Unicode body
+failed at all three sizes before correction. The test now inserts and verifies
+the exact multiline wide/combining buffer and a nontrivial rune cursor, separately
+asserts prohibited input leaves buffer/cursor unchanged, and checks the full
+captured content/focus through Keep, Connect callback return, navigation and resume.
+The production input-rejection contract is unchanged.
+
+Both cross-workspace journeys now send actual resize events through 120x40 ->
+40x20 -> 80x24 -> their starting size, including active/kept draft, pending reader,
+foreground callback/return and fault/recovery states. Assertions cover captured
+identity/request, editor buffer/cursor visibility, masked views, reader selection
+and applicable scroll anchors. The packet now distinguishes independently
+initialized size matrices, integrated resize transitions and component/PTY evidence.
+These are test/evidence corrections, not demonstrated production draft loss or
+disclosure. Renew exact-head engineering review and exact-artifact private QA;
+earlier-head approvals do not clear the corrected candidate.
