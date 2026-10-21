@@ -72,6 +72,8 @@ type coordState struct {
 	readThrough          map[string]int64
 	authority            *c.GoalAuthority
 	receipt              *c.MessageReceipt
+	receiptSelf          c.SelfIdentity
+	receiptMaster        string
 	next                 string
 	after                int64
 	cursor               int
@@ -84,6 +86,9 @@ type coordState struct {
 	serial               uint64
 	cancel               context.CancelFunc
 	form                 *coordForm
+	drafts               []*coordForm // Process memory only; never serialized or logged.
+	leaving              string
+	leaveScroll          int
 }
 
 // Forms own immutable snapshots and freeze on submission, including after an
@@ -95,9 +100,14 @@ type coordForm struct {
 	requestID               string
 	thread                  c.Thread
 	parent                  string
+	parentAuthor            string
 	authority               c.GoalAuthority
 	preview, frozen, reveal bool
 	run                     func(context.Context, Coordination) (any, error)
+	self                    c.SelfIdentity
+	master                  string
+	positions               []int
+	scroll                  int
 }
 
 type coordResult struct {
@@ -153,6 +163,14 @@ func coordSameContext(self, captured c.SelfIdentity, master, capturedMaster stri
 	return self.Principal.ID == captured.Principal.ID && self.Principal.Kind == captured.Principal.Kind && self.RestoreEpoch == captured.RestoreEpoch && master == capturedMaster
 }
 
+func coordReadReceipt(ctx context.Context, source Coordination, id string) (c.MessageReceipt, error) {
+	receipt, err := source.MessageStatus(ctx, id)
+	if err == nil && (receipt.MessageID != id || receipt.MasterID != "" && receipt.MasterID != source.MasterID()) {
+		return c.MessageReceipt{}, c.ErrConflict
+	}
+	return receipt, err
+}
+
 func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordination) (any, error)) tea.Cmd {
 	q := &m.coordination
 	if q.busy {
@@ -167,6 +185,15 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 	serial, source, ctx := q.serial, m.services.Coordination, m.ctx
 	readerSelf, readerMaster := q.readerSelf, q.readerMaster
 	readerBound := q.thread != nil && readerSelf.Principal.ID != ""
+	if q.receipt != nil && q.receiptSelf.Principal.ID != "" {
+		readerSelf, readerMaster, readerBound = q.receiptSelf, q.receiptMaster, true
+	}
+	formKind := ""
+	if q.form != nil {
+		formKind = q.form.kind
+		readerSelf, readerMaster = q.form.self, q.form.master
+		readerBound = true
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -183,6 +210,18 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 		// A result-time check cannot undo a write made as another principal/epoch.
 		if out.err == nil && readerBound && !coordSameContext(out.self, readerSelf, source.MasterID(), readerMaster) {
 			out.err = c.ErrConflict
+		}
+		if out.err == nil && kind == "write" && formKind != "" {
+			capability := "send"
+			switch formKind {
+			case "create", "members":
+				capability = "manage"
+			case "decision":
+				capability = "decide"
+			}
+			if !slices.Contains(out.self.Principal.Capabilities, capability) {
+				out.err = c.ErrForbidden
+			}
 		}
 		if out.err == nil {
 			out.data, out.err = run(ctx, source)
@@ -221,7 +260,7 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		case authority != nil:
 			return s.ResolveGoal(ctx, authority.Revision.Ref)
 		case receipt != nil:
-			return s.MessageStatus(ctx, receipt.MessageID)
+			return coordReadReceipt(ctx, s, receipt.MessageID)
 		case thread != nil:
 			metadata, err := coordReadThread(ctx, s, thread.ID)
 			if err != nil {
@@ -291,7 +330,8 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 			q.teamReport = nil
 		}
 		if q.form != nil && q.form.frozen {
-			q.status += "; request " + q.form.requestID + "; Ctrl+R retries ONLY this identical request; Esc discards buffer, not the operation"
+			q.form.reveal = false
+			q.status += "; request " + q.form.requestID + "; Ctrl+R retries ONLY this identical request; Esc draft options"
 		}
 		return m, nil
 	}
@@ -417,6 +457,9 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 			q.after = data.Next
 		}
 	case c.MessageReceipt:
+		if q.receipt == nil || r.kind != "read" {
+			q.receiptSelf, q.receiptMaster = r.self, m.services.Coordination.MasterID()
+		}
 		if q.receipt == nil {
 			if q.thread != nil && r.kind != "write" {
 				q.readerScroll = m.scroll
@@ -441,6 +484,10 @@ func (q coordState) allowed(capability string) bool {
 
 func (m *fleetModel) coordOpen(kind string) {
 	q := &m.coordination
+	if m.services.Coordination == nil {
+		q.status = "Master client unavailable; retained memory-only drafts"
+		return
+	}
 	capability := "send"
 	switch kind {
 	case "create", "members":
@@ -450,11 +497,43 @@ func (m *fleetModel) coordOpen(kind string) {
 	case "authority", "status":
 		capability = "read"
 	}
+	// Resume before allocating another identity, including frozen uncertain sends.
+	for i, draft := range q.drafts {
+		threadID := ""
+		if q.thread != nil {
+			threadID = q.thread.ID
+		}
+		parent := ""
+		if kind == "reply" && q.cursor >= 0 && q.cursor < len(q.messages) {
+			parent = q.messages[q.cursor].ID
+		}
+		match := draft.kind == kind && (kind == "create" || draft.thread.ID == threadID && draft.parent == parent)
+		if draft.frozen && draft.thread.ID == threadID && (kind == "send" || kind == "reply") && (draft.kind == "send" || draft.kind == "reply") {
+			match = true
+		}
+		if match && !draft.frozen && (kind == "send" || kind == "reply") && slices.ContainsFunc(q.drafts, func(other *coordForm) bool {
+			return other.frozen && other.thread.ID == threadID && (other.kind == "send" || other.kind == "reply")
+		}) {
+			continue
+		}
+		if match {
+			if q.failed || !coordSameContext(q.self, draft.self, m.services.Coordination.MasterID(), draft.master) {
+				copy := *draft
+				copy.reveal = false
+				draft = &copy
+			}
+			q.drafts = slices.Delete(slices.Clone(q.drafts), i, i+1)
+			q.form, m.scroll = draft, draft.scroll
+			q.receipt = nil
+			q.status = "Resumed original memory-only buffer and request"
+			return
+		}
+	}
 	if !q.allowed(capability) {
 		q.status = "Authenticated " + capability + " capability required; refresh identity"
 		return
 	}
-	f := &coordForm{kind: kind, requestID: rand.Text()}
+	f := &coordForm{kind: kind, requestID: rand.Text(), self: q.self, master: m.services.Coordination.MasterID()}
 	if q.thread != nil {
 		f.thread = *q.thread
 		f.thread.Members = slices.Clone(q.thread.Members)
@@ -484,6 +563,7 @@ func (m *fleetModel) coordOpen(kind string) {
 				return
 			}
 			f.parent = q.messages[q.cursor].ID
+			f.parentAuthor = q.messages[q.cursor].AuthorID
 		}
 	case "ping":
 		if q.cursor < 0 || q.cursor >= len(q.team) {
@@ -505,6 +585,10 @@ func (m *fleetModel) coordOpen(kind string) {
 		f.labels = []string{"Action: approve/reject/pause/resume/complete/reopen"}
 	}
 	f.values = make([]string, len(f.labels))
+	f.positions = make([]int, len(f.labels))
+	for i := range f.positions {
+		f.positions[i] = -1
+	}
 	if kind == "members" {
 		f.values[0] = strings.Join(f.thread.Members, ",")
 	}
@@ -516,6 +600,7 @@ func (m *fleetModel) coordOpen(kind string) {
 		q.readerAnchor, q.readerOffset = m.conversationAnchor()
 	}
 	q.form, q.status = f, ""
+	q.receipt = nil
 	m.scroll = 0
 }
 
@@ -549,7 +634,7 @@ func (f coordForm) build() (func(context.Context, Coordination) (any, error), er
 		if strings.TrimSpace(f.values[1]) == "" {
 			return nil, c.ErrInvalid
 		}
-		in := c.SendMessage{ThreadID: f.thread.ID, ParentMessageID: f.parent, Recipients: coordIDs(f.values[0]), Body: f.values[1], RequestID: f.requestID}
+		in := c.SendMessage{ThreadID: f.thread.ID, ExpectedMembers: slices.Clone(f.thread.Members), ParentMessageID: f.parent, Recipients: coordIDs(f.values[0]), Body: f.values[1], RequestID: f.requestID}
 		return func(ctx context.Context, s Coordination) (any, error) { return s.Send(ctx, in) }, nil
 	case "ping":
 		if f.values[0] == "" || f.values[1] == "" || strings.TrimSpace(f.values[2]) == "" {
@@ -586,7 +671,7 @@ func (f coordForm) build() (func(context.Context, Coordination) (any, error), er
 		if f.values[0] == "" {
 			return nil, c.ErrInvalid
 		}
-		return func(ctx context.Context, s Coordination) (any, error) { return s.MessageStatus(ctx, f.values[0]) }, nil
+		return func(ctx context.Context, s Coordination) (any, error) { return coordReadReceipt(ctx, s, f.values[0]) }, nil
 	case "decision":
 		if !slices.Contains([]string{"approve", "reject", "pause", "resume", "complete", "reopen"}, f.values[0]) {
 			return nil, c.ErrInvalid
@@ -640,20 +725,27 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if q.form != nil {
 		f := *q.form
 		f.values = slices.Clone(f.values)
+		f.positions = slices.Clone(f.positions)
 		q.form = &f
 		switch key {
 		case "esc":
-			q.form = nil
-			if q.thread != nil {
-				m.scroll = q.readerScroll
-				m.restoreConversationAnchor(q.readerAnchor, q.readerOffset)
+			if f.frozen || strings.Join(f.values, "") != "" {
+				q.leaving = "back"
+				q.leaveScroll, m.scroll = m.scroll, 0
+			} else {
+				m.coordCloseForm(false)
 			}
-			q.status = "Buffer cleared; cancellation cannot undo an already submitted operation"
-			if f.frozen {
-				q.status += "; inspect original request " + f.requestID + " before creating another intent"
-			}
+		case "f1":
+			m.overlayScroll, m.scroll, m.help = m.scroll, 0, true
+		case "ctrl+l":
+			return m, m.coordCall("identity", func(context.Context, Coordination) (any, error) { return nil, nil })
 		case "ctrl+v":
-			f.reveal = !f.reveal
+			if q.failed || !coordSameContext(q.self, f.self, m.services.Coordination.MasterID(), f.master) {
+				f.reveal = false
+				q.status = "Refresh original authority before revealing this captured buffer"
+			} else {
+				f.reveal = !f.reveal
+			}
 		case "ctrl+r":
 			if f.frozen && f.run != nil {
 				kind := "write"
@@ -673,8 +765,14 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				f.run, f.preview = run, true
-				q.status = "Review exact target/input; Ctrl+S submits; Esc cancels"
+				m.scroll = 0
+				q.status = "Review captured context and input; PgDn for more; Ctrl+S submits"
 			} else {
+				lines, _, _ := m.content()
+				if m.height > 0 && m.scroll+max(1, m.height-3) < len(lines)-1 {
+					q.status = "Review the complete preview with PgDn before submitting"
+					return m, nil
+				}
 				f.frozen = true
 				kind := "write"
 				if f.kind == "authority" || f.kind == "status" {
@@ -691,37 +789,10 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				f.field = (f.field + delta + len(f.values)) % len(f.values)
 			}
-		case "backspace", "ctrl+h":
-			if !f.frozen {
-				f.preview = false
-				value := []rune(f.values[f.field])
-				if len(value) > 0 {
-					f.values[f.field] = string(value[:len(value)-1])
-				}
-			}
-		case "enter":
-			if !f.frozen {
-				f.preview = false
-				f.values[f.field] += "\n"
-			}
 		default:
-			if !f.frozen && (k.Type == tea.KeyRunes || k.Type == tea.KeySpace) {
-				text := string(k.Runes)
-				if k.Type == tea.KeySpace {
-					text = " "
-				}
-				if strings.IndexFunc(text, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' && r != '\r' }) >= 0 {
-					return m, nil
-				}
-				limit := c.MaxText
-				if f.kind == "proposal" {
-					limit = c.MaxJSON - 1024
-				}
-				if len(f.values[f.field])+len(text) <= limit {
-					f.preview = false
-					f.values[f.field] += text
-				} else {
-					q.status = "Input exceeds the form byte limit; nothing from this paste was added"
+			if !f.frozen {
+				if !f.edit(k) {
+					q.status = "Input exceeds the byte limit or contains unsafe controls; paste not added"
 				}
 			}
 		}
@@ -812,7 +883,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if q.thread != nil && q.cursor >= 0 && q.cursor < len(q.messages) {
 			q.readerScroll = m.scroll
 			id := q.messages[q.cursor].ID
-			return m, m.coordCall("receipt", func(ctx context.Context, s Coordination) (any, error) { return s.MessageStatus(ctx, id) })
+			return m, m.coordCall("receipt", func(ctx context.Context, s Coordination) (any, error) { return coordReadReceipt(ctx, s, id) })
 		}
 		m.coordOpen("status")
 	case "enter":
@@ -911,6 +982,9 @@ func (m fleetModel) coordLines() (lines []string) {
 		}
 	}()
 	q := m.coordination
+	if q.leaving != "" || q.form != nil || q.receipt != nil {
+		return m.composeLines()
+	}
 	master := "unconfigured"
 	if m.services.Coordination != nil {
 		master = m.services.Coordination.MasterID()
@@ -938,38 +1012,6 @@ func (m fleetModel) coordLines() (lines []string) {
 	lines = append(lines, health, q.status)
 	if q.section == "goals" {
 		lines = append(lines, "Goals engagement: "+valueOr(q.engagement, "not selected")+" | e: next authorized engagement (resets page)")
-	}
-	if q.form != nil {
-		f := q.form
-		lines = append(lines, "Form: "+f.kind, "Request: "+f.requestID, "Thread: "+f.thread.ID+" | parent: "+f.parent)
-		if f.kind == "members" {
-			lines = append(lines, "Expected members: "+strings.Join(f.thread.Members, ","))
-		}
-		if f.kind == "decision" {
-			lines = append(lines, fmt.Sprintf("Goal: %s\nExact revision: %s\nExpected decision sequence: %d\nState: %s\nAction: %s", f.authority.Revision.Ref.GoalID, f.authority.Revision.Ref.RevisionSHA256, f.authority.DecisionSequence, f.authority.State, f.values[0]))
-		}
-		for i, label := range f.labels {
-			prefix := "  "
-			if i == f.field {
-				prefix = "> "
-			}
-			value := fmt.Sprintf("[hidden, %d bytes]", len(f.values[i]))
-			if f.reveal {
-				value = f.values[i]
-			}
-			lines = append(lines, prefix+label+": "+value)
-		}
-		return append(lines, fmt.Sprintf("Preview: %t | submitted/frozen: %t", f.preview, f.frozen), "Tab field | Enter newline | Ctrl+V reveal private input | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear")
-	}
-	if q.receipt != nil {
-		lines = append(lines, "Committed message: "+q.receipt.MessageID+" | Backend: "+q.receipt.Backend)
-		if len(q.receipt.Deliveries) == 0 {
-			lines = append(lines, "No agent deliveries; commitment is not acknowledgment")
-		}
-		for _, d := range q.receipt.Deliveries {
-			lines = append(lines, d.AgentID+" | "+d.State+" | "+d.Reason+" | reply: "+d.ReplyMessageID)
-		}
-		return lines
 	}
 	if q.authority != nil {
 		a := q.authority

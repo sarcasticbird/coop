@@ -368,6 +368,7 @@ func TestCoordinationComposeReplyAndSensitiveBuffer(t *testing.T) {
 	m, _ = coordinationKey(m, "tab")
 	m, _ = coordinationKey(m, "discard-private-sentinel")
 	m, _ = coordinationKey(m, "esc")
+	m, _ = coordinationKey(m, "d")
 	if m.coordination.form != nil || strings.Contains(m.View(), "discard-private-sentinel") {
 		t.Fatal("cancel retained private form")
 	}
@@ -580,6 +581,10 @@ func TestCoordinationHTTPRetryAfterCommitPreservesRequest(t *testing.T) {
 	}
 	m, _ := coordinationFixture()
 	m.services.Coordination = client
+	m.coordination.self, err = client.Self(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m.coordination.thread = &thread
 	m, _ = coordinationKey(m, "c")
 	m, _ = coordinationKey(m, "tab")
@@ -598,6 +603,9 @@ func TestCoordinationHTTPRetryAfterCommitPreservesRequest(t *testing.T) {
 		t.Fatalf("first request did not commit: %+v %v", page, err)
 	}
 	committedID := page.Messages[0].ID
+	m, _ = coordinationKey(m, "esc")
+	m, _ = coordinationKey(m, "k")
+	m, _ = coordinationKey(m, "c")
 	m, _ = coordinationKey(m, "attempted edit")
 	m, cmd = coordinationKey(m, "ctrl+r")
 	m = coordinationRun(t, m, cmd)
@@ -778,6 +786,11 @@ func TestCoordinationHTTPThreadMembershipLifecycle(t *testing.T) {
 	owner, agent := coordinationMasterFixture(t)
 	m, _ := coordinationFixture()
 	m.services.Coordination = owner
+	var err error
+	m.coordination.self, err = owner.Self(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, _ = coordinationKey(m, "n")
 	for i, value := range []string{"UI-created thread", "coop", "owner, hawk"} {
 		if i > 0 {
@@ -813,6 +826,7 @@ func TestCoordinationHTTPThreadMembershipLifecycle(t *testing.T) {
 	}
 	m, _ = coordinationKey(m, "esc")
 	// Refresh through the keyboard and replace the full set, including a removal.
+	m, _ = coordinationKey(m, "d")
 	m, cmd := coordinationKey(m, "r")
 	m = coordinationRun(t, m, cmd)
 	m, _ = coordinationKey(m, "m")
@@ -849,6 +863,10 @@ func TestCoordinationHTTPGoalLifecycleAndStaleAuthority(t *testing.T) {
 	}
 	m, _ := coordinationFixture()
 	m.services.Coordination = agent
+	m.coordination.self, err = agent.Self(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, _ = coordinationKey(m, "o")
 	m, _ = coordinationKey(m, string(raw))
 	m = coordinationSubmit(t, m)
@@ -888,6 +906,7 @@ func TestCoordinationHTTPGoalLifecycleAndStaleAuthority(t *testing.T) {
 	}
 	m, _ = coordinationKey(m, "esc")
 	proposal.GoalID, proposal.Scope, proposal.RequestID = ref.GoalID, "revised UI scope", "revision-two"
+	m, _ = coordinationKey(m, "d")
 	revision, err := agent.ProposeGoal(ctx, proposal)
 	if err != nil {
 		t.Fatal(err)

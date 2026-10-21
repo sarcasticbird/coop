@@ -57,6 +57,8 @@ type Thread struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 type SendMessage struct {
+	// Nil is legacy/unguarded; an explicit empty set must survive JSON encoding.
+	ExpectedMembers []string          `json:"expected_members,omitzero"`
 	Continuation    *TaskContinuation `json:"task_continuation,omitempty"`
 	ThreadID        string            `json:"thread_id"`
 	Recipients      []string          `json:"recipients,omitempty"`

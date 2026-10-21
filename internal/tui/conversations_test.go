@@ -488,6 +488,7 @@ func TestConversationReaderRecoveryRequiresThreadSnapshot(t *testing.T) {
 				m, _ = coordinationKey(m, "tab")
 				m, _ = coordinationKey(m, strings.Repeat("a", 64))
 				m, _ = coordinationKey(m, "ctrl+s")
+				m = composeReview(m)
 				m, cmd = coordinationKey(m, "ctrl+s")
 				m = coordinationRun(t, m, cmd)
 				if m.coordination.failed || m.coordination.authority == nil {

@@ -68,6 +68,16 @@ exact-revision goal workflows are documented in
 [`docs/fleet-tui.md`](../../docs/fleet-tui.md), including complete command coverage
 and the `fleet-tui-uat-v1` checklist. Coordination forms use Ctrl+S to preview and
 submit, Ctrl+V to reveal masked input, and Ctrl+R to retry identical frozen input.
+Conversation forms are full-page with pinned identity context. F1 opens private-
+input-free contextual help; arrows/Home/End edit at a rune cursor. Escape offers
+Keep (process memory only), Discard, or Return for nonempty/frozen forms. Reopen
+the same creation/root/reply intent to resume its buffer, cursor, viewport and
+request ID. A frozen send takes precedence over a new send in that thread.
+Ctrl+C warns before losing active or kept drafts; no drafts survive process exit.
+Ctrl+L rechecks captured identity without sending. Long previews require paging
+to the end before the second Ctrl+S. Receipts report committed identity and actual
+server delivery states, never inferred execution/wake. See stage 3b in
+[`docs/tui-b-runtime.md`](../../docs/tui-b-runtime.md) for fixture reproduction.
 Team (`2`, then `t`) uses a full-page list and selected-agent diagnostic detail.
 Arrows select; Enter inspects the captured master placement; Escape returns with
 the list selection/scroll intact. Detail refresh is read-only and verifies agent,

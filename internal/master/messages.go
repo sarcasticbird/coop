@@ -25,6 +25,21 @@ func (s *Store) Send(ctx context.Context, actor c.Principal, in c.SendMessage) (
 	if err = member(ctx, tx, p, in.ThreadID); err != nil {
 		return out, err
 	}
+	// Optional for existing CLI/MCP callers; captured TUI intents require an
+	// exact membership check in the same transaction as insertion and replay.
+	if in.ExpectedMembers != nil {
+		var raw []byte
+		var thread c.Thread
+		if err = tx.QueryRowContext(ctx, "SELECT body FROM threads WHERE id=?", in.ThreadID).Scan(&raw); err != nil {
+			return out, err
+		}
+		if err = json.Unmarshal(raw, &thread); err != nil {
+			return out, err
+		}
+		if !slices.Equal(normalized(in.ExpectedMembers), thread.Members) {
+			return out, c.ErrConflict
+		}
+	}
 	if yes, e := request(ctx, tx, p.ID, in.RequestID, "send", in, &out); yes || e != nil {
 		return out, e
 	}
