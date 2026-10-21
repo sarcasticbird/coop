@@ -22,11 +22,13 @@ func readingWrap(line string, width int) string {
 			if token == "" {
 				continue
 			}
-			if used > 0 && used+textansi.StringWidth(token) > width {
+			wordWidth := textansi.StringWidth(strings.TrimRight(token, " "))
+			if used > 0 && used+textansi.StringWidth(token) > width && wordWidth <= width {
 				out.WriteByte('\n')
 				used = 0
 			}
-			wrapped := textansi.Hardwrap(token, width, true)
+			padding := strings.Repeat(" ", used)
+			wrapped := strings.TrimPrefix(textansi.Hardwrap(padding+token, width, true), padding)
 			out.WriteString(wrapped)
 			if last := strings.LastIndexByte(wrapped, '\n'); last >= 0 {
 				used = textansi.StringWidth(wrapped[last+1:])
