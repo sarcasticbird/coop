@@ -1,0 +1,20 @@
+Threads > Composer (reply)
+Master: test-master
+Principal: owner
+Blank recipients use captured parent aut
+hor: hawk
+> To IDs (comma separated): |
+  Body: [hidden, 0 bytes]
+Thread: fixture-thread | parent: fixture
+-message
+Request: 5T4JCRSLBSEJRFKSQPYBY5QB3T
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members: owner,hawk
+Enter inserts newline, never sends. Tab
+changes field.
+Not submitted; preview and review all be
+fore a second Ctrl+S submits.
+
+Esc draft | ^S preview | ^V view | F1

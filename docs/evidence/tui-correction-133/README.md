@@ -196,3 +196,76 @@ Raw terminal captures contain normal CR/padding; no unfiltered whitespace-clean
 claim is made for them. No full-suite, live transport, independent QA or owner
 UAT pass is claimed. Renew Robin's changed-head review, Wren's exact-artifact
 runtime/visual QA in `coop-tui-b-runtime-v1` and hosted checks before delivery.
+
+## Preview Privacy And Consent Context
+
+The creation preview now preserves explicit Reveal/Mask semantics for all
+creation input fields and the canonical owner-included member set. A masked
+preview displays field sizes/member count, never the title or input values.
+Ctrl+S only enters preview; it does not implicitly reveal or submit. Ctrl+V
+explicitly reveals, and another Ctrl+V masks the rendered preview again.
+The full captured request and complete-review submission gate remain intact.
+
+Connect and lifecycle confirmations capture master/principal display context
+when opened, independently of lifecycle routing authority. Four compact lines
+remain pinned during review: operation, master, principal and captured target.
+Full exact master/principal/target values remain in the scrollable body, which
+explicitly states that the master context is not the lifecycle destination.
+The renderer, PgDn step and contiguous-review accounting share the same pinned
+header geometry. Resize still clears review progress; jumping to the end still
+cannot count skipped body lines. Confirmation/cancellation and receiving-side
+exact-target validation are unchanged.
+
+Rendered regressions first reproduced automatic creation disclosure and missing
+confirmation context. They now cover masked/revealed/remasked creation values,
+Connect and destroy at all three sizes, frozen captured context after later
+display-context changes, paging/header geometry and cancellation. Existing
+long-confirmation/skipped-page/resize-reset and real creation-submit tests pass;
+the latter explicitly reveals before checking cleartext creation values.
+The focused privacy/confirmation/creation matrix passed ten repetitions.
+
+Build checkpoint: `cf102005e4e57742f0510f91bd54ebc0d1ddc86a`.
+Fixture `/tmp/opencode/hawk-136-consent.test` SHA-256:
+`97e3d0650a9710cb73e2a95ca09aa73b78bb48246de5d7af8cb60dd695e00cd8`.
+Shipping CLI `/tmp/opencode/hawk-136-consent-coop` SHA-256:
+`0861aa40ef2a4f5a10b1a89b8d97130ce84edbfebe1f7cc50c81d4a183f97ab7`.
+The later evidence commit adds only documentation/generated synthetic captures.
+Historical matrices above retain their original identities; they are not
+relabeled as the new build.
+
+`consent-pages/manifest.json` records 150 actual native Bubble Tea PTY
+checkpoints at 120x40, 80x24 and 40x20 in color and NO_COLOR. In addition to the
+existing page journey, it captures the masked creation preview, explicit Reveal,
+Mask, Connect top and reviewed end. The runner rejects any synthetic title in
+cumulative raw output before explicit Reveal, and checks revealed/remasked screen
+state. It also checks pinned master/principal/target at both ends of Connect.
+`consent-extra/manifest.json` records 42 supplemental checkpoints including
+destroy top/end with the same pinned-context checks. Neither confirmation is
+consented; no creation or message is submitted. Synthetic input is deliberately
+revealed only by the dedicated Reveal checkpoint; it is not customer content.
+
+The same rebuilt executable passed the 54-checkpoint exact-context matrix at
+`/tmp/opencode/hawk-136-consent-context/manifest.json` and six actual PTY stress
+sessions/156 checkpoints at `/tmp/opencode/hawk-136-consent-stress/manifest.json`.
+These preserve long/Unicode/combining labels, multiple message candidates,
+masking, selection, paging, refresh and ioctl/SIGWINCH resize evidence. No private
+fleet/conversation captures or private customer-QA findings are published.
+
+Reproduce using new output directories and the actual build-source revision:
+
+```sh
+flox activate -- go test -c -o /tmp/opencode/coop-136-consent.test ./internal/tui
+flox activate -- python3 scripts/capture-tui.py /tmp/opencode/coop-136-consent.test /tmp/opencode/coop-136-consent-pages --extended --source cf102005
+flox activate -- python3 scripts/capture-tui.py /tmp/opencode/coop-136-consent.test /tmp/opencode/coop-136-consent-extra --supplemental --source cf102005
+```
+
+Flox scoped TUI/hostrouter/masterclient/mastermcp/CLI tests, repository vet,
+golangci-lint v2.12.2 (0 issues), NO_COLOR TUI/CLI, uncached fitting race
+TUI/hostrouter/masterclient/master using the existing compiler, native builds,
+Go formatting and source/script/document whitespace checks passed again.
+No whole-suite, live fleet/transport, independent QA or owner-UAT pass is
+claimed. Main remained `103a896a911f53a005126852f7c7f89a748b87e3`; separate cache
+PR #131 remained OPEN/unchanged and was not included. The new head/artifact must
+receive Robin's renewed independent review, Wren's separate private runtime AND
+visual QA in `coop-tui-b-runtime-v1`, and required CI before source delivery.
+Owner UAT remains failed/pending; no deployment, restart or release is performed.
