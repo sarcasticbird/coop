@@ -172,9 +172,10 @@ func (f *coordForm) edit(k tea.KeyMsg) bool {
 	case "enter":
 		text = "\n"
 	default:
-		if k.Type == tea.KeyRunes {
+		switch k.Type {
+		case tea.KeyRunes:
 			text = string(k.Runes)
-		} else if k.Type == tea.KeySpace {
+		case tea.KeySpace:
 			text = " "
 		}
 	}
