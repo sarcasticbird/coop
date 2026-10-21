@@ -18,7 +18,7 @@ to the VCS revision (see `resolvedVersion` in `cmd/coop/main.go`), so
 
 ## Cutting a Release
 
-Build and validate with Go 1.26.9 or newer, as required by `go.mod`.
+Build and validate with Go 1.26.10 or newer, as required by `go.mod`.
 In a checkout, use `flox activate -- go ...` for the commands below.
 The Flox catalog currently supplies Go 1.26.8 as a bootstrap; the default
 `GOTOOLCHAIN=auto` selects and downloads the patched toolchain required by

@@ -9,6 +9,34 @@ module-only findings. All are Go standard-library advisories fixed in
 was reported. The module now requires 1.26.9; rebuild binaries to receive
 the fixes. No scanner exclusions or vulnerability-check changes are needed.
 
+## October 21 CI Follow-Up
+
+PR #127 CI run [39524380602](https://github.com/sarcasticbird/coop/actions/runs/39524380602)
+failed only its unchanged `govulncheck@v1.6.0 ./...` gate on source
+`9cf583ba31abf418351a7c3f4964dae7f09d6789`. It reported
+[GO-2026-6809](https://vuln.go.dev/ID/GO-2026-6809.json), distrust of compromised
+intermediate certificates in `crypto/x509.Certificate.Verify`, with a reachable
+trace from `internal/hostmcp/client.go`. The upstream advisory identifies Go
+1.26.10 as the fix on the 1.26 line. The module now requires **Go 1.26.10**;
+the older requirement above records the October 15 assessment, not the current
+minimum. Existing CI/release workflows read `go.mod`; no workflow, scanner
+exclusion, dependency or trust-store workaround is needed. Rebuilds are required
+to receive the standard-library fix; this source repair does not deploy binaries.
+
+The same scanner command on the author's Linux arm64 Go 1.26.9 environment
+reported no vulnerabilities, including with a separate XDG cache. Thus the CI
+symbol finding was not locally reproduced; the CI log and upstream advisory,
+not a claim of local reproduction, establish the required toolchain repair.
+
+Author checks on 2026-10-21 with Flox-selected Go 1.26.10 on Linux arm64 passed:
+the unchanged CI scanner command; `go mod verify`; repository-wide build and
+vet; scoped race tests for TUI, masterclient, coordination and hostmcp with the
+existing documented GCC compiler; ordinary master and CLI tests; Darwin arm64
+cross-build; and diff checks. No full-suite rerun or fresh CI pass is claimed
+here. New-head CI, independent engineering review and required exact-artifact
+runtime QA still precede delivery. No workflow or scanner configuration changed,
+and no release or deployment is authorized by this repair.
+
 The dispositions below are static applicability assessments, not exploit
 results or reasons to keep an unpatched toolchain. Advisory links identify
 the reviewed upstream records; scanner reachability alone does not prove
