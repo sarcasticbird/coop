@@ -67,6 +67,9 @@ func TestPresentationCreationPreviewAndGuard(t *testing.T) {
 				t.Fatal("nonempty edit lost draft guard")
 			}
 			view := strings.Split(m.View(), "\n")
+			if strings.Contains(m.View(), "proce\nss") || strings.Contains(m.View(), "Ret\nurn") {
+				t.Fatal("guard breaks ordinary words", m.View())
+			}
 			if strings.Contains(view[size.Height-2], "Review captured") || !strings.Contains(view[size.Height-2], "memory") {
 				t.Fatal("guard retained preview feedback", view)
 			}

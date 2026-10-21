@@ -1456,7 +1456,7 @@ func (m fleetModel) content() ([]string, string, int) {
 		if i == selectedLine {
 			selectedPhysicalLine = len(content)
 		}
-		if m.coordination.leaving != "" || m.form != nil || m.operations != nil || m.coordination.form != nil && !m.coordination.form.preview {
+		if m.coordination.leaving == "" && (m.form != nil || m.operations != nil || m.coordination.form != nil && !m.coordination.form.preview) {
 			if m.width > 0 {
 				line = textansi.Hardwrap(line, m.width, true)
 			}

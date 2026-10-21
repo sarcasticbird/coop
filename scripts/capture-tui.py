@@ -90,6 +90,7 @@ def main():
     manifest["extended"] = args.extended
     manifest["supplemental"] = args.supplemental
     manifest["exact_context"] = args.exact_context
+    manifest["exact_context_page_down_keys"] = {}
     manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
     manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     fixture_paths = ["internal/tui/runtime_capture_test.go", "internal/tui/runtime_baseline_test.go",
@@ -126,8 +127,8 @@ def main():
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
             if args.exact_context:
-                pages.insert(3, ("details-exact-context", [b"\x1b[6~"] * 12))
-                pages.append(("team-exact-context", [b"\x1b[6~"] * 12))
+                pages.insert(3, ("details-exact-context", []))
+                pages.append(("team-exact-context", []))
                 expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
@@ -188,6 +189,15 @@ def main():
                     raise RuntimeError(f"fixture exited during {page}: {bytes(raw[-5000:])!r}")
                 stem = f"{width}x{height}-{'no-color-' if no_color else ''}{page}"
                 screen = replay(raw, width, height)
+                if page.endswith("exact-context"):
+                    identities = [prefix + "shared-prefix-" * 8 + "second" for prefix in ("master-", "principal-")]
+                    steps = 0
+                    while not all(identity in screen.replace("\n", "") for identity in identities) and steps < 64:
+                        os.write(master, b"\x1b[6~")
+                        drain()
+                        screen = replay(raw, width, height)
+                        steps += 1
+                    manifest["exact_context_page_down_keys"][stem] = steps
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
