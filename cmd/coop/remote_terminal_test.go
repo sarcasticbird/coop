@@ -41,6 +41,8 @@ func TestForwardRemoteTerminalInput(t *testing.T) {
 		err    error
 	}{
 		{"normal bytes", []string{"abc", "\x03\x00\x1b[A", "\r\n"}, "abc\x03\x00\x1b[A\r\n", io.EOF},
+		{"Ctrl+D is remote input", []string{"\x04", "still attached", "\x1dnot remote"}, "\x04still attached", errRemoteTerminalDetach},
+		{"Ctrl+D before detach in chunk", []string{"abc\x04\x1dnot remote"}, "abc\x04", errRemoteTerminalDetach},
 		{"detach in chunk", []string{"abc\x1dnot remote"}, "abc", errRemoteTerminalDetach},
 		{"detach separate chunk", []string{"ab", "c", "\x1d", "not remote"}, "abc", errRemoteTerminalDetach},
 		{"detach at chunk end", []string{"abc\x1d", "not remote"}, "abc", errRemoteTerminalDetach},
@@ -66,6 +68,7 @@ type terminalAttachmentFixture struct {
 	reader *io.PipeReader
 	writer *io.PipeWriter
 	input  bytes.Buffer
+	wrote  chan []byte
 	exited chan struct{}
 	once   sync.Once
 	err    error
@@ -79,8 +82,14 @@ func newTerminalAttachmentFixture(t *testing.T) *terminalAttachmentFixture {
 	return a
 }
 
-func (a *terminalAttachmentFixture) Read(p []byte) (int, error)           { return a.reader.Read(p) }
-func (a *terminalAttachmentFixture) Write(p []byte) (int, error)          { return a.input.Write(p) }
+func (a *terminalAttachmentFixture) Read(p []byte) (int, error) { return a.reader.Read(p) }
+func (a *terminalAttachmentFixture) Write(p []byte) (int, error) {
+	n, err := a.input.Write(p)
+	if a.wrote != nil {
+		a.wrote <- append([]byte(nil), p[:n]...)
+	}
+	return n, err
+}
 func (a *terminalAttachmentFixture) Resize(hostrouter.TerminalSize) error { return nil }
 func (a *terminalAttachmentFixture) Wait() error                          { <-a.exited; return a.err }
 func (a *terminalAttachmentFixture) Close() error {
@@ -164,16 +173,33 @@ func TestRemoteTerminalBridgeExitDrainsOutput(t *testing.T) {
 
 func TestRemoteTerminalBridgeDetach(t *testing.T) {
 	a := newTerminalAttachmentFixture(t)
+	a.wrote = make(chan []byte, 1)
 	input, w := terminalCancelablePipe(t)
 	done := make(chan error, 1)
 	go func() { done <- bridgeRemoteTerminal(context.Background(), a, input, io.Discard) }()
+	if _, err := w.Write([]byte("\x04")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-a.wrote:
+		if string(got) != "\x04" {
+			t.Fatalf("Ctrl+D forwarded as %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Ctrl+D was not forwarded")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Ctrl+D detached: %v", err)
+	default:
+	}
 	if _, err := w.Write([]byte("hello\x03\x1dignored")); err != nil {
 		t.Fatal(err)
 	}
 	if err := awaitTerminalBridge(t, done); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.input.String(); got != "hello\x03" {
+	if got := a.input.String(); got != "\x04hello\x03" {
 		t.Fatalf("forwarded %q", got)
 	}
 }

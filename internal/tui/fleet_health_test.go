@@ -69,6 +69,11 @@ func TestFleetLongReferenceKeepsFailureAndStaleAgeReadable(t *testing.T) {
 					t.Fatal("reconnect retained stale health or redirected selection")
 				}
 				m, cmd = fleetKey(m, "s")
+				if cmd != nil || m.pending == nil {
+					t.Fatal("reconnected target bypassed confirmation")
+				}
+				m = reviewFleetConfirmation(t, m)
+				m, cmd = fleetKey(m, "y")
 				if cmd == nil {
 					t.Fatal("reconnected target action was unavailable")
 				}

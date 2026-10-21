@@ -95,7 +95,11 @@ func TestTUIForegroundCredentialForwarding(t *testing.T) {
 				if tc.kind == hostrouter.Interactive || tc.name == "project-init" {
 					req.Directory = "/selected/project"
 				}
-				cmd, err := tuiForegroundCommand(context.Background(), req, []string{"github", "comma,name"})
+				prepared, err := tuiPreparedAction(req, []string{"github", "comma,name"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				cmd, err := tuiCommand(context.Background(), prepared)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -113,6 +117,9 @@ func TestTUIForegroundCredentialForwarding(t *testing.T) {
 				}
 				if !reflect.DeepEqual(v.Args, want) || v.Target != req.Target || v.Directory != req.Directory {
 					t.Fatalf("foreground invocation = %+v, want args %q and original identity/path", v, want)
+				}
+				if !reflect.DeepEqual(v.Args, prepared.Args) {
+					t.Fatal("executed argv differs from captured consent arguments")
 				}
 				if !reflect.DeepEqual(req.Args, originalArgs) {
 					t.Fatal("request argv mutated")

@@ -1,15 +1,30 @@
 # Fleet Operations
 
-`coop tui` shows Fleet, Coordination (reserved for #94), and Servers. The `x`
-menu opens operations for the exact Fleet target or the selected Servers host.
+`coop tui` shows Fleet, Coordination, and Servers. From Fleet, Enter opens
+Details without connecting; Details `x` opens operations for that captured target.
+In Servers, `x` opens host-wide operations for the selected registration.
 `v` opens the Services/About runbook; `?` shows keyboard help. `PgUp`/`PgDn`
 scroll long content, including confirmations, output, and narrow-terminal forms.
+F1 opens editor-owned help without showing input, changing fields or discarding
+the editor viewport. `?` remains literal text inside an editor.
+
+Master setup and SSH setup are separate. Missing master configuration leaves
+Fleet available; configure an existing private `master-client.toml` and its
+credential references outside the TUI, then relaunch with `--master-config`.
+Servers add/update/remove edits only registered SSH references, such as existing
+`~/.ssh/config` aliases. Neither route accepts tokens, switches masters, bypasses
+SSH trust, provisions hosts or implicitly starts services.
 
 ## Routing And Safety
 
 - A form captures the complete host name/address, target kind/ID, runtime name,
   and project path. Selection changes never retarget it. Confirmation shows the
   captured identity, host destination, paths, and literal argv before dispatch.
+  Configured credential references are captured before this preview, not appended
+  after consent. Details lifecycle shortcuts require the same consent as the menu.
+  Long confirmations and server removals require contiguous page review with
+  PgDn before `y` is accepted; resize resets review. Cancellation and foreground
+  return retain the original Details/Servers viewport and Fleet scope/focus.
 - At dispatch, current authoritative inventory and registration are checked.
   The receiving CLI revalidates the target and project path again. Refresh epochs
   invalidate inventory predating an action. Completion carries the request
@@ -35,7 +50,9 @@ scroll long content, including confirmations, output, and narrow-terminal forms.
   and use a real controlling terminal. Local entry invokes the same CLI receiver
   as other actions. Remote entry/bootstrap use #95's SSH PTY/resize/disconnect
   handler. `Ctrl+]` detaches remote transport; use the local application's normal
-  exit/detach. `Ctrl+C` is delivered to the foreground application. An exec wrapper
+  exit/detach. `Ctrl+D` is forwarded to the remote application and may end its
+  shell; it is not a local detach shortcut. `Ctrl+C` is delivered to the foreground
+  application. An exec wrapper
   restores the pre-child terminal settings even if it exits with echo disabled.
   On return the same host/target is retained and inventory is refreshed.
 - Archives are private but unencrypted and can contain guest secrets. Backup
@@ -59,7 +76,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `tui` | Launch this browser; no nested TUI inside an action |
 | `ls`, `inventory` | Fleet local and registered remote inventory; independent refresh and stale/error health |
 | `status` | Fleet state plus `x` > status CLI result |
-| `up`, `down` | Fleet shortcuts `u` / `s`, or operation menu; normal lifecycle/ownership handlers |
+| `up`, `down` | Details shortcuts `u` / `s`, or operation menu; reviewed explicit confirmation and normal lifecycle/ownership handlers |
 | `destroy` | Fleet `d` or menu; exact captured host/kind/ID and state-volume impact; explicit `y` confirmation |
 | `rebuild` | Target maintenance; builds desired image without silently replacing guest |
 | `apply` | Stopped-target maintenance; CLI recovery archive and lock safeguards |
@@ -108,8 +125,14 @@ live authority and performs no fleet mutation. Automated coverage includes local
 and remote argv/path contracts, every operation family, disabled state/kind
 entries, confirmation capture, registry edits, output limits, permission failure,
 disconnection, cancellation, stale results and real-PTY terminal restoration after
-success/failure. Existing SSH PTY fixtures cover detach, resize and lost connection.
+success/failure and resumed browser keyboard input. Synthetic transport fixtures
+distinguish forwarded Ctrl+D from transport Ctrl+] detach; real-PTY attachment tests
+check restoration after detach, cancellation, remote exit/failure and attach failure.
+Existing SSH PTY fixtures cover detach, resize and lost connection.
 
+The script above retains its original `fleet-tui-uat-v1` shell-fixture identity.
+For the staged B implementation use the reproduction and acceptance map in
+`docs/tui-b-runtime.md` and environment revision `coop-tui-b-runtime-v1`.
 Operator-assisted Blackbook/rack-mini UAT is **pending**. Independent Robin
-exact-head review and Wren private exact-head QA for `fleet-tui-uat-v1` remain
-required. Neither author tests nor a printed checklist replace their evidence.
+exact-head review and Wren private exact-artifact QA remain required. Neither
+author tests nor a printed checklist replace their evidence.

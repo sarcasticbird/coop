@@ -54,6 +54,7 @@ type operationForm struct {
 	editing      bool
 	values       []string
 	requestID    string
+	returnScroll int
 }
 
 type operationStarted struct {
@@ -115,7 +116,7 @@ func (m fleetModel) openOperations() (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
-	m.operations = &operationForm{entry: e}
+	m.operations = &operationForm{entry: e, returnScroll: m.scroll}
 	m.scroll, m.output, m.status = 0, "", ""
 	return m, nil
 }
@@ -131,6 +132,7 @@ func (m fleetModel) keyOperation(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.editing = false
 		} else {
 			m.operations = nil
+			m.scroll = f.returnScroll
 		}
 		m.status = "operation cancelled"
 	case "up", "k", "down", "j":
@@ -194,14 +196,68 @@ func (m fleetModel) keyOperation(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.operations = nil
+		m.scroll = f.returnScroll
 		if s.confirm {
-			m.pending = &p
-			m.scroll = 0
-			return m, nil
+			return m.confirmAction(p)
 		}
 		return m.dispatchOperation(p)
 	}
 	return m, nil
+}
+
+// Capture the literal invocation before consent, not while dispatching it.
+func (m fleetModel) confirmAction(p pendingAction) (tea.Model, tea.Cmd) {
+	if p.args == nil {
+		for i, s := range operationSpecs {
+			if s.name == p.operation {
+				var err error
+				p, err = (operationForm{entry: p.entry, index: i}).action()
+				if err != nil {
+					m.status = err.Error()
+					return m, nil
+				}
+				break
+			}
+		}
+	}
+	if m.services.PrepareAction != nil {
+		req, err := m.services.PrepareAction(hostrouter.ActionRequest{Target: p.entry.Target, Operation: "command", Args: p.args, Directory: p.directory})
+		if err != nil || req.Target != p.entry.Target || req.Operation != "command" || req.Directory != p.directory {
+			m.status = "Cannot capture configured action references; action blocked"
+			return m, nil
+		}
+		p.args = append([]string(nil), req.Args...)
+	}
+	p.returnScroll = m.scroll
+	m.pending, m.scroll, m.status, m.output = &p, 0, "", ""
+	return m, nil
+}
+
+// Only contiguous pages count as reviewed. Geometry changes reset this progress.
+func (m fleetModel) reviewConfirmation() fleetModel {
+	if m.help || m.runbook {
+		return m
+	}
+	lines, _, _ := m.content()
+	limit := max(1, m.height-2)
+	if m.height <= 0 {
+		limit = len(lines)
+	}
+	start := min(m.scroll, max(0, len(lines)-limit))
+	if m.pending != nil {
+		p := *m.pending
+		if start <= p.reviewedThrough {
+			p.reviewedThrough = max(p.reviewedThrough, min(len(lines), start+limit))
+		}
+		m.pending = &p
+	} else if m.form != nil && m.form.operation == "remove" {
+		f := *m.form
+		if start <= f.reviewedThrough {
+			f.reviewedThrough = max(f.reviewedThrough, min(len(lines), start+limit))
+		}
+		m.form = &f
+	}
+	return m
 }
 
 func (f operationForm) action() (pendingAction, error) {
@@ -437,6 +493,7 @@ func serviceRunbook() []string {
 		"Coordination (2): team, inbox, threads, private compose/reply, receipts and exact-revision goal proposal/authority/owner decisions. Presence and receipts never imply goal approval.",
 		"Legacy/profile approve remains an explicit CLI action (coop --agent NAME approve GOAL_URL); it is not a native goal decision.",
 		"Fleet inventory represents ls, inventory and status; Servers represents server list/add/update/remove.",
+		"CLI-only inspections: coop cache status; coop team inspect; coop message continue (explicit continuation, not automatic reply/wake).",
 		"Bootstrap: Servers > x > init invokes the existing interactive CLI on an explicit host project directory.",
 		"Help: ? for keyboard help; coop --help for CLI flags; coop --version for installed build identity.",
 		"Completion: coop completion bash|zsh|fish|powershell is shell integration, not a TUI action.",

@@ -985,14 +985,20 @@ func (m fleetModel) coordLines() (lines []string) {
 	if q.leaving != "" || q.form != nil || q.receipt != nil {
 		return m.composeLines()
 	}
-	master := "unconfigured"
-	if m.services.Coordination != nil {
-		master = m.services.Coordination.MasterID()
-	}
-	lines = []string{"Coordination | Master: " + master + " | Principal: " + q.self.Principal.ID + " (" + q.self.Principal.Kind + ")", "t Team | l Threads | i Inbox (agent only) | g Active approved goals", "n create | c compose | p reply/prompt | m members | s status | a authority | o propose | d decide", "r refresh | f follow/poll | ] next page | Enter open | Esc back/Fleet"}
 	if m.services.Coordination == nil {
-		return append(lines, "Master client unavailable: configure --master-config with a private master-client.toml; Fleet remains available")
+		return []string{
+			"Coordination | Master setup",
+			"Master client unavailable; Fleet remains available.",
+			"Use an existing private master-client.toml with configured endpoint, identity and credential references.",
+			"Configure token_file or token_env references outside this TUI; never enter tokens here.",
+			"Exit and relaunch: coop --master-config /private/master-client.toml tui",
+			"This TUI does not accept token input, switch masters, or start a master service.",
+			"SSH setup is separate: Servers manages existing configured SSH references only.",
+			"1 Fleet | 3 Servers | ? help | Esc back/Fleet",
+		}
 	}
+	master := m.services.Coordination.MasterID()
+	lines = []string{"Coordination | Master: " + master + " | Principal: " + q.self.Principal.ID + " (" + q.self.Principal.Kind + ")", "t Team | l Threads | i Inbox (agent only) | g Active approved goals", "n create | c compose | p reply/prompt | m members | s status | a authority | o propose | d decide", "r refresh | f follow/poll | ] next page | Enter open | Esc back/Fleet"}
 	if q.section == "team" && q.form == nil && q.thread == nil && q.receipt == nil && q.authority == nil {
 		return m.teamLines(master)
 	}
