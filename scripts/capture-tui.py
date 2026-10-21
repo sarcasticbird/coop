@@ -144,13 +144,13 @@ def main():
                     ("create-preview", [b"Synthetic capture", b"\t", b"coop", b"\t", b"owner,hawk", b"\x13"], "Threads > Preview (create)"),
                     ("create-revealed", [b"\x16"], "Threads > Preview (create)"),
                     ("create-remasked", [b"\x16"], "Threads > Preview (create)"),
-                    ("root-composer", [b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
+                    ("root-composer", [b"\x1b", b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
                     ("composer-help", [b"\x1bOP"], "Composer Help"),
                     ("root-preview", [b"\x1b", b"hawk", b"\t", b"Synthetic capture only.", b"\x13"], "Threads > Preview (send)"),
-                    ("draft-guard", [b"\x1b"], "Draft protection"),
+                    ("draft-guard", [b"\x1b", b"\x1b"], "Draft protection"),
                     ("reply-composer", [b"d", b"p"], "Threads > Composer (reply)"),
                     ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
-                    ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt"),
+                    ("receipt", [b"\x1b", b"\x1b", b"d", b"s"], "Threads > Delivery receipt"),
                 ]
                 pages.extend((page, keys) for page, keys, _ in extended)
                 expected_pages.update((page, expected) for page, _, expected in extended)
@@ -158,7 +158,7 @@ def main():
                 supplemental = {
                     "": [("reply-composer", [b"2", b"l", b"\r", b"p"], "Threads > Composer (reply)"),
                          ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
-                         ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
+                          ("receipt", [b"\x1b", b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
                     "setup": [("missing-master", [], "Master setup")],
                     "first-use": [("no-remote-first-use", [], "SSH setup")],
                     "destroy": [("destroy-confirmation", [b"\x1b[B", b"\r", b"d"], "CONFIRM DESTROY"),
@@ -196,6 +196,19 @@ def main():
                 if page in ("create-revealed", "create-remasked"):
                     if ("Synthetic capture" in screen) != (page == "create-revealed"):
                         raise RuntimeError("creation preview did not honor explicit reveal/mask")
+                if page in ("create-preview", "create-revealed", "create-remasked"):
+                    revealed = page == "create-revealed"
+                    state, action = ("revealed", "mask") if revealed else ("masked", "reveal")
+                    if f"Content: {state}" not in screen or f"^V {action}" not in screen or "Esc edit" not in screen:
+                        raise RuntimeError(f"creation preview state/controls disagree: {screen}")
+                    if "Captured members:" in screen or "Enter inserts" in screen:
+                        raise RuntimeError("creation preview retained unrelated/editing context")
+                if page == "draft-guard" and "Keep in memory, discard, or return" not in screen:
+                    raise RuntimeError("draft guard retained unrelated feedback")
+                if page == "details-help" and ("Master: test-master" not in screen or "Principal: owner" not in screen):
+                    raise RuntimeError("Details Help lost labeled context")
+                if page == "connect-reviewed" and "y confirms" in screen:
+                    raise RuntimeError("Connect retained mixed consent vocabulary")
                 if page in ("connect-confirmation", "connect-reviewed", "destroy-confirmation", "destroy-reviewed"):
                     header = screen.splitlines()[:4]
                     if len(header) != 4 or header[1:3] != ["Master: test-master", "Principal: owner"] or not header[3].startswith("Target:"):

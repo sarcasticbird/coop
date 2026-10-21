@@ -100,9 +100,7 @@ func (m fleetModel) conversationAnchor() (string, int) {
 }
 
 func (m fleetModel) conversationLineHeight(line string) int {
-	if m.width > 0 {
-		line = textansi.Hardwrap(line, m.width, true)
-	}
+	line = readingWrap(line, m.width)
 	return strings.Count(line, "\n") + 1
 }
 

@@ -1181,7 +1181,11 @@ func (m fleetModel) content() ([]string, string, int) {
 				prefix = "> "
 				selectedLine = len(lines) + len(body)
 			}
-			body = append(body, prefix+coordClean(h.host.Name)+" ("+coordClean(valueOr(h.host.Address, "this machine"))+")")
+			hostLabel := coordClean(h.host.Name)
+			if m.workspace == 0 {
+				hostLabel = "Host: " + hostLabel
+			}
+			body = append(body, prefix+hostLabel+" ("+coordClean(valueOr(h.host.Address, "this machine"))+")")
 			// Health must remain readable even when a long SSH reference is clipped.
 			health := "    [" + state + "]"
 			if m.width > 0 {
@@ -1266,7 +1270,7 @@ func (m fleetModel) content() ([]string, string, int) {
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc draft options")
 		if m.workspace == 0 && m.detailEntry != nil && m.detail {
-			lines = append([]string{"Details Help", "Target: " + identity(m.detailEntry.Target), "Host destination: " + valueOr(m.detailEntry.Target.Host.Address, "this machine"), "Runtime: " + m.detailEntry.Name, "Connect needs a running VM; Apply and Backup need a stopped VM.", "Observations do not grant action authority; every action revalidates the captured target."}, lines[1:]...)
+			lines = append(append(m.pageContext("Details Help"), "Target: "+identity(m.detailEntry.Target), "Host destination: "+valueOr(m.detailEntry.Target.Host.Address, "this machine"), "Runtime: "+m.detailEntry.Name, "Connect needs a running VM; Apply and Backup need a stopped VM.", "Observations do not grant action authority; every action revalidates the captured target."), lines[1:]...)
 		}
 		if m.workspace == 1 && m.coordination.section == "team" && m.coordination.form == nil {
 			lines = []string{"Team Help", "Master Team and diagnostics are read-only observations, not VM state or action authority.", "List: up/down or j/k select agent; Enter inspects the captured agent/host/worker/generation.", "Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and viewport.", "r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit", "Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is retained evidence, not current work.", "Heartbeat age is not work progress. Report, receipt, work and wait ages are separate.", "Placement changes invalidate reports; return and inspect again. Reads never wake agents or perform recovery.", "? or Esc returns without changing selection or dispatching an action."}
@@ -1331,7 +1335,11 @@ func (m fleetModel) content() ([]string, string, int) {
 				lines[i] = textansi.Truncate(coordClean(lines[i]), m.width, "...")
 			}
 		}
-		lines = append(lines, "Target: "+identity(m.pending.entry.Target), "Name: "+m.pending.entry.Name, "Host destination: "+valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: "+valueOr(m.pending.entry.Project, "-"), "Exact "+m.pending.context[0], "Exact "+m.pending.context[1], "Master context is not the lifecycle destination.", impact, "No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels.")
+		consent := "No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels."
+		if m.pending.operation == "enter" {
+			consent = "No automatic retry or rollback. Review every page, then Enter continues; Esc cancels."
+		}
+		lines = append(lines, "Target: "+identity(m.pending.entry.Target), "Name: "+m.pending.entry.Name, "Host destination: "+valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: "+valueOr(m.pending.entry.Project, "-"), "Exact "+m.pending.context[0], "Exact "+m.pending.context[1], "Master context is not the lifecycle destination.", impact, consent)
 		if m.pending.operation == "enter" {
 			lines = append(lines, "VM lifecycle: "+m.pending.entry.State+"; Connect requires running. A stopped VM needs explicit Start first.", "Enter continues only after complete review; Esc returns to Details.")
 		}
@@ -1373,15 +1381,24 @@ func (m fleetModel) content() ([]string, string, int) {
 			}
 		}
 		if m.coordination.form != nil {
-			footer = "Esc draft | ^S preview | ^V view | F1"
+			action := "reveal"
+			if m.coordination.form.reveal && !m.coordination.failed && m.services.Coordination != nil && coordSameContext(m.coordination.self, m.coordination.form.self, m.services.Coordination.MasterID(), m.coordination.form.master) {
+				action = "mask"
+			}
+			footer = "Esc draft | ^S preview | ^V " + action
 			if m.coordination.form.preview {
-				footer = "Esc draft | ^S submit | ^V view | F1"
+				footer = "Esc edit | ^S submit | ^V " + action
 				if m.coordination.form.kind == "create" {
-					footer = "Esc draft | ^S create | ^V view | F1"
+					footer = "Esc edit | ^S create | ^V " + action
 				}
 			}
 			if m.coordination.form.frozen {
 				footer = "^R identical retry | Esc draft options"
+			}
+			if m.width <= 0 || m.width >= 65 {
+				footer += " | F1 help"
+			} else if textansi.StringWidth(footer+" | F1") <= m.width {
+				footer += " | F1"
 			}
 		}
 		if m.coordination.receipt != nil {
@@ -1439,8 +1456,12 @@ func (m fleetModel) content() ([]string, string, int) {
 		if i == selectedLine {
 			selectedPhysicalLine = len(content)
 		}
-		if m.width > 0 {
-			line = textansi.Hardwrap(line, m.width, true)
+		if m.coordination.leaving != "" || m.form != nil || m.operations != nil || m.coordination.form != nil && !m.coordination.form.preview {
+			if m.width > 0 {
+				line = textansi.Hardwrap(line, m.width, true)
+			}
+		} else {
+			line = readingWrap(line, m.width)
 		}
 		content = append(content, strings.Split(line, "\n")...)
 	}
@@ -1490,7 +1511,12 @@ func (m fleetModel) View() string {
 			content = content[start:min(len(content), start+limit)]
 		}
 		if total > m.height-2 && !strings.Contains(footer, "PgUp/PgDn") {
-			footer += " | PgUp/PgDn scroll"
+			hint := " | PgUp/PgDn scroll"
+			if m.width <= 0 || textansi.StringWidth(footer+hint) <= m.width {
+				footer += hint
+			} else if textansi.StringWidth(footer+" | PgDn") <= m.width {
+				footer += " | PgDn"
+			}
 		}
 		for len(content) < m.height-2 {
 			content = append(content, "")
@@ -1543,6 +1569,12 @@ func (m fleetModel) View() string {
 	}
 	if m.help {
 		feedback = ""
+	}
+	if m.coordination.leaving != "" {
+		feedback = "Keep in memory, discard, or return"
+		if m.coordination.leaving == "quit" {
+			feedback = "Quitting loses all in-memory drafts"
+		}
 	}
 	feedback = strings.Join(strings.Fields(coordClean(feedback)), " ")
 	if m.width > 0 {
