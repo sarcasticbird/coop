@@ -559,3 +559,33 @@ private exact-artifact QA in `coop-tui-b-runtime-v1`, including create, root/rep
 preview, mask/help, draft/resume/quit and uncertain retry at all three sizes.
 Required CI remains a delivery gate. No deployment, service restart, production
 fleet mutation, rollout, release or tap publication is included.
+
+### Stage 3b Review Corrections
+
+Robin's review of `be82aee690711dfabba035cceb796143c49ed607` identified two
+reproduced edge cases, now covered by synthetic regressions:
+
+- `expected_members` uses JSON `omitzero`, not `omitempty`: a nil legacy slice
+  is still absent with byte-identical request encoding, while explicit-empty
+  membership remains `[]` on the wire and conflicts with a populated thread.
+  The JSON round-trip test distinguishes nil/empty/nonempty; the HTTP/client
+  test asserts conflict, no committed message and unchanged legacy nil behavior.
+- Draft protection takes final content/footer precedence over Help, Services and
+  other overlays without replacing the underlying workspace. Return restores
+  the retained overlay and viewport. Update/View tests at all three dimensions
+  cover active Composer Help and kept drafts in Fleet Help and Servers Services,
+  including visible quit-loss warning, private-input exclusion, original request
+  retention, Return and explicit discard-and-quit.
+
+The focused regressions failed on the reviewed head before correction and passed
+after correction. Re-run `TestSendMessageMembershipWireSemantics`,
+`TestComposeHTTPExplicitEmptyMembershipFailsClosed` and
+`TestComposeQuitWarningOwnsOverlayAndRestoresReturn` with the reproduction commands
+above. These author regressions do not renew independent review or private
+exact-artifact QA; both must be performed against the new published head.
+
+Correction validation through Flox Go 1.26.10 passed: uncached scoped TUI,
+coordination, master, masterclient, mastermcp and CLI tests; repository-wide vet;
+golangci-lint v2.12.2 (zero issues); no-color TUI/CLI tests; fitting uncached race
+tests for TUI/coordination/masterclient/master with the existing compiler above;
+formatting and diff checks. No new full-suite or independent-clearance claim.

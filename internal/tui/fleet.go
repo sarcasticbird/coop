@@ -486,7 +486,6 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.coordination.form != nil || len(m.coordination.drafts) > 0 {
 			m.coordination.leaving = "quit"
 			m.coordination.leaveScroll = m.scroll
-			m.workspace = 1
 			m.scroll = 0
 			return m, nil
 		}
@@ -1267,12 +1266,6 @@ func (m fleetModel) content() ([]string, string, int) {
 		if m.coordination.receipt != nil {
 			footer = "r status | f poll | Esc reader"
 		}
-		if m.coordination.leaving != "" {
-			footer = "k Keep | d Discard | r/Esc Return"
-			if m.coordination.leaving == "quit" {
-				footer = "d Discard all and quit | r/Esc Return"
-			}
-		}
 		if m.coordination.busy && !m.coordination.backgroundRead {
 			footer = "Coordination request in progress; no automatic mutation retries | Ctrl+C quit"
 		}
@@ -1297,6 +1290,15 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.busy {
 		footer = "Operation in progress | esc cancel if supported | Ctrl+C quit"
+	}
+	// Draft protection owns both the visible page and its keys, without changing
+	// the underlying workspace or overlay that Return must restore.
+	if m.coordination.leaving != "" {
+		lines, selectedLine = m.composeLines(), -1
+		footer = "k Keep | d Discard | r/Esc Return"
+		if m.coordination.leaving == "quit" {
+			footer = "d Discard all and quit | r/Esc Return"
+		}
 	}
 	var content []string
 	selectedPhysicalLine := -1
@@ -1345,7 +1347,7 @@ func (m fleetModel) View() string {
 			feedback = "STALE/UNKNOWN | " + feedback
 		}
 	}
-	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook {
+	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook && m.coordination.leaving == "" {
 		diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure)
 		if m.diagnostics.busy && m.diagnostics.report == nil && m.diagnostics.failure == "" {
 			diagnostic = "Loading diagnostics..."
@@ -1358,7 +1360,7 @@ func (m fleetModel) View() string {
 			footer = diagnostic + " | " + footer
 		}
 	}
-	if m.workspace == 1 && m.coordination.teamDetail != nil && m.coordination.form == nil && !m.help && !m.runbook {
+	if m.workspace == 1 && m.coordination.teamDetail != nil && m.coordination.form == nil && !m.help && !m.runbook && m.coordination.leaving == "" {
 		q := m.coordination
 		if q.failed {
 			feedback = "STALE/UNKNOWN | Team: " + q.status

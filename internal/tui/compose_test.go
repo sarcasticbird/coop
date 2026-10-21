@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -379,5 +380,93 @@ func TestComposePreviewRequiresCompleteReviewAndReceiptIdentity(t *testing.T) {
 	m = coordinationRun(t, m, cmd)
 	if !m.coordination.failed || m.coordination.receipt.MessageID != "committed" {
 		t.Fatal("status retargeted committed receipt")
+	}
+}
+
+func TestComposeHTTPExplicitEmptyMembershipFailsClosed(t *testing.T) {
+	owner, _ := coordinationMasterFixture(t)
+	ctx := context.Background()
+	thread, err := owner.CreateThread(ctx, c.CreateThread{Title: "synthetic empty guard", Engagement: "coop", Members: []string{"owner", "hawk"}, RequestID: "empty-guard-thread"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := c.SendMessage{ThreadID: thread.ID, ExpectedMembers: []string{}, Recipients: []string{"hawk"}, Body: "synthetic empty-guard body", RequestID: "empty-guard-send"}
+	if _, err := owner.Send(ctx, in); !errors.Is(err, c.ErrConflict) {
+		t.Fatalf("HTTP empty guard: got %v, want conflict", err)
+	}
+	page, err := owner.Messages(ctx, thread.ID, 0)
+	if err != nil || len(page.Messages) != 0 {
+		t.Fatal("explicit-empty membership committed a message")
+	}
+	// A legacy absent guard must retain its previous HTTP contract.
+	in.ExpectedMembers, in.RequestID = nil, "legacy-unguarded-send"
+	receipt, err := owner.Send(ctx, in)
+	if err != nil || receipt.MessageID == "" {
+		t.Fatalf("legacy nil guard failed: %v", err)
+	}
+	page, err = owner.Messages(ctx, thread.ID, 0)
+	if err != nil || len(page.Messages) != 1 || page.Messages[0].ID != receipt.MessageID {
+		t.Fatal("legacy send did not commit exactly one message")
+	}
+}
+
+func TestComposeQuitWarningOwnsOverlayAndRestoresReturn(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {40, 20}} {
+		for _, overlay := range []string{"active-help", "kept-fleet-help", "kept-servers-services"} {
+			t.Run(fmt.Sprint(size)+"/"+overlay, func(t *testing.T) {
+				m, _ := coordinationFixture()
+				m.width, m.height = size[0], size[1]
+				m, _ = coordinationKey(m, "n")
+				m, _ = coordinationKey(m, "synthetic-overlay-secret")
+				id := m.coordination.form.requestID
+				if overlay == "active-help" {
+					m, _ = composeKey(m, tea.KeyF1)
+				} else {
+					m, _ = coordinationKey(m, "esc")
+					m, _ = coordinationKey(m, "k")
+					if overlay == "kept-fleet-help" {
+						m, _ = coordinationKey(m, "1")
+						m, _ = coordinationKey(m, "?")
+					} else {
+						m, _ = coordinationKey(m, "3")
+						m, _ = coordinationKey(m, "v")
+					}
+				}
+				for range 5 {
+					m, _ = coordinationKey(m, "pgdown")
+				}
+				before, workspace, scroll, help, runbook := m.View(), m.workspace, m.scroll, m.help, m.runbook
+				m, cmd := composeKey(m, tea.KeyCtrlC)
+				if cmd != nil || m.coordination.leaving != "quit" {
+					t.Fatal("quit bypassed draft decision")
+				}
+				view := m.View()
+				for _, want := range []string{"Draft protection", "Quit destroys all active and kept drafts.", "Discard all and quit", "Return"} {
+					if !strings.Contains(strings.ReplaceAll(view, "\n", ""), want) {
+						t.Fatalf("quit warning omitted %q over %s", want, overlay)
+					}
+				}
+				if strings.Contains(view, "synthetic-overlay-secret") || strings.Contains(view, "Composer Help") || strings.Contains(view, "Coop build:") {
+					t.Fatal("overlay or private input replaced quit warning")
+				}
+				assertComposeBounds(t, m)
+				m, _ = coordinationKey(m, "r")
+				if m.coordination.leaving != "" || m.workspace != workspace || m.scroll != scroll || m.help != help || m.runbook != runbook || m.View() != before {
+					t.Fatal("Return lost prior workspace, overlay or viewport")
+				}
+				if overlay == "active-help" {
+					if m.coordination.form == nil || m.coordination.form.requestID != id {
+						t.Fatal("Return replaced the active intent")
+					}
+				} else if len(m.coordination.drafts) != 1 || m.coordination.drafts[0].requestID != id {
+					t.Fatal("Return replaced the kept intent")
+				}
+				m, _ = composeKey(m, tea.KeyCtrlC)
+				m, cmd = coordinationKey(m, "d")
+				if cmd == nil || cmd() != tea.Quit() || m.coordination.form != nil || len(m.coordination.drafts) != 0 {
+					t.Fatal("explicit discard-and-quit did not clear drafts")
+				}
+			})
+		}
 	}
 }
