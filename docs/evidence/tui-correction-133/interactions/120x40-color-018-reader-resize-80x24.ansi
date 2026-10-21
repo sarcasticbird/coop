@@ -1,0 +1,24 @@
+[HThreads > fixture-thread[K
+Master: test-master[K
+Principal: owner (owner)[K
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+Snapshot refreshed[K
+Esc Threads | p reply | ^V reveal | ?[K[24;H
