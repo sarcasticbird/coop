@@ -59,6 +59,7 @@ type serverForm struct {
 }
 
 type pendingAction struct {
+	context         [2]string
 	entry           hostrouter.InventoryEntry
 	operation       string
 	args            []string
@@ -533,7 +534,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		lines, _, _ := m.content()
 		step := 1
 		if m.pending != nil || m.form != nil && m.form.operation == "remove" {
-			step = max(1, m.height-2)
+			step = max(1, m.height-2-m.confirmationHeaderRows())
 		}
 		if m.conversationPage() && !m.help && !m.runbook {
 			step = max(1, m.height-conversationHeader-2)
@@ -1320,9 +1321,18 @@ func (m fleetModel) content() ([]string, string, int) {
 		if m.pending.operation == "enter" {
 			impact = "Connect on the foreground terminal? Remote SSH: Ctrl+] detaches; Ctrl+D is application EOF and may end the guest shell. Ctrl+C reaches the foreground application. Local: exit the foreground application to return. Return to the same Details and filter; no automatic reconnect."
 		}
-		lines = []string{"CONFIRM " + strings.ToUpper(m.pending.operation), "Target: " + identity(m.pending.entry.Target), "Name: " + m.pending.entry.Name, "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: " + valueOr(m.pending.entry.Project, "-"), impact, "No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels."}
+		title := "CONFIRM " + strings.ToUpper(m.pending.operation)
 		if m.pending.operation == "enter" {
-			lines[0] = "Connect preflight"
+			title = "Connect preflight"
+		}
+		lines = []string{title, m.pending.context[0], m.pending.context[1], "Target: " + identity(m.pending.entry.Target)}
+		for i := range lines {
+			if m.width > 0 {
+				lines[i] = textansi.Truncate(coordClean(lines[i]), m.width, "...")
+			}
+		}
+		lines = append(lines, "Target: "+identity(m.pending.entry.Target), "Name: "+m.pending.entry.Name, "Host destination: "+valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: "+valueOr(m.pending.entry.Project, "-"), "Exact "+m.pending.context[0], "Exact "+m.pending.context[1], "Master context is not the lifecycle destination.", impact, "No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels.")
+		if m.pending.operation == "enter" {
 			lines = append(lines, "VM lifecycle: "+m.pending.entry.State+"; Connect requires running. A stopped VM needs explicit Start first.", "Enter continues only after complete review; Esc returns to Details.")
 		}
 		if m.pending.directory != "" {
@@ -1457,7 +1467,13 @@ func (m fleetModel) View() string {
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)
-		if (m.workspace == 0 && !m.detail || m.coordination.leaving != "") && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
+		if header := m.confirmationHeaderRows(); header > 0 {
+			pinned := append([]string(nil), content[:header]...)
+			content = content[header:]
+			limit = max(1, limit-header)
+			start := min(m.scroll, max(0, len(content)-limit))
+			content = append(pinned, content[start:min(len(content), start+limit)]...)
+		} else if (m.workspace == 0 && !m.detail || m.coordination.leaving != "") && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
 			pinned := content[0]
 			content = content[1:]
 			limit--

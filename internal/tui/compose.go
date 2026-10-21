@@ -258,7 +258,12 @@ func (m fleetModel) composeLines() (lines []string) {
 	if f.kind == "create" && f.preview && canReveal {
 		members := append(coordIDs(f.values[2]), f.self.Principal.ID)
 		slices.Sort(members)
-		lines = append(lines, "Creation members (owner included): "+strings.Join(slices.Compact(members), ","))
+		members = slices.Compact(members)
+		value := fmt.Sprintf("[hidden, %d members]", len(members))
+		if f.reveal {
+			value = strings.Join(members, ",")
+		}
+		lines = append(lines, "Creation members (owner included): "+value)
 	}
 	if f.kind == "decision" {
 		lines = append(lines, fmt.Sprintf("Goal: %s\nExact revision: %s\nExpected decision sequence: %d\nState: %s", f.authority.Revision.Ref.GoalID, f.authority.Revision.Ref.RevisionSHA256, f.authority.DecisionSequence, f.authority.State))
@@ -269,7 +274,7 @@ func (m fleetModel) composeLines() (lines []string) {
 			prefix = "> "
 		}
 		value := fmt.Sprintf("[hidden, %d bytes]", len(f.values[i]))
-		if canReveal && (f.reveal || f.preview && f.kind == "create" || (f.kind == "send" || f.kind == "reply") && i == 0) {
+		if canReveal && (f.reveal || (f.kind == "send" || f.kind == "reply") && i == 0) {
 			value = f.values[i]
 			if i == f.field && !f.preview {
 				runes := []rune(value)

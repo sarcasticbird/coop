@@ -139,8 +139,11 @@ def main():
                     ("ssh-add-help", [b"\x1bOP"], "SSH Server Help"),
                     ("details-help", [b"\x1b", b"\x1b", b"1", b"\r", b"?"], "Help"),
                     ("connect-confirmation", [b"\x1b", b"\r"], "Connect on the foreground terminal?"),
+                    ("connect-reviewed", [b"\x1b[6~"] * 8, "Connect preflight"),
                     ("threads-new", [b"\x1b", b"2", b"\x1b", b"l", b"n"], "Threads > Composer (create)"),
                     ("create-preview", [b"Synthetic capture", b"\t", b"coop", b"\t", b"owner,hawk", b"\x13"], "Threads > Preview (create)"),
+                    ("create-revealed", [b"\x16"], "Threads > Preview (create)"),
+                    ("create-remasked", [b"\x16"], "Threads > Preview (create)"),
                     ("root-composer", [b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
                     ("composer-help", [b"\x1bOP"], "Composer Help"),
                     ("root-preview", [b"\x1b", b"hawk", b"\t", b"Synthetic capture only.", b"\x13"], "Threads > Preview (send)"),
@@ -158,7 +161,8 @@ def main():
                          ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
                     "setup": [("missing-master", [], "Master setup")],
                     "first-use": [("no-remote-first-use", [], "SSH setup")],
-                    "destroy": [("destroy-confirmation", [b"\x1b[B", b"\r", b"d"], "CONFIRM DESTROY")],
+                    "destroy": [("destroy-confirmation", [b"\x1b[B", b"\r", b"d"], "CONFIRM DESTROY"),
+                                ("destroy-reviewed", [b"\x1b[6~"] * 8, "CONFIRM DESTROY")],
                 }[mode]
                 pages = [(page, keys) for page, keys, _ in supplemental]
                 expected_pages = {page: expected for page, _, expected in supplemental}
@@ -187,6 +191,15 @@ def main():
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
+                if page == "create-preview" and b"Synthetic capture" in raw:
+                    raise RuntimeError("masked creation preview exposed input in terminal output")
+                if page in ("create-revealed", "create-remasked"):
+                    if ("Synthetic capture" in screen) != (page == "create-revealed"):
+                        raise RuntimeError("creation preview did not honor explicit reveal/mask")
+                if page in ("connect-confirmation", "connect-reviewed", "destroy-confirmation", "destroy-reviewed"):
+                    header = screen.splitlines()[:4]
+                    if len(header) != 4 or header[1:3] != ["Master: test-master", "Principal: owner"] or not header[3].startswith("Target:"):
+                        raise RuntimeError(f"confirmation lost pinned context: {screen}")
                 if page.endswith("exact-context"):
                     for prefix in ("master-", "principal-"):
                         if prefix + "shared-prefix-" * 8 + "second" not in screen.replace("\n", ""):
