@@ -68,6 +68,16 @@ exact-revision goal workflows are documented in
 [`docs/fleet-tui.md`](../../docs/fleet-tui.md), including complete command coverage
 and the `fleet-tui-uat-v1` checklist. Coordination forms use Ctrl+S to preview and
 submit, Ctrl+V to reveal masked input, and Ctrl+R to retry identical frozen input.
+Team (`2`, then `t`) uses a full-page list and selected-agent diagnostic detail.
+Arrows select; Enter inspects the captured master placement; Escape returns with
+the list selection/scroll intact. Detail refresh is read-only and verifies agent,
+host, worker instance and placement generation. Heartbeat is not work progress;
+report, receipt, work and wait observations have separate ages. Unsupported,
+denied, missing or stale evidence never implies idle, healthy or stopped. Fleet
+Details uses an optional host-owned profile diagnostic binding and verifies its
+master and exact current placement before displaying work. Unbound targets keep
+work unknown rather than guessing by name. See the stage-2 binding contract and exact-head
+reproduction instructions in [`docs/tui-b-runtime.md`](../../docs/tui-b-runtime.md).
 Operational forms, safeguards, command coverage and fixture UAT are documented in
 [`docs/tui-operations.md`](../../docs/tui-operations.md). Forms never accept raw
 shell commands or credential values. Config and archive paths are host-owned.

@@ -14,6 +14,7 @@ import (
 	textansi "github.com/charmbracelet/x/ansi"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 	"github.com/sarcasticbird/coop/internal/runtime"
+	"github.com/sarcasticbird/coop/internal/tui/team"
 )
 
 // Registry edits configured references only; transport and credentials stay in
@@ -64,6 +65,7 @@ type pendingAction struct {
 
 type fleetModel struct {
 	coordination          coordState
+	diagnostics           fleetDiagnostics
 	services              Services
 	ctx                   context.Context
 	hosts                 []hostState
@@ -76,6 +78,7 @@ type fleetModel struct {
 	ledgerFocus           bool
 	overlayScroll         int
 	overlayLedgerFocus    bool
+	overlayTeamFocus      bool
 	detailEntry           *hostrouter.InventoryEntry
 	detailInvalid         bool
 	server                hostrouter.Host
@@ -218,14 +221,18 @@ func (m *fleetModel) reconcile() {
 				present = true
 			}
 		}
-		if !present || (ok && (e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project)) {
+		if !present || (ok && (e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project || !sameBinding(e.Diagnostics, m.detailEntry.Diagnostics))) {
 			m.detailInvalid = true
+			m.resetFleetDiagnostics()
+			m.diagnostics.failure = "target or diagnostic binding changed; work unknown"
+		} else if !ok {
+			m.diagnostics.failure = "host inventory unavailable; current work unknown"
 		}
 	}
 	if m.pending != nil && m.pending.entry.Target.Kind != "" {
 		present := false
 		for _, row := range m.rows() {
-			if row.Target == m.pending.entry.Target && row.Name == m.pending.entry.Name && row.Project == m.pending.entry.Project {
+			if row.Target == m.pending.entry.Target && row.Name == m.pending.entry.Name && row.Project == m.pending.entry.Project && sameBinding(row.Diagnostics, m.pending.entry.Diagnostics) {
 				present = true
 			}
 		}
@@ -237,7 +244,7 @@ func (m *fleetModel) reconcile() {
 	if m.operations != nil && m.operations.entry.Target.Kind != "" {
 		present := false
 		for _, row := range m.rows() {
-			if row.Target == m.operations.entry.Target && row.Name == m.operations.entry.Name && row.Project == m.operations.entry.Project {
+			if row.Target == m.operations.entry.Target && row.Name == m.operations.entry.Name && row.Project == m.operations.entry.Project && sameBinding(row.Diagnostics, m.operations.entry.Diagnostics) {
 				present = true
 			}
 		}
@@ -292,6 +299,8 @@ func (m *fleetModel) revealLedgerSelection() {
 
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case fleetDiagnosticResult:
+		return m.fleetDiagnosticUpdate(msg)
 	case coordResult:
 		return m.coordUpdate(msg)
 	case operationStarted:
@@ -305,6 +314,10 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, fleetClock())
 	case fleetTick:
 		cmd := m.refresh()
+		if m.workspace == 0 && m.detail && !time.Time(msg).Before(m.diagnostics.next) {
+			diagnostic := m.refreshFleetDiagnostics()
+			return m, tea.Batch(cmd, diagnostic, fleetClock())
+		}
 		if m.workspace == 1 && m.coordination.follow && m.coordination.form == nil && !m.coordination.busy {
 			return m, tea.Batch(cmd, m.coordLoad(false), fleetClock())
 		}
@@ -435,8 +448,12 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
+		teamVisible := m.teamSelectionVisible()
 		m.width, m.height = msg.Width, msg.Height
 		m.revealLedgerSelection()
+		if teamVisible {
+			m.revealTeamSelection()
+		}
 	case tea.KeyMsg:
 		return m.keyFleet(msg)
 	}
@@ -481,6 +498,9 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.overlayLedgerFocus {
 				m.revealLedgerSelection()
 			}
+			if m.overlayTeamFocus {
+				m.revealTeamSelection()
+			}
 		}
 		return m, nil
 	}
@@ -490,6 +510,9 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scroll = m.overlayScroll
 			if m.overlayLedgerFocus {
 				m.revealLedgerSelection()
+			}
+			if m.overlayTeamFocus {
+				m.revealTeamSelection()
 			}
 		}
 		return m, nil
@@ -558,13 +581,19 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter", "tab", "shift+tab", "u", "s", "d", "x":
 			for _, e := range m.rows() {
 				if e.Target == m.selected {
+					if e.Diagnostics != nil {
+						binding := *e.Diagnostics
+						e.Diagnostics = &binding
+					}
 					m.ledgerFocus = m.ledgerSelectionVisible()
 					m.detail, m.detailEntry, m.detailInvalid = true, &e, false
+					m.resetFleetDiagnostics()
 					m.ledgerScroll, m.scroll, m.status = m.scroll, 0, ""
 					if key != "enter" && key != "tab" && key != "shift+tab" {
 						m.status = "Details opened; choose an action explicitly"
 					}
-					return m, nil
+					cmd := m.refreshFleetDiagnostics()
+					return m, cmd
 				}
 			}
 			m.status = "No target selected; use up/down to select, then Enter for Details"
@@ -577,7 +606,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		e, ok := m.entry(m.detailEntry.Target)
-		if !ok || e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project {
+		if !ok || e.Name != m.detailEntry.Name || e.Project != m.detailEntry.Project || !sameBinding(e.Diagnostics, m.detailEntry.Diagnostics) {
 			m.status = "selected host inventory is not authoritative or target changed; refresh and select again"
 			return m, nil
 		}
@@ -586,6 +615,13 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
 		updated := out.(fleetModel)
+		if updated.teamList() && key == "esc" {
+			return updated, cmd
+		}
+		if updated.teamList() && (key == "up" || key == "down" || key == "k" || key == "j") {
+			updated.revealTeamSelection()
+			return updated, cmd
+		}
 		if key == "up" || key == "down" || key == "k" || key == "j" || key == "tab" || key == "shift+tab" || key == "esc" {
 			_, _, selected := updated.content()
 			if selected >= 0 && updated.height > 0 {
@@ -602,6 +638,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "v":
+		m.overlayTeamFocus = m.teamSelectionVisible()
 		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.runbook, m.scroll = true, 0
 	case "x":
@@ -612,6 +649,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "?":
+		m.overlayTeamFocus = m.teamSelectionVisible()
 		m.overlayScroll, m.overlayLedgerFocus = m.scroll, m.ledgerSelectionVisible()
 		m.help = true
 		m.scroll = 0
@@ -629,6 +667,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 	case "tab", "shift+tab":
 		if m.workspace == 0 && m.detail {
+			m.resetFleetDiagnostics()
 			m.detail, m.detailEntry = false, nil
 			m.scroll = m.ledgerScroll
 			if m.ledgerFocus {
@@ -638,6 +677,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		returning := m.workspace == 0 && m.detail
 		if returning {
+			m.resetFleetDiagnostics()
 			m.scroll = m.ledgerScroll
 		}
 		m.detail = false
@@ -647,6 +687,10 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.status = ""
 	case "r":
+		if m.workspace == 0 && m.detail {
+			inventory, diagnostic := m.refresh(), m.refreshFleetDiagnostics()
+			return m, tea.Batch(inventory, diagnostic)
+		}
 		return m, m.refresh()
 	case "up", "k", "down", "j":
 		previousTarget, previousHost := m.selected, m.server
@@ -822,7 +866,7 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		return m.dispatchOperation(p)
 	}
 	e, ok := m.entry(p.entry.Target)
-	if !ok || e.Name != p.entry.Name || e.Project != p.entry.Project {
+	if !ok || e.Name != p.entry.Name || e.Project != p.entry.Project || !sameBinding(e.Diagnostics, p.entry.Diagnostics) {
 		m.status = identity(p.entry.Target) + " changed or became stale; action cancelled"
 		return m, nil
 	}
@@ -948,7 +992,11 @@ func (m fleetModel) content() ([]string, string, int) {
 	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
-		lines = append(lines, m.coordLines()...)
+		if m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil {
+			lines = m.coordLines()
+		} else {
+			lines = append(lines, m.coordLines()...)
+		}
 		for i, line := range lines {
 			if strings.HasPrefix(line, "> ") {
 				selectedLine = i
@@ -1061,7 +1109,8 @@ func (m fleetModel) content() ([]string, string, int) {
 			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
 				state = current.State
 			}
-			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Agent work / blocker: unknown (not inferred from VM)", "Enter: Connect | x: actions | Esc: Fleet"}
+			lines = []string{"Fleet > Details", "Selected: " + identity(e.Target), "Host destination: " + valueOr(e.Target.Host.Address, "this machine"), "Name: " + e.Name, "Project: " + valueOr(e.Project, "-"), "VM lifecycle: " + state, "Host health: " + valueOr(selectedHealth, "unknown; target removed"), "Enter: Connect | x: actions | Esc: Fleet"}
+			lines = append(lines, m.fleetDiagnosticLines()...)
 			selectedLine = -1
 			if m.detailInvalid {
 				lines = append(lines, "Target changed or removed; actions blocked. Return to Fleet and select again.")
@@ -1087,6 +1136,9 @@ func (m fleetModel) content() ([]string, string, int) {
 		selectedLine = -1
 		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc clear")
+		if m.workspace == 1 && m.coordination.section == "team" && m.coordination.form == nil {
+			lines = []string{"Team Help", "Master Team and diagnostics are read-only observations, not VM state or action authority.", "List: up/down or j/k select agent; Enter inspects the captured agent/host/worker/generation.", "Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and viewport.", "r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit", "Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is retained evidence, not current work.", "Heartbeat age is not work progress. Report, receipt, work and wait ages are separate.", "Placement changes invalidate reports; return and inspect again. Reads never wake agents or perform recovery.", "? or Esc returns without changing selection or dispatching an action."}
+		}
 	}
 	if m.operations != nil {
 		lines = m.operationLines()
@@ -1135,6 +1187,12 @@ func (m fleetModel) content() ([]string, string, int) {
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
 	if m.workspace == 1 {
 		footer = "t/l/i/g sections | r refresh | f follow | ] next | ? help | esc back | 1/3 workspace | q quit"
+		if m.teamList() || m.coordination.teamDetail != nil {
+			footer = "Enter inspect | arrows | r refresh | ? | Esc"
+			if m.coordination.teamDetail != nil {
+				footer = "r refresh | j/k/PgUp/PgDn scroll | Esc Team"
+			}
+		}
 		if m.coordination.form != nil {
 			footer = "Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear"
 		}
@@ -1182,7 +1240,7 @@ func (m fleetModel) View() string {
 	if m.height > 0 {
 		limit := max(1, m.height-2)
 		total := len(content)
-		if m.workspace == 0 && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
+		if (m.workspace == 0 || m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil) && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && len(content) > 0 && m.height >= 4 {
 			pinned := content[0]
 			content = content[1:]
 			limit--
@@ -1196,16 +1254,38 @@ func (m fleetModel) View() string {
 			footer += " | PgUp/PgDn scroll"
 		}
 	}
-	if m.width > 0 {
-		footer = textansi.Truncate(footer, m.width, "...")
-	}
 	feedback := m.status
+	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook {
+		diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure)
+		if m.diagnostics.busy && m.diagnostics.report == nil && m.diagnostics.failure == "" {
+			diagnostic = "Loading diagnostics..."
+		}
+		if feedback == "" {
+			feedback = diagnostic
+		} else if diagnostic != "" {
+			// Keep immediate control outcomes in the status row, with diagnostic
+			// truth in the other fixed row rather than moving the viewport.
+			footer = diagnostic + " | " + footer
+		}
+	}
+	if m.workspace == 1 && m.coordination.teamDetail != nil && m.coordination.form == nil && !m.help && !m.runbook {
+		q := m.coordination
+		if q.failed {
+			feedback = "STALE/UNKNOWN | Team: " + q.status
+			if q.status == "forbidden" {
+				feedback = "STALE/UNKNOWN | Team access denied"
+			}
+		} else if diagnostic := team.DiagnosticFeedback(time.Now(), q.teamReport, q.teamFailure); diagnostic != "" {
+			feedback = diagnostic
+		}
+	}
 	if m.registryError != "" {
 		feedback = m.registryError
 	}
 	feedback = strings.Join(strings.Fields(feedback), " ")
 	if m.width > 0 {
 		feedback = textansi.Truncate(feedback, m.width, "...")
+		footer = textansi.Truncate(footer, m.width, "...")
 	}
 	return strings.Join(append(content, feedback, footer), "\n")
 }

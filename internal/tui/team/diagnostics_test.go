@@ -31,7 +31,7 @@ func TestTeamDiagnosticsDetail(t *testing.T) {
 	m := New(t.Context(), s, "fixture")
 	defer m.Close()
 	m.height = 60
-	m.Update(resultMsg{rows: []c.Presence{{Placement: c.Placement{AgentID: "hawk"}, Alias: "Hawk"}}, at: time.Now()})
+	m.Update(resultMsg{rows: []c.Presence{{Placement: teamDetailFixture("hawk").Report.Placement, Alias: "Hawk"}}, at: time.Now()})
 	_, cmd := m.Update(key("enter"))
 	if cmd == nil {
 		t.Fatal("no selected-agent read")

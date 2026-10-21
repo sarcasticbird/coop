@@ -5,18 +5,21 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/sarcasticbird/coop/internal/coordination"
 )
 
 // Profile is a host-owned named machine, separate from coding-tool state mounts.
 type Profile struct {
-	Communication      *MasterCommunication `toml:"communication"`
-	Command            []string             `toml:"command"`
-	Orgs               []string             `toml:"orgs"`
-	IncludeCredentials []string             `toml:"include_credentials"`
-	Resources          Resources            `toml:"resources"`
-	Seeds              []Seed               `toml:"seed"`
-	Restart            string               `toml:"restart"`
-	Services           map[string]Service   `toml:"services"`
+	Diagnostics        *coordination.DiagnosticBinding `toml:"diagnostics"`
+	Communication      *MasterCommunication            `toml:"communication"`
+	Command            []string                        `toml:"command"`
+	Orgs               []string                        `toml:"orgs"`
+	IncludeCredentials []string                        `toml:"include_credentials"`
+	Resources          Resources                       `toml:"resources"`
+	Seeds              []Seed                          `toml:"seed"`
+	Restart            string                          `toml:"restart"`
+	Services           map[string]Service              `toml:"services"`
 }
 
 type Service struct {
@@ -46,6 +49,9 @@ func validateProfiles(cfg *Config) error {
 		return fmt.Errorf("at most 64 profiles are supported")
 	}
 	for name, p := range cfg.Profiles {
+		if p.Diagnostics != nil && coordination.ValidateDiagnosticBinding(*p.Diagnostics) != nil {
+			return fmt.Errorf("profile %s requires a complete diagnostic master/placement binding", name)
+		}
 		if m := p.Communication; m != nil {
 			if m.Backend != "master" || !filepath.IsAbs(m.ClientConfig) || m.AgentID == "" || m.Engagement == "" {
 				return fmt.Errorf("profile %s requires explicit master communication settings", name)

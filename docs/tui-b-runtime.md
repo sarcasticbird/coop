@@ -37,9 +37,9 @@ or substantive design changes explicitly before using a new baseline.
 | Captured master/principal/context and exact request retries | `internal/tui/coordination.go` and its authority, permission, message-retry tests; reuse `internal/masterclient` and current handlers |
 | Exhaustive command and safety parity | `docs/fleet-tui.md`, `docs/tui-operations.md`; `TestFleetTUICommandCoverageInventory`, `TestTUICommandCoverageExhaustive` |
 
-Stage 0 did not implement B. Stage 1 below implements only Ledger/Details. The
-reader is not masked, Escape clears forms, and integrated placement-aware
-diagnostics/conversation flows remain future work. These are not stage-1 passes.
+Stage 0 did not implement B. Stage 1 below implements only Ledger/Details. Stage 2
+adds the Team diagnostics flow described below. The reader is not masked and
+Escape clears conversation forms; conversation/draft protection remains stage 3.
 
 ## Stage Acceptance Map
 
@@ -197,3 +197,179 @@ using an existing compiler, without installing packages or changing configuratio
 Earlier blocked author attempts remain historical results, not the current race
 outcome. Independent current-head engineering review and private exact-artifact
 QA must be renewed; these author regressions do not clear either gate.
+
+## Stage 2 Team Diagnostics
+
+[Task #117](https://github.com/sarcasticbird/coop/issues/117) starts at delivered
+stage-1 main `50a791c`. Accepted PR #111 remains at
+`5d79a84031045fe8dd8f3eeb345cadea953e0724`, verified on 2026-10-20; no later design
+delta is being adopted.
+
+- `2`, then `t`, opens a full-page Team list at every size. Arrows select by
+  master AgentID, not alias/index. Enter captures the exact placement and opens
+  a full-page read-only diagnostic detail. Esc cancels pending detail reads,
+  rejects late results, and restores list selection/scroll. Removed selections
+  stay unselected instead of silently targeting another agent for a prompt.
+- Detail refresh reuses `Team` and optional `AgentDiagnostics` reads. Agent,
+  host, worker instance and placement generation must all match. Master restore
+  epoch is checked against authenticated identity when supplied. Changed or
+  missing placement clears the old report; older observations/receipts cannot
+  replace a newer cached report. No diagnostic value authorizes controls.
+- Master availability/heartbeat, receipt, report observation, work observation
+  and wait observation have separate labels/ages. Missing timestamps are unknown,
+  future timestamps identify clock uncertainty, and old observations are marked
+  stale. Handling and reasons remain reported observations, not inferred health,
+  progress percentages or recovery advice. Faults retain explicitly stale cached
+  evidence; arbitrary transport errors are never rendered.
+- Team watch keeps its CLI entry point, refresh cadence and existing presence
+  display, and shares the diagnostic renderer. Its selected detail now also
+  verifies full placement, rejects old reports and restores list scroll. CLI/MCP,
+  scheduler, report backend, lifecycle and permission contracts are unchanged.
+
+### Fleet Binding Contract
+
+The initial artifact `75ff31f` identified a genuine gap: fleet identity (`Host
+registration + kind + profile/runtime ID`) did not bind a target to a master
+placement. Robin's review correctly required resolving this before stage delivery.
+A profile's communication AgentID remains only a message destination; registration
+names remain distinct from coordination HostIDs. Neither supplies an implicit join.
+
+The fix adds one optional **host-owned observation pin** to an existing agent
+profile in the host's global `coop.toml`. For example, on a synthetic host with an
+already-configured `fixture-bird` profile:
+
+```toml
+[profiles.fixture-bird.diagnostics]
+master_id = "fixture-master"
+agent_id = "fixture-principal"
+host_id = "fixture-master-host-id"
+worker_instance_id = "fixture-worker-instance"
+generation = 1
+```
+
+The operator/provisioning source must copy the complete master and placement tuple
+from that machine's actual configured worker, not invent identifiers from VM names,
+SSH destinations or aliases. This explicit target binding is trusted host
+configuration, not a discovery heuristic or proof from a diagnostic report. Update
+it when replacing a worker instance or changing placement generation. The TUI never
+writes it, reads worker configuration/credentials, registers placement or changes
+master configuration. No live profile has been modified as part of these tests.
+
+Local inventory exports only this nonsecret pin on that exact agent target,
+including running, stopped and absent machines. Remote inventory transports the
+same optional `diagnostics` field through the existing validated SSH JSON route;
+transport registration normalization does not rewrite its master placement.
+Unbound profiles retain their existing inventory shape. Partial/invalid pins,
+interactive-target pins and duplicate placement pins within a host are rejected;
+the TUI also refuses ambiguous same-placement claims across hosts.
+
+Details shows VM lifecycle separately from the report's handling, reason,
+work/wait fields and observation ages. Before reading a report, it requires the
+configured master client to match the pin and the master's current Team snapshot
+to contain the exact agent/host/worker-instance/generation. Reports must match
+that tuple and the authenticated restore epoch. A missing, denied, unsupported,
+unreachable, stale or clock-skewed observation remains unknown/stale. Cached
+failures remain visible even while scrolled down. Reads never grant action
+authority; existing dispatch/receiving checks remain final. A changed binding
+invalidates captured Details/confirmation intent and late reads, rather than
+silently moving the view or a control to a replacement worker.
+
+Genuinely unbound targets still show unknown work and explain the missing pin;
+Team remains independently navigable. Existing installations need no migration,
+and no fallback guesses are added. The optional inventory field is additive;
+older strict clients that do not recognize a bound row fail closed as an invalid
+inventory instead of guessing a mapping. CLI flags, MCP actions, the report API,
+scheduler and master placement authority are unchanged.
+
+### Reproduction
+
+Run the scoped commands above, adding `./internal/coordination ./internal/master`
+to ordinary tests/vet. Isolate the new full-page journeys with:
+
+```sh
+flox activate -- go test ./internal/tui -run '^TestTeam' -count=1 -v
+flox activate -- go test ./internal/tui/team -count=1
+flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/hostrouter ./internal/masterclient ./internal/master -count=1
+```
+
+Synthetic tests cover the three sizes, duplicate aliases, selection/reorder/resize,
+missing reports, access denial, unsupported diagnostics, unavailable reads, changed
+host/agent/instance/generation, removal, cancellation/late results, out-of-order
+observations, clock skew, stale data, cached refresh quietness and safe error text.
+They do not establish live guest placement or Blackbook/rack-mini operator UAT.
+Robin's exact-head independent engineering review, Wren's private exact-artifact
+runtime QA in `coop-tui-b-runtime-v1`, required CI and source delivery remain separate
+gates. No deployment, restart, release or tap publication is part of this task.
+
+Author validation on 2026-10-20 through Flox passed: formatting; scoped tests and
+vet for TUI/Team, config, hostrouter, masterclient, coordination, master and
+`cmd/coop`; worker tests selected by `-run Diagnostic`; no-color TUI/CLI tests;
+the race command above; and `git diff --check`. The race lane uses the already
+available compiler, with no environment/package changes. Flox's shell-detection
+warning and activation-lock waits did not prevent execution. These results cover
+the implemented Team slice and unknown Fleet boundary, not complete stage-2
+acceptance, independent review/QA or live operator UAT.
+
+### Review Fix Validation
+
+The follow-up adds regressions for Robin's new-epoch/earlier-observation case and
+scrolled Team/diagnostic denial at all three sizes. Epoch ordering compares times
+only within the same restore epoch; older-epoch results cannot replace newer
+evidence. Error/stale feedback uses the existing fixed status row, outside the
+scroll viewport, without inserting cached-refresh loading rows. CLI Team watch
+shares this pinned diagnostic feedback and epoch behavior.
+
+New config/inventory tests cover host-only TOML loading, partial pins, running and
+absent profiles, unbound defaults, invalid/duplicate pins, and SSH JSON transport.
+Fleet model tests cover mapped running-VM/waiting-agent observations at all sizes,
+unknown unbound duplicate names, master and placement mismatch, cross-host
+ambiguity, placement/registration/removal changes, stale cached inventory, scrolled
+faults, pending-intent invalidation, late reads and epoch clock correction. An
+integration test reads a real report through the existing authenticated master
+HTTP handler/client and verifies no lifecycle dispatch.
+
+Author follow-up validation on 2026-10-20 through Flox passed:
+
+- Formatting and `git diff --check`.
+- `go test` and `go vet` for `./internal/tui/... ./internal/config
+  ./internal/hostrouter ./internal/masterclient ./internal/coordination
+  ./internal/master ./internal/agent ./internal/workspace ./internal/fleet
+  ./cmd/coop`; tests used `-count=1`.
+- `go test ./internal/worker -run Diagnostic -count=1`.
+- `NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1`.
+- `CGO_ENABLED=1` with the existing compiler path above, `go test -race
+  ./internal/tui/... ./internal/config ./internal/hostrouter
+  ./internal/masterclient ./internal/master -count=1`.
+
+No environment/package changes were needed. Flox emitted its existing shell
+warning and occasional activation-lock waits, not test failures. These fix results
+supersede the initial artifact's mapped-Fleet gap, not the need for independent
+Robin review, private Wren exact-artifact QA, CI or operator UAT. No live pin,
+fleet, service, credentials, deployment or release state was changed.
+
+### Feedback And Identity Follow-Up
+
+Robin's review of `2d18ec8` found that pinned diagnostic feedback could overwrite
+an immediate lifecycle/control outcome. Details now keeps the action outcome in
+the fixed status row and, when both are present, puts diagnostic truth first in
+the existing fixed footer. This adds no viewport rows or scroll movement. The
+regression exercises actual cancellation and stale-registration refusal with
+denied, stale and initially loading diagnostics at all three required sizes,
+checking both fixed rows rather than merely finding text in the scrolled body.
+
+The review also reproduced a supported `master@rack` identity being rejected by
+the new binding's worker-ID grammar. Master-store identity validation is now a
+shared coordination contract, used by both store opening and diagnostic binding.
+Store acceptance is unchanged; the binding additionally rejects non-printable or
+invalid UTF-8 identity text at its presentation boundary. Worker placement IDs
+retain their stricter grammar. Tests open real fixture stores with supported
+punctuation, printable Unicode and the 128-byte boundary, verify matching pins,
+reject unsafe values, and load/transport `master@rack` through profile/inventory
+fixtures. No live master configuration changed.
+
+Both findings reproduced before correction. Focused regressions passed afterward;
+the full scoped ordinary/vet, no-color and worker-diagnostic commands above passed
+again on 2026-10-20. The race lane also passed, now including
+`./internal/coordination` with the same already-available compiler. Formatting and
+diff checks passed. These remain author results; the new head still needs Robin's
+independent review, Wren's private exact-artifact QA and CI before source delivery.

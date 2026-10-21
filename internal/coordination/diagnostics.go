@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const MaxDiagnosticsBytes = 32 << 10
@@ -30,6 +32,25 @@ type AgentDiagnostics struct {
 	Report     WorkerDiagnostics `json:"report"`
 	ReceivedAt time.Time         `json:"received_at"`
 	Stale      bool              `json:"stale"`
+}
+
+// DiagnosticBinding is an explicit host-owned observation pin for one fleet
+// target. It neither registers placement with master nor authorizes VM actions.
+type DiagnosticBinding struct {
+	MasterID string `json:"master_id" toml:"master_id"`
+	Placement
+}
+
+func ValidateDiagnosticBinding(b DiagnosticBinding) error {
+	if b.Generation < 1 || !ValidMasterID(b.MasterID) || !utf8.ValidString(b.MasterID) || strings.ContainsFunc(b.MasterID, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return ErrInvalid
+	}
+	for _, id := range []string{b.AgentID, b.HostID, b.InstanceID} {
+		if !diagnosticID.MatchString(id) {
+			return ErrInvalid
+		}
+	}
+	return nil
 }
 
 type DiagnosticWork struct {

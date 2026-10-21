@@ -28,6 +28,8 @@ func TestDiagnosticRefreshDoesNotInsertOrShiftRows(t *testing.T) {
 	m.height = 60
 	m.detailOpen, m.detailAgent = true, "hawk"
 	snapshot := teamDetailFixture("hawk")
+	m.detailPlacement = snapshot.Report.Placement
+	m.rows = []c.Presence{{Placement: snapshot.Report.Placement}}
 	m.detail = &snapshot
 	before := m.View()
 	if m.refreshDetail() == nil {
