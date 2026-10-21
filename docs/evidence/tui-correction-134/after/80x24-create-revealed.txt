@@ -1,0 +1,24 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Creation members (owner included): hawk,owner
+  Title: Synthetic capture
+  Engagement: coop
+> Stable member IDs (comma separated): owner,hawk
+Thread: new | parent: none (root)
+Request: OIBJ6UUNI7STP5ZIHYZKXLTCSW
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members:
+Creates a thread only; no message or wake.
+Enter inserts newline, never sends. Tab changes field.
+Not submitted; preview and review all before a second Ctrl+S submits.
+
+
+
+
+
+
+Review captured context and input; PgDn for more; Ctrl+S submits
+Esc draft | ^S create | ^V view | F1

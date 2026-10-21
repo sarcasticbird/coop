@@ -1,0 +1,20 @@
+Team > Agent
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Source: master Team presence | Team snap
+shot age: 6s ago
+Read only; heartbeat is not work progres
+s
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second
+Exact Principal: principal-shared-prefix
+-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-second
+AgentID: fixture-a
+Captured Host: local | Worker: fixture-w
+orker-1 | Generation: 1
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ? ...

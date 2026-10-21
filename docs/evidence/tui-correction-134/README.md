@@ -42,6 +42,34 @@ color-contrast verdict. All data is sanitized synthetic input. Fixture binaries
 run the native Bubble Tea renderer and event loop but are not the shipping CLI.
 No live config, credentials, fleet data or private QA report is published.
 
+| Build | Source | SHA-256 |
+| --- | --- | --- |
+| PTY fixture executable | `503cd5929fcecd446eb118e78d604ec4cbf44235` | `5078978920f757321c3461a3c8743d2750d79fbde2873131371ba9264308a589` |
+| Shipping CLI, two byte-identical builds | `c345aa8dae1716083de2610910a6026167e12523` | `3437deeb566505c7b26b6ab316a3e7f031e579af90e7bd5c57ce8106e099d3e8` |
+
+The second source adds this handoff document only. CLI build metadata records
+`vcs.modified=false`, Linux arm64, Go 1.26.10, CGO disabled and trimpath enabled.
+The fixture and shipping CLI are different artifacts, not interchangeable QA
+identities. Final published source must receive its own independent build/QA.
+
+## Author Results
+
+Executed 2026-10-21 through Flox, Linux arm64, Go 1.26.10:
+
+- `uat-tui-b.sh c345aa8dae1716083de2610910a6026167e12523 https://github.com/sarcasticbird/coop/issues/134`: passed. Includes repeat-build byte comparison, Go formatting, scoped TUI/config/hostrouter/masterclient/coordination/master/mastermcp/CLI regression tests, integrated/foreground/terminal tests ten times, CLI command inventories and remote-terminal fixtures, NO_COLOR TUI/CLI, repository build/vet and fitting uncached race checks. Race uses the existing compiler `/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc`; no installation or configuration change.
+- `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...`: passed, zero issues.
+- Actual native PTY matrices: `after` 150 checkpoints, `supplemental` 42, `exact-context` 54, `stress` 156 in six real navigation/refresh/resize sessions. All destination/privacy/context assertions and clean exits passed, at three sizes with color and NO_COLOR.
+- Author inspection of terminal replays confirmed the wide aligned Fleet table, medium Details work-first summary, compact masked reader and compact Team detail against accepted B. Remaining compact hard-wraps and footer abbreviation are visible, not concealed; semantic replay does not establish real light/dark color contrast. Wren's independent exact-artifact visual assessment remains required.
+
+The initial validation invocation correctly refused a shortened/nonmatching SHA;
+the full-SHA clean-checkout run above passed. Initial capture attempts exceeded
+the two-minute command limit; their partial output was preserved separately and
+excluded. Complete reruns used ten-minute limits. No full repository test-suite,
+live Blackbook/rack-mini, operator binding, live send/attach, independent QA or
+owner-UAT success is claimed. Historical root-mode/image-PATH/seed/worker snapshot
+environment failures remain documented in `docs/tui-b-runtime.md`; no full-suite
+rerun or new baseline comparison is claimed here.
+
 ## Discrepancy Map
 
 Compare both sides with F0/F/H/D/T/L/R/N/C/P/V/S/Q/X/A/B in the accepted packet.
@@ -58,6 +86,11 @@ The detailed historical audits remain linked above; this map consolidates them.
 | Confirmations | Pinned operation/master/principal/target, full scrollable exact identity/argv/consequence and complete-review consent gate. `after/`, `supplemental/`, exact-target regressions | Captures cancel Connect/destroy. They establish neither live attach nor permission for a destructive operation. |
 | Attach/return/navigation | Actual PTY paging, keys, refresh and ioctl/SIGWINCH resize in `stress/`; disposable foreground/terminal tests in validation | Live Blackbook/rack-mini attach/return is operator-assisted and remains unverified here. |
 | Quiet refresh | Existing deterministic cache/fault/ordering/selection regressions plus real PTY refresh | Fixed capture delays alone do not prove no-flicker or cached-content equality. |
+
+The shared runtime uses compact route/master/principal headers rather than B's
+literal global numbered navigation bar, separator lines and FOCUS captions.
+Workspace keys and contextual help remain available; this is a visible residual
+presentation difference for independent QA and Chris, not a claim of pixel parity.
 
 ## Binding And Operator Limit
 

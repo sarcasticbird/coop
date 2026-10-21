@@ -1,0 +1,20 @@
+Fleet Ledger | Filter: All
+Master: test-master | As: owner
+  NAME             KIND         VM
+  local (this machine)
+    [ok; snapshot <5s old]
+> 界 é long-la...  agent        running
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+  界 é long-la...  agent        running
+
+Enter Details | h filter | ? help | P...

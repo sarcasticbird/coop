@@ -1,0 +1,40 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-label...  agent        running    waiting          work unknown / local pause                               
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  fixture-empty (fixture-empty-alias)[K
+[K
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[40;H
