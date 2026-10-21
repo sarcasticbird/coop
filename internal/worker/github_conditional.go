@@ -161,7 +161,7 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 	}
 	// Archive bytes are verified once and represented by the exact-head digest,
 	// never persisted as cached provider output or replayed into an action read.
-	if !strings.Contains(endpoint, "/tarball/") && !strings.Contains(string(body), "WorkerCacheProjectOrder") && json.Valid(raw) {
+	if !strings.Contains(endpoint, "/tarball/") && !strings.Contains(string(body), "WorkerCacheProject") && json.Valid(raw) {
 		var graph struct{ Errors []json.RawMessage }
 		if endpoint == "graphql" && json.Unmarshal(raw, &graph) == nil && len(graph.Errors) > 0 {
 			return result, err

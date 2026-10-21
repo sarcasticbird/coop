@@ -13,6 +13,54 @@ type cachedProjectOrder struct {
 	Ordinals map[string]int
 }
 
+// Cross-owner Projects can omit readable issues from issue.projectItems. The
+// board lookup reads identifiers only and filters to registered tasks before
+// requesting any item values. Unrelated identifiers are never persisted.
+func (g *GitHubClient) cacheProjectMemberships(ctx context.Context, p ProjectRef, projectID string, tasks map[string]Task) ([]json.RawMessage, error) {
+	query := `query WorkerCacheProjectItems($id:ID!,$after:String){node(id:$id){... on ProjectV2{items(first:100,after:$after){nodes{id isArchived content{__typename ... on Issue{url}}} pageInfo{hasNextPage endCursor}}}}}`
+	nodes, err := g.connection(ctx, p.Owner, query, map[string]any{"id": projectID}, []string{"node", "items"})
+	if err != nil {
+		return nil, err
+	}
+	// Use the board's complete view rather than combining potentially stale
+	// membership results with a later board scan.
+	out := []json.RawMessage{}
+	seen := map[string]bool{}
+	unknown := false
+	for _, raw := range nodes {
+		var item struct {
+			ID         string
+			IsArchived bool
+			Content    *struct {
+				Kind string `json:"__typename"`
+				URL  string
+			}
+		}
+		if json.Unmarshal(raw, &item) != nil {
+			return nil, ghError("invalid_project_item")
+		}
+		if item.IsArchived {
+			continue
+		}
+		if item.Content == nil || item.Content.Kind == "DraftIssue" {
+			unknown = true
+			continue
+		}
+		if _, ok := tasks[item.Content.URL]; !ok || item.Content.Kind != "Issue" {
+			continue
+		}
+		if item.ID == "" || seen[item.Content.URL] {
+			return nil, ghError("invalid_project_item")
+		}
+		seen[item.Content.URL] = true
+		out = append(out, raw)
+	}
+	if len(seen) < len(tasks) && unknown {
+		return nil, ghError("cache_project_membership_unavailable")
+	}
+	return out, nil
+}
+
 // GitHub exposes board order through the item connection, not memberships.
 // Read identifiers only; retain same-repository ranks transiently in the
 // collector. Unrelated board identifiers never enter a shared SQL payload.

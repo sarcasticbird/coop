@@ -93,12 +93,18 @@ expired header. Reused Project observations retain their earlier timestamps;
 publication rejects future timestamps. Worker and master clocks must be in sync,
 as required by the existing lease deadlines.
 
-Project readiness requires scoped issue memberships. Setups requiring the older
-whole-board fallback remain unknown in cache mode. Ordering fetches bounded item
+Project readiness first uses scoped issue memberships. For cross-owner Projects
+that omit those memberships, a bounded board lookup reads only item identifiers
+and issue URLs. Only registered tasks receive field-value reads. Unreadable or
+opaque possible memberships remain unknown. Ordering fetches bounded item
 identifiers and memoizes same-repository ranks in the collector. Unrelated board
-identifiers and bodies never enter shared payloads.
-Readable absence from another Project is valid. Completed dependency facts do
-not require active Project membership.
+identifiers and bodies never enter shared payloads. Verified absence from another
+Project is valid. Completed dependencies do not require active Project membership.
+
+Identical artifact registrations preserve freshness and in-flight refreshes.
+Changed registrations fence old manifests and dirty only their task and PRs;
+authority changes still invalidate affected access. Age-priority refresh turns
+retain the last observation time when an invalidation clears its deadline.
 
 ## Inspection and recovery
 
