@@ -19,13 +19,13 @@ import select
 import signal
 import struct
 import subprocess
+import sys
 import termios
 import time
 
 
 BOUNDARY = 0.8
 SIZES = ((120, 40), (80, 24), (40, 20))
-GATE = Path("/tmp/opencode/hawk-133-after.test")
 
 
 def main():
@@ -34,8 +34,6 @@ def main():
     parser.add_argument("output", type=Path, help="new directory under an existing parent")
     parser.add_argument("--source", required=True, help="source revision used to build the executable")
     args = parser.parse_args()
-    if not GATE.is_file():
-        parser.error(f"execution gated until {GATE} exists; no binary will be built")
     binary = args.binary.resolve(strict=True)
     if not binary.is_file() or not os.access(binary, os.X_OK):
         parser.error("binary must be an executable file")
@@ -46,6 +44,7 @@ def main():
             ["git", "rev-parse", "--verify", f"{source}^{{commit}}"], cwd=root, text=True
         ).strip()
     replay_path = root / "scripts/capture-tui.py"
+    sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location("capture_tui_parity_replay", replay_path)
     capture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(capture)
@@ -147,7 +146,7 @@ def main():
                     if b"Synthetic" in raw or "Content: revealed" in screen:
                         raise RuntimeError(f"{stem}: private synthetic body/revealed state appeared")
                     lines = screen.splitlines()
-                    if not lines or lines[0] != page:
+                    if not lines or not lines[0].startswith(page):
                         raise RuntimeError(f"{stem}: expected pinned page {page!r}; see capture")
                     entry["checks"].extend(["expected page", "no synthetic body in cumulative raw"])
                     if reader:

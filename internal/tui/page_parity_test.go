@@ -31,6 +31,9 @@ func TestPageParityDetailsPresenceAndContext(t *testing.T) {
 		}
 		m.scroll = 100
 		view := m.View()
+		if len(strings.Split(view, "\n")) != size.Height {
+			t.Fatal("footer is not fixed at terminal bottom", view)
+		}
 		if !strings.HasPrefix(view, "Fleet > Details\nMaster: test-master\nPrincipal:") || !strings.Contains(strings.Split(view, "\n")[len(strings.Split(view, "\n"))-1], "Esc Fleet") {
 			t.Fatal("scroll lost pinned identity or return", view)
 		}

@@ -144,14 +144,11 @@ func (m fleetModel) teamLines(master string) []string {
 		}
 		lines = append(lines, agent, host, presence, "Handling: "+activity, "Work / blocker: "+work)
 		lines = append(lines, context...)
-		lines = append(lines, q.status, "AgentID: "+q.teamDetail.AgentID, fmt.Sprintf("Captured Host: %s | Worker: %s | Generation: %d", valueOr(q.teamDetail.HostID, "unknown"), valueOr(q.teamDetail.InstanceID, "unknown"), q.teamDetail.Generation))
+		lines = append(lines, "AgentID: "+q.teamDetail.AgentID, fmt.Sprintf("Captured Host: %s | Worker: %s | Generation: %d", valueOr(q.teamDetail.HostID, "unknown"), valueOr(q.teamDetail.InstanceID, "unknown"), q.teamDetail.Generation))
 		lines = append(lines, team.DetailLines(time.Now(), 0, q.teamDetail.AgentID, q.teamReport, q.busy, q.teamFailure)...)
 		return lines
 	}
 	lines = append(lines, context...)
-	if q.status != "" {
-		lines = append(lines, q.status)
-	}
 	if m.width >= 100 || m.width <= 0 {
 		lines = append(lines, teamLedgerRow(m.width, "  ", "AGENT", "HOST", "PRESENCE", "HANDLING", "WORK / BLOCKER"))
 	} else {

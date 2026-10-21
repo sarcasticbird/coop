@@ -252,6 +252,9 @@ func (m fleetModel) composeLines() (lines []string) {
 	if f.kind == "reply" {
 		lines = append(lines, "Blank recipients use captured parent author: "+f.parentAuthor)
 	}
+	if f.kind == "send" {
+		lines = append(lines, "Blank To is a note; wakes nobody.")
+	}
 	if f.kind == "create" && f.preview && canReveal {
 		members := append(coordIDs(f.values[2]), f.self.Principal.ID)
 		slices.Sort(members)

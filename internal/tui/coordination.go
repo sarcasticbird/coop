@@ -558,7 +558,7 @@ func (m *fleetModel) coordOpen(kind string) {
 			q.status = "Open a thread first"
 			return
 		}
-		f.labels = []string{"Recipient IDs (comma separated; blank reply defaults to parent author)", "Private body"}
+		f.labels = []string{"To IDs (comma separated)", "Body"}
 		if kind == "reply" {
 			if q.cursor < 0 || q.cursor >= len(q.messages) {
 				q.status = "Select a message first"

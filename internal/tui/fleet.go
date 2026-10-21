@@ -1334,10 +1334,10 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.registryError != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, m.registryError)
 	}
-	if m.status != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
+	if m.status != "" && m.workspace != 1 && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, m.status)
 	}
-	if m.output != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
+	if m.output != "" && m.workspace != 1 && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, strings.Split(m.output, "\n")...)
 	}
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
@@ -1472,12 +1472,15 @@ func (m fleetModel) View() string {
 			start := min(m.scroll, max(0, len(content)-limit))
 			content = content[start:min(len(content), start+limit)]
 		}
-		if total > limit && !strings.Contains(footer, "PgUp/PgDn") {
+		if total > m.height-2 && !strings.Contains(footer, "PgUp/PgDn") {
 			footer += " | PgUp/PgDn scroll"
+		}
+		for len(content) < m.height-2 {
+			content = append(content, "")
 		}
 	}
 	feedback := m.status
-	if (m.conversationPage() || m.composePage()) && !m.help && !m.runbook {
+	if m.workspace == 1 && !m.help && !m.runbook {
 		q := m.coordination
 		feedback = q.status
 		if q.failed {
