@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,55 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/tui/tuifixture"
 )
+
+func TestPageParityExactContextSurvivesHeaderClipping(t *testing.T) {
+	for _, size := range tuifixture.Sizes() {
+		for _, page := range []string{"team-detail", "unbound-details"} {
+			for _, suffix := range []string{"first", "second"} {
+				t.Run(fmt.Sprintf("%dx%d/%s/%s", size.Width, size.Height, page, suffix), func(t *testing.T) {
+					master := "master-" + strings.Repeat("shared-prefix-", 8) + suffix
+					principal := "principal-" + strings.Repeat("shared-prefix-", 8) + suffix
+					m, source := teamViewFixture()
+					source.master = master
+					m.coordination.self.Principal.ID = principal
+					m.width, m.height = size.Width, size.Height
+					if page == "team-detail" {
+						placement := m.coordination.team[0].Placement
+						m.coordination.teamDetail = &placement
+					} else {
+						fleet := runtimeBaselineFleet()
+						fleet.width, fleet.height = size.Width, size.Height
+						fleet.services.Coordination, fleet.coordination = source, m.coordination
+						m, _ = fleetKey(fleet, "enter")
+						if m.detailEntry == nil || m.detailEntry.Diagnostics != nil {
+							t.Fatal("regression requires unbound Details")
+						}
+					}
+					lines, _, _ := m.content()
+					for _, id := range []string{master, principal} {
+						if !strings.Contains(strings.Join(lines[conversationHeader:], ""), id) {
+							t.Fatalf("full exact context lost behind clipped %s header", page)
+						}
+					}
+					seenMaster, seenPrincipal := false, false
+					for offset := 0; offset < len(lines); offset++ {
+						m.scroll = offset
+						view := m.View()
+						if maxLineWidth(view) > size.Width || len(strings.Split(view, "\n")) != size.Height {
+							t.Fatal("context exceeds viewport")
+						}
+						body := strings.Join(strings.Split(view, "\n")[conversationHeader:size.Height-2], "")
+						seenMaster = seenMaster || strings.Contains(body, master)
+						seenPrincipal = seenPrincipal || strings.Contains(body, principal)
+					}
+					if !seenMaster || !seenPrincipal {
+						t.Fatal("exact identities are not reachable by scrolling")
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestPageParityDetailsPresenceAndContext(t *testing.T) {
 	for _, size := range tuifixture.Sizes() {

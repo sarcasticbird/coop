@@ -144,6 +144,7 @@ func (m fleetModel) teamLines(master string) []string {
 		}
 		lines = append(lines, agent, host, presence, "Handling: "+activity, "Work / blocker: "+work)
 		lines = append(lines, context...)
+		lines = append(lines, "Exact Master: "+master, "Exact Principal: "+valueOr(q.self.Principal.ID, "unknown"))
 		lines = append(lines, "AgentID: "+q.teamDetail.AgentID, fmt.Sprintf("Captured Host: %s | Worker: %s | Generation: %d", valueOr(q.teamDetail.HostID, "unknown"), valueOr(q.teamDetail.InstanceID, "unknown"), q.teamDetail.Generation))
 		lines = append(lines, team.DetailLines(time.Now(), 0, q.teamDetail.AgentID, q.teamReport, q.busy, q.teamFailure)...)
 		return lines

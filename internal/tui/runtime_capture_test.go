@@ -22,6 +22,12 @@ func TestRuntimeCapture(t *testing.T) {
 	m := runtimeBaselineFleet()
 	coord, source := teamViewFixture()
 	source.self.RestoreEpoch = 1
+	exactContext := os.Getenv("COOP_TUI_CAPTURE_EXACT_CONTEXT") == "1"
+	if exactContext {
+		source.master = "master-" + strings.Repeat("shared-prefix-", 8) + "second"
+		source.self.Principal.ID = "principal-" + strings.Repeat("shared-prefix-", 8) + "second"
+		coord.coordination.self = source.self
+	}
 	m.coordination, m.services.Coordination = coord.coordination, source
 	m.coordination.section = "threads"
 	stress := os.Getenv("COOP_TUI_CAPTURE_STRESS") == "1"
@@ -53,6 +59,10 @@ func TestRuntimeCapture(t *testing.T) {
 	for i := range m.hosts {
 		for j := range m.hosts[i].entries {
 			e := &m.hosts[i].entries[j]
+			if exactContext {
+				e.Diagnostics = nil
+				continue
+			}
 			for _, p := range source.rows {
 				if p.AgentID == e.Target.ID {
 					e.Diagnostics = &c.DiagnosticBinding{MasterID: source.MasterID(), Placement: p.Placement}

@@ -78,6 +78,7 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--extended", action="store_true", help="also capture help, confirmations, compose previews and read-only receipts without submitting")
     modes.add_argument("--supplemental", action="store_true", help="capture reply/receipt and isolated missing-master, first-use and destroy states")
+    modes.add_argument("--exact-context", action="store_true", help="verify long master/principal IDs in scrolled Team and unbound Details")
     args = parser.parse_args()
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     source = args.source
@@ -88,6 +89,7 @@ def main():
                 "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)", "method": "PTY, native Bubble Tea, timed keyboard navigation", "captures": []}
     manifest["extended"] = args.extended
     manifest["supplemental"] = args.supplemental
+    manifest["exact_context"] = args.exact_context
     manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
     manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     fixture_paths = ["internal/tui/runtime_capture_test.go", "internal/tui/runtime_baseline_test.go",
@@ -103,6 +105,7 @@ def main():
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
             env = dict(os.environ, COOP_TUI_CAPTURE="1", COOP_TUI_CAPTURE_MODE=mode, TERM="xterm-256color")
+            env["COOP_TUI_CAPTURE_EXACT_CONTEXT"] = "1" if args.exact_context else "0"
             if no_color: env["NO_COLOR"] = "1"
             else: env.pop("NO_COLOR", None)
             process = subprocess.Popen([str(args.binary.resolve()), "-test.run=^TestRuntimeCapture$"], stdin=slave, stdout=slave, stderr=slave, env=env)
@@ -122,6 +125,10 @@ def main():
 
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
+            if args.exact_context:
+                pages.insert(3, ("details-exact-context", b"jjjjjj"))
+                pages.append(("team-exact-context", b"jjjjjj"))
+                expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
                 # Never send y in confirmation or a second Ctrl+S in preview.
@@ -180,6 +187,10 @@ def main():
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
+                if page.endswith("exact-context"):
+                    for prefix in ("master-", "principal-"):
+                        if prefix + "shared-prefix-" * 8 + "second" not in screen.replace("\n", ""):
+                            raise RuntimeError(f"full exact identity not inspectable in {page}: {screen}")
                 (args.output / (stem + ".ansi")).write_bytes(raw)
                 (args.output / (stem + ".txt")).write_text(screen)
                 manifest["captures"].append(stem)

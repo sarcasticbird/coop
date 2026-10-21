@@ -1232,6 +1232,7 @@ func (m fleetModel) content() ([]string, string, int) {
 				lines = append(lines, "Source: master diagnostics | report: "+teamAge(m.diagnostics.report.Report.ObservedAt)+" | receipt: "+teamAge(m.diagnostics.report.ReceivedAt))
 			}
 			lines = append(lines, "Host health: "+valueOr(selectedHealth, "unknown; target removed"), "Selected: "+identity(e.Target), "Runtime: "+e.Name, "Project: "+valueOr(e.Project, "-"))
+			lines = append(lines, "Exact "+lines[1], "Exact "+lines[2])
 			lines = append(lines, m.fleetDiagnosticLines()...)
 			for i := range conversationHeader {
 				if m.width > 0 {
