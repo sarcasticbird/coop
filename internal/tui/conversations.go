@@ -56,7 +56,10 @@ func (m fleetModel) conversationLines(master string) []string {
 			unread = "[unread this session] "
 		}
 		body := "[body masked; Ctrl+V to reveal]"
-		if q.readerReveal && !q.failed {
+		if q.readerBlocked {
+			body = "[body masked; r refresh authority]"
+		}
+		if q.readerReveal && !q.failed && !q.readerBlocked {
 			body = message.Body
 		}
 		row(i, unread+fmt.Sprintf("%s | %s | parent %s\n%s", message.ID, message.AuthorID, message.ParentMessageID, body))

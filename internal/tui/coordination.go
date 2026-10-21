@@ -59,6 +59,7 @@ type coordState struct {
 	threadsScroll        int
 	messageSelected      string
 	readerReveal         bool
+	readerBlocked        bool // Recovery requires a coherent current-thread snapshot.
 	readerSelf           c.SelfIdentity
 	readerMaster         string
 	readerScroll         int
@@ -279,6 +280,9 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	if r.err != nil {
 		q.status = coordError(r.err)
 		q.readerReveal = false
+		if q.thread != nil {
+			q.readerBlocked = true
+		}
 		q.readerAnchor = ""
 		if q.thread != nil && (errors.Is(r.err, c.ErrForbidden) || errors.Is(r.err, c.ErrNotFound) || errors.Is(r.err, c.ErrConflict) || errors.Is(r.err, c.ErrEpoch)) {
 			q.messages, q.after, q.cursor = nil, 0, -1
@@ -300,6 +304,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	// Metadata and messages are committed together only after both reads succeed.
 	if data, ok := r.data.(coordThreadPage); ok {
 		q.thread = &data.thread
+		q.readerBlocked = false
 		r.data = data.page
 	}
 	if data, ok := r.data.(coordGoalPage); ok {
@@ -373,6 +378,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		q.section, q.next = "threads", ""
 		q.thread, q.messages, q.after, q.cursor, q.receipt = &data, nil, 0, 0, nil
 		q.readerReveal = false
+		q.readerBlocked = true
 		q.readerAnchor = ""
 		q.readerSelf, q.readerMaster = r.self, m.services.Coordination.MasterID()
 		q.readReady = false
@@ -758,7 +764,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.coordLoad(false)
 	case "ctrl+v":
 		if q.thread != nil && q.receipt == nil && q.authority == nil {
-			if q.failed {
+			if q.failed || q.readerBlocked {
 				q.status = "Refresh current thread authority before revealing private bodies"
 			} else {
 				anchor, offset := m.conversationAnchor()

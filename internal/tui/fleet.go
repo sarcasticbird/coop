@@ -1217,6 +1217,9 @@ func (m fleetModel) content() ([]string, string, int) {
 				if m.coordination.readerReveal {
 					footer = "Ctrl+V mask | p reply | c root | ? | Esc"
 				}
+				if m.coordination.readerBlocked {
+					footer = "r refresh authority | ? help | Esc"
+				}
 			}
 		}
 		if m.teamList() || m.coordination.teamDetail != nil {

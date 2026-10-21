@@ -451,3 +451,27 @@ baseline/environment failures described above remain classified, not waived or
 reported as a green full suite. These are author checks only; Robin must review
 the new exact head and Wren must renew private exact-artifact runtime QA before
 delivery with required CI. No merge, deployment or release is part of this fix.
+
+### Reader Recovery Boundary
+
+Reader recovery is now separate from the latest coordination request's success.
+A reader-bound failure locks cached bodies until a successful coherent read of
+that captured thread's metadata and message page. Receipt and goal inspections
+may succeed independently but cannot unlock the cached reader. Both reveal
+controls and rendering enforce this boundary; the masked label and footer point
+to `r` for recovery. Genuine refresh recovery still requires explicit reveal.
+
+The synthetic `TestConversationReaderRecoveryRequiresThreadSnapshot` regression
+failed on `40d80bf` before correction at 120x40, 80x24 and 40x20, for metadata and
+message-read failures. It passes three repetitions after correction, covering
+receipt and goal inspection/return without authority reads, renderer masking,
+repeated failure, successful coherent recovery and retained selected-message ID.
+No private QA report content or customer bodies are included in these fixtures.
+
+Author validation on Go 1.26.10 through Flox passed: scoped TUI/masterclient/
+coordination/master/CLI tests; repository-wide vet; no-color TUI/CLI tests;
+fitting race tests for TUI/masterclient/coordination with the existing compiler;
+the unchanged CI vulnerability scanner; formatting and diff checks. No new
+full-suite pass is claimed. Robin must independently review the new exact head,
+and Wren must perform renewed private exact-artifact runtime QA before delivery
+with required CI. No live service, fleet, release or deployment was changed.

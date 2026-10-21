@@ -425,3 +425,100 @@ func TestConversationRefreshRetainsCurrentThreadPage(t *testing.T) {
 		t.Fatalf("refresh/follow changed page query: %v", cursors)
 	}
 }
+
+func TestConversationReaderRecoveryRequiresThreadSnapshot(t *testing.T) {
+	for _, size := range []tea.WindowSizeMsg{{Width: 120, Height: 40}, {Width: 80, Height: 24}, {Width: 40, Height: 20}} {
+		for _, failure := range []string{"metadata", "messages"} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size.Width, size.Height, failure), func(t *testing.T) {
+				m, s := coordinationFixture()
+				m.width, m.height = size.Width, size.Height
+				m.coordination.threads = []c.Thread{{ID: "synthetic-thread"}}
+				fail := false
+				threadCalls, messageCalls := 0, 0
+				s.thread = func(id string) (c.Thread, error) {
+					threadCalls++
+					if fail && failure == "metadata" {
+						return c.Thread{}, c.ErrUnavailable
+					}
+					return c.Thread{ID: id}, nil
+				}
+				s.messages = func(id string, after int64) (c.MessagePage, error) {
+					messageCalls++
+					if fail && failure == "messages" {
+						return c.MessagePage{}, c.ErrUnavailable
+					}
+					if after > 0 {
+						return c.MessagePage{}, nil
+					}
+					return c.MessagePage{Messages: []c.Message{{ID: "synthetic-message", ThreadID: id, Sequence: 1, Body: "synthetic-private-cached"}}}, nil
+				}
+				s.status = func(id string) (c.MessageReceipt, error) { return c.MessageReceipt{MessageID: id}, nil }
+				s.resolve = func(ref c.GoalRef) (c.GoalAuthority, error) {
+					return c.GoalAuthority{Revision: c.GoalRevision{Ref: ref}}, nil
+				}
+				m, cmd := coordinationKey(m, "enter")
+				m = coordinationRun(t, m, cmd)
+				m, _ = coordinationKey(m, "ctrl+v")
+				if !strings.Contains(m.View(), "synthetic-private-cached") {
+					t.Fatal("initial explicit reveal failed")
+				}
+				fail = true
+				m, cmd = coordinationKey(m, "r")
+				m = coordinationRun(t, m, cmd)
+				assertLocked := func() {
+					t.Helper()
+					m, _ = coordinationKey(m, "ctrl+v")
+					if m.coordination.readerReveal || strings.Contains(m.View(), "synthetic-private-cached") {
+						t.Fatal("cached private body revealed without a successful current-thread snapshot")
+					}
+					assertConversationBounds(t, m)
+				}
+				assertLocked()
+				reads := threadCalls + messageCalls
+				m, cmd = coordinationKey(m, "s")
+				m = coordinationRun(t, m, cmd)
+				if m.coordination.failed || m.coordination.receipt == nil {
+					t.Fatal("receipt lookup did not independently succeed")
+				}
+				m, _ = coordinationKey(m, "esc")
+				assertLocked()
+				// A different successful inspection must not unlock the reader either.
+				m, _ = coordinationKey(m, "a")
+				m, _ = coordinationKey(m, "synthetic-goal")
+				m, _ = coordinationKey(m, "tab")
+				m, _ = coordinationKey(m, strings.Repeat("a", 64))
+				m, _ = coordinationKey(m, "ctrl+s")
+				m, cmd = coordinationKey(m, "ctrl+s")
+				m = coordinationRun(t, m, cmd)
+				if m.coordination.failed || m.coordination.authority == nil {
+					t.Fatal("goal inspection did not independently succeed")
+				}
+				m, _ = coordinationKey(m, "esc")
+				assertLocked()
+				if threadCalls+messageCalls != reads {
+					t.Fatal("unrelated inspection unexpectedly read current thread authority")
+				}
+				shown := m
+				shown.coordination.readerReveal = true
+				if strings.Contains(shown.View(), "synthetic-private-cached") {
+					t.Fatal("renderer ignored the reader recovery lock")
+				}
+				// Another failed actual refresh still cannot recover the reader.
+				m, cmd = coordinationKey(m, "r")
+				m = coordinationRun(t, m, cmd)
+				assertLocked()
+				fail = false
+				reads = threadCalls + messageCalls
+				m, cmd = coordinationKey(m, "r")
+				m = coordinationRun(t, m, cmd)
+				if m.coordination.failed || threadCalls+messageCalls != reads+2 || strings.Contains(m.View(), "synthetic-private-cached") {
+					t.Fatal("genuine recovery skipped coherent reads or automatically revealed content")
+				}
+				m, _ = coordinationKey(m, "ctrl+v")
+				if !m.coordination.readerReveal || !strings.Contains(m.View(), "synthetic-private-cached") || m.coordination.messages[m.coordination.cursor].ID != "synthetic-message" {
+					t.Fatal("genuine refresh did not restore explicit reveal of the same selected message")
+				}
+			})
+		}
+	}
+}
