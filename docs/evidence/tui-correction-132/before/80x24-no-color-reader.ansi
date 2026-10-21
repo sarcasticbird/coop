@@ -1,0 +1,125 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet | 0H/0T hidden | Filter: All[K
+[K
+Fleet Ledger | Filter: All[K
+Hidden: 0 hosts / 0 cached targets[K
+No target selected[K
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  local / agent / fixture-a   VM: running[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   VM: stopped[K
+  fixture-remote / agent / fixture-c   VM: absent[K
+[K
+Enter Details | h filter | ? help[K[19;H[H
+
+
+
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> local / agent / fixture-a   VM: running[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   VM: stopped[K
+  fixture-remote / agent / fixture-c   VM: absent[K
+[K
+Enter Details | h filter | ? help[K[J[18;H[HFleet > Details[K
+Selected: local / agent / fixture-a[K
+Host destination: this machine[K
+Name: same-name[K
+Project: -[K
+VM lifecycle: running[K
+Host health: ok; snapshot <5s old[K
+Enter: Connect | x: actions | Esc: Fleet[K
+Diagnostic master: test-master | source: host-owned target binding[K
+Bound host: local | worker: fixture-worker-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T15:08:01Z[K
+Report age: 1s ago | receipt age: 1s ago[K
+Work observation age: unknown[K
+Wait observation age: 1s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Stage: unknown | phase: unknown[K
+Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Observed: 2026-10-21T15:08:01Z | worker started: 2026-10-21T14:08:01Z[K
+Task: unknown[K
+[K
+Enter Connect | x actions | Esc | ? help | PgUp/PgDn scroll[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago[K
+
+Wait observation age: 2s ago[K
+
+
+
+
+
+
+
+[24;H[HFleet | 0H/0T hidden | Filter: All[K
+[K
+Fleet Ledger | Filter: All[K
+Hidden: 0 hosts / 0 cached targets[K
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> local / agent / fixture-a   VM: running[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   VM: stopped[K
+  fixture-remote / agent / fixture-c   VM: absent[K
+[K
+Enter Details | h filter | ? help[K[J[18;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Enter opens masked reader | n new thread[K
+t Team | i Inbox | g Goals | ] next page[K
+> fixture-thread | Design check | [K
+Next page: none[K
+[K
+Enter open | n new | ? help | Esc[K[J[9;H[H
+
+
+
+
+
+
+Snapshot refreshed[K
+[9;H[HThreads > fixture-thread[K
+
+
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected reply[K
+Private reader; no screenshots. Follow: false[K
+> [unread this session] fixture-message | hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Snapshot refreshed[K
+Ctrl+V reveal | p reply | c root | ? | Esc[K[11;H

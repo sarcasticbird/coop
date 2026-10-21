@@ -1,0 +1,19 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet | 0H/0T hidden | Filter: All[K
+[K
+Fleet Ledger | Filter: All[K
+Hidden: 0 hosts / 0 cached targets[K
+No target selected[K
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  local / agent / fixture-a   VM: running[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   VM: stopped[K
+  fixture-remote / agent / fixture-c   VM: absent[K
+[K
+Enter Details | h filter | ? help[K[19;H

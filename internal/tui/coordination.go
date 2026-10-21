@@ -82,6 +82,7 @@ type coordState struct {
 	readReady            bool
 	loadingNext          bool
 	seen                 time.Time
+	checked              time.Time // Last accepted result, including failures; seen remains last success.
 	status               string
 	serial               uint64
 	cancel               context.CancelFunc
@@ -311,6 +312,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		r.err = c.ErrConflict
 	}
 	q.self = r.self
+	q.checked = time.Now()
 	if q.teamReport != nil && r.self.RestoreEpoch > 0 && q.teamReport.Report.RestoreEpoch != r.self.RestoreEpoch {
 		q.teamReport = nil
 		q.teamFailure = "master epoch changed; current work unknown"

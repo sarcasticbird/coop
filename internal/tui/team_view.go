@@ -23,10 +23,14 @@ func readTeamDetail(ctx context.Context, source Coordination, placement c.Placem
 	if err != nil {
 		return nil, err
 	}
+	return readTeamReport(ctx, source, placement, rows), nil
+}
+
+func readTeamReport(ctx context.Context, source Coordination, placement c.Placement, rows []c.Presence) teamSnapshot {
 	result := teamSnapshot{rows: rows}
 	if !slices.ContainsFunc(rows, func(p c.Presence) bool { return p.Placement == placement }) {
 		result.err = c.ErrConflict
-		return result, nil
+		return result
 	}
 	if source, ok := source.(team.DiagnosticSource); ok {
 		result.report, result.err = source.AgentDiagnostics(ctx, placement.AgentID)
@@ -36,7 +40,7 @@ func readTeamDetail(ctx context.Context, source Coordination, placement c.Placem
 	if result.err == nil && (placement.HostID == "" || placement.InstanceID == "" || placement.Generation < 1 || result.report.ReceivedAt.IsZero() || result.report.Report.Placement != placement || c.ValidateDiagnostics(result.report.Report) != nil) {
 		result.err = c.ErrConflict
 	}
-	return result, nil
+	return result
 }
 
 func (m *fleetModel) setTeamRows(rows []c.Presence) {

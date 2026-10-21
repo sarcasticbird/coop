@@ -1,0 +1,270 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        running    waiting          work unknown / local pause                               
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        stopped    stale            old diagnostic report                                    
+  same-name           agent        absent     unknown          no visible diagnostic report                             
+[K
+Enter Details | h filter | ? help[K[18;H[H
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name           agent        running    waiting          work unknown / local pause                               
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        stopped    stale            old diagnostic report                                    
+  same-name           agent        absent     unknown          no visible diagnostic report                             
+[K
+Enter Details | h filter | ? help[K[J[17;H[HFleet > Details[K
+Name: same-name[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local pause[K
+Selected: local / agent / fixture-a[K
+Host destination: this machine[K
+Runtime: same-name[K
+Project: -[K
+Host health: ok; snapshot <5s old[K
+Diagnostic master: test-master | source: host-owned target binding[K
+Bound host: local | worker: fixture-worker-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T15:07:37Z[K
+Report age: 1s ago | receipt age: 1s ago[K
+Work observation age: unknown[K
+Wait observation age: 1s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Stage: unknown | phase: unknown[K
+Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Observed: 2026-10-21T15:07:37Z | worker started: 2026-10-21T14:07:37Z[K
+Task: unknown[K
+PR: unknown[K
+Head: unknown[K
+Job: unknown[K
+Session: unknown | submission: unknown[K
+Retry: unknown | deadline: unknown[K
+Dependencies: unknown[K
+GitHub: unknown | origin: unknown | category: unknown[K
+  Observed: unknown | last success: unknown[K
+  Requests since start: 0 | last duration: 0ms | retry: unknown[K
+  Last complete catalog: unknown[K
+OpenCode: unknown | origin: unknown | category: unknown[K
+  Observed: unknown | last success: unknown[K
+  Requests since start: 0 | last duration: 0ms | retry: unknown[K
+Submitted model: unknown[K
+[K
+Enter Connect | x actions | Esc | ? help | PgUp/PgDn scroll[K[40;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago[K
+
+Wait observation age: 2s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name           agent        running    waiting          work unknown / local pause                               
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  same-name           agent        stopped    stale            old diagnostic report                                    
+  same-name           agent        absent     unknown          no visible diagnostic report                             
+[K
+Enter Details | h filter | ? help[K[J[17;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Enter opens masked reader | n new thread[K
+t Team | i Inbox | g Goals | ] next page[K
+> fixture-thread | Design check | [K
+Next page: none[K
+[K
+Enter open | n new | ? help | Esc[K[J[9;H[H
+
+
+
+
+
+
+Snapshot refreshed[K
+[9;H[HThreads > fixture-thread[K
+
+
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected reply[K
+Private reader; no screenshots. Follow: false[K
+> [unread this session] fixture-message | hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Snapshot refreshed[K
+Ctrl+V reveal | p reply | c root | ? | Esc[K[11;H[HThreads[K
+
+
+Enter opens masked reader | n new thread[K
+t Team | i Inbox | g Goals | ] next page[K
+> fixture-thread | Design check | [K
+Next page: none[K
+Returned to Threads[K
+Enter open | n new | ? help | Esc[K[J[9;H[HTeam | Master: test-master[K
+Read only observations; heartbeat is not work progress[K
+Team snapshot age: 0s ago[K
+Snapshot refreshed[K
+Enter inspect | arrows select | PgUp/PgDn scroll | Esc Fleet[K
+> fixture-a (same-name)[K
+  Host: local | Worker: fixture-worker-1 | Generation: 1[K
+  Availability (master): idle | heartbeat: 9s ago[K
+  Work/blocker: inspect diagnostics (not inferred)[K
+  fixture-b (same-name)[K
+  Host: fixture-remote | Worker: fixture-worker-1 | Generation: 1[K
+  Availability (master): paused | heartbeat: 1m39s ago[K
+  Work/blocker: inspect diagnostics (not inferred)[K
+  fixture-c (same-name)[K
+  Host: fixture-remote | Worker: fixture-worker-1 | Generation: 1[K
+  Availability (master): unknown | heartbeat: unknown[K
+  Work/blocker: inspect diagnostics (not inferred)[K
+[K
+Enter inspect | arrows | r refresh | ? | Esc[K[19;H[H
+
+
+
+
+
+
+  Availability (master): idle | heartbeat: 10s ago[K
+
+
+
+  Availability (master): paused | heartbeat: 1m40s ago[K
+
+
+
+
+
+
+[19;H[HTeam > Agent: fixture-a | Master: test-master[K
+
+
+
+Availability (master): idle | heartbeat: 10s ago[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T15:07:37Z[K
+Report age: 10s ago | receipt age: 10s ago[K
+Work observation age: unknown[K
+Wait observation age: 10s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Stage: unknown | phase: unknown[K
+Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Observed: 2026-10-21T15:07:37Z | worker started: 2026-10-21T14:07:37Z[K
+Task: unknown[K
+PR: unknown[K
+Head: unknown[K
+Job: unknown[K
+Session: unknown | submission: unknown[K
+Retry: unknown | deadline: unknown[K
+Dependencies: unknown[K
+GitHub: unknown | origin: unknown | category: unknown[K
+  Observed: unknown | last success: unknown[K
+  Requests since start: 0 | last duration: 0ms | retry: unknown[K
+  Last complete catalog: unknown[K
+OpenCode: unknown | origin: unknown | category: unknown[K
+  Observed: unknown | last success: unknown[K
+  Requests since start: 0 | last duration: 0ms | retry: unknown[K
+Submitted model: unknown[K
+Executed model: unknown[K
+Recent transitions since worker start:[K
+Heartbeat and successful contacts do not prove model or VM health.[K
+[K
+[K
+r refresh | j/k/PgUp/PgDn scroll | Esc Team[K[37;H[H
+
+Team snapshot age: 1s ago[K
+
+Availability (master): idle | heartbeat: 12s ago[K
+
+
+
+Report age: 12s ago | receipt age: 12s ago[K
+
+Wait observation age: 12s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[37;H
