@@ -44,8 +44,14 @@ func Configure(cmd *exec.Cmd, input *os.File) (*Terminal, error) {
 	terminal.suspendSelf = func() error { return syscall.Kill(-syscall.Getpgrp(), syscall.SIGTSTP) }
 	terminal.signalGroup = syscall.Kill
 	terminal.stopped = processStopped
+	return configureCommand(cmd, terminal)
+}
+
+func configureCommand(cmd *exec.Cmd, terminal *Terminal) (*Terminal, error) {
 	foreground, err := terminal.getForeground()
-	if errors.Is(err, unix.ENOTTY) || errors.Is(err, unix.ENODEV) {
+	// Headless launches can report an unowned foreground group. There is no
+	// terminal ownership to transfer or restore when that group is zero.
+	if errors.Is(err, unix.ENOTTY) || errors.Is(err, unix.ENODEV) || err == nil && foreground == 0 {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		return terminal, nil
 	}
