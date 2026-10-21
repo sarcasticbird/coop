@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,63 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 )
+
+func TestLedgerRecoversAfterCoordinationFailure(t *testing.T) {
+	for _, failure := range []error{c.ErrNotFound, c.ErrForbidden} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			m, _ := boundFleetFixture()
+			e := m.hosts[1].entries[0]
+			m = runLedgerDiagnostic(t, m)
+			m.workspace = 1
+			m = coordinationRun(t, m, m.coordCall("read", func(context.Context, Coordination) (any, error) {
+				return nil, failure
+			}))
+			if !m.coordination.failed {
+				t.Fatal("Coordination failure not recorded")
+			}
+			m, _ = fleetKey(m, "1")
+			if activity, _ := m.ledgerSummary(e); activity != "unknown" {
+				t.Fatal("newer failure did not suppress the old report")
+			}
+			m = runLedgerDiagnostic(t, m)
+			if activity, work := m.ledgerSummary(e); activity != "waiting" {
+				t.Fatal("new successful Fleet authorization did not restore activity", activity, work)
+			}
+			if !m.coordination.failed {
+				t.Fatal("Fleet recovery incorrectly cleared separate Coordination failure")
+			}
+		})
+	}
+}
+
+func TestLedgerLateReadCannotOverrideNewerCoordinationEvidence(t *testing.T) {
+	for _, change := range []string{"denied", "context"} {
+		t.Run(change, func(t *testing.T) {
+			m, source := boundFleetFixture()
+			e := m.hosts[1].entries[0]
+			cmd := m.refreshLedgerDiagnostics()
+			late := cmd()
+			if change == "context" {
+				source.self.Principal.ID = "replacement-reader"
+			}
+			m = coordinationRun(t, m, m.coordCall("read", func(context.Context, Coordination) (any, error) {
+				if change == "denied" {
+					return nil, c.ErrForbidden
+				}
+				return nil, nil
+			}))
+			out, _ := m.Update(late)
+			m = out.(fleetModel)
+			if activity, _ := m.ledgerSummary(e); activity != "unknown" {
+				t.Fatal("late successful read overrode newer denied/incompatible context")
+			}
+			m = runLedgerDiagnostic(t, m)
+			if activity, work := m.ledgerSummary(e); activity != "waiting" {
+				t.Fatal("newly authorized Fleet read could not recover", activity, work)
+			}
+		})
+	}
+}
 
 func TestLedgerCellAlignmentAndLabels(t *testing.T) {
 	for _, width := range []int{120, 100, 80, 65, 40} {

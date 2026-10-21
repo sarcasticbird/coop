@@ -163,3 +163,31 @@ Main was re-read at `ece7f185ebbb50e5bc893f724ee738161184e000`; separate owner
 cache PR #131 remained OPEN at `61c114b0f8a4e608a7c4917df34e21c43207f85b`
 during author verification. It was not copied, reviewed, merged or used as a
 dependency. Later main/cache delivery must be reconciled normally.
+
+## Review Recovery Fix
+
+Robin's changes-needed review of `d3ecc9cabcd201999ec016f26411ad1704732113`
+identified a real recovery defect: a historical Coordination operation failure
+unconditionally suppressed otherwise successfully reauthorized Fleet diagnostics.
+The new not-found/forbidden recovery regressions failed on that head before the
+fix. Coordination now records the time of every accepted result, including
+failures, separately from its last successful snapshot age. A later successful
+Fleet Self/Team/report read supersedes an older failure without changing the
+Coordination error or reopening that workspace. A newer denial or incompatible
+context still suppresses older/in-flight Fleet evidence.
+
+The focused recovery/late-result/safety tests passed ten repetitions after the
+fix. Scoped TUI/hostrouter/masterclient/CLI regressions, repository vet, pinned
+golangci-lint (0 issues), NO_COLOR TUI/CLI, formatting/diff checks and fitting
+uncached TUI/hostrouter/masterclient race checks passed again through Flox with
+the same existing compiler. No new full-suite or live transport claim.
+
+The committed BEFORE/AFTER captures and old binary digests above remain
+historical, not a claim that the old binary is the corrected artifact. The
+published PR metadata identifies the corrected exact source. Rebuild and repeat
+the same 42-checkpoint runner on that head; the author's local corrected-head
+fixture/capture paths are `/tmp/opencode/hawk-135-recovery.test` and
+`/tmp/opencode/hawk-135-recovery-captures/`. Its manifest records the corrected
+full source and binary SHA-256. The layout/fixture/navigation are unchanged by
+this recovery-only fix. Renew Robin's current-head review, Wren's exact-artifact
+runtime/visual QA and hosted CI; prior-head results do not clear those gates.

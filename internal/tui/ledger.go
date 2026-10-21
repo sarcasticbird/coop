@@ -112,7 +112,7 @@ func (m fleetModel) ledgerSummary(e hostrouter.InventoryEntry) (string, string) 
 	if !ok || entry.binding != *e.Diagnostics {
 		return "unknown", "no visible report"
 	}
-	if m.coordination.failed || m.coordination.seen.After(m.ledgerDiagnostics.checked) && !ledgerSameContext(m.coordination.self, m.ledgerDiagnostics.self) {
+	if m.coordination.checked.After(m.ledgerDiagnostics.checked) && m.coordination.failed || m.coordination.seen.After(m.ledgerDiagnostics.checked) && !ledgerSameContext(m.coordination.self, m.ledgerDiagnostics.self) {
 		return "unknown", "access context changed"
 	}
 	return diagnosticSummary(time.Now(), entry.report, entry.failure)
