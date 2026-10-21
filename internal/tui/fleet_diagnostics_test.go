@@ -265,6 +265,11 @@ func TestFleetDiagnosticFeedbackPreservesControlOutcomes(t *testing.T) {
 					} else {
 						m.services.Registry.(*fixtureRegistry).hosts = nil
 						m, cmd = fleetKey(m, "s")
+						if cmd != nil || m.pending == nil {
+							t.Fatal("stop bypassed confirmation")
+						}
+						m = reviewFleetConfirmation(t, m)
+						m, cmd = fleetKey(m, "y")
 						if cmd != nil {
 							t.Fatal("stale registration dispatched")
 						}

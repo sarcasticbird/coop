@@ -151,7 +151,8 @@ func TestFleetDropsRefreshFromBeforeAction(t *testing.T) {
 	m := fixtureFleet()
 	old := m.epoch
 	m, _ = fleetKey(m, "enter")
-	m, cmd := fleetKey(m, "s")
+	m, _ = fleetKey(m, "s")
+	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
 		t.Fatal("action not launched")
 	}
@@ -374,7 +375,8 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	rt := runtime.NewMock()
 	m.legacy = rt
 	m, _ = fleetKey(m, "enter")
-	m, cmd := fleetKey(m, "s")
+	m, _ = fleetKey(m, "s")
+	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
 		t.Fatal("local stop not launched")
 	}
@@ -419,7 +421,8 @@ func TestFleetActionCancellationAndRemoteProjectContract(t *testing.T) {
 		return hostrouter.ActionResult{Target: r.Target}, ctx.Err()
 	})
 	m, _ = fleetKey(m, "enter")
-	m, cmd := fleetKey(m, "s")
+	m, _ = fleetKey(m, "s")
+	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
 		t.Fatal("stop not launched")
 	}

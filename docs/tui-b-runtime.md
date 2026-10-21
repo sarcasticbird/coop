@@ -589,3 +589,79 @@ coordination, master, masterclient, mastermcp and CLI tests; repository-wide vet
 golangci-lint v2.12.2 (zero issues); no-color TUI/CLI tests; fitting uncached race
 tests for TUI/coordination/masterclient/master with the existing compiler above;
 formatting and diff checks. No new full-suite or independent-clearance claim.
+
+## Stage 4 Setup, Help And Actions
+
+[Task #120](https://github.com/sarcasticbird/coop/issues/120) starts at delivered
+stage-3b main `fcb8fef`. Accepted design PR #111 remains at
+`5d79a84031045fe8dd8f3eeb345cadea953e0724`, verified 2026-10-21; no later design
+delta is adopted. Existing masterclient, registry, action, SSH and foreground CLI
+handlers remain the transport and receiving-side authority.
+
+- Missing master setup explains existing private configuration and credential
+  references, relaunch, independent Fleet availability and separate SSH setup.
+  A local-only Servers list offers registration of existing SSH references.
+  No token input, master switching, SSH trust bypass or implicit service startup.
+  Server references wrap completely, with add/edit/remove discoverable at 40 columns.
+- Server and operation editors own F1 help; `?` is literal input. Help excludes
+  underlying input/output/error buffers, retains field and viewport on return,
+  and cannot credit unseen removal content as reviewed. Existing Composer,
+  Team and reader help remains available without revealing private bodies.
+- Details start/stop, destroy and Connect all capture the same operation argv as
+  the menu before consent. Configured grant references are prepared before preview
+  and frozen into the invocation. Full host/kind/ID/name/path/argv and the specific
+  consequence, including unencrypted backup secrets, remain completely reviewable.
+  Long confirmations and server removals require contiguous PgDn review before
+  `y`; geometry changes reset review. Target/placement changes invalidate intent;
+  current registration/inventory and receiving CLI checks still gate dispatch.
+- Confirmation cancellation, operation-menu return and foreground return retain
+  Details/Servers scroll plus existing ledger filter, identity and focus. Actual
+  disposable PTYs exercise terminal restoration and resumed browser keyboard input
+  after success, failure, signal and synthetic remote detach. Ctrl+D reaches the
+  remote application; Ctrl+] detaches the existing remote bridge. Local foreground
+  entry retains the application's normal exit/detach behavior; no new local
+  transport or uniform local Ctrl+] contract is introduced.
+- Services/About includes cache status, team inspect and explicit message
+  continuation alongside existing services/recovery/admin/CLI runbooks. Existing
+  exhaustive Cobra command inventories and operation-spec/consent tests remain
+  enforced; no shortcut is a new authorization route.
+
+### Stage 4 Reproduction
+
+Run from an independent checkout of the exact published source head:
+
+```sh
+flox activate -- go test ./internal/tui/... ./internal/config ./internal/hostrouter ./internal/masterclient ./cmd/coop -count=1
+flox activate -- go test ./internal/tui -run 'TestSetup|TestConfirmation|TestForeground|TestTerminal' -count=1 -v
+flox activate -- go test ./cmd/coop -run 'TestTUI|TestFleetTUI|TestRemoteTerminal' -count=1 -v
+flox activate -- go build ./...
+flox activate -- go vet ./...
+flox activate -- go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...
+flox activate -- env NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1
+flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/hostrouter ./cmd/coop -count=1
+git diff --check
+```
+
+Author checks on Linux arm64, Flox Go 1.26.10 passed: scoped tests above,
+repository-wide build/vet, no-color tests, fitting race tests, formatting and diff
+checks. The race lane uses the already-installed compiler above; default CGO and
+PATH-only compiler attempts by delegated fixture checks were blocked. No compiler
+or environment configuration was installed/changed. The standalone
+`golangci-lint` binary is not on the Flox PATH; running the CI-pinned v2.12.2
+through `go run` passed with zero issues after correcting one test-only switch
+style finding. Setup/confirmation/foreground/terminal tests also passed ten
+consecutive runs. CI remains an independent gate.
+No new full-suite pass is claimed; previously documented root-run environment
+failures remain outside this stage's scoped validation.
+
+New three-size model coverage lives in `confirmation_test.go`, `setup_help_test.go`
+and `setup_actions_test.go`. PTY coverage is in `foreground_test.go`,
+`terminal_test.go`, `cmd/coop/remote_terminal_test.go` and existing hostrouter
+fixtures. These fixtures use synthetic targets, not live guests. Wren must assess
+the exact runtime artifact in `coop-tui-b-runtime-v1`, privately recording setup,
+editor help, long review, stale/refusal/cancel and authorized attach/return journeys
+at 120x40, 80x24 and 40x20. Real Blackbook/rack-mini operator-assisted evidence is
+still pending, not inferred from these fixtures. Robin exact-head approval,
+private Wren QA and required CI precede source delivery. No source merge, service
+deployment/restart, production mutation, release, tap update or rollout is performed
+by this author implementation stage.

@@ -38,6 +38,8 @@ type Services struct {
 	Terminal     hostrouter.TerminalClient
 	// Foreground uses the existing CLI on the released controlling terminal.
 	Foreground func(context.Context, hostrouter.ActionRequest) (*exec.Cmd, error)
+	// PrepareAction captures configured references before the consent preview.
+	PrepareAction func(hostrouter.ActionRequest) (hostrouter.ActionRequest, error)
 }
 
 type hostState struct {
@@ -49,18 +51,21 @@ type hostState struct {
 }
 
 type serverForm struct {
-	operation     string
-	original      hostrouter.Host
-	name, address string
-	field         int
+	operation       string
+	original        hostrouter.Host
+	name, address   string
+	field           int
+	reviewedThrough int
 }
 
 type pendingAction struct {
-	entry      hostrouter.InventoryEntry
-	operation  string
-	args       []string
-	directory  string
-	foreground bool
+	entry           hostrouter.InventoryEntry
+	operation       string
+	args            []string
+	directory       string
+	foreground      bool
+	reviewedThrough int
+	returnScroll    int
 }
 
 type fleetModel struct {
@@ -93,6 +98,7 @@ type fleetModel struct {
 	refreshing, busy      bool
 	registryError, status string
 	form                  *serverForm
+	formScroll            int
 	pending               *pendingAction
 	result                Result
 	operations            *operationForm
@@ -237,6 +243,7 @@ func (m *fleetModel) reconcile() {
 			}
 		}
 		if !present {
+			m.scroll = m.pending.returnScroll
 			m.pending = nil
 			m.status = "Captured target changed or removed; action cancelled; select again"
 		}
@@ -249,6 +256,7 @@ func (m *fleetModel) reconcile() {
 			}
 		}
 		if !present {
+			m.scroll = m.operations.returnScroll
 			m.operations = nil
 			m.status = "Captured target changed or removed; action cancelled; select again"
 		}
@@ -421,6 +429,7 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
+		m.scroll = m.formScroll
 		m.status = "server references updated"
 		m.refreshing = false
 		return m, m.refresh()
@@ -448,6 +457,19 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
+		if m.form != nil && m.form.operation == "remove" && (m.width != msg.Width || m.height != msg.Height) {
+			f := *m.form
+			f.reviewedThrough = 0
+			m.form, m.scroll = &f, 0
+			if m.help {
+				m.overlayScroll = 0
+			}
+		}
+		if m.pending != nil && (m.width != msg.Width || m.height != msg.Height) {
+			p := *m.pending
+			p.reviewedThrough = 0
+			m.pending, m.scroll = &p, 0
+		}
 		teamVisible := m.teamSelectionVisible()
 		conversationVisible := m.conversationSelectionVisible()
 		formVisible := false
@@ -500,8 +522,14 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if key == "pgdown" {
+		if m.pending != nil || m.form != nil && m.form.operation == "remove" {
+			m = m.reviewConfirmation()
+		}
 		lines, _, _ := m.content()
 		step := 1
+		if m.pending != nil || m.form != nil && m.form.operation == "remove" {
+			step = max(1, m.height-2)
+		}
 		if m.conversationPage() && !m.help && !m.runbook {
 			step = max(1, m.height-conversationHeader-2)
 		}
@@ -526,7 +554,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.help {
-		if key == "?" || key == "esc" {
+		if key == "?" || key == "esc" || key == "f1" {
 			m.help = false
 			m.scroll = m.overlayScroll
 			if m.overlayLedgerFocus {
@@ -552,21 +580,37 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.operations != nil {
+		if key == "f1" {
+			m.help, m.overlayScroll, m.scroll = true, m.scroll, 0
+			return m, nil
+		}
 		return m.keyOperation(k)
 	}
 	if m.pending != nil {
 		p := *m.pending
 		if key == "esc" || key == "n" {
 			m.pending = nil
+			m.scroll = p.returnScroll
 			m.status = "action cancelled"
 		}
 		if key == "y" {
+			m = m.reviewConfirmation()
+			lines, _, _ := m.content()
+			if m.pending.reviewedThrough < len(lines) {
+				m.status = "Review complete confirmation with PgDn before confirming"
+				return m, nil
+			}
 			m.pending = nil
+			m.scroll = p.returnScroll
 			return m.dispatch(p)
 		}
 		return m, nil
 	}
 	if m.form != nil {
+		if key == "f1" {
+			m.help, m.overlayScroll, m.scroll = true, m.scroll, 0
+			return m, nil
+		}
 		return m.keyForm(k)
 	}
 	if m.filtering {
@@ -797,6 +841,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			op := map[string]string{"a": "add", "e": "update", "d": "remove"}[key]
 			m.form = &serverForm{operation: op, original: m.server}
+			m.formScroll = m.scroll
 			m.scroll = 0
 			if key != "a" {
 				m.form.name, m.form.address = m.server.Name, m.server.Address
@@ -806,8 +851,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if key == "d" && m.workspace == 0 {
 			if e, ok := m.entry(m.selected); ok {
-				m.pending = &pendingAction{entry: e, operation: "destroy"}
-				m.scroll = 0
+				return m.confirmAction(pendingAction{entry: e, operation: "destroy"})
 			} else {
 				m.status = "selected host inventory is not authoritative; refresh"
 			}
@@ -826,12 +870,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = identity(e.Target) + " is not running"
 			return m, nil
 		}
-		if op == "enter" {
-			m.pending = &pendingAction{entry: e, operation: op}
-			m.scroll = 0
-			return m, nil
-		}
-		return m.dispatch(pendingAction{entry: e, operation: op})
+		return m.confirmAction(pendingAction{entry: e, operation: op})
 	}
 	return m, nil
 }
@@ -841,12 +880,14 @@ func (m fleetModel) keyForm(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.form = &f
 	if f.operation == "remove" && k.String() == "n" {
 		m.form = nil
+		m.scroll = m.formScroll
 		m.status = "server change cancelled"
 		return m, nil
 	}
 	switch k.String() {
 	case "esc":
 		m.form = nil
+		m.scroll = m.formScroll
 		m.status = "server change cancelled"
 	case "tab", "shift+tab":
 		if f.operation == "add" {
@@ -869,6 +910,12 @@ func (m fleetModel) keyForm(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.saveServer(f)
 	case "y":
 		if f.operation == "remove" {
+			m = m.reviewConfirmation()
+			lines, _, _ := m.content()
+			if m.form.reviewedThrough < len(lines) {
+				m.status = "Review complete removal with PgDn before confirming"
+				return m, nil
+			}
 			return m.saveServer(f)
 		}
 		fallthrough
@@ -908,7 +955,7 @@ func (m fleetModel) saveServer(f serverForm) (tea.Model, tea.Cmd) {
 }
 
 func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
-	if p.args != nil || m.services.Foreground != nil {
+	if m.services.Foreground != nil || p.operation != "enter" && p.operation != "up" && p.operation != "down" && p.operation != "destroy" {
 		return m.dispatchOperation(p)
 	}
 	e, ok := m.entry(p.entry.Target)
@@ -987,8 +1034,11 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 		}
 		var err error
 		if services.Actions != nil && (e.Target.Host != hostrouter.Local || rt == nil) {
-			args := []string{p.operation}
-			if e.Target.Kind == hostrouter.Agent {
+			args := p.args
+			if args == nil {
+				args = []string{p.operation}
+			}
+			if p.args == nil && e.Target.Kind == hostrouter.Agent {
 				args = append([]string{"--agent", e.Target.ID}, args...)
 			}
 			var input io.Reader
@@ -1072,6 +1122,9 @@ func (m fleetModel) content() ([]string, string, int) {
 			}
 		} else {
 			lines = append(lines, "HOST   CONFIGURED SSH REFERENCE")
+			if len(m.hosts) == 1 && m.hosts[0].host == hostrouter.Local {
+				lines = append(lines, "SSH setup: no SSH servers registered. Press a to add an existing reference from ~/.ssh/config.", "SSH registration is separate from master setup. It does not provision a host, enter tokens, bypass trust, or start services.")
+			}
 		}
 		var body []string
 		selectedHealth := ""
@@ -1141,7 +1194,7 @@ func (m fleetModel) content() ([]string, string, int) {
 			}
 		}
 		for _, line := range body {
-			if m.width > 0 {
+			if m.width > 0 && m.workspace != 2 {
 				line = textansi.Truncate(line, m.width, "...")
 			}
 			lines = append(lines, line)
@@ -1190,9 +1243,19 @@ func (m fleetModel) content() ([]string, string, int) {
 		}
 		if m.coordination.form != nil {
 			lines = []string{"Composer Help", "Tab/Shift+Tab changes field; arrows/Home/End move the rune cursor; Enter inserts a literal newline.", "Ctrl+V reveals/masks this buffer only. F1 opens this help; Esc returns without changing the buffer.", "Ctrl+S previews, then submits after the complete preview is reviewed with PgDn.", "Esc in the form offers Keep in memory, Discard, or Return. Reopen the same intent to resume.", "Ctrl+C warns before quitting: all active and kept drafts are lost when this process exits.", "Submitted requests freeze. Ctrl+R retries only the identical payload and request ID, never automatically.", "Ctrl+L rechecks original identity without sending or changing the buffer. Changed authority fails closed.", "A receipt reports server-supported delivery state, not proof of execution or wake.", "Creation sends no message and performs no wake. Master, principal, thread, parent and membership stay captured."}
+			if kind := m.coordination.form.kind; kind != "create" && kind != "send" && kind != "reply" {
+				lines[0] = "Coordination " + kind + " Help"
+				lines[len(lines)-1] = "Review the captured request and its consequence. This form never switches master or bypasses principal permissions."
+			}
+		}
+		if m.form != nil {
+			lines = []string{"SSH Server Help", "Register an existing SSH reference from ~/.ssh/config; master coordination setup is separate.", "No token entry, provisioning, trust bypass or service startup. Paths and configuration stay on the selected host.", "Tab selects field; type literal text (including ?); Enter saves; Esc cancels. Removal needs full review and explicit consent.", "F1 or Esc returns to the same editor field and viewport without changing input."}
+		}
+		if m.operations != nil {
+			lines = []string{"Operation Help", operationSpecs[m.operations.index].name, operationSpecs[m.operations.index].note, "Paths belong to the captured host. Use configured references, never secret values.", "Tab selects field; type literal text (including ?); Enter reviews/runs; Esc backs out.", "Writes require captured identity, complete confirmation review and fresh backend authorization. No rollback is promised.", "F1 or Esc returns without changing input, focus or viewport."}
 		}
 	}
-	if m.operations != nil {
+	if m.operations != nil && !m.help {
 		lines = m.operationLines()
 		selectedLine = -1
 	}
@@ -1200,10 +1263,11 @@ func (m fleetModel) content() ([]string, string, int) {
 		lines = append([]string{"Coop build: " + valueOr(m.services.Version, "unknown (embedded caller)")}, serviceRunbook()...)
 		selectedLine = -1
 	}
-	if m.form != nil {
+	if m.form != nil && !m.help {
 		selectedLine = -1
 		f := m.form
 		lines = []string{strings.ToUpper(f.operation) + " SERVER", "Name: " + f.name, "SSH reference: " + f.address}
+		lines = append(lines, "Existing SSH reference only; not master setup. No provisioning, tokens or trust bypass.")
 		if f.operation == "remove" {
 			lines = append(lines, "Remove "+f.original.Name+" ("+f.original.Address+")? [y/N; esc cancels]")
 		} else {
@@ -1213,13 +1277,18 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.pending != nil {
 		selectedLine = -1
 		impact := "Run the selected operation using this host's configuration and paths?"
+		for _, s := range operationSpecs {
+			if s.name == m.pending.operation {
+				impact = s.note
+			}
+		}
 		if m.pending.operation == "destroy" {
 			impact = "Remove this Coop and its persistent state volumes?"
 		}
 		if m.pending.operation == "enter" {
-			impact = "Connect on the foreground terminal? Ctrl+] detaches; Ctrl+D may end the guest shell. Return to Details; no automatic reconnect."
+			impact = "Connect on the foreground terminal? Remote SSH: Ctrl+] detaches; Ctrl+D is application EOF and may end the guest shell. Local: exit the foreground application to return. Return to Details; no automatic reconnect."
 		}
-		lines = []string{"CONFIRM " + strings.ToUpper(m.pending.operation), "Target: " + identity(m.pending.entry.Target), "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: " + valueOr(m.pending.entry.Project, "-"), impact + " [y/N; esc cancels]"}
+		lines = []string{"CONFIRM " + strings.ToUpper(m.pending.operation), "Target: " + identity(m.pending.entry.Target), "Name: " + m.pending.entry.Name, "Host destination: " + valueOr(m.pending.entry.Target.Host.Address, "this machine"), "Project: " + valueOr(m.pending.entry.Project, "-"), impact, "No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels."}
 		if m.pending.directory != "" {
 			lines = append(lines, "Captured host directory: "+m.pending.directory)
 		}
@@ -1227,13 +1296,13 @@ func (m fleetModel) content() ([]string, string, int) {
 			lines = append(lines, "Exact CLI arguments: "+fmt.Sprintf("%q", m.pending.args))
 		}
 	}
-	if m.registryError != "" {
+	if m.registryError != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, m.registryError)
 	}
-	if m.status != "" {
+	if m.status != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, m.status)
 	}
-	if m.output != "" {
+	if m.output != "" && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, strings.Split(m.output, "\n")...)
 	}
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
@@ -1280,16 +1349,22 @@ func (m fleetModel) content() ([]string, string, int) {
 		}
 	}
 	if m.workspace == 2 {
-		footer += " | a add / e edit / d remove"
+		footer = "a add | e edit | d remove | x | ? help"
 	}
 	if m.form != nil {
-		footer = "tab field | enter save | esc cancel"
+		footer = "Tab field | Enter save | F1 help | Esc"
+	}
+	if m.operations != nil {
+		footer = "Enter review | Tab field | F1 help | Esc"
 	}
 	if m.pending != nil || (m.form != nil && m.form.operation == "remove") {
 		footer = "y confirm | n/esc cancel"
 	}
 	if m.busy {
 		footer = "Operation in progress | esc cancel if supported | Ctrl+C quit"
+	}
+	if m.help {
+		footer = "F1/Esc return | PgUp/PgDn scroll"
 	}
 	// Draft protection owns both the visible page and its keys, without changing
 	// the underlying workspace or overlay that Return must restore.
@@ -1373,6 +1448,9 @@ func (m fleetModel) View() string {
 	}
 	if m.registryError != "" {
 		feedback = m.registryError
+	}
+	if m.help {
+		feedback = ""
 	}
 	feedback = strings.Join(strings.Fields(coordClean(feedback)), " ")
 	if m.width > 0 {

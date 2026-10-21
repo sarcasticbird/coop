@@ -71,7 +71,7 @@ func (tuiActions) Execute(ctx context.Context, req hostrouter.ActionRequest, inp
 	return result, nil
 }
 
-func tuiForegroundCommand(ctx context.Context, req hostrouter.ActionRequest, credentials []string) (*exec.Cmd, error) {
+func tuiPreparedAction(req hostrouter.ActionRequest, credentials []string) (hostrouter.ActionRequest, error) {
 	if len(credentials) > 0 && req.Target.Kind != "" {
 		args := req.Args
 		if len(args) >= 2 && args[0] == "--agent" {
@@ -84,16 +84,16 @@ func tuiForegroundCommand(ctx context.Context, req hostrouter.ActionRequest, cre
 			var b bytes.Buffer
 			w := csv.NewWriter(&b)
 			if err := w.Write(credentials); err != nil {
-				return nil, err
+				return req, err
 			}
 			w.Flush()
 			if err := w.Error(); err != nil {
-				return nil, err
+				return req, err
 			}
 			req.Args = append([]string{"--credentials=" + strings.TrimSuffix(b.String(), "\n")}, req.Args...)
 		}
 	}
-	return tuiCommand(ctx, req)
+	return req, nil
 }
 
 func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig string) (tui.Result, error) {
@@ -101,8 +101,8 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig str
 	if err != nil {
 		return tui.Result{}, err
 	}
-	foreground := func(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
-		return tuiForegroundCommand(ctx, req, credentials)
+	prepare := func(req hostrouter.ActionRequest) (hostrouter.ActionRequest, error) {
+		return tuiPreparedAction(req, credentials)
 	}
 	if masterConfig == "" {
 		masterConfig = defaultMasterClientPath()
@@ -116,7 +116,7 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig str
 	return tui.RunWithServices(tui.Services{Registry: r, Version: resolvedVersion(),
 		Coordination: coordination,
 		Inventory:    hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
-		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: foreground})
+		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: tuiCommand, PrepareAction: prepare})
 }
 
 func tuiExecCommand() *cobra.Command {
