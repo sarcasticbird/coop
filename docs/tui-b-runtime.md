@@ -690,3 +690,24 @@ binary digest and synthetic validation transcript. It runs no live guest action.
 Robin exact-head review, Wren private exact-artifact QA, required CI and actual
 owner/operator UAT remain separate gates. Production rollout, service restart,
 release and tap publication remain excluded.
+
+### Stage 5 Acceptance-Evidence Corrections
+
+Author reproduction on `12ec20d` confirmed that the integrated draft test's combined
+valid text and prohibited control input was rejected as a whole, leaving its
+later snapshot with only `X`. A positive assertion for the intended Unicode body
+failed at all three sizes before correction. The test now inserts and verifies
+the exact multiline wide/combining buffer and a nontrivial rune cursor, separately
+asserts prohibited input leaves buffer/cursor unchanged, and checks the full
+captured content/focus through Keep, Connect callback return, navigation and resume.
+The production input-rejection contract is unchanged.
+
+Both cross-workspace journeys now send actual resize events through 120x40 ->
+40x20 -> 80x24 -> their starting size, including active/kept draft, pending reader,
+foreground callback/return and fault/recovery states. Assertions cover captured
+identity/request, editor buffer/cursor visibility, masked views, reader selection
+and applicable scroll anchors. The packet now distinguishes independently
+initialized size matrices, integrated resize transitions and component/PTY evidence.
+These are test/evidence corrections, not demonstrated production draft loss or
+disclosure. Renew exact-head engineering review and exact-artifact private QA;
+earlier-head approvals do not clear the corrected candidate.

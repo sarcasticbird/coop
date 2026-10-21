@@ -55,6 +55,23 @@ func runtimeIntegrationFixture(t *testing.T, size tuifixture.Size) (fleetModel, 
 	return m, source
 }
 
+func runtimeIntegrationResize(t *testing.T, m fleetModel, check func(fleetModel)) fleetModel {
+	t.Helper()
+	original := tuifixture.Size{Width: m.width, Height: m.height}
+	// Cross both directions and return to the caller's geometry without navigation.
+	for _, size := range []tuifixture.Size{{Width: 120, Height: 40}, {Width: 40, Height: 20}, {Width: 80, Height: 24}, original} {
+		before := m
+		out, cmd := m.Update(tea.WindowSizeMsg{Width: size.Width, Height: size.Height})
+		m = out.(fleetModel)
+		if cmd != nil || m.width != size.Width || m.height != size.Height || m.workspace != before.workspace || m.selected != before.selected || m.filter != before.filter || m.server != before.server || m.coordination.serial != before.coordination.serial || m.coordination.busy != before.coordination.busy || m.coordination.failed != before.coordination.failed || m.coordination.readerBlocked != before.coordination.readerBlocked || m.coordination.readerReveal != before.coordination.readerReveal || m.coordination.messageSelected != before.coordination.messageSelected {
+			t.Fatal("resize dispatched work or changed workspace, focus, request or reader state")
+		}
+		assertConversationBounds(t, m)
+		check(m)
+	}
+	return m
+}
+
 func TestRuntimeIntegrationColorProfileParity(t *testing.T) {
 	// The default Lip Gloss renderer is global; keep this journey serial.
 	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
@@ -201,19 +218,54 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 			}
 			m, _ = coordinationKey(m, "p")
 			m, _ = coordinationKey(m, "tab")
-			m, _ = coordinationKey(m, "private-draft-marker\n\u754ce\u0301\x1b[31m\x07")
+			const body = "private-draft-marker\n\u754ce\u0301"
+			m, _ = coordinationKey(m, body)
+			if got := m.coordination.form.values[1]; got != body {
+				t.Fatalf("intended Unicode draft was not inserted: %q", got)
+			}
 			m, _ = composeKey(m, tea.KeyLeft)
+			if m.coordination.form.positions[1] != len([]rune(body))-1 {
+				t.Fatal("Left did not establish the intended Unicode cursor position")
+			}
 			m, _ = coordinationKey(m, "X")
 			f := m.coordination.form
-			if f == nil || f.requestID == "" || f.parent != "original-parent" {
+			if f == nil || f.requestID == "" || f.parent != "original-parent" || f.values[1] != "private-draft-marker\n\u754ceX\u0301" || f.positions[1] != len([]rune(body)) {
 				t.Fatal("reply did not capture original intent")
 			}
 			id, values, positions, field := f.requestID, slices.Clone(f.values), slices.Clone(f.positions), f.field
+			for _, input := range []string{"\x1b[31m", "\x07"} {
+				m, _ = coordinationKey(m, input)
+				f = m.coordination.form
+				if !reflect.DeepEqual(f.values, values) || !reflect.DeepEqual(f.positions, positions) || f.field != field {
+					t.Fatal("prohibited control input changed valid buffer or cursor")
+				}
+			}
+			checkDraft := func(current fleetModel) {
+				t.Helper()
+				draft := current.coordination.form
+				if draft == nil {
+					if len(current.coordination.drafts) != 1 {
+						t.Fatal("resize lost kept draft")
+					}
+					draft = current.coordination.drafts[0]
+				}
+				if draft.requestID != id || draft.thread.ID != "original-thread" || draft.parent != "original-parent" || draft.field != field || !reflect.DeepEqual(draft.values, values) || !reflect.DeepEqual(draft.positions, positions) {
+					t.Fatal("resize changed captured draft identity, Unicode buffer or focus")
+				}
+				if current.coordination.form != nil {
+					probe := current
+					probe.revealComposeCursor()
+					if probe.scroll != current.scroll {
+						t.Fatal("resize hid the active Unicode cursor")
+					}
+				}
+			}
+			m = runtimeIntegrationResize(t, m, checkDraft)
 			assertComposeBounds(t, m)
 			private := func() {
 				t.Helper()
 				assertConversationBounds(t, m)
-				for _, marker := range []string{"private-draft-marker", "private-reader-marker", "\u754c", "e\u0301", "\x1b[31m", "\x07"} {
+				for _, marker := range []string{"private-draft", "private-reader", "\u754c", "eX\u0301", "\x1b[31m", "\x07"} {
 					if strings.Contains(m.View(), marker) {
 						t.Fatalf("private content %q leaked outside editor", marker)
 					}
@@ -228,6 +280,19 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 			if m.coordination.form != nil || len(m.coordination.drafts) != 1 {
 				t.Fatal("Keep did not suspend reply")
 			}
+			resizePrivate := func() {
+				t.Helper()
+				m = runtimeIntegrationResize(t, m, func(current fleetModel) {
+					checkDraft(current)
+					for _, marker := range []string{"private-draft", "private-reader", "\u754c", "eX\u0301"} {
+						if strings.Contains(current.View(), marker) {
+							t.Fatal("resize exposed private content")
+						}
+					}
+				})
+				private()
+			}
+			resizePrivate()
 			for _, key := range []string{"1", "enter", "enter"} {
 				var cmd tea.Cmd
 				m, cmd = coordinationKey(m, key)
@@ -235,6 +300,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 					t.Fatalf("%s dispatched before Connect consent", key)
 				}
 				private()
+				resizePrivate()
 			}
 			if m.workspace != 0 || !m.detail || m.pending == nil || calls != 0 {
 				t.Fatal("Fleet Details Connect did not require consent")
@@ -245,6 +311,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 				t.Fatal("explicit Connect did not dispatch captured foreground target")
 			}
 			private()
+			resizePrivate()
 			// Deliver the foreground completion without a terminal or external command.
 			out, refresh := m.Update(fleetActionDone{target: target, request: m.actionSequence, operation: "enter"})
 			m = out.(fleetModel)
@@ -252,6 +319,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 				t.Fatal("foreground return lost Details or failed to schedule refresh")
 			}
 			private()
+			resizePrivate()
 			for _, key := range []string{"esc", "3", "?", "pgdown", "esc", "2"} {
 				m, cmd = coordinationKey(m, key)
 				if cmd != nil {
@@ -261,6 +329,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 					t.Fatalf("%s did not reach requested view", key)
 				}
 				private()
+				resizePrivate()
 			}
 			if m.workspace != 1 || m.coordination.thread.ID != "original-thread" || m.coordination.messages[m.coordination.cursor].ID != "original-parent" {
 				t.Fatal("workspace return retargeted reader")
@@ -271,6 +340,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 				t.Fatal("resume changed captured request, parent, values or cursor, or dispatched an operation")
 			}
 			assertComposeBounds(t, m)
+			m = runtimeIntegrationResize(t, m, checkDraft)
 			m, _ = coordinationKey(m, "esc")
 			private()
 		})
@@ -294,18 +364,41 @@ func TestRuntimeIntegrationDelayedReaderRefresh(t *testing.T) {
 					return c.MessagePage{Messages: []c.Message{{ID: "arrival", ThreadID: id, Sequence: 2, Body: "private-arrival-marker"}}}, nil
 				}
 				target, server := m.selected, m.server
+				resizeReader := func() {
+					t.Helper()
+					cursor := m.coordination.cursor
+					anchor, offset := m.conversationAnchor()
+					m = runtimeIntegrationResize(t, m, func(current fleetModel) {
+						if current.coordination.thread == nil || current.coordination.thread.ID != "original-thread" || current.coordination.cursor != cursor || current.coordination.messages[cursor].ID != "original-parent" {
+							t.Fatal("resize retargeted captured thread or reply focus")
+						}
+						if current.workspace == 1 {
+							gotAnchor, gotOffset := current.conversationAnchor()
+							if gotAnchor != anchor || gotOffset != offset {
+								t.Fatal("resize changed reader scroll anchor")
+							}
+						}
+						for _, marker := range []string{"private-reader", "private-arrival"} {
+							if strings.Contains(current.View(), marker) {
+								t.Fatal("resize leaked masked reader content")
+							}
+						}
+					})
+				}
 				var cmd tea.Cmd
 				for _, failed := range []bool{true, false} {
 					m, cmd = coordinationKey(m, "r")
 					if cmd == nil || !m.coordination.busy {
 						t.Fatal("reader refresh was not scheduled")
 					}
+					resizeReader()
 					var nav tea.Cmd
 					m, nav = coordinationKey(m, workspace)
 					if nav != nil || m.workspace == 1 {
 						t.Fatal("pending reader refresh blocked workspace navigation")
 					}
 					m, _ = coordinationKey(m, "pgdown")
+					resizeReader()
 					before, active, scroll := m.View(), m.workspace, m.scroll
 					m = coordinationRun(t, m, cmd)
 					if m.workspace != active || m.scroll != scroll || m.View() != before || m.selected != target || m.server != server {
@@ -315,6 +408,7 @@ func TestRuntimeIntegrationDelayedReaderRefresh(t *testing.T) {
 						t.Fatal("delayed result lost reader error/recovery state or original parent")
 					}
 					assertConversationBounds(t, m)
+					resizeReader()
 					m, nav = coordinationKey(m, "2")
 					if nav != nil || m.workspace != 1 || m.coordination.readerReveal {
 						t.Fatal("reader return scheduled an operation or revealed private messages")
@@ -325,6 +419,7 @@ func TestRuntimeIntegrationDelayedReaderRefresh(t *testing.T) {
 						}
 					}
 					assertConversationBounds(t, m)
+					resizeReader()
 					if !failed && (len(m.coordination.messages) != 2 || m.coordination.after != 2) {
 						t.Fatal("recovery did not append delayed arrival")
 					}

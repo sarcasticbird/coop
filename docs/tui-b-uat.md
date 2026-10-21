@@ -77,8 +77,13 @@ baseline versus candidate if a new failure appears; that history is not a waiver
 
 ## Acceptance Matrix
 
-Every three-size journey means **120x40, 80x24 and 40x20**, including resize in both
-directions. Isolate fixtures with `flox activate -- go test ./internal/tui/... -run
+Three-size model matrices start independently at **120x40, 80x24 and 40x20**;
+that alone is not resize evidence. The integrated kept-reply and delayed-reader
+journeys additionally send `WindowSizeMsg` transitions through 120x40 -> 40x20 ->
+80x24 -> the starting size, while editing, keeping/navigating, awaiting results
+and returning. They check captured identity, buffer/cursor/focus, masking and
+reader scroll anchors where applicable. Component resize tests remain separate,
+as do actual terminal/PTY checks. Isolate fixtures with `flox activate -- go test ./internal/tui/... -run
 'TestRuntime|TestLedger|TestTeam|TestConversation|TestCompose|TestSetup|TestConfirmation|TestForeground|TestTerminal'
 -count=1 -v`. These are model/handler/PTY evidence, not visual operator acceptance.
 
@@ -89,8 +94,8 @@ directions. Isolate fixtures with `flox activate -- go test ./internal/tui/... -
 | Lifecycle separate from work/blocker/freshness; missing/denied/skewed/old-epoch reports remain unknown | `team_view_test.go`, `fleet_diagnostics_test.go`, `team/runtime_baseline_test.go` | Compare existing observation pin with actual configured placement privately; never guess a join |
 | Thread list -> masked reader -> selected reply/root -> preview -> receipt | `conversations_test.go`, `compose_test.go`, `coordination_test.go` | Synthetic bodies only; receipt is delivery evidence, not proof of execution |
 | Keep/Return/Discard, focus/cursor/scroll, frozen request, identical retry after uncertainty | `compose_test.go`, TLS/store `TestCoordinationHTTPRetryAfterCommitPreservesRequest` | No automatic retry, new request or restart recovery promise; draft stays memory-only |
-| Kept reply -> Fleet Connect callback -> Servers/help -> original reader/resume | `TestRuntimeIntegrationKeptReplyAcrossWorkspaces` | Model callback does not prove live transport; actual PTY restoration covered separately |
-| Pending reader read -> Fleet/Servers -> fault -> reconnect/recovery -> masked return | `TestRuntimeIntegrationDelayedReaderRefresh`, late-result/epoch tests | No workspace hijack, silent retarget, wake or write; stale content cannot regain reveal authority |
+| Verified multiline Unicode reply, separate control rejection -> Keep -> Fleet Connect callback -> Servers/help -> reader/resume, with bidirectional resize | `TestRuntimeIntegrationKeptReplyAcrossWorkspaces` | Model callback does not prove live transport; actual PTY restoration covered separately |
+| Pending reader read -> Fleet/Servers -> fault -> reconnect/recovery -> masked return, with bidirectional resize | `TestRuntimeIntegrationDelayedReaderRefresh`, late-result/epoch tests | No workspace hijack, silent retarget, wake or write; stale content cannot regain reveal authority |
 | Distinct master/SSH setup, contextual help and all commands | `setup_help_test.go`, `setup_actions_test.go`, CLI command inventories | Existing private references only; no token entry, master switch or trust bypass |
 | Full long confirmation, contiguous review, resize resets review, stale intent refuses | `confirmation_test.go`, `setup_actions_test.go` | Read complete target/path/argv/consequence before consent; cancel unsafe live actions |
 | Attach normal exit/failure/signal/remote Ctrl+] detach, Ctrl+D forwarding, terminal restore/input return | `foreground_test.go`, `terminal_test.go`, `cmd/coop/remote_terminal_test.go` | Disposable real PTYs are not Blackbook/rack-mini network/guest evidence |
