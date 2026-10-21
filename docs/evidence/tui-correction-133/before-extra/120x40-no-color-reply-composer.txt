@@ -1,0 +1,40 @@
+Threads > Composer (reply)
+Master: test-master
+Principal: owner
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Request: X5PJ5HD3SKHYDOIUPLZRAR3DH5
+Thread: fixture-thread | parent: fixture-message
+Engagement:
+Captured members: owner,hawk
+Blank recipients use captured parent author: hawk
+> Recipient IDs (comma separated; blank reply defaults to parent author): |
+  Private body: [hidden, 0 bytes]
+Tab field | arrows cursor | Enter newline
+Ctrl+V reveal/mask | F1 help | Esc draft options
+Ctrl+S preview, then review all and Ctrl+S submit
+
+^S preview/send | ^V view | F1 | Esc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

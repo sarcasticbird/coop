@@ -282,7 +282,7 @@ func TestFleetDiagnosticFeedbackPreservesControlOutcomes(t *testing.T) {
 						t.Fatal("diagnostics hid fixed control outcome or moved viewport", view)
 					}
 					truth := map[string]string{"denied": "denied", "stale": "STALE", "loading": "Loading diagnostics"}[diagnostic]
-					if !strings.Contains(lines[len(lines)-1], truth) || maxLineWidth(view) > size.Width || len(lines) > size.Height {
+					if !strings.Contains(strings.Join(lines[len(lines)-2:], " "), truth) || !strings.Contains(lines[len(lines)-1], "Esc") || maxLineWidth(view) > size.Width || len(lines) > size.Height {
 						t.Fatal("fixed diagnostic truth lost or bounds exceeded", view)
 					}
 				})

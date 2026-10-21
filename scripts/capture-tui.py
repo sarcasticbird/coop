@@ -75,17 +75,39 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--source", help="production source revision used to build the fixture executable")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--extended", action="store_true", help="also capture help, confirmations, compose previews and read-only receipts without submitting")
+    modes.add_argument("--supplemental", action="store_true", help="capture reply/receipt and isolated missing-master, first-use and destroy states")
+    modes.add_argument("--exact-context", action="store_true", help="verify long master/principal IDs in scrolled Team and unbound Details")
     args = parser.parse_args()
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
-    manifest = {"source": subprocess.check_output(["git", "rev-parse", args.source or "HEAD"], text=True).strip(),
+    source = args.source
+    if not source or not re.fullmatch(r"[0-9a-f]{40}", source):
+        source = subprocess.check_output(["git", "rev-parse", source or "HEAD"], text=True).strip()
+    manifest = {"source": source,
                 "binary": str(args.binary.resolve()), "sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
                 "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)", "method": "PTY, native Bubble Tea, timed keyboard navigation", "captures": []}
+    manifest["extended"] = args.extended
+    manifest["supplemental"] = args.supplemental
+    manifest["exact_context"] = args.exact_context
+    manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
+    manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    fixture_paths = ["internal/tui/runtime_capture_test.go", "internal/tui/runtime_baseline_test.go",
+                     "internal/tui/team_view_test.go", "internal/tui/coordination_test.go",
+                     "internal/tui/fleet_test.go", *sorted(str(p) for p in Path("internal/tui/tuifixture").glob("*.go"))]
+    manifest["fixture_sources"] = {
+        path: {"sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+        for path in fixture_paths
+    }
     for width, height in [(120, 40), (80, 24), (40, 20)]:
-        for no_color in [False, True]:
+        for no_color, mode in [(color, mode) for color in [False, True]
+                               for mode in (["", "setup", "first-use", "destroy"] if args.supplemental else [""])]:
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
-            env = dict(os.environ, COOP_TUI_CAPTURE="1", TERM="xterm-256color")
+            env = dict(os.environ, COOP_TUI_CAPTURE="1", COOP_TUI_CAPTURE_MODE=mode, TERM="xterm-256color")
+            env["COOP_TUI_CAPTURE_EXACT_CONTEXT"] = "1" if args.exact_context else "0"
             if no_color: env["NO_COLOR"] = "1"
+            else: env.pop("NO_COLOR", None)
             process = subprocess.Popen([str(args.binary.resolve()), "-test.run=^TestRuntimeCapture$"], stdin=slave, stdout=slave, stderr=slave, env=env)
             os.close(slave)
             raw = bytearray()
@@ -101,7 +123,55 @@ def main():
                         if b"\x1b[6n" in chunk: os.write(master, b"\x1b[1;1R")
                         if b"\x1b]11;?" in chunk: os.write(master, b"\x1b]11;rgb:0000/0000/0000\x07")
 
-            for page, keys in [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]:
+            pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
+            expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
+            if args.exact_context:
+                pages.insert(3, ("details-exact-context", [b"\x1b[6~"] * 6))
+                pages.append(("team-exact-context", [b"\x1b[6~"] * 6))
+                expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
+            if args.extended:
+                # Each list item is one terminal key or a synthetic text chunk.
+                # Never send y in confirmation or a second Ctrl+S in preview.
+                extended = [
+                    ("team-help", [b"?"], "Team Help"),
+                    ("servers", [b"\x1b", b"3"], "CONFIGURED SSH REFERENCE"),
+                    ("ssh-add", [b"a"], "ADD SERVER"),
+                    ("ssh-add-help", [b"\x1bOP"], "SSH Server Help"),
+                    ("details-help", [b"\x1b", b"\x1b", b"1", b"\r", b"?"], "Help"),
+                    ("connect-confirmation", [b"\x1b", b"\r"], "Connect on the foreground terminal?"),
+                    ("connect-reviewed", [b"\x1b[6~"] * 8, "Connect preflight"),
+                    ("threads-new", [b"\x1b", b"2", b"\x1b", b"l", b"n"], "Threads > Composer (create)"),
+                    ("create-preview", [b"Synthetic capture", b"\t", b"coop", b"\t", b"owner,hawk", b"\x13"], "Threads > Preview (create)"),
+                    ("create-revealed", [b"\x16"], "Threads > Preview (create)"),
+                    ("create-remasked", [b"\x16"], "Threads > Preview (create)"),
+                    ("root-composer", [b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
+                    ("composer-help", [b"\x1bOP"], "Composer Help"),
+                    ("root-preview", [b"\x1b", b"hawk", b"\t", b"Synthetic capture only.", b"\x13"], "Threads > Preview (send)"),
+                    ("draft-guard", [b"\x1b"], "Draft protection"),
+                    ("reply-composer", [b"d", b"p"], "Threads > Composer (reply)"),
+                    ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
+                    ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt"),
+                ]
+                pages.extend((page, keys) for page, keys, _ in extended)
+                expected_pages.update((page, expected) for page, _, expected in extended)
+            if args.supplemental:
+                supplemental = {
+                    "": [("reply-composer", [b"2", b"l", b"\r", b"p"], "Threads > Composer (reply)"),
+                         ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
+                         ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
+                    "setup": [("missing-master", [], "Master setup")],
+                    "first-use": [("no-remote-first-use", [], "SSH setup")],
+                    "destroy": [("destroy-confirmation", [b"\x1b[B", b"\r", b"d"], "CONFIRM DESTROY"),
+                                ("destroy-reviewed", [b"\x1b[6~"] * 8, "CONFIRM DESTROY")],
+                }[mode]
+                pages = [(page, keys) for page, keys, _ in supplemental]
+                expected_pages = {page: expected for page, _, expected in supplemental}
+            for page, keys in pages:
+                if isinstance(keys, list):
+                    for key in keys:
+                        os.write(master, key)
+                        drain()
+                    keys = b""
                 if keys.startswith(b"\x1b") and not keys.startswith(b"\x1b["):
                     os.write(master, b"\x1b")
                     drain()
@@ -118,12 +188,28 @@ def main():
                     raise RuntimeError(f"fixture exited during {page}: {bytes(raw[-5000:])!r}")
                 stem = f"{width}x{height}-{'no-color-' if no_color else ''}{page}"
                 screen = replay(raw, width, height)
-                expected = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}[page]
+                expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
+                if page == "create-preview" and b"Synthetic capture" in raw:
+                    raise RuntimeError("masked creation preview exposed input in terminal output")
+                if page in ("create-revealed", "create-remasked"):
+                    if ("Synthetic capture" in screen) != (page == "create-revealed"):
+                        raise RuntimeError("creation preview did not honor explicit reveal/mask")
+                if page in ("connect-confirmation", "connect-reviewed", "destroy-confirmation", "destroy-reviewed"):
+                    header = screen.splitlines()[:4]
+                    if len(header) != 4 or header[1:3] != ["Master: test-master", "Principal: owner"] or not header[3].startswith("Target:"):
+                        raise RuntimeError(f"confirmation lost pinned context: {screen}")
+                if page.endswith("exact-context"):
+                    for prefix in ("master-", "principal-"):
+                        if prefix + "shared-prefix-" * 8 + "second" not in screen.replace("\n", ""):
+                            raise RuntimeError(f"full exact identity not inspectable in {page}: {screen}")
                 (args.output / (stem + ".ansi")).write_bytes(raw)
                 (args.output / (stem + ".txt")).write_text(screen)
                 manifest["captures"].append(stem)
+            if mode == "destroy":
+                os.write(master, b"\x1b")  # Cancel, never consent to destruction.
+                drain()
             os.write(master, b"\x03")
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired:

@@ -1,0 +1,40 @@
+Connect preflight
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Connect on the foreground terminal? Remote SSH: Ctrl+] detaches; Ctrl+D is application EOF and may end the guest shell.
+Ctrl+C reaches the foreground application. Local: exit the foreground application to return. Return to the same Details
+and filter; no automatic reconnect.
+No automatic retry or rollback. Review every page, then y confirms; n/Esc cancels.
+VM lifecycle: running; Connect requires running. A stopped VM needs explicit Start first.
+Enter continues only after complete review; Esc returns to Details.
+Exact CLI arguments: ["--agent" "fixture-a" "--"]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc cancel | PgDn review | disabled

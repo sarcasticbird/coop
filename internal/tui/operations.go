@@ -228,9 +228,17 @@ func (m fleetModel) confirmAction(p pendingAction) (tea.Model, tea.Cmd) {
 		}
 		p.args = append([]string(nil), req.Args...)
 	}
+	copy(p.context[:], m.pageContext("")[1:])
 	p.returnScroll = m.scroll
 	m.pending, m.scroll, m.status, m.output = &p, 0, "", ""
 	return m, nil
+}
+
+func (m fleetModel) confirmationHeaderRows() int {
+	if m.pending != nil && m.coordination.leaving == "" && !m.help && !m.runbook && m.height >= 7 {
+		return 4
+	}
+	return 0
 }
 
 // Only contiguous pages count as reviewed. Geometry changes reset this progress.
@@ -239,13 +247,17 @@ func (m fleetModel) reviewConfirmation() fleetModel {
 		return m
 	}
 	lines, _, _ := m.content()
-	limit := max(1, m.height-2)
+	header := m.confirmationHeaderRows()
+	limit := max(1, m.height-2-header)
 	if m.height <= 0 {
 		limit = len(lines)
 	}
-	start := min(m.scroll, max(0, len(lines)-limit))
+	start := header + min(m.scroll, max(0, len(lines)-header-limit))
 	if m.pending != nil {
 		p := *m.pending
+		if m.scroll == 0 {
+			p.reviewedThrough = max(p.reviewedThrough, header)
+		}
 		if start <= p.reviewedThrough {
 			p.reviewedThrough = max(p.reviewedThrough, min(len(lines), start+limit))
 		}

@@ -1,0 +1,20 @@
+Team Help
+Master Team and diagnostics are read-onl
+y observations, not VM state or action a
+uthority.
+List: up/down or j/k select agent; Enter
+ inspects the captured agent/host/worker
+/generation.
+Detail: j/k or PgUp/PgDn scroll; Esc ret
+urns to the same Team selection and view
+port.
+r refresh | f follow/poll | t/l/i/g sect
+ions | 1 Fleet | 3 Servers | q quit
+Missing, denied, unsupported and clock-s
+kewed evidence is unknown. STALE is reta
+ined evidence, not current work.
+Heartbeat age is not work progress. Repo
+rt, receipt, work and wait ages are sepa
+rate.
+
+F1/Esc return | PgUp/PgDn scroll

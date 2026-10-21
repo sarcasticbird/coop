@@ -1,0 +1,20 @@
+Threads > Preview (reply)
+Master: test-master
+Principal: owner
+Blank recipients use captured parent aut
+hor: hawk
+  To IDs (comma separated): hawk
+> Body: [hidden, 21 bytes]
+Thread: fixture-thread | parent: fixture
+-message
+Request: 23L4K72VF6WHCH3PGJJNKLFI5Z
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members: owner,hawk
+Enter inserts newline, never sends. Tab
+changes field.
+Not submitted; preview and review all be
+fore a second Ctrl+S submits.
+Review captured context and input; Pg...
+Esc draft | ^S submit | ^V view | F1

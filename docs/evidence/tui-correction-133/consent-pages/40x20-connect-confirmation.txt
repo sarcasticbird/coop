@@ -1,0 +1,20 @@
+Connect preflight
+Master: test-master
+Principal: owner
+Target: local / agent / fixture-a
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Exact Master: test-master
+Exact Principal: owner
+Master context is not the lifecycle dest
+ination.
+Connect on the foreground terminal? Remo
+te SSH: Ctrl+] detaches; Ctrl+D is appli
+cation EOF and may end the guest shell.
+Ctrl+C reaches the foreground applicatio
+n. Local: exit the foreground applicatio
+n to return. Return to the same Details
+
+Esc cancel | PgDn review | disabled |...

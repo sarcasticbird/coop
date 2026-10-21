@@ -1,0 +1,20 @@
+Keyboard Help
+1 Fleet | 2 Coordination | 3 Servers
+up/down or j/k: select | enter/tab: Deta
+ils
+r: refresh | ?: help | esc: back/cancel
+| q: quit
+Fleet: h host filter | Enter Details (ne
+ver Connect)
+Details: Enter Connect | u up | s stop |
+ d destroy
+x: selected target/host operations | v:
+services/about
+Servers: a add | e update | d remove
+Forms: type | tab field | backspace edit
+ | enter save
+Confirmation: y confirm | n or esc cance
+l
+Busy operations serialize changes; Ctrl+
+
+F1/Esc return | PgUp/PgDn scroll

@@ -1,0 +1,40 @@
+COOP   [1 Fleet]   [2 Coordination]   [3 Servers]
+
+HOST   CONFIGURED SSH REFERENCE
+> local (this machine)
+    [ok; snapshot <5s old]
+  fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  fixture-offline (fixture-offline-alias)
+    [unreachable]
+  fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+
+a add | e edit | d remove | x | ? help
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

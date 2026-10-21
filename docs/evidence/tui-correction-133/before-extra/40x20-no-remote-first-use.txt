@@ -1,0 +1,20 @@
+COOP   [1 Fleet]   [2 Coordination]   [3
+ Servers]
+
+HOST   CONFIGURED SSH REFERENCE
+SSH setup: no SSH servers registered. Pr
+ess a to add an existing reference from
+~/.ssh/config.
+SSH registration is separate from master
+ setup. It does not provision a host, en
+ter tokens, bypass trust, or start servi
+ces.
+> local (this machine)
+    [ok; snapshot <5s old]
+
+a add | e edit | d remove | x | ? help
+
+
+
+
+

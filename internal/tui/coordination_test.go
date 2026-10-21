@@ -692,7 +692,7 @@ func TestCoordinationHTTPThreadReadBackPreservesPagination(t *testing.T) {
 	if !reflect.DeepEqual(m.coordination.threads, firstPage) || m.coordination.next != next || m.coordination.cursor != 37 {
 		t.Fatalf("read/back lost thread page: rows=%d next=%q selection=%d", len(m.coordination.threads), m.coordination.next, m.coordination.cursor)
 	}
-	if !strings.Contains(m.View(), "> "+firstPage[37].ID) {
+	if !m.conversationSelectionVisible() || !strings.Contains(m.View(), "> "+firstPage[37].Title) {
 		t.Fatal("restored selection is off-screen in a small terminal")
 	}
 	m, cmd = coordinationKey(m, "]")

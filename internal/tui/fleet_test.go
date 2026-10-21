@@ -338,7 +338,7 @@ func TestFleetResizeHelpAndFocus(t *testing.T) {
 			t.Fatal("tab did not focus detail")
 		}
 		m, _ = fleetKey(m, "?")
-		if !strings.Contains(m.View(), "Keyboard Help") {
+		if !strings.Contains(m.View(), "Details Help") {
 			t.Fatal("help missing")
 		}
 		m, _ = fleetKey(m, "esc")
@@ -451,7 +451,7 @@ func TestFleetNarrowOverlayKeepsConfirmationAndFooter(t *testing.T) {
 	m, _ = fleetKey(m, "enter")
 	m, _ = fleetKey(m, "d")
 	view := m.View()
-	if !strings.Contains(view, "CONFIRM DESTROY") || !strings.Contains(view, "y confirm") || len(strings.Split(view, "\n")) > m.height {
+	if !strings.Contains(view, "CONFIRM DESTROY") || !strings.Contains(view, "PgDn review") || len(strings.Split(view, "\n")) > m.height {
 		t.Fatalf("overlay is not usable: %s", view)
 	}
 	m.pending = nil

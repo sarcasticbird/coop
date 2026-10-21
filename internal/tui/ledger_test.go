@@ -61,7 +61,10 @@ func TestLedgerDetailsConnectReturn(t *testing.T) {
 			if cmd != nil || m.pending == nil || m.pending.operation != "enter" || calls != 0 {
 				t.Fatal("Connect must capture a confirmation before foreground dispatch")
 			}
-			m, cmd = fleetKey(m, "y")
+			for range 10 {
+				m, _ = fleetKey(m, "pgdown")
+			}
+			m, cmd = fleetKey(m, "enter")
 			if cmd == nil || calls != 1 || !m.detail || !m.busy {
 				t.Fatalf("confirmed Connect did not use foreground adapter: %s", m.status)
 			}

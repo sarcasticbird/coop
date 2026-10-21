@@ -1,0 +1,20 @@
+CONFIRM DESTROY
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Remove this Coop and its persistent stat
+e volumes?
+No automatic retry or rollback. Review e
+very page, then y confirms; n/Esc cancel
+s.
+Exact CLI arguments: ["--agent" "fixture
+-a" "destroy"]
+
+y confirm | n/esc cancel
+
+
+
+
+
+

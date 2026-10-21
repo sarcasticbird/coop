@@ -1,0 +1,72 @@
+{
+  "source": "103a896a911f53a005126852f7c7f89a748b87e3",
+  "binary": "/tmp/opencode/hawk-133-before-extra.test",
+  "sha256": "3c0e16530e7545ac6860534e8b498b2e65e54305ee5af2d9bf94cf428bed1eca",
+  "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)",
+  "method": "PTY, native Bubble Tea, timed keyboard navigation",
+  "captures": [
+    "120x40-reply-composer",
+    "120x40-reply-preview",
+    "120x40-receipt",
+    "120x40-missing-master",
+    "120x40-no-remote-first-use",
+    "120x40-destroy-confirmation",
+    "120x40-no-color-reply-composer",
+    "120x40-no-color-reply-preview",
+    "120x40-no-color-receipt",
+    "120x40-no-color-missing-master",
+    "120x40-no-color-no-remote-first-use",
+    "120x40-no-color-destroy-confirmation",
+    "80x24-reply-composer",
+    "80x24-reply-preview",
+    "80x24-receipt",
+    "80x24-missing-master",
+    "80x24-no-remote-first-use",
+    "80x24-destroy-confirmation",
+    "80x24-no-color-reply-composer",
+    "80x24-no-color-reply-preview",
+    "80x24-no-color-receipt",
+    "80x24-no-color-missing-master",
+    "80x24-no-color-no-remote-first-use",
+    "80x24-no-color-destroy-confirmation",
+    "40x20-reply-composer",
+    "40x20-reply-preview",
+    "40x20-receipt",
+    "40x20-missing-master",
+    "40x20-no-remote-first-use",
+    "40x20-destroy-confirmation",
+    "40x20-no-color-reply-composer",
+    "40x20-no-color-reply-preview",
+    "40x20-no-color-receipt",
+    "40x20-no-color-missing-master",
+    "40x20-no-color-no-remote-first-use",
+    "40x20-no-color-destroy-confirmation"
+  ],
+  "extended": false,
+  "supplemental": true,
+  "fixture_overlay": "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs.",
+  "harness_sha256": "cc8ada5ac6c721a7cb6f778fd21aceaef9cd06a266f997da5d8752b6397a1958",
+  "fixture_sources": {
+    "internal/tui/runtime_capture_test.go": {
+      "sha256": "c75596cfe2c7b0b0bec4b008f5e1e3d4f62d538844b4f811d0b3a2d99380046a"
+    },
+    "internal/tui/runtime_baseline_test.go": {
+      "sha256": "3bb67d3db57078a2665aa55174c75ad54510be08ca8a1739624f13e5dd19d5db"
+    },
+    "internal/tui/team_view_test.go": {
+      "sha256": "7b6251c818594abb0b354e261895572684332e0c4bb8d45e3efcd0e53ad09b3f"
+    },
+    "internal/tui/coordination_test.go": {
+      "sha256": "6ec00e8f2c22075c3122e89a7bdb263d2f7ba86d8ca0370e02f40868121cefc5"
+    },
+    "internal/tui/fleet_test.go": {
+      "sha256": "8f0a42fda822b0c64421f4afa98a188d09d0a0c5a9566dadab9b1437c2fc92a0"
+    },
+    "internal/tui/tuifixture/fixture.go": {
+      "sha256": "980cf1a3067b129ecfdd67eaf7fa19a33d20ee87b1b0371f29d29f583375c8b0"
+    },
+    "internal/tui/tuifixture/fixture_test.go": {
+      "sha256": "69b1033a051cee6c6e3b28b2c4a836d0553f8dbf0b885499b56798fa23d2915f"
+    }
+  }
+}

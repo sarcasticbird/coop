@@ -1,0 +1,40 @@
+ADD SERVER
+Master: test-master
+Principal: owner
+Name:
+SSH reference:
+Existing SSH reference only; not master setup. No provisioning, tokens or trust bypass.
+Editing name; tab field / enter save / esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Tab field | Enter save | F1 help | Esc

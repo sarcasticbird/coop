@@ -1,0 +1,20 @@
+Team > Agent
+Master: test-master
+Principal: owner
+Agent: same-name
+Host: local
+Presence: idle | heartbeat: 12s ago
+Handling: waiting
+Work / blocker: work unknown / local pau
+se
+Source: master Team presence | Team snap
+shot age: 0s ago
+Read only; heartbeat is not work progres
+s
+AgentID: fixture-a
+Captured Host: local | Worker: fixture-w
+orker-1 | Generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master |
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ? ...

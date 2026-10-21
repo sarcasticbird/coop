@@ -1,0 +1,40 @@
+Draft protection
+Private buffers exist only in this process.
+k Keep in memory | d Discard | r/Esc Return
+Review captured context and input; PgDn for more; Ctrl+S submits
+k Keep | d Discard | r/Esc Return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

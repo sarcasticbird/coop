@@ -1,0 +1,40 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HServers | SSH references[K
+Master: test-master[K
+Principal: owner[K
+HOST   CONFIGURED SSH REFERENCE[K
+Master configuration is separate; removing a reference does not delete VMs.[K
+SSH setup: no SSH servers registered. Press a to add an existing reference from ~/.ssh/config.[K
+SSH registration is separate from master setup. It does not provision a host, enter tokens, bypass trust, or start servi
+ces.[K
+> local (this machine)[K
+    [ok; snapshot <5s old][K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+a add | e edit | d remove | v | ?[K[40;H

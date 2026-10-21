@@ -1,0 +1,125 @@
+2[?25l[?1049h[2J[H[?25l[?2004h[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Enter opens masked reader | n new thread
+t Team | i Inbox | g Goals | ] next page
+> fixture-thread | Design check | [K
+Next page: none[K
+[K
+Enter open | n new | ? help | Esc[K[9;H[H
+
+
+
+
+
+
+Snapshot refreshed[K
+[9;H[HThreads > fixture-thread[K
+
+
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected
+ reply[K
+Private reader; no screenshots. Follow: 
+false[K
+> [unread this session] fixture-message 
+| hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Snapshot refreshed[K
+Ctrl+V reveal | p reply | c root | ? ...[14;H[HThreads > Composer (reply)[K
+
+Principal: owner[K
+Captured master: test-master[K
+Principal: owner (owner) | epoch: 1[K
+Request: FNZWUMQXYT3BGHXDUK6LRCKIKQ[K
+Thread: fixture-thread | parent: fixture
+-message[K
+Engagement: [K
+Captured members: owner,hawk[K
+Blank recipients use captured parent aut
+hor: hawk[K
+> Recipient IDs (comma separated; blank 
+reply defaults to parent author): |[K
+  Private body: [hidden, 0 bytes][K
+Tab field | arrows cursor | Enter newlin
+e[K
+Ctrl+V reveal/mask | F1 help | Esc draft
+[K
+^S preview/send | ^V view | F1 | Esc ...[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+reply defaults to parent author): hawk|[K
+
+
+
+
+
+[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+  Recipient IDs (comma separated; blank 
+reply defaults to parent author): hawk[K
+> Private body: [hidden, 0 bytes][K
+
+
+
+
+[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+> Private body: [hidden, 21 bytes][K
+
+
+
+
+[20;H[HThreads > Preview (reply)[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Review captured context and input; Pg...
+[20;H
