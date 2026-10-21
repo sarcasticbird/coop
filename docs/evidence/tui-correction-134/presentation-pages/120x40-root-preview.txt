@@ -1,0 +1,40 @@
+Threads > Preview (send)
+Master: test-master
+Principal: owner
+Content: masked
+Blank To is a note; wakes nobody.
+  To IDs (comma separated): hawk
+  Body: [hidden, 23 bytes]
+Thread: fixture-thread | parent: none (root)
+Request: JRU4QT2QDJLKJ7U2WJ6EHNSRKE
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members: owner,hawk
+Not submitted; review all pages before Ctrl+S submits.
+Esc edits; input changes require a new preview.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PgDn review | Ctrl+S submits
+Esc edit | ^S submit | ^V reveal | F1 help

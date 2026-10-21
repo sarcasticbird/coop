@@ -1,0 +1,24 @@
+Details Help
+Master: test-master
+Principal: owner
+Target: local / agent / fixture-a
+Host destination: this machine
+Runtime: same-name
+Connect needs a running VM; Apply and Backup need a stopped VM.
+Observations do not grant action authority; every action revalidates the
+captured target.
+1 Fleet | 2 Coordination | 3 Servers
+up/down or j/k: select | enter/tab: Details
+r: refresh | ?: help | esc: back/cancel | q: quit
+Fleet: h host filter | Enter Details (never Connect)
+Details: Enter Connect | u up | s stop | d destroy
+x: selected target/host operations | v: services/about
+Servers: a add | e update | d remove
+Forms: type | tab field | backspace edit | enter save
+Confirmation: y confirm | n or esc cancel
+Busy operations serialize changes; Ctrl+C exits.
+? or esc: return
+Coordination: t team | l threads | i inbox | g goals | n create | c compose | p
+reply/prompt
+
+F1/Esc return | PgUp/PgDn scroll

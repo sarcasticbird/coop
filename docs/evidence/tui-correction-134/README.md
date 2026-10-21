@@ -5,6 +5,10 @@ Task: https://github.com/sarcasticbird/coop/issues/134. Approved correction revi
 Environment: `coop-tui-b-runtime-v1`. This is author integration evidence, not
 independent QA. **Owner visual UAT remains FAILED/PENDING until Chris accepts.**
 
+Current local repair evidence is in [Presentation Repairs](#presentation-repairs).
+The original build identities and discrepancy map below are historical records,
+not assertions that the repaired runtime still has every listed defect.
+
 ## Provenance
 
 Both prerequisites were delivered before this integration: #132 / PR #135 as
@@ -70,10 +74,12 @@ owner-UAT success is claimed. Historical root-mode/image-PATH/seed/worker snapsh
 environment failures remain documented in `docs/tui-b-runtime.md`; no full-suite
 rerun or new baseline comparison is claimed here.
 
-## Discrepancy Map
+## Historical Discrepancy Map
 
 Compare both sides with F0/F/H/D/T/L/R/N/C/P/V/S/Q/X/A/B in the accepted packet.
 The detailed historical audits remain linked above; this map consolidates them.
+This map describes the pre-repair `7ae524d` artifact. The resolution map below
+records the subsequent source changes; original captures are preserved unchanged.
 
 | Surface | Correction and actual evidence | Remaining difference or boundary |
 | --- | --- | --- |
@@ -199,3 +205,95 @@ Record pass/fail and remaining differences, not merely whether the process ran.
 Source delivery is not owner acceptance. No production deployment, service
 restart, release, Homebrew publication, new permissions or scheduler work is
 authorized or performed by this integration.
+
+## Presentation Repairs
+
+The retained #134 author fix now includes local source repairs, not another
+documentation-only successor. The six observations were reproduced against the
+published source/public captures before edits. New presentation regressions failed
+on missing creation privacy labels and missing Help identities; reading-height
+and medium-Team regressions separately failed before their fixes. The source
+checkpoint for all final runtime evidence is
+`b6e4fc8760b11246ed40be63b3a7b169507eb057`. Later evidence/documentation commits
+do not change the build attribution or count as independent clearance.
+
+| Finding | Bounded repair | Actual native evidence |
+| --- | --- | --- |
+| Compact hierarchy, wrapping and controls | Explicit Host labels distinguish Fleet groups; medium Team is a cell-aligned AGENT/HOST/PRESENCE/WORK ledger. Reading pages wrap at word boundaries while long exact tokens can still split without losing characters. Spaces in paths/argv remain intact. Reader anchor heights use the same wrapper; editor cursor geometry retains its existing hard wrapping. Scroll hints append only when they fit, leaving the complete contextual control row readable. | `presentation-pages/120x40-fleet.txt`, `80x24-team.txt`, `40x20-details.txt`, `40x20-team-detail.txt`, `40x20-reader.txt`; `presentation-stress/` exercises real keys, paging, refresh and resize. |
+| Creation privacy labels | Explicit Content: masked/revealed in the page; Ctrl+V action alternates reveal/mask in the footer. First preview never reveals automatically. Failed/incompatible authority still renders masked. | `presentation-pages/*create-preview.txt`, `*create-revealed.txt`, `*create-remasked.txt`; raw output sentinel checks reject disclosure before explicit reveal. |
+| Creation preview context and edit/create copy | Review shows title, engagement and canonical owner-included members once, plus captured request/exact identity/epoch. No blank captured-thread fields, root-parent prose, field-selection markers or editing instructions in creation preview. Creation-specific create feedback; Esc returns an unfrozen preview to Edit, and the next Esc from nonempty input opens the existing draft guard. Frozen uncertainty still goes directly to draft protection and identical retry. | `presentation-pages/40x20-create-preview.txt`, `40x20-create-revealed.txt`; real capture navigation uses two Esc keys to edit then open guard, without submission. |
+| Connect consent vocabulary | Connect body and footer both advertise Enter after full review and Esc cancel. Destructive confirmation keeps y. Accepted key behavior, contiguous-review accounting and exact-target revalidation are unchanged. | `presentation-pages/40x20-connect-reviewed.txt`, `presentation-extra/40x20-destroy-reviewed.txt`; no consent is issued. |
+| Draft guard feedback | Guard owns its fixed feedback row as well as its contextual control footer. Ordinary words wrap intact; leftover preview-review instructions no longer appear beneath Keep/Discard/Return. | `presentation-pages/40x20-draft-guard.txt`; Keep/Discard/Return/quit and frozen-retry suites remain covered. |
+| Details Help identity | Labeled Master and Principal precede exact target/destination/runtime. They are read-only display context, not lifecycle authority. Long values remain scrollable instead of being clipped out of Help. | `presentation-pages/40x20-details-help.txt`; model checks at all three sizes. |
+
+Author inspection of these final built terminal replays against immutable B
+confirmed the named word splits, preview blank/repeated fields, mixed consent
+copy, stale guard feedback and missing Help labels are repaired. The runtime is
+still not a pixel-identical design mockup: global route headers remain compact
+rather than B's literal numbered navigation/FOCUS/separator treatment; host
+health retains a separate line; unbroken long identities necessarily split;
+busy/error feedback may abbreviate long diagnostic prose. Medium Team omits the
+separate handling column to fit, retaining truthful unknown work. These residual
+differences and real light/dark contrast remain for independent QA/owner judgment,
+not silently waived. Editor wrapping is intentionally unchanged for cursor safety.
+
+### Final Build And Captures
+
+Linux arm64, Flox Go 1.26.10; source checkpoint above:
+
+| Artifact | SHA-256 | Method |
+| --- | --- | --- |
+| Native fixture test executable | `00736c1944672ca43ce4202961c2f4a42801e920644d25e88b1088940ae798b5` | `go test -c ./internal/tui`, synthetic services in native Bubble Tea |
+| Shipping CLI, two byte-identical builds | `777ca2fb4bf02a9d46677cb5c776efdfc0c935cdc5b48b18715e221970bbdb4d` | CGO disabled, trimpath, buildvcs=true, embedded checkpoint and vcs.modified=false |
+
+Final `presentation-pages/manifest.json` records 150 checkpoints;
+`presentation-extra/manifest.json` 42; `presentation-context/manifest.json` 54;
+`presentation-stress/manifest.json` 156 across six sessions. All passed assertions
+and clean exits at 120x40, 80x24 and 40x20, color and NO_COLOR. Each records the
+same source and executable digest, fixture-source/harness digests, geometry and
+artifact paths. Raw `.ansi` and readable `.txt` retain the established limitations.
+No private fleet/conversation or private QA content is included.
+
+The exact-context harness now sends actual PgDn keys until both full distinct
+master/principal suffixes are visible together, with a bounded 64-key ceiling;
+the manifest records the real number of keys used at each checkpoint. A fixed
+six-key baseline under-scrolled the new compact layout, while twelve keys
+overscrolled wide Team. Those intermediate/partial matrices are retained
+separately and excluded from final evidence. Final captures all use the final
+source and updated bounded navigation, not an assertion weakened to accept clipped
+identities. Earlier successful intermediate builds are not relabeled current.
+
+Reproduce the final checkpoint using the existing commands above and new output
+directories. Use the updated capture script from the selected source; `--extended`
+now exercises preview -> Esc Edit -> Esc draft guard and asserts explicit privacy
+state/action labels, guard feedback, Help context and Connect vocabulary. The
+fixture still rejects lifecycle/send dispatch; no capture submits or consents.
+
+### Validation And Gates
+
+Final-source author checks passed through Flox:
+
+- `uat-tui-b.sh b6e4fc8760b11246ed40be63b3a7b169507eb057 https://github.com/sarcasticbird/coop/issues/134`, with the existing compiler path documented above: repeat-build equality, formatting, scoped TUI/config/hostrouter/masterclient/coordination/master/mastermcp/CLI tests, integration/foreground/terminal ten times, command inventories/remote-terminal fixtures, NO_COLOR TUI/CLI, repository build/vet and fitting uncached race checks.
+- `go test ./internal/tui -run 'TestPresentation|TestReadingWrap|TestConversationLineHeight|TestTeamMedium|TestConfirmation|TestCreationPreview|TestRuntimeIntegration|TestCompose' -count=10`.
+- `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...`: zero issues.
+- All four final PTY matrices above; source/script/doc whitespace checks separately from raw terminal CR/padding.
+
+No new full-repository test-suite, live binding/transport/send/attach, independent
+QA, graphical theme-contrast or owner acceptance success is claimed. Prior
+environment limits remain documented, not waived. Main was
+`711d46fb070b8589752ee55c6e19022f5c60c867` at the start of this repair. The final
+read found main advanced to `96ca3911640b5715a6539ae73070d3d871e3b524`:
+cache PR #131 merged at that revision (source head
+`7454d5e9aad38b72506087347a73785681e40918`) after credential-renewal PR #138
+(`efbea35`). Neither changes TUI source. These separately delivered changes are
+reconciled by base integration, not copied into this task as new cache work.
+The capture/build checkpoint above remains its actual pre-base-refresh source.
+
+Publication must renew Robin's independent review, Wren's exact-artifact runtime
+AND visual assessment in `coop-tui-b-runtime-v1`, and required hosted CI. Old-head
+approvals and fixture QA do not clear this source. The both-host operator-assisted
+lane remains a final acceptance gate; it did not prevent these local repairs.
+Rook coordinates the corrected candidate and independent jobs; the operator owns
+preparing assistance once that candidate is ready. Owner UAT stays FAILED/PENDING.
+This author fix performs no self-review, QA verdict, merge, deployment/restart,
+release, Homebrew or host/configuration/credential changes.
