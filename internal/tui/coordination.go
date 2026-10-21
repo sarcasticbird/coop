@@ -54,6 +54,15 @@ type coordState struct {
 	threads              []c.Thread
 	threadsNext          string // Retained independently of reader and Inbox cursors.
 	threadsCursor        int
+	threadsSelected      string
+	threadsScroll        int
+	messageSelected      string
+	readerReveal         bool
+	readerSelf           c.SelfIdentity
+	readerMaster         string
+	readerScroll         int
+	readerAnchor         string
+	readerOffset         int
 	inbox                []c.Delivery
 	goals                []c.GoalAuthority
 	thread               *c.Thread
@@ -67,6 +76,7 @@ type coordState struct {
 	follow, busy, failed bool
 	backgroundRead       bool
 	readReady            bool
+	loadingNext          bool
 	seen                 time.Time
 	status               string
 	serial               uint64
@@ -124,6 +134,14 @@ func coordClean(s string) string {
 	}, s)
 }
 
+func coordReadThread(ctx context.Context, source Coordination, id string) (c.Thread, error) {
+	thread, err := source.Thread(ctx, id)
+	if err == nil && thread.ID != id {
+		return c.Thread{}, c.ErrConflict
+	}
+	return thread, err
+}
+
 func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordination) (any, error)) tea.Cmd {
 	q := &m.coordination
 	if q.busy {
@@ -158,6 +176,10 @@ func (m *fleetModel) coordCall(kind string, run func(context.Context, Coordinati
 
 func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 	q := &m.coordination
+	if q.busy {
+		return nil
+	}
+	q.loadingNext = next
 	if q.section == "" {
 		q.section = "team"
 	}
@@ -181,11 +203,16 @@ func (m *fleetModel) coordLoad(next bool) tea.Cmd {
 		case receipt != nil:
 			return s.MessageStatus(ctx, receipt.MessageID)
 		case thread != nil:
-			metadata, err := s.Thread(ctx, thread.ID)
+			metadata, err := coordReadThread(ctx, s, thread.ID)
 			if err != nil {
 				return nil, err
 			}
 			page, err := s.Messages(ctx, thread.ID, after)
+			for _, message := range page.Messages {
+				if message.ThreadID != thread.ID {
+					return nil, c.ErrConflict
+				}
+			}
 			return coordThreadPage{thread: metadata, page: page}, err
 		case section == "team":
 			if placement != nil {
@@ -220,6 +247,9 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	}
 	q.busy = false
 	q.cancel = nil
+	if r.err == nil && q.thread != nil && q.readerSelf.Principal.ID != "" && (r.self.Principal.ID != q.readerSelf.Principal.ID || r.self.Principal.Kind != q.readerSelf.Principal.Kind || r.self.RestoreEpoch != q.readerSelf.RestoreEpoch || m.services.Coordination.MasterID() != q.readerMaster) {
+		r.err = c.ErrConflict
+	}
 	q.self = r.self
 	if q.teamReport != nil && r.self.RestoreEpoch > 0 && q.teamReport.Report.RestoreEpoch != r.self.RestoreEpoch {
 		q.teamReport = nil
@@ -228,6 +258,11 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	q.failed = r.err != nil
 	if r.err != nil {
 		q.status = coordError(r.err)
+		q.readerReveal = false
+		q.readerAnchor = ""
+		if q.thread != nil && (errors.Is(r.err, c.ErrForbidden) || errors.Is(r.err, c.ErrNotFound) || errors.Is(r.err, c.ErrConflict) || errors.Is(r.err, c.ErrEpoch)) {
+			q.messages, q.after, q.cursor = nil, 0, -1
+		}
 		if errors.Is(r.err, c.ErrConflict) || errors.Is(r.err, c.ErrEpoch) {
 			q.teamReport = nil
 		}
@@ -276,8 +311,26 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 			}
 		}
 	case c.ThreadPage:
-		q.threads, q.next, q.cursor = data.Threads, data.Next, 0
-		q.threadsNext, q.threadsCursor = data.Next, 0
+		visible := m.conversationSelectionVisible()
+		id := q.threadsSelected
+		if q.cursor >= 0 && q.cursor < len(q.threads) {
+			id = q.threads[q.cursor].ID
+		}
+		if q.loadingNext {
+			id = ""
+			m.scroll = 0
+		}
+		q.threads, q.next = data.Threads, data.Next
+		q.cursor = slices.IndexFunc(q.threads, func(t c.Thread) bool { return t.ID == id })
+		if id == "" && len(q.threads) > 0 {
+			q.cursor = 0
+			id = q.threads[0].ID
+		}
+		q.threadsSelected = id
+		q.threadsNext, q.threadsCursor = data.Next, q.cursor
+		if visible {
+			m.revealConversationSelection()
+		}
 	case c.DeliveryPage:
 		q.inbox, q.next, q.cursor = data.Deliveries, data.Next, 0
 		if data.Quiescent {
@@ -286,17 +339,31 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 	case c.GoalPage:
 		q.goals, q.next, q.cursor = data.Goals, data.Next, 0
 	case c.Thread:
+		if q.section != "inbox" {
+			q.messageSelected = ""
+		}
 		if q.section == "threads" && q.thread == nil {
 			q.threadsCursor = q.cursor
+			q.threadsScroll = m.scroll
 		}
 		q.section, q.next = "threads", ""
 		q.thread, q.messages, q.after, q.cursor, q.receipt = &data, nil, 0, 0, nil
+		q.readerReveal = false
+		q.readerAnchor = ""
+		q.readerSelf, q.readerMaster = r.self, m.services.Coordination.MasterID()
 		q.readReady = false
 		q.authority, m.scroll = nil, 0
 		return m, m.coordLoad(false)
 	case c.Message:
-		return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return s.Thread(ctx, data.ThreadID) })
+		q.messageSelected = data.ID
+		return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return coordReadThread(ctx, s, data.ThreadID) })
 	case c.MessagePage:
+		selected := q.messageSelected
+		if q.cursor >= 0 && q.cursor < len(q.messages) {
+			selected = q.messages[q.cursor].ID
+		}
+		// Preserve the visible top message independently of the selected reply target.
+		anchor, offset := m.conversationAnchor()
 		for _, message := range data.Messages {
 			if !slices.ContainsFunc(q.messages, func(old c.Message) bool { return old.ID == message.ID }) {
 				q.messages = append(q.messages, message)
@@ -307,11 +374,26 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		if len(q.messages) > 500 {
 			q.messages = q.messages[len(q.messages)-500:]
 		}
-		q.cursor = min(q.cursor, max(0, len(q.messages)-1))
+		q.cursor = slices.IndexFunc(q.messages, func(v c.Message) bool { return v.ID == selected })
+		if selected == "" {
+			q.cursor = 0
+			if len(q.messages) > 0 {
+				selected = q.messages[0].ID
+			}
+		}
+		q.messageSelected = selected
+		m.restoreConversationAnchor(anchor, offset)
 		if data.Next > q.after {
 			q.after = data.Next
 		}
 	case c.MessageReceipt:
+		if q.receipt == nil {
+			if q.thread != nil && r.kind != "write" {
+				q.readerScroll = m.scroll
+				q.readerAnchor, q.readerOffset = m.conversationAnchor()
+			}
+			m.scroll = 0
+		}
 		q.receipt, q.authority = &data, nil
 	case c.GoalAuthority:
 		q.authority, q.receipt = &data, nil
@@ -399,6 +481,10 @@ func (m *fleetModel) coordOpen(kind string) {
 	if kind == "ping" {
 		f.values[0] = q.team[q.cursor].AgentID
 	}
+	if m.conversationPage() {
+		q.readerScroll = m.scroll
+		q.readerAnchor, q.readerOffset = m.conversationAnchor()
+	}
 	q.form, q.status = f, ""
 	m.scroll = 0
 }
@@ -484,6 +570,18 @@ func (f coordForm) build() (func(context.Context, Coordination) (any, error), er
 func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	q := &m.coordination
 	key := k.String()
+	if q.busy && q.form == nil && (key == "esc" || q.thread != nil && slices.Contains([]string{"t", "l", "i", "g"}, key)) {
+		if q.cancel != nil {
+			q.cancel()
+			q.cancel = nil
+		}
+		q.serial++
+		q.busy, q.backgroundRead = false, false
+		if key == "esc" && q.thread == nil && q.teamDetail == nil && q.receipt == nil && q.authority == nil {
+			q.status = "Read cancelled; retained current view"
+			return m, nil
+		}
+	}
 	if key == "esc" && q.teamDetail != nil && q.form == nil {
 		if q.cancel != nil {
 			q.cancel()
@@ -516,6 +614,10 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "esc":
 			q.form = nil
+			if q.thread != nil {
+				m.scroll = q.readerScroll
+				m.restoreConversationAnchor(q.readerAnchor, q.readerOffset)
+			}
 			q.status = "Buffer cleared; cancellation cannot undo an already submitted operation"
 			if f.frozen {
 				q.status += "; inspect original request " + f.requestID + " before creating another intent"
@@ -600,6 +702,8 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		section := map[string]string{"t": "team", "l": "threads", "i": "inbox", "g": "goals"}[key]
 		q.section, q.thread, q.receipt, q.authority, q.messages, q.after, q.next, q.cursor, q.follow = section, nil, nil, nil, nil, 0, "", 0, false
 		q.readReady = false
+		q.readerReveal, q.messageSelected = false, ""
+		q.readerAnchor = ""
 		q.teamDetail, q.teamReport, q.teamFailure = nil, nil, ""
 		m.scroll = 0
 		return m, m.coordLoad(false)
@@ -607,17 +711,37 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		q.readReady = false
 		if q.receipt != nil {
 			q.receipt = nil
+			if q.thread != nil {
+				m.scroll = q.readerScroll
+				m.restoreConversationAnchor(q.readerAnchor, q.readerOffset)
+				return m, nil
+			}
 		} else if q.authority != nil {
 			q.authority = nil
 		} else if q.thread != nil {
 			q.thread, q.messages, q.after, q.follow = nil, nil, 0, false
-			q.next, q.cursor = q.threadsNext, max(0, min(q.threadsCursor, len(q.threads)-1))
+			q.readerReveal, q.messageSelected = false, ""
+			q.readerAnchor = ""
+			q.next, q.cursor = q.threadsNext, q.threadsCursor
+			m.scroll = q.threadsScroll
+			q.status = "Returned to Threads"
+			return m, nil
 		} else {
 			m.workspace = 0
 		}
 		m.scroll = 0
 	case "r":
 		return m, m.coordLoad(false)
+	case "ctrl+v":
+		if q.thread != nil && q.receipt == nil && q.authority == nil {
+			if q.failed {
+				q.status = "Refresh current thread authority before revealing private bodies"
+			} else {
+				anchor, offset := m.conversationAnchor()
+				q.readerReveal = !q.readerReveal
+				m.restoreConversationAnchor(anchor, offset)
+			}
+		}
 	case "e":
 		if q.section == "goals" && q.thread == nil && q.authority == nil && q.receipt == nil {
 			engagements := q.self.Principal.Engagements
@@ -656,6 +780,7 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.coordOpen("decision")
 	case "s":
 		if q.thread != nil && q.cursor >= 0 && q.cursor < len(q.messages) {
+			q.readerScroll = m.scroll
 			id := q.messages[q.cursor].ID
 			return m, m.coordCall("receipt", func(ctx context.Context, s Coordination) (any, error) { return s.MessageStatus(ctx, id) })
 		}
@@ -686,12 +811,18 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "threads":
 				if q.cursor >= 0 && q.cursor < len(q.threads) {
 					id := q.threads[q.cursor].ID
-					return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return s.Thread(ctx, id) })
+					return m, m.coordCall("thread", func(ctx context.Context, s Coordination) (any, error) { return coordReadThread(ctx, s, id) })
 				}
 			case "inbox":
 				if q.cursor >= 0 && q.cursor < len(q.inbox) {
 					id := q.inbox[q.cursor].MessageID
-					return m, m.coordCall("message", func(ctx context.Context, s Coordination) (any, error) { return s.Message(ctx, id) })
+					return m, m.coordCall("message", func(ctx context.Context, s Coordination) (any, error) {
+						message, err := s.Message(ctx, id)
+						if err == nil && (message.ID != id || message.ThreadID == "") {
+							return nil, c.ErrConflict
+						}
+						return message, err
+					})
 				}
 			case "goals":
 				if q.cursor >= 0 && q.cursor < len(q.goals) {
@@ -727,11 +858,17 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			delta = -1
 		}
 		q.cursor = max(0, min(count-1, q.cursor+delta))
+		if q.thread != nil && q.cursor >= 0 && q.cursor < len(q.messages) {
+			q.messageSelected = q.messages[q.cursor].ID
+		}
 		if q.section == "team" && q.cursor >= 0 && q.cursor < len(q.team) {
 			q.teamSelected = q.team[q.cursor].AgentID
 		}
 		if q.section == "threads" && q.thread == nil && q.receipt == nil && q.authority == nil {
 			q.threadsCursor = q.cursor
+			if q.cursor >= 0 && q.cursor < len(q.threads) {
+				q.threadsSelected = q.threads[q.cursor].ID
+			}
 		}
 	}
 	return m, nil
@@ -754,6 +891,9 @@ func (m fleetModel) coordLines() (lines []string) {
 	}
 	if q.section == "team" && q.form == nil && q.thread == nil && q.receipt == nil && q.authority == nil {
 		return m.teamLines(master)
+	}
+	if m.conversationPage() {
+		return m.conversationLines(master)
 	}
 	health := "No successful snapshot"
 	if !q.seen.IsZero() {
@@ -820,17 +960,6 @@ func (m fleetModel) coordLines() (lines []string) {
 			prefix = "> "
 		}
 		lines = append(lines, prefix+text)
-	}
-	if q.thread != nil {
-		lines = append(lines, "Thread: "+q.thread.ID+" | "+q.thread.Title, "Members: "+strings.Join(q.thread.Members, ","), "Private reader; no screenshots. Enter marks loaded messages read (session only). Follow: "+fmt.Sprint(q.follow))
-		for i, v := range q.messages {
-			unread := ""
-			if v.Sequence > q.readThrough[q.thread.ID] {
-				unread = "[unread this session] "
-			}
-			row(i, unread+fmt.Sprintf("%s | %s | parent %s\n%s", v.ID, v.AuthorID, v.ParentMessageID, v.Body))
-		}
-		return lines
 	}
 	switch q.section {
 	case "threads":

@@ -159,14 +159,14 @@ func TestCoordinationPaginationAndInboxOpen(t *testing.T) {
 					if id != "message" {
 						t.Fatal(id)
 					}
-					return c.Message{ThreadID: "inbox-thread"}, nil
+					return c.Message{ID: id, ThreadID: "inbox-thread"}, nil
 				}
 				s.thread = func(id string) (c.Thread, error) { return c.Thread{ID: id}, nil }
 				s.messages = func(id string, after int64) (c.MessagePage, error) {
 					if id != "inbox-thread" || after != 0 {
 						t.Fatalf("wrong reader %s/%d", id, after)
 					}
-					return c.MessagePage{Messages: []c.Message{{ID: "message", Sequence: 3}}}, nil
+					return c.MessagePage{Messages: []c.Message{{ID: "message", ThreadID: id, Sequence: 3}}}, nil
 				}
 				m, cmd = coordinationKey(m, "enter")
 				m = coordinationRun(t, m, cmd)
@@ -202,7 +202,7 @@ func TestCoordinationInboxThreadFailurePreservesNavigation(t *testing.T) {
 	fail = false
 	m, cmd = coordinationKey(m, "enter")
 	m = coordinationRun(t, m, cmd)
-	if m.coordination.failed || m.coordination.section != "threads" || m.coordination.thread.ID != "inbox-thread" || m.coordination.cursor != 0 {
+	if m.coordination.failed || m.coordination.section != "threads" || m.coordination.thread.ID != "inbox-thread" || m.coordination.cursor != -1 || m.coordination.messageSelected != "three" {
 		t.Fatalf("recovered lookup did not open reader: %+v", m.coordination)
 	}
 	m, _ = coordinationKey(m, "esc")
@@ -222,7 +222,7 @@ func TestCoordinationFollowAndReceiptPolling(t *testing.T) {
 		if id != "thread" || after != 2 {
 			t.Fatalf("follow cursor %s/%d", id, after)
 		}
-		return c.MessagePage{Messages: []c.Message{{ID: "old", Sequence: 2}, {ID: "new", Sequence: 4}}, Next: 5}, nil
+		return c.MessagePage{Messages: []c.Message{{ID: "old", ThreadID: id, Sequence: 2}, {ID: "new", ThreadID: id, Sequence: 4}}, Next: 5}, nil
 	}
 	m, _ = coordinationKey(m, "f")
 	// Suppress Fleet refresh and execute only the coordination command in the batch.
@@ -294,7 +294,7 @@ func TestCoordinationThreadRefreshCommitsCoherentSnapshot(t *testing.T) {
 				if failed {
 					return c.MessagePage{}, c.ErrUnavailable
 				}
-				return c.MessagePage{Messages: []c.Message{{ID: "new", Sequence: 10}}}, nil
+				return c.MessagePage{Messages: []c.Message{{ID: "new", ThreadID: id, Sequence: 10}}}, nil
 			}
 			m, cmd := coordinationKey(m, "r")
 			m = coordinationRun(t, m, cmd)
@@ -1141,6 +1141,7 @@ func TestCoordinationSmallTerminalSelectionAndPaging(t *testing.T) {
 	if m.coordination.cursor != 19 || m.scroll == 0 || !strings.Contains(m.View(), "> [unread this session] message-19") {
 		t.Fatalf("selected message offscreen at height %d: %s", m.height, m.View())
 	}
+	m, _ = coordinationKey(m, "ctrl+v")
 	for i := 0; i < 5; i++ {
 		m, _ = coordinationKey(m, "pgdown")
 	}

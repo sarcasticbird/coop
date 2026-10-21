@@ -449,7 +449,13 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 	case tea.WindowSizeMsg:
 		teamVisible := m.teamSelectionVisible()
+		conversationVisible := m.conversationSelectionVisible()
+		anchor, offset := m.conversationAnchor()
 		m.width, m.height = msg.Width, msg.Height
+		m.restoreConversationAnchor(anchor, offset)
+		if conversationVisible {
+			m.revealConversationSelection()
+		}
 		m.revealLedgerSelection()
 		if teamVisible {
 			m.revealTeamSelection()
@@ -475,11 +481,19 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if key == "pgdown" {
 		lines, _, _ := m.content()
-		m.scroll = min(m.scroll+1, max(0, len(lines)-max(1, m.height-2)))
+		step := 1
+		if m.conversationPage() && !m.help && !m.runbook {
+			step = max(1, m.height-conversationHeader-2)
+		}
+		m.scroll = min(m.scroll+step, max(0, len(lines)-max(1, m.height-2)))
 		return m, nil
 	}
 	if key == "pgup" {
-		m.scroll = max(0, m.scroll-1)
+		step := 1
+		if m.conversationPage() && !m.help && !m.runbook {
+			step = max(1, m.height-conversationHeader-2)
+		}
+		m.scroll = max(0, m.scroll-step)
 		return m, nil
 	}
 	if m.busy {
@@ -615,6 +629,12 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.workspace == 1 && (m.coordination.form != nil || (key != "1" && key != "2" && key != "3" && key != "?" && key != "q" && key != "v")) {
 		out, cmd := m.coordKey(k)
 		updated := out.(fleetModel)
+		if updated.conversationPage() {
+			if key == "up" || key == "down" || key == "k" || key == "j" {
+				updated.revealConversationSelection()
+			}
+			return updated, cmd
+		}
 		if updated.teamList() && key == "esc" {
 			return updated, cmd
 		}
@@ -992,7 +1012,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	selectedLine := -1
 	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
 	if m.workspace == 1 {
-		if m.teamList() || m.coordination.teamDetail != nil && m.coordination.form == nil {
+		if m.teamList() || m.conversationPage() || m.coordination.teamDetail != nil && m.coordination.form == nil {
 			lines = m.coordLines()
 		} else {
 			lines = append(lines, m.coordLines()...)
@@ -1139,6 +1159,9 @@ func (m fleetModel) content() ([]string, string, int) {
 		if m.workspace == 1 && m.coordination.section == "team" && m.coordination.form == nil {
 			lines = []string{"Team Help", "Master Team and diagnostics are read-only observations, not VM state or action authority.", "List: up/down or j/k select agent; Enter inspects the captured agent/host/worker/generation.", "Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and viewport.", "r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit", "Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is retained evidence, not current work.", "Heartbeat age is not work progress. Report, receipt, work and wait ages are separate.", "Placement changes invalidate reports; return and inspect again. Reads never wake agents or perform recovery.", "? or Esc returns without changing selection or dispatching an action."}
 		}
+		if m.conversationPage() {
+			lines = []string{"Threads Help", "Enter opens a thread with private bodies masked; Ctrl+V explicitly reveals/masks this reader only.", "Up/down or j/k select a stable message. PgUp/PgDn scroll without changing the reply target.", "c composes a root message (no parent); p replies to the selected message; s inspects its receipt.", "Enter marks loaded messages read in this TUI session only; f toggles follow; r refreshes; ] loads next page.", "Esc returns to the retained thread-list viewport. Each newly opened reader starts masked.", "n creates a thread; m manages membership; t Team | l Threads | i Inbox | g Goals.", "a authority | o propose | d decide | 1 Fleet | 3 Servers | q quit", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview/submit | Ctrl+R identical retry | Esc clear", "? or Esc returns without changing selection or revealing private bodies."}
+		}
 	}
 	if m.operations != nil {
 		lines = m.operationLines()
@@ -1187,6 +1210,15 @@ func (m fleetModel) content() ([]string, string, int) {
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
 	if m.workspace == 1 {
 		footer = "t/l/i/g sections | r refresh | f follow | ] next | ? help | esc back | 1/3 workspace | q quit"
+		if m.conversationPage() {
+			footer = "Enter open | n new | ? help | Esc"
+			if m.coordination.thread != nil {
+				footer = "Ctrl+V reveal | p reply | c root | ? | Esc"
+				if m.coordination.readerReveal {
+					footer = "Ctrl+V mask | p reply | c root | ? | Esc"
+				}
+			}
+		}
 		if m.teamList() || m.coordination.teamDetail != nil {
 			footer = "Enter inspect | arrows | r refresh | ? | Esc"
 			if m.coordination.teamDetail != nil {
@@ -1246,6 +1278,12 @@ func (m fleetModel) View() string {
 			limit--
 			start := min(m.scroll, max(0, len(content)-limit))
 			content = append([]string{pinned}, content[start:min(len(content), start+limit)]...)
+		} else if m.conversationPage() && !m.help && !m.runbook && m.height >= conversationHeader+3 && len(content) >= conversationHeader {
+			pinned := append([]string(nil), content[:conversationHeader]...)
+			content = content[conversationHeader:]
+			limit = max(1, limit-conversationHeader)
+			start := min(m.scroll, max(0, len(content)-limit))
+			content = append(pinned, content[start:min(len(content), start+limit)]...)
 		} else {
 			start := min(m.scroll, max(0, len(content)-limit))
 			content = content[start:min(len(content), start+limit)]
@@ -1255,6 +1293,13 @@ func (m fleetModel) View() string {
 		}
 	}
 	feedback := m.status
+	if m.conversationPage() && !m.help && !m.runbook {
+		q := m.coordination
+		feedback = q.status
+		if q.failed {
+			feedback = "STALE/UNKNOWN | " + feedback
+		}
+	}
 	if m.workspace == 0 && m.detail && m.pending == nil && m.operations == nil && !m.help && !m.runbook {
 		diagnostic := team.DiagnosticFeedback(time.Now(), m.diagnostics.report, m.diagnostics.failure)
 		if m.diagnostics.busy && m.diagnostics.report == nil && m.diagnostics.failure == "" {
@@ -1282,7 +1327,7 @@ func (m fleetModel) View() string {
 	if m.registryError != "" {
 		feedback = m.registryError
 	}
-	feedback = strings.Join(strings.Fields(feedback), " ")
+	feedback = strings.Join(strings.Fields(coordClean(feedback)), " ")
 	if m.width > 0 {
 		feedback = textansi.Truncate(feedback, m.width, "...")
 		footer = textansi.Truncate(footer, m.width, "...")
