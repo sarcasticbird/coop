@@ -1,0 +1,20 @@
+Threads > Preview (reply)
+Master: test-master
+Principal: owner
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Request: 5G7EHXGJEOPJPOSMAOFTF7IPVZ
+Thread: fixture-thread | parent: fixture
+-message
+Engagement:
+Captured members: owner,hawk
+Blank recipients use captured parent aut
+hor: hawk
+  Recipient IDs (comma separated; blank
+reply defaults to parent author): hawk
+> Private body: [hidden, 21 bytes]
+Tab field | arrows cursor | Enter newlin
+e
+Ctrl+V reveal/mask | F1 help | Esc draft
+Review captured context and input; Pg...
+^S preview/send | ^V view | F1 | Esc ...

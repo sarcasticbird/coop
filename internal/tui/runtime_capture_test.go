@@ -32,6 +32,15 @@ func TestRuntimeCapture(t *testing.T) {
 	source.messages = func(id string, _ int64) (c.MessagePage, error) {
 		return c.MessagePage{Messages: []c.Message{{ID: "fixture-message", ThreadID: id, AuthorID: "hawk", Sequence: 1, Body: "Synthetic fixture: waiting for dependency review."}}}, nil
 	}
+	source.status = func(id string) (c.MessageReceipt, error) {
+		if id != "fixture-message" {
+			return c.MessageReceipt{}, c.ErrNotFound
+		}
+		return c.MessageReceipt{MasterID: "test-master", RestoreEpoch: 1, MessageID: id, Sequence: 1, Backend: "master", Deliveries: []c.Delivery{{AgentID: "hawk", State: "acknowledged"}}}, nil
+	}
+	source.send = func(c.SendMessage) (c.MessageReceipt, error) {
+		return c.MessageReceipt{}, errors.New("capture fixture forbids sends")
+	}
 	for i := range m.hosts {
 		for j := range m.hosts[i].entries {
 			e := &m.hosts[i].entries[j]
@@ -43,6 +52,18 @@ func TestRuntimeCapture(t *testing.T) {
 		}
 	}
 	m.selected = hostrouter.Target{}
+	switch mode := os.Getenv("COOP_TUI_CAPTURE_MODE"); mode {
+	case "", "destroy":
+	case "setup":
+		m.services.Coordination = nil
+		m.workspace = 1
+	case "first-use":
+		m.hosts = m.hosts[:1]
+		m.services.Registry = &fixtureRegistry{}
+		m.workspace = 2
+	default:
+		t.Fatalf("unknown capture mode %q", mode)
+	}
 	m.width, m.height = 0, 0
 	read := inventoryFunc(func(_ context.Context, h hostrouter.Host) ([]hostrouter.InventoryEntry, error) {
 		for _, s := range m.hosts {
@@ -60,7 +81,11 @@ func TestRuntimeCapture(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.ctx = ctx
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(final.(fleetModel).services.Actions.(*fixtureActions).requests) != 0 {
+		t.Fatal("capture dispatched an action")
 	}
 }

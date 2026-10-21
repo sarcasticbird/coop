@@ -13,12 +13,13 @@ import (
 )
 
 type fleetDiagnostics struct {
-	serial  uint64
-	busy    bool
-	cancel  context.CancelFunc
-	next    time.Time
-	report  *c.AgentDiagnostics
-	failure string
+	serial   uint64
+	busy     bool
+	cancel   context.CancelFunc
+	next     time.Time
+	report   *c.AgentDiagnostics
+	presence *c.Presence
+	failure  string
 }
 
 type fleetDiagnosticResult struct {
@@ -157,9 +158,24 @@ func (m fleetModel) acceptFleetDiagnostic(q *fleetDiagnostics, r fleetDiagnostic
 	}
 	if q.report == nil || s.report.Report.RestoreEpoch > q.report.Report.RestoreEpoch || (s.report.Report.RestoreEpoch == q.report.Report.RestoreEpoch && !s.report.Report.ObservedAt.Before(q.report.Report.ObservedAt) && !s.report.ReceivedAt.Before(q.report.ReceivedAt)) {
 		q.report, q.failure = &s.report, ""
+		q.presence = nil
+		for _, p := range s.rows {
+			if p.Placement == r.binding.Placement {
+				q.presence = &p
+			}
+		}
 	} else {
 		q.failure = "out-of-order report ignored; current work unknown"
 	}
+}
+
+func (m fleetModel) fleetPresenceLine() string {
+	q := m.diagnostics
+	if q.failure != "" || q.presence == nil || m.detailInvalid {
+		return "Presence: unknown (no current bound observation)"
+	}
+	p := q.presence
+	return "Presence: " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen) + " (not work progress)"
 }
 
 func (m fleetModel) fleetDiagnosticLines() []string {

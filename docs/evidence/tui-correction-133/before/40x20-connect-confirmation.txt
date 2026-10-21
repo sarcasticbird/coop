@@ -1,0 +1,20 @@
+CONFIRM ENTER
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Connect on the foreground terminal? Remo
+te SSH: Ctrl+] detaches; Ctrl+D is appli
+cation EOF and may end the guest shell.
+Local: exit the foreground application t
+o return. Return to Details; no automati
+c reconnect.
+No automatic retry or rollback. Review e
+very page, then y confirms; n/Esc cancel
+s.
+Exact CLI arguments: ["--agent" "fixture
+-a" "--"]
+
+y confirm | n/esc cancel
+
+

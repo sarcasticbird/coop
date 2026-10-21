@@ -1,0 +1,131 @@
+2[?25l[?1049h[2J[H[?25l[?2004h[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Enter opens masked reader | n new thread[K
+t Team | i Inbox | g Goals | ] next page[K
+> fixture-thread | Design check | [K
+Next page: none[K
+[K
+Enter open | n new | ? help | Esc[K[9;H[H
+
+
+
+
+
+
+Snapshot refreshed[K
+[9;H[HThreads > fixture-thread[K
+
+
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected reply[K
+Private reader; no screenshots. Follow: false[K
+> [unread this session] fixture-message | hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Snapshot refreshed[K
+Ctrl+V reveal | p reply | c root | ? | Esc[K[11;H[HThreads > Composer (reply)[K
+
+Principal: owner[K
+Captured master: test-master[K
+Principal: owner (owner) | epoch: 1[K
+Request: X5PJ5HD3SKHYDOIUPLZRAR3DH5[K
+Thread: fixture-thread | parent: fixture-message[K
+Engagement: [K
+Captured members: owner,hawk[K
+Blank recipients use captured parent author: hawk[K
+> Recipient IDs (comma separated; blank reply defaults to parent author): |[K
+  Private body: [hidden, 0 bytes][K
+Tab field | arrows cursor | Enter newline[K
+Ctrl+V reveal/mask | F1 help | Esc draft options[K
+Ctrl+S preview, then review all and Ctrl+S submit[K
+[K
+^S preview/send | ^V view | F1 | Esc[K[17;H[H
+
+
+
+
+
+
+
+
+
+> Recipient IDs (comma separated; blank reply defaults to parent author): hawk|[K
+
+
+
+
+
+[17;H[H
+
+
+
+
+
+
+
+
+
+  Recipient IDs (comma separated; blank reply defaults to parent author): hawk[K
+> Private body: [hidden, 0 bytes][K
+
+
+
+
+[17;H[H
+
+
+
+
+
+
+
+
+
+
+> Private body: [hidden, 21 bytes][K
+
+
+
+
+[17;H[HThreads > Preview (reply)[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Review captured context and input; PgDn for more; Ctrl+S submits[K
+[17;H[HDraft protection[K
+Private buffers exist only in this process.[K
+k Keep in memory | d Discard | r/Esc Return[K
+Review captured context and input; PgDn for more; Ctrl+S submits[K
+k Keep | d Discard | r/Esc Return[K[J[5;H[HThreads > fixture-thread[K
+Master: test-master[K
+Principal: owner (owner)[K
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected reply[K
+Private reader; no screenshots. Follow: false[K
+> [unread this session] fixture-message | hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Buffer discarded; this cannot undo a submitted operation[K
+Ctrl+V reveal | p reply | c root | ? | Esc[K[11;H[HThreads > Delivery receipt[K
+
+Principal: owner[K
+Committed message: fixture-message[K
+Master: test-master | epoch: 1[K
+Backend: master | sequence: 1[K
+Commitment is not acknowledgment, execution or wake.[K
+hawk | acknowledged |  | reply: [K
+r status refresh | f poll | Esc reader[K
+Snapshot refreshed[K
+r status | f poll | Esc reader[K[11;H

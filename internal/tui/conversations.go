@@ -40,16 +40,27 @@ func (m fleetModel) conversationLines(master string) []string {
 		lines = append(lines, prefix+text)
 	}
 	if q.thread == nil {
-		lines = append(lines, "Enter opens masked reader | n new thread", "t Team | i Inbox | g Goals | ] next page")
+		lines = append(lines, "Threads / masked on opening; no body previews")
 		for i, thread := range q.threads {
-			row(i, thread.ID+" | "+thread.Title+" | "+thread.Engagement)
+			row(i, thread.Title+" | ID: "+thread.ID+" | "+thread.Engagement)
+			if i == q.cursor {
+				lines = append(lines, "  Members: "+strings.Join(thread.Members, ", "))
+			}
 		}
 		if len(q.threads) == 0 {
 			lines = append(lines, "No threads in this snapshot")
 		}
 		return append(lines, "Next page: "+valueOr(q.next, "none"))
 	}
-	lines = append(lines, "Thread: "+q.thread.ID+" | "+q.thread.Title, "Engagement: "+q.thread.Engagement+" | Members: "+strings.Join(q.thread.Members, ","), "Ctrl+V reveal/mask | c root | p selected reply", fmt.Sprintf("Private reader; no screenshots. Follow: %t", q.follow))
+	state := "masked"
+	if q.readerReveal && !q.failed && !q.readerBlocked {
+		state = "revealed"
+	}
+	lines = append(lines, q.thread.Title+" | Content: "+state, "Engagement: "+q.thread.Engagement+" | Members: "+strings.Join(q.thread.Members, ","), fmt.Sprintf("Loaded: %d / limit 500 | follow: %t", len(q.messages), q.follow))
+	if q.cursor >= 0 && q.cursor < len(q.messages) {
+		selected := q.messages[q.cursor]
+		lines = append(lines, "Reply target: "+selected.ID+" / "+selected.AuthorID+" (page keys do not reselect)")
+	}
 	for i, message := range q.messages {
 		unread := ""
 		if message.Sequence > q.readThrough[q.thread.ID] {
@@ -62,7 +73,7 @@ func (m fleetModel) conversationLines(master string) []string {
 		if q.readerReveal && !q.failed && !q.readerBlocked {
 			body = message.Body
 		}
-		row(i, unread+fmt.Sprintf("%s | %s | parent %s\n%s", message.ID, message.AuthorID, message.ParentMessageID, body))
+		row(i, unread+fmt.Sprintf("%s | seq %d | %s | parent %s\n%s", message.ID, message.Sequence, message.AuthorID, valueOr(message.ParentMessageID, "none"), body))
 	}
 	if len(q.messages) == 0 {
 		lines = append(lines, "No messages loaded; r refresh")

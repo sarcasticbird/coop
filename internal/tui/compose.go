@@ -211,6 +211,9 @@ func (m fleetModel) composeLines() (lines []string) {
 	q := m.coordination
 	if q.leaving != "" {
 		lines := []string{"Draft protection", "Private buffers exist only in this process."}
+		if q.form != nil {
+			lines = append(lines, "Master: "+q.form.master, "Principal: "+q.form.self.Principal.ID, "Thread: "+valueOr(q.form.thread.ID, "new"), "Request: "+q.form.requestID)
+		}
 		if q.leaving == "quit" {
 			lines = append(lines, "Quit destroys all active and kept drafts.", "d Discard all and quit | r/Esc Return")
 		} else {
@@ -230,7 +233,7 @@ func (m fleetModel) composeLines() (lines []string) {
 		for _, d := range r.Deliveries {
 			lines = append(lines, d.AgentID+" | "+d.State+" | "+d.Reason+" | reply: "+d.ReplyMessageID)
 		}
-		return append(lines, "r status refresh | f poll | Esc reader")
+		return lines
 	}
 	f := *q.form
 	f.positions = slices.Clone(f.positions)
@@ -245,7 +248,7 @@ func (m fleetModel) composeLines() (lines []string) {
 			state = "Submitting; awaiting receipt"
 		}
 	}
-	lines = []string{"Threads > " + state + " (" + f.kind + ")", "Master: " + f.master, "Principal: " + f.self.Principal.ID, "Captured master: " + f.master, fmt.Sprintf("Principal: %s (%s) | epoch: %d", f.self.Principal.ID, f.self.Principal.Kind, f.self.RestoreEpoch), "Request: " + f.requestID, "Thread: " + valueOr(f.thread.ID, "new") + " | parent: " + valueOr(f.parent, "none (root)"), "Engagement: " + f.thread.Engagement, "Captured members: " + strings.Join(f.thread.Members, ",")}
+	lines = []string{"Threads > " + state + " (" + f.kind + ")", "Master: " + f.master, "Principal: " + f.self.Principal.ID}
 	if f.kind == "reply" {
 		lines = append(lines, "Blank recipients use captured parent author: "+f.parentAuthor)
 	}
@@ -273,13 +276,14 @@ func (m fleetModel) composeLines() (lines []string) {
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
+	lines = append(lines, "Thread: "+valueOr(f.thread.ID, "new")+" | parent: "+valueOr(f.parent, "none (root)"), "Request: "+f.requestID, "Captured master: "+f.master, fmt.Sprintf("Principal: %s (%s) | epoch: %d", f.self.Principal.ID, f.self.Principal.Kind, f.self.RestoreEpoch), "Engagement: "+f.thread.Engagement, "Captured members: "+strings.Join(f.thread.Members, ","))
 	if f.kind == "create" {
 		lines = append(lines, "Creates a thread only; no message or wake.")
 	}
 	if f.frozen {
 		lines = append(lines, "Ctrl+R retries ONLY this identical request.", "No automatic retry; Esc draft options.")
 	} else {
-		lines = append(lines, "Tab field | arrows cursor | Enter newline", "Ctrl+V reveal/mask | F1 help | Esc draft options", "Ctrl+S preview, then review all and Ctrl+S submit")
+		lines = append(lines, "Enter inserts newline, never sends. Tab changes field.", "Not submitted; preview and review all before a second Ctrl+S submits.")
 	}
 	return lines
 }
