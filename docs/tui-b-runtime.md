@@ -38,8 +38,9 @@ or substantive design changes explicitly before using a new baseline.
 | Exhaustive command and safety parity | `docs/fleet-tui.md`, `docs/tui-operations.md`; `TestFleetTUICommandCoverageInventory`, `TestTUICommandCoverageExhaustive` |
 
 Stage 0 did not implement B. Stage 1 below implements only Ledger/Details. Stage 2
-adds the Team diagnostics flow described below. The reader is not masked and
-Escape clears conversation forms; conversation/draft protection remains stage 3.
+adds the Team diagnostics flow described below. Stage 3a adds full-page threads
+and masked readers. Escape still clears conversation forms; composer/draft
+protection remains the dependent stage 3b, not an implied guarantee here.
 
 ## Stage Acceptance Map
 
@@ -373,3 +374,104 @@ again on 2026-10-20. The race lane also passed, now including
 `./internal/coordination` with the same already-available compiler. Formatting and
 diff checks passed. These remain author results; the new head still needs Robin's
 independent review, Wren's private exact-artifact QA and CI before source delivery.
+
+## Stage 3a Threads And Masked Reader
+
+[Task #118](https://github.com/sarcasticbird/coop/issues/118) starts at delivered
+stage-2 main `96f88d9`. PR #111 was checked on 2026-10-21 and remains at accepted
+packet `5d79a84031045fe8dd8f3eeb345cadea953e0724`; no later design delta is adopted.
+
+- Threads and reader use one full-page body at all three dimensions, with pinned
+  thread/master/principal context, contextual help/footer and fixed read/error
+  feedback. Every opened reader starts masked. Explicit reveal belongs only to
+  that reader; opening compose does not reveal its private input.
+- Stable thread/message IDs are independent of physical scroll. Cached refresh,
+  arrivals, the 500-message retention bound and Unicode rewrapping do not retarget
+  reply/receipt controls. An evicted selection remains unselected. Visible focus
+  survives resize; intentional paging away from selection does not snap back.
+- Esc cancels pending reads and invalidates their serial before returning to the
+  saved thread-list viewport/page. Old results cannot reopen a departed reader.
+  Metadata/message identities are checked before commitment. Principal/master/
+  restore-epoch changes fail closed; denied/missing/conflicting authority clears
+  cached bodies. Transport failure retains masked cache and requires a successful
+  authority refresh before another reveal.
+- Existing creation, membership, Inbox, Goals, root/reply, immutable request retry
+  and receipt handlers remain available. No CLI/MCP/backend contract changes.
+  Full-page composer/preview, memory-only draft suspension and quit guards are
+  stage 3b; this task does not claim them or interactive/live UAT.
+
+Author validation on Linux arm64, Flox Go 1.26.9, 2026-10-21:
+
+- Formatting, repository-wide `go vet ./...` and `git diff --check` passed.
+- `go test ./internal/tui/... ./internal/masterclient ./internal/coordination
+  ./internal/master ./cmd/coop -count=1` passed, including existing request/retry,
+  membership, pagination, unread, quiet-refresh and command-inventory regressions.
+- `NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1` passed.
+- Default race invocation was blocked by disabled CGO. With `CGO_ENABLED=1` and
+  the existing compiler path documented above, `go test -race ./internal/tui/...
+  ./internal/masterclient/... ./internal/coordination/... -count=1` passed.
+- `go test ./...` did not pass. Unchanged baseline `96f88d9` independently
+  reproduces image PATH expectations (`/opt/coop-release-tools/bin`), projectinit
+  permission/mode tests, seed mode preservation and worker migration snapshot
+  failure expectations in this environment. The full run also hit worker
+  `TestNativeTerminalWaitAllowsConversation` TempDir cleanup; its focused baseline
+  rerun passed, so that result is classified as an intermittent cleanup failure,
+  not a demonstrated regression or a full-suite pass.
+
+For independent stage-3a QA, run the scoped commands and isolate journeys with
+`flox activate -- go test ./internal/tui -run '^TestConversation' -count=1 -v`.
+All bodies in these fixtures are synthetic. Repeat list -> masked reader ->
+reveal -> select -> root/reply/receipt -> return, scrolled follow, reconnect,
+denial, Help and resize at 120x40, 80x24 and 40x20. Robin's exact-head review,
+Wren's private exact-runtime-artifact QA in `coop-tui-b-runtime-v1`, required CI
+and source delivery remain separate gates. No live service/fleet/release changed.
+
+### Stage 3a Review Fixes
+
+Robin's review of `9c683daa150372c58331c1743065af2f77e6df38` identified two
+reproducible gaps. Both new regression tests failed on that head before correction.
+
+- Reader-bound calls now compare fresh authenticated principal ID/kind, master
+  and restore epoch with the captured context **before invoking the handler**,
+  not just when consuming its result. A conflict dispatches no write and retains
+  the original frozen request, parent, body and request ID. Tests cover root and
+  reply submission, uncertain-send retry, repeated blocked retry, all four context
+  changes after scheduling, and identical retry after original authority returns.
+- Thread lists retain the successful page's query cursor separately from its
+  Next cursor. Refresh/follow reads that page, including after reader return.
+  Failed or cancelled advances cannot replace the retained query cursor. The
+  regression exercises page two, explicit refresh, the actual follow tick,
+  reader return and recovery after a failed page-three read.
+
+Follow-up author validation on 2026-10-21 through Flox passed: scoped ordinary
+tests for TUI, masterclient, coordination, master and `cmd/coop`; repository-wide
+vet; no-color TUI/CLI tests; fitting race tests for TUI/masterclient/coordination
+with the existing compiler above; formatting and diff checks. The full-suite
+baseline/environment failures described above remain classified, not waived or
+reported as a green full suite. These are author checks only; Robin must review
+the new exact head and Wren must renew private exact-artifact runtime QA before
+delivery with required CI. No merge, deployment or release is part of this fix.
+
+### Reader Recovery Boundary
+
+Reader recovery is now separate from the latest coordination request's success.
+A reader-bound failure locks cached bodies until a successful coherent read of
+that captured thread's metadata and message page. Receipt and goal inspections
+may succeed independently but cannot unlock the cached reader. Both reveal
+controls and rendering enforce this boundary; the masked label and footer point
+to `r` for recovery. Genuine refresh recovery still requires explicit reveal.
+
+The synthetic `TestConversationReaderRecoveryRequiresThreadSnapshot` regression
+failed on `40d80bf` before correction at 120x40, 80x24 and 40x20, for metadata and
+message-read failures. It passes three repetitions after correction, covering
+receipt and goal inspection/return without authority reads, renderer masking,
+repeated failure, successful coherent recovery and retained selected-message ID.
+No private QA report content or customer bodies are included in these fixtures.
+
+Author validation on Go 1.26.10 through Flox passed: scoped TUI/masterclient/
+coordination/master/CLI tests; repository-wide vet; no-color TUI/CLI tests;
+fitting race tests for TUI/masterclient/coordination with the existing compiler;
+the unchanged CI vulnerability scanner; formatting and diff checks. No new
+full-suite pass is claimed. Robin must independently review the new exact head,
+and Wren must perform renewed private exact-artifact runtime QA before delivery
+with required CI. No live service, fleet, release or deployment was changed.

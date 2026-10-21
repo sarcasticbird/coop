@@ -102,8 +102,15 @@ terminal settings are restored and the browser refreshes the same host/target.
 ### Conversations
 
 Open Threads, page with `]`, select a thread and read/follow its committed
-messages. Escape from the reader restores the retained thread-list page,
-selection and continuation, so `]` still advances after reading a thread.
+messages in a full-page reader. Each opened reader starts masked; `Ctrl+V`
+explicitly reveals/masks that buffer, independently of private form input.
+Master, captured principal and thread context stay pinned while paging.
+Arrows select a stable message; `PgUp`/`PgDn` scroll without changing the reply
+or receipt target. Follow and resize preserve the viewport rather than jumping
+to new arrivals. If the selected message leaves the 500-message history window,
+reply stays disabled until another message is explicitly selected.
+Escape cancels pending reads, rejects their late results and restores the retained
+thread-list page, viewport, selection and continuation, so `]` still advances.
 Create a thread with a title, authorized engagement and complete stable
 member IDs. Compose a root message with explicit recipients, or reply with the
 selected parent ID. With no explicit recipients a reply addresses its parent
@@ -117,7 +124,10 @@ complete desired set. A conflict requires a fresh read and a newly reviewed
 change, not overwriting concurrent membership. Cancel the conflicted form with
 Escape, press `r` in the reader, then open a new `m` form. Reader refresh/follow
 loads current thread metadata along with the next message page; failed reads
-retain the last coherent snapshot and message cursor. Revocation removes read access
+mask the last coherent snapshot. Denied, missing or conflicting thread authority
+clears cached bodies; a changed authenticated principal/master epoch cannot
+replace the captured context. Refresh current authority before revealing again.
+Revocation removes read access
 and cancels unstarted deliveries; it does not prove a running model has stopped.
 
 Receipt states are `queued`, `received`, `running`, `replied`, `blocked`,
