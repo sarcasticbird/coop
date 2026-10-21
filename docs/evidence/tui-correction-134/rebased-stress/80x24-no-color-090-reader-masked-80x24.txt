@@ -1,0 +1,24 @@
+Threads > fixture-thread
+Master: test-master
+Principal: owner (owner)
+Design check | Content: masked
+Engagement:  | Members: owner,hawk
+Loaded: 30 / limit 500 | follow: false
+Reply target: fixture-message / hawk (page keys do not reselect)
+> [unread this session] fixture-message | seq 1 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-02 | seq 2 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-03 | seq 3 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-04 | seq 4 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-05 | seq 5 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-06 | seq 6 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-07 | seq 7 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-08 | seq 8 | hawk | parent none
+Snapshot refreshed
+Esc Threads | p reply | ^V reveal | ? | PgUp/PgDn scroll

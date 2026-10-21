@@ -1,0 +1,24 @@
+Team > Agent
+Master: test-master
+Principal: owner
+Agent: same-name
+Host: local
+Presence: idle | heartbeat: 12s ago
+Handling: waiting
+Work / blocker: work unknown / local pause
+Source: master Team presence | Team snapshot age: 0s ago
+Read only; heartbeat is not work progress
+Exact Master: test-master
+Exact Principal: owner
+AgentID: fixture-a
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master | epoch: 1
+fresh receipt | received: 2026-10-21T23:10:39Z
+Report age: 12s ago | receipt age: 12s ago
+Work observation age: unknown
+Wait observation age: 12s ago
+Reported observations below are not current health or action authority.
+Handling: waiting | reason: local_pause
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll

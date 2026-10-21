@@ -6,6 +6,7 @@ Environment: `coop-tui-b-runtime-v1`. This is author integration evidence, not
 independent QA. **Owner visual UAT remains FAILED/PENDING until Chris accepts.**
 
 Current local repair evidence is in [Presentation Repairs](#presentation-repairs).
+The publication candidate uses the [Post-Rebase Candidate](#post-rebase-candidate).
 The original build identities and discrepancy map below are historical records,
 not assertions that the repaired runtime still has every listed defect.
 
@@ -339,3 +340,58 @@ prepares the separate both-host operator assistance after this corrected candida
 is ready. No deployment, installation, service restart, live action or source
 merge is performed by the author job; the base merge above is local integration,
 not delivery of PR #137. Owner UAT remains FAILED/PENDING.
+
+### Post-Rebase Candidate
+
+The assigned branch-refresh execution freshly fetched and verified exact main
+`96ca3911640b5715a6539ae73070d3d871e3b524` and the published PR branch head
+`7ae524d33244ec6a5b6b30f3479926c777bde580`. The pre-rebase clean checkpoint
+`1d9f3a19391425a76cc28d2ab6833edb7538a968` is preserved locally. An integrated
+base `6821a9c3ff1f551fd8a18c0c3b0bc7135a0581a4` contains both published head
+and exact main. Unpublished repair/evidence commits were rebased onto that base;
+the already-integrated #131/#138 changes were dropped as redundant during replay.
+Published commits are not rewritten. Both required ancestor checks pass, so the
+result can publish with a normal fast-forward, without force-push or a lease
+bypass. No source conflict occurred.
+
+Post-rebase build checkpoint: `58255eae188887fb8e8e04f33c98df60f59ef888`.
+Its full tree is byte-identical to the preserved pre-rebase checkpoint, verified
+with `git diff --exit-code`. This does not relabel old tests/captures as current:
+the rebased source was freshly built, tested and captured again on Linux arm64
+through Flox Go 1.26.10.
+
+| Newly Built Post-Rebase Artifact | SHA-256 |
+| --- | --- |
+| Native fixture executable | `8859948b18cbd246b1625094ad049f6dfbee5242a5a1d3b29be9a5467c8c4566` |
+| Shipping CLI, two byte-identical builds | `93bf3d537dc068ce6205f72bdafa8f4c6e46eccfc94c353a8a54c3c377d6f559` |
+
+The freshly built fixture matches the prior fixture bytes because its build
+inputs are unchanged; it does not embed a claim of VCS provenance. The shipping
+CLI records the post-rebase revision with `vcs.modified=false`. Final publication
+adds this documentation and generated evidence only after the build checkpoint.
+
+Latest actual native terminal evidence: `rebased-pages/manifest.json` (150),
+`rebased-extra/manifest.json` (42), `rebased-context/manifest.json` (54) and
+`rebased-stress/manifest.json` (156, six real keyboard/scroll/refresh/resize
+sessions). Every matrix passed assertions and clean exits at 120x40, 80x24 and
+40x20 with color and NO_COLOR. The six-group resolution examples above have
+fresh equivalents in these directories. Full identity suffixes, explicit creation
+mask/reveal/remask, contextual guard feedback and Help/confirmation labels are
+verified through the real event loop. These are sanitized fixtures; raw ANSI
+and replay limitations remain unchanged. Earlier matrices and source/binary
+identities are historical, not rewritten or substituted for these runs.
+
+The full scoped validation runner passed again on the clean post-rebase source:
+repeat-build equality, formatting, scoped regressions/CLI/MCP/terminal fixtures,
+integrated/foreground/terminal tests ten times, NO_COLOR, repository build/vet
+and fitting uncached race checks with the existing compiler. Pinned lint v2.12.2
+reported zero issues. The focused presentation/wrapping/Team/privacy/confirmation/
+compose/integration matrix also passed ten times after rebase. Source/script/doc
+whitespace checks passed separately from raw terminal padding/CR. No new full-suite,
+graphical theme, live-host or independent QA success is asserted.
+
+This candidate still requires Robin's renewed exact-head review, Wren's separate
+matching-artifact runtime AND visual assessment in `coop-tui-b-runtime-v1`, and
+required current hosted CI. Both-host operator assistance and Chris's UAT remain
+final gates. No source delivery, host effect, deployment/restart or release is
+performed by this author branch refresh.

@@ -1,0 +1,185 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+[K
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[24;H[H
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local pause[K
+Presence: idle | heartbeat: 1s ago (not work progress)[K
+Source: master diagnostics | report: 1s ago | receipt: 1s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Project: -[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+Diagnostic master: test-master | source: host-owned target binding[K
+Bound host: local | worker: fixture-worker-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T23:07:55Z[K
+Report age: 1s ago | receipt age: 1s ago[K
+
+Esc Fleet | Enter Connect | x | ? | PgUp/PgDn scroll[K[24;H[H
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago (not work progress)[K
+Source: master diagnostics | report: 2s ago | receipt: 2s ago[K
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago[K
+
+[24;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[24;H[H
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H

@@ -1,0 +1,20 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HCoordination | Master setup[K
+Master client unavailable | As: [K
+unavailable[K
+Fleet remains available; master and SSH 
+setup are separate.[K
+Setup runbook: press v (read only).[K
+Use an existing private [K
+master-client.toml with configured [K
+endpoint, identity and credential [K
+references.[K
+Configure token_file or token_env [K
+references outside this TUI; never [K
+enter tokens here.[K
+Exit and relaunch: coop --master-config 
+/private/master-client.toml tui[K
+This TUI does not accept token input, [K
+switch masters, or start a master [K
+service.[K
+[K
+1 Fleet | 3 Servers | v runbook | ?[K[20;H

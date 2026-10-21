@@ -1,0 +1,47 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+[K
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[24;H[H
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H

@@ -1,0 +1,20 @@
+Threads > fixture-thread
+Master: test-master
+Principal: owner (owner)
+Design check | Content: masked
+Engagement:  | Members: owner,hawk
+Loaded: 30 / limit 500 | follow: false
+Reply target: fixture-message / hawk
+(page keys do not reselect)
+> [unread this session] fixture-message
+| seq 1 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session]
+fixture-message-02 | seq 2 | hawk |
+parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session]
+fixture-message-03 | seq 3 | hawk |
+parent none
+Snapshot refreshed
+Esc Threads | p reply | ^V reveal | ?

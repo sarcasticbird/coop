@@ -1,0 +1,40 @@
+Composer Help
+Tab/Shift+Tab changes field; arrows/Home/End move the rune cursor; Enter inserts a literal newline.
+Ctrl+V reveals/masks this buffer only. F1 opens this help; Esc returns without changing the buffer.
+Ctrl+S previews, then submits after the complete preview is reviewed with PgDn.
+Esc in the form offers Keep in memory, Discard, or Return. Reopen the same intent to resume.
+Ctrl+C warns before quitting: all active and kept drafts are lost when this process exits.
+Submitted requests freeze. Ctrl+R retries only the identical payload and request ID, never automatically.
+Ctrl+L rechecks original identity without sending or changing the buffer. Changed authority fails closed.
+A receipt reports server-supported delivery state, not proof of execution or wake.
+Creation sends no message and performs no wake. Master, principal, thread, parent and membership stay captured.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+F1/Esc return | PgUp/PgDn scroll

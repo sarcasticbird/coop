@@ -1,0 +1,381 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+[K
+Enter Details | h filter | ? help | PgDn[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: 界 é long-label-long-label-long-la
+bel-long-label-long-label-[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local [K
+pause[K
+Presence: idle | heartbeat: 1s ago (not 
+work progress)[K
+Source: master diagnostics | report: 1s 
+ago | receipt: 1s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long
+-label-long-label-long-label-[K
+
+Esc Fleet | Enter Connect | x | ? | PgDn[20;H[H
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago (not 
+
+Source: master diagnostics | report: 2s 
+ago | receipt: 2s ago[K
+
+
+
+
+
+[20;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+
+Enter Details | h filter | ? help | PgDn[20;H[H
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  Activity: waiting / work unknown / ...
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  界 é long-la...  agent        running 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Threads / masked on opening; no body [K
+previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+
+Enter open | n new | ? help | Esc[K[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[20;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 30 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk [K
+(page keys do not reselect)[K
+> [unread this session] fixture-message 
+| seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-02 | seq 2 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-03 | seq 3 | hawk | [K
+parent none[K
+
+Esc Threads | p reply | ^V reveal | ?[K[20;H
