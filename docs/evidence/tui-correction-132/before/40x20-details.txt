@@ -1,0 +1,20 @@
+Fleet > Details
+Selected: local / agent / fixture-a
+Host destination: this machine
+Name: same-name
+Project: -
+VM lifecycle: running
+Host health: ok; snapshot <5s old
+Enter: Connect | x: actions | Esc: Fleet
+Diagnostic master: test-master | source:
+ host-owned target binding
+Bound host: local | worker: fixture-work
+er-1 | generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master |
+epoch: 1
+fresh receipt | received: 2026-10-21T15:
+08:14Z
+Report age: 2s ago | receipt age: 2s ago
+
+Enter Connect | x actions | Esc | ? h...

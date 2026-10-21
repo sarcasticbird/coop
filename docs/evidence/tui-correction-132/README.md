@@ -55,6 +55,51 @@ expected destination page, refuses panic/early exit, and quits cleanly with
 Ctrl+C. Source and binary digests, not timestamps embedded in screens, identify
 the artifact. Test builds are not claimed byte-identical across paths/toolchains.
 
+The published packet contains 36 checkpoints per side (six pages, three sizes,
+two color modes), each with raw and replay output. The reproduction runner also
+adds an explicit `fleet-selected` checkpoint immediately before Details so the
+compact activity row can be inspected separately; the existing cumulative raw
+Details captures already contain that selection paint.
+
+## Author Validation
+
+Linux arm64, Flox-selected Go `go1.26.10`, 2026-10-21. Actual commands/results:
+
+| Check | Result |
+| --- | --- |
+| `flox activate -- go test ./internal/tui/... ./internal/config ./internal/hostrouter ./internal/masterclient ./internal/mastermcp ./cmd/coop -count=1` | Passed all packages |
+| `flox activate -- go vet ./...` | Passed |
+| `flox activate -- go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...` | Passed, 0 issues |
+| `flox activate -- env CGO_ENABLED=1 CC=/nix/store/z2qkl46kv87zcs2sfwfjgc75nq0hbzhf-gcc-wrapper-15.3.0/bin/gcc go test -race ./internal/tui/... ./internal/hostrouter ./internal/masterclient ./internal/master -count=1` | Passed all packages; existing compiler, no packages installed |
+| `flox activate -- env NO_COLOR=1 TERM=dumb go test ./internal/tui/... ./cmd/coop -count=1` | Passed |
+| `flox activate -- env CGO_ENABLED=0 go build -trimpath -o /tmp/opencode/hawk-132-coop ./cmd/coop` | Passed; native shipping CLI build, not the injected capture launcher |
+| `flox activate -- go test -c -o /tmp/opencode/hawk-132-after.test ./internal/tui` | Passed; exact fixture executable for AFTER |
+| `flox activate -- python3 scripts/capture-tui.py /tmp/opencode/hawk-132-before.test docs/evidence/tui-correction-132/before --source ece7f185ebbb50e5bc893f724ee738161184e000` | Passed page verification and clean exits |
+| `flox activate -- python3 scripts/capture-tui.py /tmp/opencode/hawk-132-after.test docs/evidence/tui-correction-132/after --source 33e7d3f` | Passed page verification and clean exits |
+
+BEFORE fixture executable SHA-256:
+`e7dfe1e668286a7d92032952682ab344ff7c64c364b4159f73b5cc27ce0e8c12`.
+AFTER fixture executable SHA-256:
+`a8c9cbd0afaa20e2465ca6182ec9a4c57e98228f3c588ff809eb788dfabdd558`.
+Shipping CLI build at the implementation checkpoint SHA-256:
+`d056c46353c39c6b57ca2a1dd77947c9199f38034fc008eddf9899967fa218af`.
+The CLI was built with its normal VCS build metadata. It is not the fixture
+capture executable and its digest is not an assertion of final-PR-head QA.
+
+Focused regressions cover terminal-cell alignment, Unicode/wide/combining/long
+labels and control removal, generated runtime labels, duplicate-name drill-in,
+inventory startup diagnostics without Details, single-batch quiet refresh,
+exact placement/master/epoch, denied/unsupported/missing data, future/old/missing
+timestamps, stale work versus fresh activity, principal/context changes,
+out-of-order results, registration/placement/ambiguity changes and late results.
+Existing navigation, paging, resize, masking/drafts, confirmation, CLI/MCP and
+lifecycle suites remain intact; assertions that required repeated full IDs in
+Ledger now check physical highlighted-row visibility and exact drill-in identity.
+
+No repository-wide test-suite-green claim, live fleet/SSH claim, independent QA
+clearance or color-contrast acceptance is made. No deployment, restart, release,
+Homebrew publication or source delivery was performed by this implement stage.
+
 ## Design Comparison
 
 Compared to accepted B at immutable PR #111 head

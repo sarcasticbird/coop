@@ -1,0 +1,24 @@
+Threads > fixture-thread
+Master: test-master
+Principal: owner (owner)
+Thread: fixture-thread | Design check
+Engagement:  | Members: owner,hawk
+Ctrl+V reveal/mask | c root | p selected reply
+Private reader; no screenshots. Follow: false
+> [unread this session] fixture-message | hawk | parent
+[body masked; Ctrl+V to reveal]
+Snapshot refreshed
+Ctrl+V reveal | p reply | c root | ? | Esc
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -77,7 +77,7 @@ def main():
     parser.add_argument("--source", help="production source revision used to build the fixture executable")
     args = parser.parse_args()
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
-    manifest = {"source": args.source or subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    manifest = {"source": subprocess.check_output(["git", "rev-parse", args.source or "HEAD"], text=True).strip(),
                 "binary": str(args.binary.resolve()), "sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
                 "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)", "method": "PTY, native Bubble Tea, timed keyboard navigation", "captures": []}
     for width, height in [(120, 40), (80, 24), (40, 20)]:
@@ -101,7 +101,7 @@ def main():
                         if b"\x1b[6n" in chunk: os.write(master, b"\x1b[1;1R")
                         if b"\x1b]11;?" in chunk: os.write(master, b"\x1b]11;rgb:0000/0000/0000\x07")
 
-            for page, keys in [("fleet", b""), ("details", b"\x1b[B\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]:
+            for page, keys in [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]:
                 if keys.startswith(b"\x1b") and not keys.startswith(b"\x1b["):
                     os.write(master, b"\x1b")
                     drain()
@@ -118,7 +118,7 @@ def main():
                     raise RuntimeError(f"fixture exited during {page}: {bytes(raw[-5000:])!r}")
                 stem = f"{width}x{height}-{'no-color-' if no_color else ''}{page}"
                 screen = replay(raw, width, height)
-                expected = {"fleet": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}[page]
+                expected = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
                 (args.output / (stem + ".ansi")).write_bytes(raw)

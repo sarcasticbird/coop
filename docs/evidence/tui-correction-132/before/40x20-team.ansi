@@ -1,0 +1,171 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet | 0H/0T hidden | Filter: All[K
+[K
+Fleet Ledger | Filter: All[K
+Hidden: 0 hosts / 0 cached targets[K
+No target selected[K
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  local / agent / fixture-a   VM: runnin
+g[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-al...
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   V
+M: stopped[K
+[K
+Enter Details | h filter | ? help | P...[20;H[H
+
+
+
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> local / agent / fixture-a   VM: runnin
+g[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-al...
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   V
+M: stopped[K
+  fixture-remote / agent / fixture-c   V
+
+[20;H[HFleet > Details[K
+Selected: local / agent / fixture-a[K
+Host destination: this machine[K
+Name: same-name[K
+Project: -[K
+VM lifecycle: running[K
+Host health: ok; snapshot <5s old[K
+Enter: Connect | x: actions | Esc: Fleet
+Diagnostic master: test-master | source:
+ host-owned target binding[K
+Bound host: local | worker: fixture-work
+er-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | 
+epoch: 1[K
+fresh receipt | received: 2026-10-21T15:
+08:14Z[K
+Report age: 1s ago | receipt age: 1s ago
+
+Enter Connect | x actions | Esc | ? h...[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago
+
+[20;H[HFleet | 0H/0T hidden | Filter: All[K
+[K
+Fleet Ledger | Filter: All[K
+Hidden: 0 hosts / 0 cached targets[K
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> local / agent / fixture-a   VM: runnin
+g[K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  fixture-offline (fixture-offline-al...
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-remote / agent / fixture-b   V
+M: stopped[K
+  fixture-remote / agent / fixture-c   V
+
+Enter Details | h filter | ? help | P...[20;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Enter opens masked reader | n new thread
+t Team | i Inbox | g Goals | ] next page
+> fixture-thread | Design check | [K
+Next page: none[K
+[K
+Enter open | n new | ? help | Esc[K[J[9;H[H
+
+
+
+
+
+
+Snapshot refreshed[K
+[9;H[HThreads > fixture-thread[K
+
+
+Thread: fixture-thread | Design check[K
+Engagement:  | Members: owner,hawk[K
+Ctrl+V reveal/mask | c root | p selected
+ reply[K
+Private reader; no screenshots. Follow: 
+false[K
+> [unread this session] fixture-message 
+| hawk | parent [K
+[body masked; Ctrl+V to reveal][K
+Snapshot refreshed[K
+Ctrl+V reveal | p reply | c root | ? ...[14;H[HThreads[K
+
+
+Enter opens masked reader | n new thread
+t Team | i Inbox | g Goals | ] next page
+> fixture-thread | Design check | [K
+Next page: none[K
+Returned to Threads[K
+Enter open | n new | ? help | Esc[K[J[9;H[HTeam | Master: test-master[K
+Read only observations; heartbeat is not
+ work progress[K
+Team snapshot age: 0s ago[K
+Snapshot refreshed[K
+Enter inspect | arrows select | PgUp/PgD
+n scroll | Esc Fleet[K
+> fixture-a (same-name)[K
+  Host: local | Worker: fixture-worker-1
+ | Generation: 1[K
+  Availability (master): idle | heartbea
+t: 9s ago[K
+  Work/blocker: inspect diagnostics (not
+ inferred)[K
+  fixture-b (same-name)[K
+  Host: fixture-remote | Worker: fixture
+-worker-1 | Generation: 1[K
+  Availability (master): paused | heartb
+[K
+Enter inspect | arrows | r refresh | ...[20;H[H
+
+
+
+
+
+
+
+
+
+
+t: 10s ago[K
+
+
+
+
+
+
+
+[20;H
