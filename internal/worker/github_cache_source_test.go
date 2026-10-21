@@ -130,6 +130,9 @@ func TestGitHubCacheSourceProjectAbsence(t *testing.T) {
 				if strings.Contains(string(body), "WorkerCacheProjectOrder") {
 					return jsonResponse(map[string]any{"data": map[string]any{"node": map[string]any{"items": map[string]any{"nodes": []any{map[string]any{"content": map[string]any{"url": task.Task.URL}}}, "pageInfo": map[string]any{"hasNextPage": false}}}}}), nil
 				}
+				if strings.Contains(string(body), "WorkerCacheProjectItems") {
+					return jsonResponse(map[string]any{"data": map[string]any{"node": map[string]any{"items": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": false}}}}}), nil
+				}
 				return tr.response(owner, endpoint, method, body)
 			}}
 			src := NewGitHubObservationSource(NewGitHubClient(commands)).(*githubObservationSource)
