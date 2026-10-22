@@ -1,0 +1,286 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name        agent        running 
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+[K
+Enter Details | h filter | ? help | PgDn[20;H[H
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: unknown / not bound[K
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Name: same-name[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: unknown[K
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | Enter Connect | x | ? | PgDn[20;H[H
+
+
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: unknown[K
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+
+[20;H[H
+
+
+VM lifecycle: running[K
+Activity: unknown[K
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+Exact Principal: principal-shared-prefix
+
+[20;H[H
+
+
+Activity: unknown[K
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+Exact Principal: principal-shared-prefix
+-shared-prefix-shared-prefix-shared-pref
+
+[20;H[H
+
+
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+Exact Principal: principal-shared-prefix
+-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+
+[20;H[H
+
+
+PR: unknown[K
+Blocker: unknown[K
+Presence: unknown (no current bound [K
+observation)[K
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+Exact Principal: principal-shared-prefix
+-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-second[K
+
+[20;H[HFleet Ledger | Filter: All[K
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: unknown / not bound[K
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+[K
+Enter Details | h filter | ? help | PgDn[20;H[HThreads[K
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Threads / masked on opening; no body [K
+previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+
+Enter open | n new | ? help | Esc[K[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[20;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk [K
+(page keys do not reselect)[K
+> [unread this session] fixture-message 
+| seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+
+
+
+
+
+
+
+
+Esc Threads | p reply | ^V reveal | ?[K[20;H[HThreads[K
+
+
+Threads / masked on opening; no body [K
+previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+
+
+
+
+
+
+
+Returned to Threads[K
+Enter open | n new | ? help | Esc[K[20;H[HTeam[K
+
+
+Source: master Team presence | Team [K
+snapshot age: 0s ago[K
+Read only; heartbeat is not work [K
+progress[K
+  AGENT / HOST[K
+> same-name         / local             
+  Presence: idle[K
+  Handling/work: unknown[K
+  same-name         / fixture-remote    
+  Presence: paused[K
+  Handling/work: unknown[K
+  same-name         / fixture-remote    
+  Presence: unknown[K
+  Handling/work: unknown[K
+
+Snapshot refreshed[K
+Esc Fleet | Enter inspect | r | ?[K[20;H[H
+
+
+
+snapshot age: 1s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H
