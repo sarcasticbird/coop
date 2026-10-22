@@ -132,6 +132,35 @@ func fleetHostHealth(h hostState) string {
 	return state
 }
 
+// A single physical projection drives both keyboard bounds and rendering. Clip
+// the two pinned context rows before wrapping the body, which retains full IDs.
+func (m fleetModel) detailsPaneLines() []string {
+	logical := m.pageContext("Details")
+	if m.detailEntry != nil {
+		health := "unavailable"
+		for _, h := range m.hosts {
+			if h.host == m.detailEntry.Target.Host {
+				health = fleetHostHealth(h)
+			}
+		}
+		state := "unknown"
+		if e, ok := m.entry(m.detailEntry.Target); ok && !m.detailInvalid {
+			state = e.State
+		}
+		logical = m.fleetDetailsLines(state, health)
+	} else {
+		logical = append(logical, "", "No target selected", "Up/Down previews a bird; Enter opens Details.")
+	}
+	lines := []string{
+		textansi.Truncate(coordClean(logical[1]), m.width, "..."),
+		textansi.Truncate(coordClean(logical[2]), m.width, "..."),
+	}
+	for _, line := range logical[conversationHeader:] {
+		lines = append(lines, strings.Split(readingWrap(line, m.width), "\n")...)
+	}
+	return lines
+}
+
 func (m fleetModel) focusedContent() ([]string, string, int) {
 	if !m.splitFleet() {
 		return m.content()
@@ -142,9 +171,9 @@ func (m fleetModel) focusedContent() ([]string, string, int) {
 		lines, selected := m.fleetPaneLines()
 		return lines, "", selected
 	}
+	m = m.previewDetails()
 	m.width = right
-	lines, footer, selected := m.content()
-	return lines[1:], footer, selected // The frame supplies the Details title.
+	return m.detailsPaneLines(), "", -1
 }
 
 func (m fleetModel) splitView() string {
@@ -161,24 +190,9 @@ func (m fleetModel) splitView() string {
 	leftBody := append([]string{leftLines[0]}, leftLines[1+leftStart:min(len(leftLines), 1+leftStart+height-1)]...)
 	right := m.previewDetails()
 	right.width = rightWidth
-	rightLines := right.pageContext("Details")[1:]
+	rightLines := right.detailsPaneLines()
 	feedback := m.status
 	if right.detailEntry != nil {
-		var health string
-		for _, h := range m.hosts {
-			if h.host == right.detailEntry.Target.Host {
-				health = fleetHostHealth(h)
-			}
-		}
-		state := "unknown"
-		if e, ok := m.entry(right.detailEntry.Target); ok && !right.detailInvalid {
-			state = e.State
-		}
-		logical := right.fleetDetailsLines(state, valueOr(health, "unavailable"))
-		rightLines = nil
-		for _, line := range logical[1:] {
-			rightLines = append(rightLines, strings.Split(readingWrap(line, rightWidth), "\n")...)
-		}
 		if right.detailInvalid {
 			feedback = "Target unavailable or changed; select again"
 		}
@@ -193,12 +207,6 @@ func (m fleetModel) splitView() string {
 				feedback += " | " + diagnostic
 			}
 		}
-	} else {
-		rightLines = append(rightLines, "", "No target selected", "Up/Down previews a bird; Enter opens Details.")
-	}
-	// Both context rows stay pinned; full clipped IDs remain in the body.
-	for i := range min(2, len(rightLines)) {
-		rightLines[i] = textansi.Truncate(rightLines[i], rightWidth, "...")
 	}
 	scroll := 0
 	if m.detail {

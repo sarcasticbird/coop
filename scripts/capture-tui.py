@@ -123,6 +123,16 @@ def assert_split(screen, width, details=False, selected=True):
         raise RuntimeError(f"split Fleet selection lost: {screen}")
 
 
+def details_context(screen, width):
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    rows = [cell_slice(line, left + 4, right).rstrip()
+            for line in screen.splitlines() if line.startswith("|")]
+    if len(rows) < 2 or not rows[0].startswith("Master:") or not rows[1].startswith("Principal:"):
+        raise RuntimeError(f"Details context is not one pinned row per identity: {screen}")
+    return rows[:2]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
@@ -134,9 +144,12 @@ def main():
     modes.add_argument("--exact-context", action="store_true", help="verify long master/principal IDs in scrolled Team and unbound Details")
     modes.add_argument("--details-only", action="store_true", help="capture the actual selected Details overview at all sizes without actions")
     parser.add_argument("--reported-work", action="store_true", help="add synthetic fresh task/PR/blocker data to the Details-only fixture")
+    parser.add_argument("--wide-short", action="store_true", help="exercise exact-context keyboard reachability at 100x24, 120x24, 120x20 and 120x40")
     args = parser.parse_args()
     if args.reported_work and not args.details_only:
         parser.error("--reported-work requires --details-only")
+    if args.wide_short and not args.exact_context:
+        parser.error("--wide-short requires --exact-context")
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     source = args.source
     if not source or not re.fullmatch(r"[0-9a-f]{40}", source):
@@ -149,6 +162,7 @@ def main():
     manifest["exact_context"] = args.exact_context
     manifest["details_only"] = args.details_only
     manifest["reported_work"] = args.reported_work
+    manifest["wide_short"] = args.wide_short
     manifest["exact_context_page_down_keys"] = {}
     manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
     manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -159,7 +173,8 @@ def main():
         path: {"sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
         for path in fixture_paths
     }
-    for width, height in [(120, 40), (80, 24), (40, 20)]:
+    sizes = [(100, 24), (120, 24), (120, 20), (120, 40)] if args.wide_short else [(120, 40), (80, 24), (40, 20)]
+    for width, height in sizes:
         for no_color, mode in [(color, mode) for color in [False, True]
                                for mode in (["", "setup", "first-use", "destroy"] if args.supplemental else [""])]:
             master, slave = pty.openpty()
@@ -172,6 +187,7 @@ def main():
             process = subprocess.Popen([str(args.binary.resolve()), "-test.run=^TestRuntimeCapture$"], stdin=slave, stdout=slave, stderr=slave, env=env)
             os.close(slave)
             raw = bytearray()
+            pinned_context = None
 
             def drain():
                 end = time.monotonic() + 0.8
@@ -195,6 +211,9 @@ def main():
                 pages.insert(3, ("details-exact-context", []))
                 pages.append(("team-exact-context", []))
                 expected_pages.update({"details-exact-context": expected_pages["details"], "team-exact-context": "Team > Agent"})
+                if args.wide_short:
+                    pages.insert(4, ("details-keyboard-end", [b"\x1b[6~"] * 4))
+                    expected_pages["details-keyboard-end"] = expected_pages["details"]
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
                 # Never send y in confirmation or a second Ctrl+S in preview.
@@ -254,6 +273,12 @@ def main():
                     raise RuntimeError(f"fixture exited during {page}: {bytes(raw[-5000:])!r}")
                 stem = f"{width}x{height}-{'no-color-' if no_color else ''}{page}"
                 screen = replay(raw, width, height)
+                if args.exact_context and width >= 100 and page.startswith("details"):
+                    context = details_context(screen, width)
+                    if pinned_context is None:
+                        pinned_context = context
+                    elif context != pinned_context:
+                        raise RuntimeError("Details paging changed pinned context")
                 if page.endswith("exact-context"):
                     identities = [prefix + "shared-prefix-" * 8 + "second" for prefix in ("master-", "principal-")]
                     def identity_text():
@@ -263,8 +288,13 @@ def main():
                         os.write(master, b"\x1b[6~")
                         drain()
                         screen = replay(raw, width, height)
+                        if page.startswith("details") and width >= 100 and details_context(screen, width) != pinned_context:
+                            raise RuntimeError("Details keyboard paging changed pinned context")
                         steps += 1
                     manifest["exact_context_page_down_keys"][stem] = steps
+                if page == "details-keyboard-end":
+                    if "2 then t: full Team diagnostics" not in details_text(screen, width):
+                        raise RuntimeError(f"Details end is not keyboard-reachable: {screen}")
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")

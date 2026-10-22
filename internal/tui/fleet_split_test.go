@@ -128,3 +128,54 @@ func TestSplitFocusKeepsIndependentScroll(t *testing.T) {
 		t.Fatal("Tab did not resume Details scroll")
 	}
 }
+
+func TestSplitDetailsKeyboardReachesExactContext(t *testing.T) {
+	for _, size := range [][2]int{{100, 24}, {120, 24}, {120, 20}, {120, 40}} {
+		for _, key := range []string{"pgdown", "down"} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], key), func(t *testing.T) {
+				m := runtimeBaselineFleet()
+				coord, source := teamViewFixture()
+				master := "master-" + strings.Repeat("shared-prefix-", 8) + "second"
+				principal := "principal-" + strings.Repeat("shared-prefix-", 8) + "second"
+				source.master = master
+				coord.coordination.self.Principal.ID = principal
+				m.services.Coordination, m.coordination = source, coord.coordination
+				m.width, m.height = size[0], size[1]
+				m, _ = fleetKey(m, "enter")
+				target := m.selected
+				seenMaster, seenPrincipal, seenEnd := false, false, false
+				var pinned []string
+				for step := 0; step <= 100; step++ {
+					body := actualSplitRightInterior(t, m)
+					if !strings.HasPrefix(body[0], "Master:") || !strings.HasPrefix(body[1], "Principal:") {
+						t.Fatal("split context is not one pinned row per identity", body[:2])
+					}
+					if step == 0 {
+						pinned = append([]string(nil), body[:2]...)
+					}
+					if body[0] != pinned[0] || body[1] != pinned[1] {
+						t.Fatal("paging changed pinned context")
+					}
+					visible := strings.Join(body[2:], "")
+					seenMaster = seenMaster || strings.Contains(visible, master)
+					seenPrincipal = seenPrincipal || strings.Contains(visible, principal)
+					seenEnd = seenEnd || strings.Contains(visible, "2 then t: full Team diagnostics")
+					if step < 100 {
+						var cmd tea.Cmd
+						m, cmd = fleetKey(m, key)
+						if cmd != nil || m.pending != nil || m.selected != target || !m.detail {
+							t.Fatal("paging changed intent or dispatched")
+						}
+					}
+				}
+				if !seenMaster || !seenPrincipal || !seenEnd {
+					t.Fatalf("keyboard cannot reach full context/end: master=%t principal=%t end=%t scroll=%d", seenMaster, seenPrincipal, seenEnd, m.scroll)
+				}
+				lines, _, _ := m.focusedContent()
+				if m.scroll != max(0, len(lines)-(m.height-4)) {
+					t.Fatal("keyboard clamp differs from physical projection")
+				}
+			})
+		}
+	}
+}
