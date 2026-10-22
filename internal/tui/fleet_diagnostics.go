@@ -236,7 +236,7 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 	}
 	source := "Source: no host-owned diagnostic binding"
 	if e.Diagnostics != nil {
-		source = "Source: master diagnostics (host-owned binding)"
+		source = "Source: mapped master diagnostics"
 		if !current {
 			source = "Source: master diagnostics; no current report"
 		}

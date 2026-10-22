@@ -52,7 +52,7 @@ func TestFleetMappedWorkAtEverySize(t *testing.T) {
 			}
 			lines, _, _ := m.content()
 			all := strings.Join(lines, "")
-			for _, want := range []string{"VM lifecycle: running", "Activity: waiting", "host-owned binding", "Work age:", "Receipt age:"} {
+			for _, want := range []string{"VM lifecycle: running", "Activity: waiting", "Source: mapped master diagnostics", "Work age:", "Receipt age:"} {
 				if !strings.Contains(all, want) {
 					t.Fatalf("missing %q: %s", want, all)
 				}
