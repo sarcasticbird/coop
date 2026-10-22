@@ -1,5 +1,9 @@
 # Responsive Fleet/Details
 
+Latest correction: [shared pinned-context/keyboard projection](reachability-README.md).
+The original matrices below did not cover the wide-short keyboard clamp defect;
+their historical passing assertions are not evidence that it was absent.
+
 Task #134 / PR #137, approved correction revision
 `26af78a7e97991ea31c7524d40e8b37b06ed5983df9199f815dbbe8ffe0c46c7`.
 Environment: `coop-tui-b-runtime-v1`. Author evidence, not independent QA or owner

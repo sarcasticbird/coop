@@ -1,0 +1,24 @@
+Fleet Ledger | Filter: All
+Master: test-master
+Principal: owner
+No target selected
+BIRD / HOST          REPORTED ACTIVITY
+Host: local
+  [ok; snapshot <5s old]
+  same-name           waiting
+  work unknown / local pause
+  Report 0s ago / receipt 0s ago
+Host: fixture-empty
+  [ok; snapshot <5s old]
+  (no Coops)
+Host: fixture-offline
+  [unreachable]
+Host: fixture-remote
+  [ok; snapshot <5s old]
+  same-name           stale
+  old diagnostic report
+  Report STALE 1m30s ago / receipt STALE 1m30s ago
+  same-name           unknown
+  no visible diagnostic report
+
+Enter Details | h filter | ? help

@@ -1,0 +1,153 @@
+[?25l[?1049h[2J[H[?25l[?2004h[H+- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: master-shared-prefix-shared-prefix-shared-prefix-shared-pr...|
+|Host: local                                   | |Principal: principal-shared-prefix-shared-prefix-shared-prefix-sha...|
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           unknown                 | |No target selected                                                   |
+|  not bound                                   | |Up/Down previews a bird; Enter opens Details.                        |
+|Host: fixture-empty                           | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  (no Coops)                                  | |                                                                     |
+|Host: fixture-offline                         | |                                                                     |
+|  [unreachable]                               | |                                                                     |
+|Host: fixture-remote                          | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  same-name           unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[20;H[H
+
+
+|  [ok; snapshot <5s old]                      | |Name: same-name                   | Host: local / this machine       |
+|> same-name           unknown                 | |REPORTED WORK                                                        |
+|  not bound                                   | |Activity: unknown                                                    |
+|Host: fixture-empty                           | |Task: unknown                     | PR: unknown                      |
+|  [ok; snapshot <5s old]                      | |Blocker: unknown                                                     |
+|  (no Coops)                                  | |OBSERVATION                                                          |
+|Host: fixture-offline                         | |Source: no host-owned diagnostic binding                             |
+|  [unreachable]                               | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|Host: fixture-remote                          | |Presence: unknown (no current bound observation)                     |
+|  [ok; snapshot <5s old]                      | |Heartbeat is not work progress.                                      |
+|  same-name           unknown                 | |TARGET                                                               |
+|  not bound                                   | |Target: local / agent / fixture-a                                    |
+|  same-name           unknown                 | |Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared|
+|  not bound                                   | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+
+UNKNOWN | not bound[K
+[20;H[H+- FLEET | Filter: All ------------------------+ +- DETAILS [focus] ---------------------------------------------------+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+UNKNOWN | no host-owned diagnostic binding; work unknown[K
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help[K[20;H[H
+
+
+|  [ok; snapshot <5s old]                      | |OBSERVATION                                                          |
+|> same-name           unknown                 | |Source: no host-owned diagnostic binding                             |
+|  not bound                                   | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|Host: fixture-empty                           | |Presence: unknown (no current bound observation)                     |
+|  [ok; snapshot <5s old]                      | |Heartbeat is not work progress.                                      |
+|  (no Coops)                                  | |TARGET                                                               |
+|Host: fixture-offline                         | |Target: local / agent / fixture-a                                    |
+|  [unreachable]                               | |Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared|
+|Host: fixture-remote                          | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+|  [ok; snapshot <5s old]                      | |d                                                                    |
+|  same-name           unknown                 | |Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-|
+|  not bound                                   | |shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix|
+|  same-name           unknown                 | |-second                                                              |
+|  not bound                                   | |2 then t: full Team diagnostics                                      |
+
+
+[20;H[H+- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+
+
+|  [ok; snapshot <5s old]                      | |Name: same-name                   | Host: local / this machine       |
+|> same-name           unknown                 | |REPORTED WORK                                                        |
+|  not bound                                   | |Activity: unknown                                                    |
+|Host: fixture-empty                           | |Task: unknown                     | PR: unknown                      |
+|  [ok; snapshot <5s old]                      | |Blocker: unknown                                                     |
+|  (no Coops)                                  | |OBSERVATION                                                          |
+|Host: fixture-offline                         | |Source: no host-owned diagnostic binding                             |
+|  [unreachable]                               | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|Host: fixture-remote                          | |Presence: unknown (no current bound observation)                     |
+|  [ok; snapshot <5s old]                      | |Heartbeat is not work progress.                                      |
+|  same-name           unknown                 | |TARGET                                                               |
+|  not bound                                   | |Target: local / agent / fixture-a                                    |
+|  same-name           unknown                 | |Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared|
+|  not bound                                   | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+
+UNKNOWN | not bound[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[20;H[HThreads[K
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shar...
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefi...
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+Enter open | n new | ? help | Esc[K[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[20;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+
+
+
+
+
+
+
+
+
+
+Esc Threads | p reply | ^V reveal | ?[K[20;H

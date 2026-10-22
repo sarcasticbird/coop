@@ -1,0 +1,24 @@
++- FLEET | Filter: All ----------------+ +- DETAILS [focus] ---------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY| |Master: master-shared-prefix-shared-prefix-shared-pref...|
+|Host: local                           | |Principal: principal-shared-prefix-shared-prefix-share...|
+|  [ok; snapshot <5s old]              | |Name: same-name                                          |
+|> same-name          unknown          | |Host: local / this machine                               |
+|  not bound                           | |REPORTED WORK                                            |
+|Host: fixture-empty                   | |Activity: unknown                                        |
+|  [ok; snapshot <5s old]              | |Task: unknown                                            |
+|  (no Coops)                          | |PR: unknown                                              |
+|Host: fixture-offline                 | |Blocker: unknown                                         |
+|  [unreachable]                       | |OBSERVATION                                              |
+|Host: fixture-remote                  | |Source: no host-owned diagnostic binding                 |
+|  [ok; snapshot <5s old]              | |VM lifecycle: running                                    |
+|  same-name          unknown          | |Host health: ok; snapshot <5s old                        |
+|  not bound                           | |Presence: unknown (no current bound observation)         |
+|  same-name          unknown          | |Heartbeat is not work progress.                          |
+|  not bound                           | |TARGET                                                   |
+|                                      | |Target: local / agent / fixture-a                        |
+|                                      | |Exact Master: master-shared-prefix-shared-prefix-shared-p|
+|                                      | |refix-shared-prefix-shared-prefix-shared-prefix-shared-pr|
+|                                      | |efix-shared-prefix-second                                |
++--------------------------------------+ +---------------------------------------------------------+
+UNKNOWN | no host-owned diagnostic binding; work unknown
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help

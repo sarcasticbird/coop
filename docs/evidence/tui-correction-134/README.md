@@ -5,7 +5,8 @@ Task: https://github.com/sarcasticbird/coop/issues/134. Approved correction revi
 Environment: `coop-tui-b-runtime-v1`. This is author integration evidence, not
 independent QA. **Owner visual UAT remains FAILED/PENDING until Chris accepts.**
 
-Latest candidate: [Responsive Fleet/Details](split-README.md), including fresh
+Latest candidate: [Split Context Reachability](reachability-README.md), correcting
+wide-short pinned identity and keyboard paging. [Responsive Fleet/Details](split-README.md) retains the layout reference and earlier
 built-terminal before/after evidence and exact build identities. The earlier
 [Compact Details Correction](details-README.md) and local
 repair evidence is in [Presentation Repairs](#presentation-repairs) and the

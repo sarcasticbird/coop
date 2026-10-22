@@ -1,0 +1,40 @@
+Team > Agent
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shar...
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefi...
+Agent: same-name
+Host: local
+Presence: idle | heartbeat: 16s ago
+Handling: waiting
+Work / blocker: work unknown / local pause
+Source: master Team presence | Team snapshot age: 0s ago
+Read only; heartbeat is not work progress
+Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second
+Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-second
+AgentID: fixture-a
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master | epoch: 1
+fresh receipt | received: 2026-10-22T16:32:05Z
+Report age: 16s ago | receipt age: 16s ago
+Work observation age: unknown
+Wait observation age: 16s ago
+Reported observations below are not current health or action authority.
+Handling: waiting | reason: local_pause
+Stage: unknown | phase: unknown
+Host: local | Worker: fixture-worker-1 | Generation: 1
+Observed: 2026-10-22T16:32:05Z | worker started: 2026-10-22T15:32:05Z
+Task: unknown
+PR: unknown
+Head: unknown
+Job: unknown
+Session: unknown | submission: unknown
+Retry: unknown | deadline: unknown
+Dependencies: unknown
+GitHub: unknown | origin: unknown | category: unknown
+  Observed: unknown | last success: unknown
+  Requests since start: 0 | last duration: 0ms | retry: unknown
+  Last complete catalog: unknown
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll

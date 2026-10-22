@@ -1,0 +1,47 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-prefix-second[K
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-shared-prefix-second[K
+No target selected[K
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+  same-name           unknown                                                   
+  not bound[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           unknown                                                   
+  not bound[K
+  same-name           unknown                                                   
+  not bound[K
+[K
+Enter Details | h filter | ? help[K[24;H[H
+
+
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> same-name           unknown                                                   
+  not bound[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           unknown                                                   
+  not bound[K
+  same-name           unknown                                                   
+  not bound[K
+[K
+
+[24;H
