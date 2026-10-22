@@ -70,6 +70,59 @@ def replay(data, width, height):
     return "\n".join("".join(line).rstrip() for line in screen) + "\n"
 
 
+def cell_slice(text, start, width):
+    """Slice replayed text by display cells, retaining attached combining marks."""
+    result = []
+    cell = 0
+    included = False
+    for char in text:
+        if unicodedata.category(char).startswith("C"):
+            continue
+        if unicodedata.combining(char):
+            if included:
+                result.append(char)
+            continue
+        cells = 2 if unicodedata.east_asian_width(char) in "WF" else 1
+        included = start <= cell and cell + cells <= start + width
+        if included:
+            result.append(char)
+        elif cell < start + width and cell + cells > start:
+            result.append(" " * (min(cell + cells, start + width) - max(cell, start)))
+        cell += cells
+    return "".join(result)
+
+
+def details_text(screen, width):
+    if width < 100:
+        return screen.replace("\n", "")
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    # Exclude both frames, the Fleet pane and fullwidth feedback/footer rows.
+    return "".join(cell_slice(line, left + 4, right).rstrip()
+                   for line in screen.splitlines() if line.startswith("|"))
+
+
+def assert_split(screen, width, details=False, selected=True):
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    lines = screen.splitlines()
+    fleet_title = "FLEET" + ("" if details else " [focus]")
+    details_title = "DETAILS" + (" [focus]" if details else "")
+    fleet_header = cell_slice(lines[0], 0, left + 2) if lines else ""
+    details_header = cell_slice(lines[0], left + 3, right + 2) if lines else ""
+    if (not fleet_header.startswith("+- " + fleet_title + " | Filter:")
+            or not details_header.startswith("+- " + details_title + " ")
+            or ("[focus]" in fleet_header) == details
+            or ("[focus]" in details_header) != details):
+        raise RuntimeError(f"split panes/focus missing: {screen}")
+    body = [line for line in lines if line.startswith("|")]
+    if not body or any(cell_slice(line, left + 1, 3) != "| |"
+                       or cell_slice(line, width - 1, 1) != "|" for line in body):
+        raise RuntimeError(f"split pane frames missing: {screen}")
+    if selected and not any(cell_slice(line, 1, left).startswith("> ") for line in body):
+        raise RuntimeError(f"split Fleet selection lost: {screen}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
@@ -133,12 +186,15 @@ def main():
 
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
+            if width >= 100:
+                expected_pages.update({"fleet": "FLEET [focus]", "fleet-selected": "FLEET [focus]",
+                                       "details": "DETAILS [focus]"})
             if args.details_only:
                 pages = [("details", [b"\x1b[B", b"\r"])]
             if args.exact_context:
                 pages.insert(3, ("details-exact-context", []))
                 pages.append(("team-exact-context", []))
-                expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
+                expected_pages.update({"details-exact-context": expected_pages["details"], "team-exact-context": "Team > Agent"})
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
                 # Never send y in confirmation or a second Ctrl+S in preview.
@@ -148,7 +204,7 @@ def main():
                     ("ssh-add", [b"a"], "ADD SERVER"),
                     ("ssh-add-help", [b"\x1bOP"], "SSH Server Help"),
                     ("details-help", [b"\x1b", b"\x1b", b"1", b"\r", b"?"], "Help"),
-                    ("connect-confirmation", [b"\x1b", b"\r"], "Connect on the foreground terminal?"),
+                    ("connect-confirmation", [b"\x1b", b"c"], "Connect on the foreground terminal?"),
                     ("connect-reviewed", [b"\x1b[6~"] * 8, "Connect preflight"),
                     ("threads-new", [b"\x1b", b"2", b"\x1b", b"l", b"n"], "Threads > Composer (create)"),
                     ("create-preview", [b"Synthetic capture", b"\t", b"coop", b"\t", b"owner,hawk", b"\x13"], "Threads > Preview (create)"),
@@ -200,8 +256,10 @@ def main():
                 screen = replay(raw, width, height)
                 if page.endswith("exact-context"):
                     identities = [prefix + "shared-prefix-" * 8 + "second" for prefix in ("master-", "principal-")]
+                    def identity_text():
+                        return details_text(screen, width) if page == "details-exact-context" else screen.replace("\n", "")
                     steps = 0
-                    while not all(identity in screen.replace("\n", "") for identity in identities) and steps < 64:
+                    while not all(identity in identity_text() for identity in identities) and steps < 64:
                         os.write(master, b"\x1b[6~")
                         drain()
                         screen = replay(raw, width, height)
@@ -210,6 +268,8 @@ def main():
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
+                if width >= 100 and page in ("fleet-selected", "details", "details-exact-context"):
+                    assert_split(screen, width, details=page != "fleet-selected")
                 if page == "create-preview" and b"Synthetic capture" in raw:
                     raise RuntimeError("masked creation preview exposed input in terminal output")
                 if page in ("create-revealed", "create-remasked"):
@@ -234,7 +294,7 @@ def main():
                         raise RuntimeError(f"confirmation lost pinned context: {screen}")
                 if page.endswith("exact-context"):
                     for prefix in ("master-", "principal-"):
-                        if prefix + "shared-prefix-" * 8 + "second" not in screen.replace("\n", ""):
+                        if prefix + "shared-prefix-" * 8 + "second" not in identity_text():
                             raise RuntimeError(f"full exact identity not inspectable in {page}: {screen}")
                 (args.output / (stem + ".ansi")).write_bytes(raw)
                 (args.output / (stem + ".txt")).write_text(screen)

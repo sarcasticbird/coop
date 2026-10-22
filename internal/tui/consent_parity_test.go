@@ -55,7 +55,11 @@ func TestConfirmationKeepsCapturedContextPinned(t *testing.T) {
 				m.services.Coordination, m.coordination = source, coord.coordination
 				m.width, m.height = size.Width, size.Height
 				m, _ = fleetKey(m, "enter")
-				m, _ = fleetKey(m, operation)
+				key := operation
+				if operation == "enter" {
+					key = "c"
+				}
+				m, _ = fleetKey(m, key)
 				if m.pending == nil {
 					t.Fatal("confirmation missing")
 				}

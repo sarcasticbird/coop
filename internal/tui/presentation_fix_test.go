@@ -90,8 +90,11 @@ func TestPresentationConnectAndDetailsHelp(t *testing.T) {
 		if !strings.Contains(all, "Master: test-master") || !strings.Contains(all, "Principal: owner") {
 			t.Fatal("Details Help lost identity", all)
 		}
+		if !strings.Contains(all, "c Connect") || strings.Contains(all, "Enter Connect") {
+			t.Fatal("Details Help advertises the wrong Connect key", all)
+		}
 		m, _ = fleetKey(m, "esc")
-		m, _ = fleetKey(m, "enter")
+		m, _ = fleetKey(m, "c")
 		lines, _, _ = m.content()
 		all = strings.Join(lines, " ")
 		if strings.Contains(all, "y confirms") || !strings.Contains(all, "Enter continues") {

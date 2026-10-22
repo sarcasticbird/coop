@@ -226,14 +226,11 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 		}
 	}
 	row("Name: "+ledgerName(e), "Host: "+e.Target.Host.Name+" / "+valueOr(e.Target.Host.Address, "this machine"))
-	row("VM lifecycle: "+state, "Activity: "+activity)
+	row("REPORTED WORK", "")
+	row("Activity: "+activity, "")
 	row("Task: "+task, "PR: "+pr)
 	row("Blocker: "+blocker, "")
-	row(m.fleetPresenceLine(), "")
-	if q.report != nil {
-		row("Report age: "+teamAge(q.report.Report.ObservedAt), "Receipt age: "+teamAge(q.report.ReceivedAt))
-		row("Work age: "+teamAge(q.report.Report.Work.ObservedAt), "Wait age: "+teamAge(q.report.Report.Wait.ObservedAt))
-	}
+	row("OBSERVATION", "")
 	source := "Source: no host-owned diagnostic binding"
 	if e.Diagnostics != nil {
 		source = "Source: mapped master diagnostics"
@@ -242,7 +239,14 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 		}
 	}
 	row(source, "")
-	row("Host health: "+health, "")
+	row("VM lifecycle: "+state, "Host health: "+health)
+	row(m.fleetPresenceLine(), "")
+	if q.report != nil {
+		row("Report age: "+teamAge(q.report.Report.ObservedAt), "Receipt age: "+teamAge(q.report.ReceivedAt))
+		row("Work age: "+teamAge(q.report.Report.Work.ObservedAt), "Wait age: "+teamAge(q.report.Report.Wait.ObservedAt))
+	}
+	row("Heartbeat is not work progress.", "")
+	row("TARGET", "")
 	if e.Name != ledgerName(e) {
 		row("Runtime: "+e.Name, "")
 	}

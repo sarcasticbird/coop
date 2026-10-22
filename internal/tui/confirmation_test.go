@@ -261,7 +261,7 @@ func TestConfirmationDetailsMenuParityAndLiteralArguments(t *testing.T) {
 			{"u", "up", "may acquire configured credentials"},
 			{"s", "down", "persistent state remains"},
 			{"d", "destroy", "persistent state volumes"},
-			{"enter", "enter", "no automatic reconnect"},
+			{"c", "enter", "no automatic reconnect"},
 		} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size.Width, size.Height, tc.name), func(t *testing.T) {
 				var previews [2][]string

@@ -180,7 +180,7 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 				want = "failed"
 			}
 			if result.busy || result.selected != m.selected || !result.refreshing || !strings.Contains(result.status, want) || !result.detail || result.detailEntry.Target != captured.Target || result.filter != m.filter || result.scroll != 2 || result.ledgerScroll != 1 || !result.ledgerFocus {
-				t.Fatalf("unusable return: %+v", result)
+				t.Fatalf("unusable return: busy=%t selected=%t refreshing=%t status=%q detail=%t target=%t filter=%t scroll=%d ledgerScroll=%d ledgerFocus=%t", result.busy, result.selected == m.selected, result.refreshing, result.status, result.detail, result.detailEntry != nil && result.detailEntry.Target == captured.Target, result.filter == m.filter, result.scroll, result.ledgerScroll, result.ledgerFocus)
 			}
 		})
 	}

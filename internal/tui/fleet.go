@@ -97,6 +97,7 @@ type fleetModel struct {
 	cancel                context.CancelFunc
 	actionCancel          context.CancelFunc
 	scroll                int
+	detailScroll          int
 	refreshing, busy      bool
 	registryError, status string
 	form                  *serverForm
@@ -277,6 +278,17 @@ func (m *fleetModel) reconcile() {
 
 // Ledger coordinates exclude the pinned context and the feedback/footer rows.
 func (m fleetModel) ledgerViewport() (line, start, limit, maxScroll int) {
+	if m.splitFleet() {
+		left, _ := m.splitWidths()
+		probe := m
+		probe.width = left
+		lines, selected := probe.fleetPaneLines()
+		scroll := m.scroll
+		if m.detail {
+			scroll = m.ledgerScroll
+		}
+		return selected - 1, min(scroll, max(0, len(lines)-(m.height-4))), max(1, m.height-5), max(0, len(lines)-(m.height-4))
+	}
 	if m.workspace != 0 || m.detail || m.filtering || m.help || m.runbook || m.form != nil || m.pending != nil || m.operations != nil || m.height <= 0 {
 		return -1, 0, 0, 0
 	}
@@ -302,9 +314,17 @@ func (m *fleetModel) revealLedgerSelection() {
 	if line < 0 {
 		return
 	}
-	m.scroll = start
+	if line >= start && line < start+limit {
+		return
+	}
+	scroll := start
 	if line < start || line >= start+limit {
-		m.scroll = min(line, maxScroll)
+		scroll = min(line, maxScroll)
+	}
+	if m.detail && m.splitFleet() {
+		m.ledgerScroll = scroll
+	} else {
+		m.scroll = scroll
 	}
 }
 
@@ -531,7 +551,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.pending != nil || m.form != nil && m.form.operation == "remove" {
 			m = m.reviewConfirmation()
 		}
-		lines, _, _ := m.content()
+		lines, _, _ := m.focusedContent()
 		step := 1
 		if m.pending != nil || m.form != nil && m.form.operation == "remove" {
 			step = max(1, m.height-2-m.confirmationHeaderRows())
@@ -539,13 +559,23 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.conversationPage() && !m.help && !m.runbook {
 			step = max(1, m.height-conversationHeader-2)
 		}
-		m.scroll = min(m.scroll+step, max(0, len(lines)-max(1, m.height-2)))
+		viewport := max(1, m.height-2)
+		if m.splitFleet() {
+			viewport = m.height - 4
+			if m.detail {
+				step = max(1, m.height-6)
+			}
+		}
+		m.scroll = min(m.scroll+step, max(0, len(lines)-viewport))
 		return m, nil
 	}
 	if key == "pgup" {
 		step := 1
 		if m.conversationPage() && !m.help && !m.runbook {
 			step = max(1, m.height-conversationHeader-2)
+		}
+		if m.splitFleet() && m.detail {
+			step = max(1, m.height-6)
 		}
 		m.scroll = max(0, m.scroll-step)
 		return m, nil
@@ -670,9 +700,12 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 						e.Diagnostics = &binding
 					}
 					m.ledgerFocus = m.ledgerSelectionVisible()
+					if m.detailEntry == nil || m.detailEntry.Target != e.Target || m.detailInvalid || !sameBinding(m.detailEntry.Diagnostics, e.Diagnostics) {
+						m.detailScroll = 0
+					}
 					m.detail, m.detailEntry, m.detailInvalid = true, &e, false
 					m.resetFleetDiagnostics()
-					m.ledgerScroll, m.scroll, m.status = m.scroll, 0, ""
+					m.ledgerScroll, m.scroll, m.status = m.scroll, m.detailScroll, ""
 					if key != "enter" && key != "tab" && key != "shift+tab" {
 						m.status = "Details opened; choose an action explicitly"
 					}
@@ -684,7 +717,15 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if m.workspace == 0 && m.detail && (key == "enter" || key == "u" || key == "s" || key == "d" || key == "x") {
+	if m.workspace == 0 && key == "enter" {
+		m.status = "Details focused; c opens Connect preflight"
+		return m, nil
+	}
+	if m.workspace == 0 && key == "c" && !m.detail {
+		m.status = "Open Details before Connect"
+		return m, nil
+	}
+	if m.workspace == 0 && m.detail && (key == "c" || key == "u" || key == "s" || key == "d" || key == "x") {
 		if m.detailInvalid || m.detailEntry == nil {
 			m.status = "Target changed or removed; return to Fleet and select again"
 			return m, nil
@@ -764,7 +805,11 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab", "shift+tab":
 		if m.workspace == 0 && m.detail {
 			m.resetFleetDiagnostics()
-			m.detail, m.detailEntry = false, nil
+			m.detailScroll = m.scroll
+			m.detail = false
+			if !m.splitFleet() {
+				m.detailEntry = nil
+			}
 			m.scroll = m.ledgerScroll
 			if m.ledgerFocus {
 				m.revealLedgerSelection()
@@ -774,10 +819,13 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		returning := m.workspace == 0 && m.detail
 		if returning {
 			m.resetFleetDiagnostics()
+			m.detailScroll = m.scroll
 			m.scroll = m.ledgerScroll
 		}
 		m.detail = false
-		m.detailEntry = nil
+		if !m.splitFleet() {
+			m.detailEntry = nil
+		}
 		if returning && m.ledgerFocus {
 			m.revealLedgerSelection()
 		}
@@ -796,6 +844,12 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.workspace == 0 {
 			if m.detail {
+				lines, _, _ := m.focusedContent()
+				viewport := m.height - 2
+				if m.splitFleet() {
+					viewport = m.height - 4
+				}
+				m.scroll = max(0, min(m.scroll+delta, max(0, len(lines)-viewport)))
 				return m, nil
 			}
 			rows := m.rows()
@@ -823,12 +877,32 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if previousTarget != m.selected || previousHost != m.server {
-			lines, _, selectedLine := m.content()
+			if m.workspace == 0 {
+				m.detailScroll, m.detailInvalid = 0, false
+				for _, e := range m.rows() {
+					if e.Target == m.selected {
+						if e.Diagnostics != nil {
+							binding := *e.Diagnostics
+							e.Diagnostics = &binding
+						}
+						m.detailEntry = &e
+						break
+					}
+				}
+			}
+			if m.splitFleet() {
+				m.revealLedgerSelection()
+				return m, nil
+			}
+			lines, _, selectedLine := m.focusedContent()
 			if selectedLine >= 0 && m.height > 0 {
 				limit := max(1, m.height-2)
 				if m.workspace == 0 {
 					selectedLine-- // Fleet context occupies a pinned line.
 					limit = max(1, m.height-3)
+					if m.splitFleet() {
+						limit = max(1, m.height-5)
+					}
 				}
 				if selectedLine < m.scroll {
 					m.scroll = selectedLine
@@ -862,7 +936,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "selected host inventory is not authoritative; refresh"
 			}
 		}
-	case "u", "s", "enter":
+	case "u", "s", "c":
 		if m.workspace != 0 {
 			return m, nil
 		}
@@ -871,7 +945,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "selected host inventory is not authoritative; refresh"
 			return m, nil
 		}
-		op := map[string]string{"u": "up", "s": "down", "enter": "enter"}[key]
+		op := map[string]string{"u": "up", "s": "down", "c": "enter"}[key]
 		if (op == "enter" || op == "down") && e.State != "running" {
 			m.status = identity(e.Target) + " is not running"
 			return m, nil
@@ -1259,7 +1333,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.help {
 		selectedLine = -1
-		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: Enter Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: c Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc draft options")
 		if m.workspace == 0 && m.detailEntry != nil && m.detail {
 			lines = append(append(m.pageContext("Details Help"), "Target: "+identity(m.detailEntry.Target), "Host destination: "+valueOr(m.detailEntry.Target.Host.Address, "this machine"), "Runtime: "+m.detailEntry.Name, "Connect needs a running VM; Apply and Backup need a stopped VM.", "Observations do not grant action authority; every action revalidates the captured target."), lines[1:]...)
@@ -1351,6 +1425,18 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.output != "" && m.workspace != 1 && !m.help && m.pending == nil && (m.form == nil || m.form.operation != "remove") {
 		lines = append(lines, strings.Split(m.output, "\n")...)
 	}
+	if m.workspace == 0 && !m.detail && !m.filtering && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && m.coordination.leaving == "" {
+		pane, selected := m.fleetPaneLines()
+		context := m.pageContext(lines[0])
+		if m.selected == (hostrouter.Target{}) {
+			context = append(context, "No target selected")
+		}
+		selectedLine = -1
+		if selected >= 0 {
+			selectedLine = len(context) + selected
+		}
+		lines = append(context, pane...)
+	}
 	footer := "x actions | v services/about | 1/2/3 workspace | r refresh | ? help | q quit"
 	if m.workspace == 1 {
 		footer = "t/l/i/g sections | r refresh | f follow | ] next | ? help | esc back | 1/3 workspace | q quit"
@@ -1403,7 +1489,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	if m.workspace == 0 {
 		footer = "Enter Details | h filter | ? help"
 		if m.detail {
-			footer = "Esc Fleet | Enter Connect | x | ?"
+			footer = "Esc Fleet | c Connect | x | ?"
 		}
 		if m.filtering {
 			footer = "Enter apply | Esc cancel | arrows select"
@@ -1473,6 +1559,13 @@ func (m fleetModel) pageContext(title string) []string {
 }
 
 func (m fleetModel) View() string {
+	if m.splitFleet() {
+		return m.splitView()
+	}
+	return m.pageView()
+}
+
+func (m fleetModel) pageView() string {
 	content, footer, _ := m.content()
 	if m.pending != nil && m.pending.reviewedThrough < len(content) {
 		footer = "Esc cancel | PgDn review | disabled"
