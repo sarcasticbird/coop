@@ -1230,15 +1230,7 @@ func (m fleetModel) content() ([]string, string, int) {
 			if current, ok := m.entry(e.Target); ok && !m.detailInvalid {
 				state = current.State
 			}
-			activity, work := diagnosticSummary(time.Now(), m.diagnostics.report, m.diagnostics.failure)
-			lines = m.pageContext("Fleet > Details")
-			lines = append(lines, "Name: "+ledgerName(e), "Host: "+coordClean(e.Target.Host.Name)+" / "+valueOr(e.Target.Host.Address, "this machine"), "VM lifecycle: "+state, "Activity: "+activity, "Work / blocker: "+work, m.fleetPresenceLine())
-			if m.diagnostics.report != nil {
-				lines = append(lines, "Source: master diagnostics | report: "+teamAge(m.diagnostics.report.Report.ObservedAt)+" | receipt: "+teamAge(m.diagnostics.report.ReceivedAt))
-			}
-			lines = append(lines, "Host health: "+valueOr(selectedHealth, "unknown; target removed"), "Selected: "+identity(e.Target), "Runtime: "+e.Name, "Project: "+valueOr(e.Project, "-"))
-			lines = append(lines, "Exact "+lines[1], "Exact "+lines[2])
-			lines = append(lines, m.fleetDiagnosticLines()...)
+			lines = m.fleetDetailsLines(state, valueOr(selectedHealth, "unknown; target removed"))
 			for i := range conversationHeader {
 				if m.width > 0 {
 					lines[i] = textansi.Truncate(coordClean(lines[i]), m.width, "...")

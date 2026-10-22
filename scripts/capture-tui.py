@@ -79,7 +79,11 @@ def main():
     modes.add_argument("--extended", action="store_true", help="also capture help, confirmations, compose previews and read-only receipts without submitting")
     modes.add_argument("--supplemental", action="store_true", help="capture reply/receipt and isolated missing-master, first-use and destroy states")
     modes.add_argument("--exact-context", action="store_true", help="verify long master/principal IDs in scrolled Team and unbound Details")
+    modes.add_argument("--details-only", action="store_true", help="capture the actual selected Details overview at all sizes without actions")
+    parser.add_argument("--reported-work", action="store_true", help="add synthetic fresh task/PR/blocker data to the Details-only fixture")
     args = parser.parse_args()
+    if args.reported_work and not args.details_only:
+        parser.error("--reported-work requires --details-only")
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     source = args.source
     if not source or not re.fullmatch(r"[0-9a-f]{40}", source):
@@ -90,6 +94,8 @@ def main():
     manifest["extended"] = args.extended
     manifest["supplemental"] = args.supplemental
     manifest["exact_context"] = args.exact_context
+    manifest["details_only"] = args.details_only
+    manifest["reported_work"] = args.reported_work
     manifest["exact_context_page_down_keys"] = {}
     manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
     manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -107,6 +113,7 @@ def main():
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
             env = dict(os.environ, COOP_TUI_CAPTURE="1", COOP_TUI_CAPTURE_MODE=mode, TERM="xterm-256color")
             env["COOP_TUI_CAPTURE_EXACT_CONTEXT"] = "1" if args.exact_context else "0"
+            env["COOP_TUI_CAPTURE_REPORTED_WORK"] = "1" if args.reported_work else "0"
             if no_color: env["NO_COLOR"] = "1"
             else: env.pop("NO_COLOR", None)
             process = subprocess.Popen([str(args.binary.resolve()), "-test.run=^TestRuntimeCapture$"], stdin=slave, stdout=slave, stderr=slave, env=env)
@@ -126,6 +133,8 @@ def main():
 
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
+            if args.details_only:
+                pages = [("details", [b"\x1b[B", b"\r"])]
             if args.exact_context:
                 pages.insert(3, ("details-exact-context", []))
                 pages.append(("team-exact-context", []))

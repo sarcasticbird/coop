@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	textansi "github.com/charmbracelet/x/ansi"
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
-	"github.com/sarcasticbird/coop/internal/tui/team"
 )
 
 type fleetDiagnostics struct {
@@ -175,14 +176,85 @@ func (m fleetModel) fleetPresenceLine() string {
 		return "Presence: unknown (no current bound observation)"
 	}
 	p := q.presence
-	return "Presence: " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen) + " (not work progress)"
+	return "Presence: " + valueOr(p.State, "unknown") + " | heartbeat: " + teamAge(p.LastSeen)
 }
 
-func (m fleetModel) fleetDiagnosticLines() []string {
-	if m.detailEntry.Diagnostics == nil {
-		return []string{"Agent work / blocker: unknown (not inferred from VM)", "Source: no host-owned diagnostic binding for this target", "2 then t: independent Team diagnostics; no name-based mapping"}
+func (m fleetModel) fleetDetailsLines(state, health string) []string {
+	e, q, now := *m.detailEntry, m.diagnostics, time.Now()
+	lines := m.pageContext("Fleet > Details")
+	row := func(left, right string) {
+		left, right = coordClean(left), coordClean(right)
+		column := (m.width - 3) / 2
+		if m.width <= 0 {
+			column = 58
+		}
+		if right != "" && (m.width >= 65 || m.width <= 0) && textansi.StringWidth(left) <= column && textansi.StringWidth(right) <= column {
+			lines = append(lines, left+strings.Repeat(" ", column-textansi.StringWidth(left))+" | "+right)
+		} else {
+			lines = append(lines, left)
+			if right != "" {
+				lines = append(lines, right)
+			}
+		}
 	}
-	b := m.detailEntry.Diagnostics
-	lines := []string{"Diagnostic master: " + b.MasterID + " | source: host-owned target binding", fmt.Sprintf("Bound host: %s | worker: %s | generation: %d", b.HostID, b.InstanceID, b.Generation)}
-	return append(lines, team.DetailLines(time.Now(), 0, b.AgentID, m.diagnostics.report, m.diagnostics.busy, m.diagnostics.failure)...)
+	failure := q.failure
+	if m.detailInvalid {
+		failure = "target changed; work unknown"
+	}
+	activity, _ := diagnosticSummary(now, q.report, failure)
+	current := q.report != nil && failure == "" && !q.report.Stale
+	if current {
+		for _, at := range []time.Time{q.report.ReceivedAt, q.report.Report.ObservedAt, q.report.Report.Wait.ObservedAt} {
+			current = current && !at.IsZero() && !at.After(now) && now.Sub(at) < c.PresenceStale
+		}
+	}
+	task, pr, blocker := "unknown", "unknown", "unknown"
+	if current {
+		d := q.report.Report
+		if at := d.Work.ObservedAt; !at.IsZero() && !at.After(now) && now.Sub(at) < c.PresenceStale {
+			task, pr = valueOr(diagnosticReference(d.Work.TaskURL), "none reported"), valueOr(diagnosticReference(d.Work.PRURL), "none reported")
+			if d.Work.Stage != "" {
+				task += " / " + strings.ReplaceAll(d.Work.Stage, "_", " ")
+			}
+		}
+		blocker = strings.ReplaceAll(valueOr(d.Wait.Reason, "none reported"), "_", " ")
+		if len(d.Wait.Dependencies) > 0 {
+			blocker = "dependency " + diagnosticReference(d.Wait.Dependencies[0])
+			if len(d.Wait.Dependencies) > 1 {
+				blocker += fmt.Sprintf(" (+%d)", len(d.Wait.Dependencies)-1)
+			}
+		}
+	}
+	row("Name: "+ledgerName(e), "Host: "+e.Target.Host.Name+" / "+valueOr(e.Target.Host.Address, "this machine"))
+	row("VM lifecycle: "+state, "Activity: "+activity)
+	row("Task: "+task, "PR: "+pr)
+	row("Blocker: "+blocker, "")
+	row(m.fleetPresenceLine(), "")
+	if q.report != nil {
+		row("Report age: "+teamAge(q.report.Report.ObservedAt), "Receipt age: "+teamAge(q.report.ReceivedAt))
+		row("Work age: "+teamAge(q.report.Report.Work.ObservedAt), "Wait age: "+teamAge(q.report.Report.Wait.ObservedAt))
+	}
+	source := "Source: no host-owned diagnostic binding"
+	if e.Diagnostics != nil {
+		source = "Source: master diagnostics (host-owned binding)"
+		if !current {
+			source = "Source: master diagnostics; no current report"
+		}
+	}
+	row(source, "")
+	row("Host health: "+health, "")
+	if e.Name != ledgerName(e) {
+		row("Runtime: "+e.Name, "")
+	}
+	if e.Project != "" {
+		row("Project: "+e.Project, "")
+	}
+	row("Target: "+identity(e.Target), "")
+	// Repeat only clipped context; the pinned header already holds short IDs.
+	for _, context := range lines[1:conversationHeader] {
+		if m.width > 0 && textansi.StringWidth(context) > m.width {
+			row("Exact "+context, "")
+		}
+	}
+	return append(lines, "2 then t: full Team diagnostics")
 }
