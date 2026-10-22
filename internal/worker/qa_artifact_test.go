@@ -229,11 +229,11 @@ func TestBindQAArtifactSource(t *testing.T) {
 
 func TestBindQAArtifactSourceNativeFailures(t *testing.T) {
 	head := strings.Repeat("a", 40)
-	// Incompressible bytes make the compressed API response exceed 2 MiB.
-	content := make([]byte, MaxAPIPage+4096)
+	// Incompressible bytes exceed the separate compressed source bound.
+	content := make([]byte, MaxSourceArchive+4096)
 	_, _ = rand.New(rand.NewSource(1)).Read(content)
 	oversized := qaBundle(t, qaBundleEntry{name: "root/file", content: string(content)})
-	if len(oversized) <= MaxAPIPage {
+	if len(oversized) <= MaxSourceArchive {
 		t.Fatal("fixture did not exceed compressed API limit")
 	}
 	for _, tc := range []struct {

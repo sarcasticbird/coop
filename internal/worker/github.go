@@ -15,8 +15,32 @@ import (
 )
 
 const MaxAPIPage = 2 << 20
+const MaxSourceArchive = 16 << 20
 const MaxConnection = 10000
 const MaxSnapshot = 16 << 20
+
+// Source archives are binary artifacts, not JSON pages. Grant the larger
+// download bound only to immutable, exact-commit source reads.
+func githubResponseLimit(method, endpoint string) int {
+	parts := strings.Split(endpoint, "/")
+	if method == "GET" && len(parts) == 5 && parts[0] == "repos" && slug.MatchString(parts[1]) && parts[2] != "" && parts[3] == "tarball" && qaHeadSHA.MatchString(parts[4]) {
+		return MaxSourceArchive
+	}
+	return MaxAPIPage
+}
+
+func githubCommandResponseLimit(argv []string) int {
+	if len(argv) < 7 || argv[0] != "/usr/local/libexec/coop-github" || argv[1] != "gh" || argv[2] != "--owner" || argv[4] != "--" || argv[5] != "api" {
+		return MaxAPIPage
+	}
+	method := "GET"
+	for i, arg := range argv {
+		if arg == "--method" && i+1 < len(argv) {
+			method = argv[i+1]
+		}
+	}
+	return githubResponseLimit(method, argv[6])
+}
 
 type GitHub interface {
 	Snapshot(context.Context, Config, Snapshot) (Snapshot, error)
@@ -77,7 +101,8 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 	if errors.Is(runErr, c.ErrCapacity) || errors.Is(runErr, c.ErrSize) {
 		return nil, nil, runErr
 	}
-	if len(result.Stdout) > MaxAPIPage+(64<<10) {
+	responseLimit := githubResponseLimit(method, endpoint)
+	if len(result.Stdout) > responseLimit+(64<<10) {
 		return nil, nil, ghError("response_too_large")
 	}
 	res, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(result.Stdout)), nil)
@@ -88,8 +113,8 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 		return nil, nil, ghError("invalid_response")
 	}
 	defer func() { _ = res.Body.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, MaxAPIPage+1))
-	if err != nil || len(raw) > MaxAPIPage {
+	raw, err := io.ReadAll(io.LimitReader(res.Body, int64(responseLimit)+1))
+	if err != nil || len(raw) > responseLimit {
 		return nil, res.Header, ghError("response_too_large")
 	}
 	if res.StatusCode == 429 || res.StatusCode == 403 && (res.Header.Get("Retry-After") != "" || res.Header.Get("X-RateLimit-Remaining") == "0") || res.StatusCode == 200 && endpoint == "graphql" && graphqlQuota(raw) {

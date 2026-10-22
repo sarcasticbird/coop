@@ -134,7 +134,8 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 	}
 	r.requests++
 	result, err := r.base.Run(ctx, args, env, bytes.NewReader(body))
-	if len(result.Stdout) > MaxAPIPage+(64<<10) {
+	responseLimit := githubResponseLimit(method, endpoint)
+	if len(result.Stdout) > responseLimit+(64<<10) {
 		return CommandResult{}, c.ErrSize
 	}
 	res, e := http.ReadResponse(bufio.NewReader(bytes.NewReader(result.Stdout)), nil)
@@ -155,8 +156,8 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 		return result, err
 	}
 	delete(r.reused, key)
-	raw, e := io.ReadAll(io.LimitReader(res.Body, MaxAPIPage+1))
-	if e != nil || len(raw) > MaxAPIPage {
+	raw, e := io.ReadAll(io.LimitReader(res.Body, int64(responseLimit)+1))
+	if e != nil || len(raw) > responseLimit {
 		return CommandResult{}, c.ErrSize
 	}
 	// Archive bytes are verified once and represented by the exact-head digest,

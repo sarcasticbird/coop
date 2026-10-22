@@ -29,7 +29,7 @@ func qaSourceDigest(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Size() > worker.MaxAPIPage {
+	if !info.Mode().IsRegular() || info.Size() > worker.MaxSourceArchive {
 		return errors.New("QA source archive must be a regular file within the compressed size limit")
 	}
 	digest, err := worker.QASourceDigest(f)

@@ -30,6 +30,7 @@ type nativeDeliveryTransport struct {
 	snapshotBaseSHA, baseReadSHA                                   string
 	advanceBaseAfterAncestry                                       bool
 	checksAfterCheckout                                            string
+	failSourceAfterPush                                            bool
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -258,6 +259,9 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		return jsonResponse(map[string]any{"id": 1, "digest": "sha256:" + strings.Repeat("e", 64), "expired": false, "workflow_run": map[string]any{"id": 1, "head_sha": s.head}}), nil
 	}
 	if strings.HasPrefix(endpoint, "repos/code/repo/tarball/") {
+		if s.failSourceAfterPush && s.localHead != "" && s.head == s.localHead {
+			return response("503 Service Unavailable", "{}"), nil
+		}
 		raw := qaBundle(s.t, qaBundleEntry{name: "source/code.txt", content: s.head, mode: 0644})
 		return CommandResult{Stdout: append([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n"), raw...)}, nil
 	}
@@ -444,11 +448,29 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		t.Fatal("changed base after ancestry check still allowed publication", err)
 	}
 	transport.advanceBaseAfterAncestry, transport.baseSHA = false, strings.Repeat("d", 40)
-	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err != nil {
-		t.Fatal("branch refresh publication", err)
+	transport.failSourceAfterPush = true
+	if _, err := RunNativeAction(ctx, cfg, m, g, refresh.Job.ID, refreshAction); err == nil {
+		t.Fatal("source read failure after push was not retained")
+	}
+	models[refresh.Job.ID].running = false
+	if _, err := runs[refresh.Job.ID].advance(ctx, &refresh); err != nil || refresh.Phase != "blocked" {
+		t.Fatal("failed publication did not retain terminal checkpoint", err)
+	}
+	transport.failSourceAfterPush = false
+	writesBeforeRecovery := len(transport.writes)
+	if result, err := RecoverNativePublication(ctx, cfg, m, g, models[refresh.Job.ID], refresh.Job.ID, refresh.Job.SessionID, refresh.Job.MessageID, refreshAction); err != nil || result.Phase != "completed" {
+		t.Fatal("acknowledged push publication recovery", result, err)
+	}
+	for _, write := range transport.writes[writesBeforeRecovery:] {
+		if write == "push" {
+			t.Fatal("publication recovery repeated acknowledged push")
+		}
 	}
 	transport.localHead = ""
-	finish(refresh)
+	recoveredRefresh, err := loadNativeExecution(cfg, refresh.Job.ID)
+	if err != nil || recoveredRefresh.Phase != "completed" {
+		t.Fatal("publication recovery did not persist completion", err)
+	}
 	// Failed CI directly hands the exact current head back to its author.
 	transport.checks = "FAILURE"
 	checksFix := stage(1, "author", "fix")
