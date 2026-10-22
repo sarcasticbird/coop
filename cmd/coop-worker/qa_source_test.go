@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +120,7 @@ func TestQASourceDigestRejectsInvalidInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Truncate(worker.MaxAPIPage + 1); err != nil {
+	if err := f.Truncate(worker.MaxSourceArchive + 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Close(); err != nil {
@@ -166,7 +167,7 @@ func TestQASourceDigestRejectsInvalidInput(t *testing.T) {
 }
 
 func TestQASourceDigestReaderBoundsAndErrors(t *testing.T) {
-	r := &io.LimitedReader{R: strings.NewReader(strings.Repeat("x", worker.MaxAPIPage+10)), N: worker.MaxAPIPage + 10}
+	r := &io.LimitedReader{R: strings.NewReader(strings.Repeat("x", worker.MaxSourceArchive+10)), N: worker.MaxSourceArchive + 10}
 	if digest, err := worker.QASourceDigest(r); err == nil || digest != "" || r.N != 9 {
 		t.Fatalf("compressed limit not enforced: digest=%q err=%v remaining=%d", digest, err, r.N)
 	}
@@ -180,6 +181,25 @@ func TestQASourceDigestReaderBoundsAndErrors(t *testing.T) {
 	}
 	if err := qaSourceDigest([]string{"--archive", path}, qaSourceErrorWriter{want}); !errors.Is(err, want) {
 		t.Fatalf("output error lost: %v", err)
+	}
+}
+
+func TestQASourceDigestAcceptsArchiveLargerThanJSONPage(t *testing.T) {
+	content := make([]byte, worker.MaxAPIPage+4096)
+	_, _ = rand.New(rand.NewSource(92)).Read(content)
+	raw := qaSourceArchive(t, "root", string(content), 0644)
+	if len(raw) <= worker.MaxAPIPage {
+		t.Fatal("fixture must exceed the JSON response limit")
+	}
+	path := filepath.Join(t.TempDir(), "source.tar.gz")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileHash := sha256.Sum256(content)
+	want := fmt.Sprintf("%x\n", sha256.Sum256([]byte(fmt.Sprintf("file.txt\x00420\x0048\x00\x00%x\x00", fileHash))))
+	var out bytes.Buffer
+	if err := run([]string{"qa-source-digest", "--archive", path}, &out); err != nil || out.String() != want {
+		t.Fatalf("large archive digest = %q, %v; want %q", out.String(), err, want)
 	}
 }
 

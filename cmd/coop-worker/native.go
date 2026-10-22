@@ -19,17 +19,18 @@ func nativeCommand(args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "resolve" {
 		return nativeResolve(args[1:], out)
 	}
-	if len(args) == 0 || args[0] != "action" && args[0] != "recover-delivery" && args[0] != "retain-action" {
+	if len(args) == 0 || args[0] != "action" && args[0] != "recover-delivery" && args[0] != "recover-publication" && args[0] != "retain-action" {
 		return c.ErrInvalid
 	}
 	recoverDelivery := args[0] == "recover-delivery"
+	recoverPublication := args[0] == "recover-publication"
 	flags := flag.NewFlagSet("native "+args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	config := flags.String("config", "", "private v3 worker configuration")
 	job := flags.String("job", "", "exact saved engineering job")
 	input := flags.String("input", "", "private native action JSON file")
 	var session, message string
-	if recoverDelivery {
+	if recoverDelivery || recoverPublication {
 		flags.StringVar(&session, "session", "", "exact saved native session")
 		flags.StringVar(&message, "message", "", "exact saved native message")
 	}
@@ -60,12 +61,16 @@ func nativeCommand(args []string, out io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	var result worker.NativeActionResult
-	if recoverDelivery {
+	if recoverDelivery || recoverPublication {
 		code, e := worker.NewOpenCodeClient(cfg.OpenCode, nil)
 		if e != nil {
 			return e
 		}
-		result, err = worker.RecoverNativeDelivery(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), code, *job, session, message, action)
+		if recoverPublication {
+			result, err = worker.RecoverNativePublication(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), code, *job, session, message, action)
+		} else {
+			result, err = worker.RecoverNativeDelivery(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), code, *job, session, message, action)
+		}
 	} else {
 		result, err = worker.RunNativeAction(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), *job, action)
 	}

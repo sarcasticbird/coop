@@ -103,11 +103,18 @@ cannot provide.
      each rebuild fails without replacing the previous release lock or
      disturbing the working container.
 
-5. Verify recreation semantics. Create a marker in the guest root filesystem
-   and a marker under one agent's named state directory, change the effective
-   tool set, rebuild, and enter again. Confirm `coop status` reports pending
-   recreation before entry, the rootfs marker disappears, and the named-volume
-   marker survives.
+5. Verify persistent guest protection using a disposable Coop. Create a marker
+   in its root filesystem and another in a configured named state volume.
+   Record the existing runtime identity and image, then change the effective
+   tool set and rebuild. Confirm `coop status` reports the desired image change
+   and ordinary entry refuses with maintenance required. Stop the guest and
+   confirm `coop apply` also refuses the unsupported image replacement. Neither
+   operation may replace the guest, discard its root disk, or remove its state
+   volume. Restore the original tool configuration, start the existing guest,
+   and verify its runtime identity, image and both markers are unchanged.
+   Rebuilding prepares a new image; migrating an existing persistent guest to
+   that image is unsupported. Do not destroy or recreate the guest to make this
+   check pass. See [maintenance and recovery](runtime.md#maintenance-and-recovery).
 
 6. Create an annotated tag on the release commit. The tag message becomes the
    release notes, so write it for users: what changed, required user action,

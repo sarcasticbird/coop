@@ -73,7 +73,7 @@ func (r ExecRunner) Run(ctx context.Context, argv, env []string, input io.Reader
 		cmd.Env = append(next, entry)
 	}
 	cmd.Stdin = input
-	out := &boundedOutput{limit: MaxAPIPage + (64 << 10)}
+	out := &boundedOutput{limit: githubCommandResponseLimit(argv) + (64 << 10)}
 	stderr := &boundedOutput{limit: 64 << 10}
 	cmd.Stdout = out
 	cmd.Stderr = stderr
