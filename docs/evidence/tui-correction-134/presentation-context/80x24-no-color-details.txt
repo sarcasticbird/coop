@@ -1,0 +1,24 @@
+Fleet > Details
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared...
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-...
+Name: same-name
+Host: local / this machine
+VM lifecycle: running
+Activity: unknown
+Work / blocker: no host-owned diagnostic binding
+Presence: unknown (no current bound observation)
+Host health: ok; snapshot <5s old
+Selected: local / agent / fixture-a
+Runtime: same-name
+Project: -
+Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-shared-prefix-second
+Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-second
+Agent work / blocker: unknown (not inferred from VM)
+Source: no host-owned diagnostic binding for this target
+2 then t: independent Team diagnostics; no name-based mapping
+
+
+UNKNOWN | no host-owned diagnostic binding; work unknown
+Esc Fleet | Enter Connect | x | ?

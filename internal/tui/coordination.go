@@ -731,7 +731,10 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		q.form = &f
 		switch key {
 		case "esc":
-			if f.frozen || strings.Join(f.values, "") != "" {
+			if f.preview && !f.frozen {
+				f.preview, m.scroll = false, 0
+				q.status = "Editing; Ctrl+S previews again"
+			} else if f.frozen || strings.Join(f.values, "") != "" {
 				q.leaving = "back"
 				q.leaveScroll, m.scroll = m.scroll, 0
 			} else {
@@ -768,7 +771,10 @@ func (m fleetModel) coordKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				f.run, f.preview = run, true
 				m.scroll = 0
-				q.status = "Review captured context and input; PgDn for more; Ctrl+S submits"
+				q.status = "PgDn review | Ctrl+S submits"
+				if f.kind == "create" {
+					q.status = "PgDn review | Ctrl+S creates"
+				}
 			} else {
 				lines, _, _ := m.content()
 				if m.height > 0 && m.scroll+max(1, m.height-3) < len(lines)-1 {

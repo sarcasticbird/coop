@@ -1,0 +1,20 @@
+Fleet Ledger | Filter: All
+No target selected
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable
+  NAME             KIND         VM
+  Host: local (this machine)
+    [ok; snapshot <5s old]
+  same-name        agent        running
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old]
+  (no Coops)
+  Host: fixture-offline (fixture-offl...
+    [unreachable]
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old]
+  same-name        agent        stopped
+
+Enter Details | h filter | ? help | PgDn

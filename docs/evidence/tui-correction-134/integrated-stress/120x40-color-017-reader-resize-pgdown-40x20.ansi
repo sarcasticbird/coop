@@ -1,0 +1,39 @@
+[HThreads > fixture-thread[K
+Master: test-master[K
+Principal: owner (owner)[K
+fixture-message-13 | seq 13 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-14 | seq 14 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-15 | seq 15 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-16 | seq 16 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+Reply target offscreen: fixture-message[K
+Esc Threads | p reply | ^V reveal | ?[K[J[20;H[H
+
+
+  [unread this session] [K
+fixture-message-17 | seq 17 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-18 | seq 18 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-19 | seq 19 | hawk | [K
+parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] [K
+fixture-message-20 | seq 20 | hawk | [K
+parent none[K
+
+[20;H

@@ -1,0 +1,20 @@
+Fleet Ledger | Filter: All
+Host: local
+  [ok; snapshot <5s old]
+> 界 é long-label...  waiting
+  work unknown / local pause
+  Report 4s ago / receipt 4s ago
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+
+Enter Details | h filter | ? help | PgDn

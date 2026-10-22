@@ -1,0 +1,108 @@
+{
+  "source": "5eb50a0caf7347ac2e6a405ee042b100f4738de2",
+  "binary": "/tmp/opencode/hawk-137-reachability.test",
+  "sha256": "e115e95b134ef019fea36c32b1040db333ace1a97617190ff8b1daa5346b6764",
+  "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)",
+  "method": "PTY, native Bubble Tea, timed keyboard navigation",
+  "captures": [
+    "120x40-fleet",
+    "120x40-fleet-selected",
+    "120x40-details",
+    "120x40-details-exact-context",
+    "120x40-threads",
+    "120x40-reader",
+    "120x40-team",
+    "120x40-team-detail",
+    "120x40-team-exact-context",
+    "120x40-no-color-fleet",
+    "120x40-no-color-fleet-selected",
+    "120x40-no-color-details",
+    "120x40-no-color-details-exact-context",
+    "120x40-no-color-threads",
+    "120x40-no-color-reader",
+    "120x40-no-color-team",
+    "120x40-no-color-team-detail",
+    "120x40-no-color-team-exact-context",
+    "80x24-fleet",
+    "80x24-fleet-selected",
+    "80x24-details",
+    "80x24-details-exact-context",
+    "80x24-threads",
+    "80x24-reader",
+    "80x24-team",
+    "80x24-team-detail",
+    "80x24-team-exact-context",
+    "80x24-no-color-fleet",
+    "80x24-no-color-fleet-selected",
+    "80x24-no-color-details",
+    "80x24-no-color-details-exact-context",
+    "80x24-no-color-threads",
+    "80x24-no-color-reader",
+    "80x24-no-color-team",
+    "80x24-no-color-team-detail",
+    "80x24-no-color-team-exact-context",
+    "40x20-fleet",
+    "40x20-fleet-selected",
+    "40x20-details",
+    "40x20-details-exact-context",
+    "40x20-threads",
+    "40x20-reader",
+    "40x20-team",
+    "40x20-team-detail",
+    "40x20-team-exact-context",
+    "40x20-no-color-fleet",
+    "40x20-no-color-fleet-selected",
+    "40x20-no-color-details",
+    "40x20-no-color-details-exact-context",
+    "40x20-no-color-threads",
+    "40x20-no-color-reader",
+    "40x20-no-color-team",
+    "40x20-no-color-team-detail",
+    "40x20-no-color-team-exact-context"
+  ],
+  "extended": false,
+  "supplemental": false,
+  "exact_context": true,
+  "details_only": false,
+  "reported_work": false,
+  "wide_short": false,
+  "exact_context_page_down_keys": {
+    "120x40-details-exact-context": 0,
+    "120x40-team-exact-context": 0,
+    "120x40-no-color-details-exact-context": 0,
+    "120x40-no-color-team-exact-context": 0,
+    "80x24-details-exact-context": 0,
+    "80x24-team-exact-context": 0,
+    "80x24-no-color-details-exact-context": 0,
+    "80x24-no-color-team-exact-context": 0,
+    "40x20-details-exact-context": 9,
+    "40x20-team-exact-context": 3,
+    "40x20-no-color-details-exact-context": 9,
+    "40x20-no-color-team-exact-context": 3
+  },
+  "fixture_overlay": "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs.",
+  "harness_sha256": "0cd580e4c45776f0d379198813a77753130328ab3d673ac2dfb1750a59015b1b",
+  "fixture_sources": {
+    "internal/tui/runtime_capture_test.go": {
+      "sha256": "0c6f843c334a1729a69e06aa1540b72395ba08b7905748c831f7d00f26e6b2b8"
+    },
+    "internal/tui/runtime_baseline_test.go": {
+      "sha256": "3bb67d3db57078a2665aa55174c75ad54510be08ca8a1739624f13e5dd19d5db"
+    },
+    "internal/tui/team_view_test.go": {
+      "sha256": "3196c4c890ef1290608cdef63db684fc700ec7e13e774398f78ece682837e204"
+    },
+    "internal/tui/coordination_test.go": {
+      "sha256": "b79b203c99ce2381dfb50c8421eac1fb0782b898bdcb1d74bac723a660bab68c"
+    },
+    "internal/tui/fleet_test.go": {
+      "sha256": "ff5501ba9fce37f557fd26f46de4094ffc2328776d1c6f1b77abea13d00b9731"
+    },
+    "internal/tui/tuifixture/fixture.go": {
+      "sha256": "980cf1a3067b129ecfdd67eaf7fa19a33d20ee87b1b0371f29d29f583375c8b0"
+    },
+    "internal/tui/tuifixture/fixture_test.go": {
+      "sha256": "69b1033a051cee6c6e3b28b2c4a836d0553f8dbf0b885499b56798fa23d2915f"
+    }
+  }
+}

@@ -293,7 +293,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 				private()
 			}
 			resizePrivate()
-			for _, key := range []string{"1", "enter", "enter"} {
+			for _, key := range []string{"1", "enter", "c"} {
 				var cmd tea.Cmd
 				m, cmd = coordinationKey(m, key)
 				if cmd != nil {

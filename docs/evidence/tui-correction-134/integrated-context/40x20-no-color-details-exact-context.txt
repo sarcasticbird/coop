@@ -1,0 +1,20 @@
+Fleet > Details
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+diagnostic binding
+Presence: unknown (no current bound
+observation)
+Host health: ok; snapshot <5s old
+Selected: local / agent / fixture-a
+Runtime: same-name
+Project: -
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second
+Exact Principal: principal-shared-prefix
+-shared-prefix-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-second
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | Enter Connect | x | ? | PgDn

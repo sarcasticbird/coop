@@ -52,7 +52,7 @@ func TestFleetMappedWorkAtEverySize(t *testing.T) {
 			}
 			lines, _, _ := m.content()
 			all := strings.Join(lines, "")
-			for _, want := range []string{"VM lifecycle: running", "Handling: waiting", "source: host-owned target binding", "Work observation age:", "receipt age:"} {
+			for _, want := range []string{"VM lifecycle: running", "Activity: waiting", "Source: mapped master diagnostics", "Work age:", "Receipt age:"} {
 				if !strings.Contains(all, want) {
 					t.Fatalf("missing %q: %s", want, all)
 				}
@@ -72,7 +72,7 @@ func TestFleetMappedWorkAtEverySize(t *testing.T) {
 			m, _ = fleetKey(m, "esc")
 			m.selected = m.hosts[0].entries[0].Target
 			m, cmd = fleetKey(m, "enter")
-			if cmd != nil || m.diagnostics.report != nil || !strings.Contains(strings.Join(m.fleetDiagnosticLines(), "\n"), "work / blocker: unknown") {
+			if cmd != nil || m.diagnostics.report != nil || !strings.Contains(strings.Join(m.fleetDetailsLines("running", "ok"), "\n"), "Task: unknown") {
 				t.Fatal("unbound duplicate-name target borrowed report")
 			}
 		})

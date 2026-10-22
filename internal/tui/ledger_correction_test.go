@@ -103,12 +103,17 @@ func TestLedgerCellAlignmentAndLabels(t *testing.T) {
 	}
 	m.width = 120
 	view := m.View()
-	for _, column := range []string{"NAME", "KIND", "VM", "ACTIVITY", "WORK / BLOCKER"} {
+	for _, column := range []string{"BIRD / HOST", "REPORTED ACTIVITY"} {
 		if !strings.Contains(view, column) {
 			t.Fatal("missing column", column, view)
 		}
 	}
-	if strings.Count(view, "Fleet Ledger") != 1 || strings.Contains(view, "0H/0T") || strings.Contains(view, identity(m.selected)) {
+	left, _ := m.splitWidths()
+	var fleetPane strings.Builder
+	for _, line := range strings.Split(view, "\n")[:m.height-2] {
+		fleetPane.WriteString(textansi.Cut(line, 0, left+2))
+	}
+	if strings.Count(view, "FLEET [focus]") != 1 || strings.Contains(view, "0H/0T") || strings.Contains(fleetPane.String(), identity(m.selected)) {
 		t.Fatal("redundant headings/counts/raw row identity remain", view)
 	}
 }

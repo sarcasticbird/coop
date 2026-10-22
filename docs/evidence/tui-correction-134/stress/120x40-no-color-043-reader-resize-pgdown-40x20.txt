@@ -1,0 +1,20 @@
+Threads > fixture-thread
+Master: test-master
+Principal: owner (owner)
+18 | seq 18 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-
+19 | seq 19 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-
+20 | seq 20 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-
+21 | seq 21 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-
+22 | seq 22 | hawk | parent none
+[body masked; Ctrl+V to reveal]
+  [unread this session] fixture-message-
+Reply target offscreen: fixture-message
+Esc Threads | p reply | ^V reveal | ?...

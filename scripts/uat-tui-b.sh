@@ -3,7 +3,12 @@ set -euo pipefail
 umask 077
 
 # Synthetic validation only. Invoke through flox activate from the repository root.
-expected=${1:?usage: bash scripts/uat-tui-b.sh EXACT_SOURCE_SHA}
+expected=${1:?usage: bash scripts/uat-tui-b.sh EXACT_SOURCE_SHA [TASK_URL]}
+task=${2:-https://github.com/sarcasticbird/coop/issues/121}
+if [[ ! "$task" =~ ^https://github.com/sarcasticbird/coop/issues/[0-9]+$ ]]; then
+  printf 'Expected a canonical Coop task URL.\n' >&2
+  exit 1
+fi
 actual=$(git rev-parse HEAD)
 if [[ "$expected" != "$actual" || ! "$expected" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'Expected an exact source SHA matching HEAD. Found %s\n' "$actual" >&2
@@ -30,7 +35,7 @@ os=$(go env GOOS)
 arch=$(go env GOARCH)
 {
   printf 'environment_revision=coop-tui-b-runtime-v1\nsource_sha=%s\n' "$actual"
-  printf 'task=https://github.com/sarcasticbird/coop/issues/121\n'
+  printf 'task=%s\n' "$task"
   printf 'platform=%s/%s\n' "$os" "$arch"
   go version
   printf 'build=CGO_ENABLED=0 go build -trimpath -buildvcs=true -o ARTIFACT ./cmd/coop\n'

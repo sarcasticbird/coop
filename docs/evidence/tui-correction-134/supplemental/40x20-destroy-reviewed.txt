@@ -1,0 +1,20 @@
+CONFIRM DESTROY
+Master: test-master
+Principal: owner
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Exact Master: test-master
+Exact Principal: owner
+Master context is not the lifecycle dest
+ination.
+Remove this Coop and its persistent stat
+e volumes?
+No automatic retry or rollback. Review e
+very page, then y confirms; n/Esc cancel
+s.
+Exact CLI arguments: ["--agent" "fixture
+-a" "destroy"]
+
+Esc cancel | y confirm after review |...

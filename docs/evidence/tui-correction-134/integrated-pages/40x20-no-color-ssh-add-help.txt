@@ -1,0 +1,20 @@
+SSH Server Help
+Register an existing SSH reference from
+~/.ssh/config; master coordination setup
+ is separate.
+No token entry, provisioning, trust bypa
+ss or service startup. Paths and configu
+ration stay on the selected host.
+Tab selects field; type literal text (in
+cluding ?); Enter saves; Esc cancels. Re
+moval needs full review and explicit con
+sent.
+F1 or Esc returns to the same editor fie
+ld and viewport without changing input.
+
+
+
+
+
+
+F1/Esc return | PgUp/PgDn scroll

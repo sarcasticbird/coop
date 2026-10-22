@@ -392,7 +392,7 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	m = fixtureFleet()
 	m.legacy = rt
 	m, _ = fleetKey(m, "enter")
-	m, cmd = fleetKey(m, "enter")
+	m, cmd = fleetKey(m, "c")
 	if cmd != nil || m.pending == nil || m.pending.operation != "enter" {
 		t.Fatal("local connect did not require confirmation")
 	}

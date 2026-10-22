@@ -70,6 +70,69 @@ def replay(data, width, height):
     return "\n".join("".join(line).rstrip() for line in screen) + "\n"
 
 
+def cell_slice(text, start, width):
+    """Slice replayed text by display cells, retaining attached combining marks."""
+    result = []
+    cell = 0
+    included = False
+    for char in text:
+        if unicodedata.category(char).startswith("C"):
+            continue
+        if unicodedata.combining(char):
+            if included:
+                result.append(char)
+            continue
+        cells = 2 if unicodedata.east_asian_width(char) in "WF" else 1
+        included = start <= cell and cell + cells <= start + width
+        if included:
+            result.append(char)
+        elif cell < start + width and cell + cells > start:
+            result.append(" " * (min(cell + cells, start + width) - max(cell, start)))
+        cell += cells
+    return "".join(result)
+
+
+def details_text(screen, width):
+    if width < 100:
+        return screen.replace("\n", "")
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    # Exclude both frames, the Fleet pane and fullwidth feedback/footer rows.
+    return "".join(cell_slice(line, left + 4, right).rstrip()
+                   for line in screen.splitlines() if line.startswith("|"))
+
+
+def assert_split(screen, width, details=False, selected=True):
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    lines = screen.splitlines()
+    fleet_title = "FLEET" + ("" if details else " [focus]")
+    details_title = "DETAILS" + (" [focus]" if details else "")
+    fleet_header = cell_slice(lines[0], 0, left + 2) if lines else ""
+    details_header = cell_slice(lines[0], left + 3, right + 2) if lines else ""
+    if (not fleet_header.startswith("+- " + fleet_title + " | Filter:")
+            or not details_header.startswith("+- " + details_title + " ")
+            or ("[focus]" in fleet_header) == details
+            or ("[focus]" in details_header) != details):
+        raise RuntimeError(f"split panes/focus missing: {screen}")
+    body = [line for line in lines if line.startswith("|")]
+    if not body or any(cell_slice(line, left + 1, 3) != "| |"
+                       or cell_slice(line, width - 1, 1) != "|" for line in body):
+        raise RuntimeError(f"split pane frames missing: {screen}")
+    if selected and not any(cell_slice(line, 1, left).startswith("> ") for line in body):
+        raise RuntimeError(f"split Fleet selection lost: {screen}")
+
+
+def details_context(screen, width):
+    left = (width - 5) * 2 // 5
+    right = width - 5 - left
+    rows = [cell_slice(line, left + 4, right).rstrip()
+            for line in screen.splitlines() if line.startswith("|")]
+    if len(rows) < 2 or not rows[0].startswith("Master:") or not rows[1].startswith("Principal:"):
+        raise RuntimeError(f"Details context is not one pinned row per identity: {screen}")
+    return rows[:2]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
@@ -79,7 +142,14 @@ def main():
     modes.add_argument("--extended", action="store_true", help="also capture help, confirmations, compose previews and read-only receipts without submitting")
     modes.add_argument("--supplemental", action="store_true", help="capture reply/receipt and isolated missing-master, first-use and destroy states")
     modes.add_argument("--exact-context", action="store_true", help="verify long master/principal IDs in scrolled Team and unbound Details")
+    modes.add_argument("--details-only", action="store_true", help="capture the actual selected Details overview at all sizes without actions")
+    parser.add_argument("--reported-work", action="store_true", help="add synthetic fresh task/PR/blocker data to the Details-only fixture")
+    parser.add_argument("--wide-short", action="store_true", help="exercise exact-context keyboard reachability at 100x24, 120x24, 120x20 and 120x40")
     args = parser.parse_args()
+    if args.reported_work and not args.details_only:
+        parser.error("--reported-work requires --details-only")
+    if args.wide_short and not args.exact_context:
+        parser.error("--wide-short requires --exact-context")
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     source = args.source
     if not source or not re.fullmatch(r"[0-9a-f]{40}", source):
@@ -90,6 +160,10 @@ def main():
     manifest["extended"] = args.extended
     manifest["supplemental"] = args.supplemental
     manifest["exact_context"] = args.exact_context
+    manifest["details_only"] = args.details_only
+    manifest["reported_work"] = args.reported_work
+    manifest["wide_short"] = args.wide_short
+    manifest["exact_context_page_down_keys"] = {}
     manifest["fixture_overlay"] = "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs."
     manifest["harness_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     fixture_paths = ["internal/tui/runtime_capture_test.go", "internal/tui/runtime_baseline_test.go",
@@ -99,18 +173,21 @@ def main():
         path: {"sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
         for path in fixture_paths
     }
-    for width, height in [(120, 40), (80, 24), (40, 20)]:
+    sizes = [(100, 24), (120, 24), (120, 20), (120, 40)] if args.wide_short else [(120, 40), (80, 24), (40, 20)]
+    for width, height in sizes:
         for no_color, mode in [(color, mode) for color in [False, True]
                                for mode in (["", "setup", "first-use", "destroy"] if args.supplemental else [""])]:
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
             env = dict(os.environ, COOP_TUI_CAPTURE="1", COOP_TUI_CAPTURE_MODE=mode, TERM="xterm-256color")
             env["COOP_TUI_CAPTURE_EXACT_CONTEXT"] = "1" if args.exact_context else "0"
+            env["COOP_TUI_CAPTURE_REPORTED_WORK"] = "1" if args.reported_work else "0"
             if no_color: env["NO_COLOR"] = "1"
             else: env.pop("NO_COLOR", None)
             process = subprocess.Popen([str(args.binary.resolve()), "-test.run=^TestRuntimeCapture$"], stdin=slave, stdout=slave, stderr=slave, env=env)
             os.close(slave)
             raw = bytearray()
+            pinned_context = None
 
             def drain():
                 end = time.monotonic() + 0.8
@@ -125,10 +202,18 @@ def main():
 
             pages = [("fleet", b""), ("fleet-selected", b"\x1b[B"), ("details", b"\r"), ("threads", b"\x1b2l"), ("reader", b"\r"), ("team", b"\x1bt"), ("team-detail", b"\r")]
             expected_pages = {"fleet": "Fleet", "fleet-selected": "Fleet", "details": "Fleet > Details", "threads": "Threads", "reader": "Threads > fixture-thread", "team": "Team", "team-detail": "Team > Agent"}
+            if width >= 100:
+                expected_pages.update({"fleet": "FLEET [focus]", "fleet-selected": "FLEET [focus]",
+                                       "details": "DETAILS [focus]"})
+            if args.details_only:
+                pages = [("details", [b"\x1b[B", b"\r"])]
             if args.exact_context:
-                pages.insert(3, ("details-exact-context", [b"\x1b[6~"] * 6))
-                pages.append(("team-exact-context", [b"\x1b[6~"] * 6))
-                expected_pages.update({"details-exact-context": "Fleet > Details", "team-exact-context": "Team > Agent"})
+                pages.insert(3, ("details-exact-context", []))
+                pages.append(("team-exact-context", []))
+                expected_pages.update({"details-exact-context": expected_pages["details"], "team-exact-context": "Team > Agent"})
+                if args.wide_short:
+                    pages.insert(4, ("details-keyboard-end", [b"\x1b[6~"] * 4))
+                    expected_pages["details-keyboard-end"] = expected_pages["details"]
             if args.extended:
                 # Each list item is one terminal key or a synthetic text chunk.
                 # Never send y in confirmation or a second Ctrl+S in preview.
@@ -138,19 +223,19 @@ def main():
                     ("ssh-add", [b"a"], "ADD SERVER"),
                     ("ssh-add-help", [b"\x1bOP"], "SSH Server Help"),
                     ("details-help", [b"\x1b", b"\x1b", b"1", b"\r", b"?"], "Help"),
-                    ("connect-confirmation", [b"\x1b", b"\r"], "Connect on the foreground terminal?"),
+                    ("connect-confirmation", [b"\x1b", b"c"], "Connect on the foreground terminal?"),
                     ("connect-reviewed", [b"\x1b[6~"] * 8, "Connect preflight"),
                     ("threads-new", [b"\x1b", b"2", b"\x1b", b"l", b"n"], "Threads > Composer (create)"),
                     ("create-preview", [b"Synthetic capture", b"\t", b"coop", b"\t", b"owner,hawk", b"\x13"], "Threads > Preview (create)"),
                     ("create-revealed", [b"\x16"], "Threads > Preview (create)"),
                     ("create-remasked", [b"\x16"], "Threads > Preview (create)"),
-                    ("root-composer", [b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
+                    ("root-composer", [b"\x1b", b"\x1b", b"d", b"\r", b"c"], "Threads > Composer (send)"),
                     ("composer-help", [b"\x1bOP"], "Composer Help"),
                     ("root-preview", [b"\x1b", b"hawk", b"\t", b"Synthetic capture only.", b"\x13"], "Threads > Preview (send)"),
-                    ("draft-guard", [b"\x1b"], "Draft protection"),
+                    ("draft-guard", [b"\x1b", b"\x1b"], "Draft protection"),
                     ("reply-composer", [b"d", b"p"], "Threads > Composer (reply)"),
                     ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
-                    ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt"),
+                    ("receipt", [b"\x1b", b"\x1b", b"d", b"s"], "Threads > Delivery receipt"),
                 ]
                 pages.extend((page, keys) for page, keys, _ in extended)
                 expected_pages.update((page, expected) for page, _, expected in extended)
@@ -158,7 +243,7 @@ def main():
                 supplemental = {
                     "": [("reply-composer", [b"2", b"l", b"\r", b"p"], "Threads > Composer (reply)"),
                          ("reply-preview", [b"hawk", b"\t", b"Synthetic reply only.", b"\x13"], "Threads > Preview (reply)"),
-                         ("receipt", [b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
+                          ("receipt", [b"\x1b", b"\x1b", b"d", b"s"], "Threads > Delivery receipt")],
                     "setup": [("missing-master", [], "Master setup")],
                     "first-use": [("no-remote-first-use", [], "SSH setup")],
                     "destroy": [("destroy-confirmation", [b"\x1b[B", b"\r", b"d"], "CONFIRM DESTROY"),
@@ -188,21 +273,58 @@ def main():
                     raise RuntimeError(f"fixture exited during {page}: {bytes(raw[-5000:])!r}")
                 stem = f"{width}x{height}-{'no-color-' if no_color else ''}{page}"
                 screen = replay(raw, width, height)
+                if args.exact_context and width >= 100 and page.startswith("details"):
+                    context = details_context(screen, width)
+                    if pinned_context is None:
+                        pinned_context = context
+                    elif context != pinned_context:
+                        raise RuntimeError("Details paging changed pinned context")
+                if page.endswith("exact-context"):
+                    identities = [prefix + "shared-prefix-" * 8 + "second" for prefix in ("master-", "principal-")]
+                    def identity_text():
+                        return details_text(screen, width) if page == "details-exact-context" else screen.replace("\n", "")
+                    steps = 0
+                    while not all(identity in identity_text() for identity in identities) and steps < 64:
+                        os.write(master, b"\x1b[6~")
+                        drain()
+                        screen = replay(raw, width, height)
+                        if page.startswith("details") and width >= 100 and details_context(screen, width) != pinned_context:
+                            raise RuntimeError("Details keyboard paging changed pinned context")
+                        steps += 1
+                    manifest["exact_context_page_down_keys"][stem] = steps
+                if page == "details-keyboard-end":
+                    if "2 then t: full Team diagnostics" not in details_text(screen, width):
+                        raise RuntimeError(f"Details end is not keyboard-reachable: {screen}")
                 expected = expected_pages[page]
                 if expected not in screen:
                     raise RuntimeError(f"navigation did not reach {page}: {screen}")
+                if width >= 100 and page in ("fleet-selected", "details", "details-exact-context"):
+                    assert_split(screen, width, details=page != "fleet-selected")
                 if page == "create-preview" and b"Synthetic capture" in raw:
                     raise RuntimeError("masked creation preview exposed input in terminal output")
                 if page in ("create-revealed", "create-remasked"):
                     if ("Synthetic capture" in screen) != (page == "create-revealed"):
                         raise RuntimeError("creation preview did not honor explicit reveal/mask")
+                if page in ("create-preview", "create-revealed", "create-remasked"):
+                    revealed = page == "create-revealed"
+                    state, action = ("revealed", "mask") if revealed else ("masked", "reveal")
+                    if f"Content: {state}" not in screen or f"^V {action}" not in screen or "Esc edit" not in screen:
+                        raise RuntimeError(f"creation preview state/controls disagree: {screen}")
+                    if "Captured members:" in screen or "Enter inserts" in screen:
+                        raise RuntimeError("creation preview retained unrelated/editing context")
+                if page == "draft-guard" and "Keep in memory, discard, or return" not in screen:
+                    raise RuntimeError("draft guard retained unrelated feedback")
+                if page == "details-help" and ("Master: test-master" not in screen or "Principal: owner" not in screen):
+                    raise RuntimeError("Details Help lost labeled context")
+                if page == "connect-reviewed" and "y confirms" in screen:
+                    raise RuntimeError("Connect retained mixed consent vocabulary")
                 if page in ("connect-confirmation", "connect-reviewed", "destroy-confirmation", "destroy-reviewed"):
                     header = screen.splitlines()[:4]
                     if len(header) != 4 or header[1:3] != ["Master: test-master", "Principal: owner"] or not header[3].startswith("Target:"):
                         raise RuntimeError(f"confirmation lost pinned context: {screen}")
                 if page.endswith("exact-context"):
                     for prefix in ("master-", "principal-"):
-                        if prefix + "shared-prefix-" * 8 + "second" not in screen.replace("\n", ""):
+                        if prefix + "shared-prefix-" * 8 + "second" not in identity_text():
                             raise RuntimeError(f"full exact identity not inspectable in {page}: {screen}")
                 (args.output / (stem + ".ansi")).write_bytes(raw)
                 (args.output / (stem + ".txt")).write_text(screen)

@@ -1,0 +1,24 @@
+Fleet Ledger | Filter: All
+> 界 é long-label...  waiting
+  work unknown / local pause
+  Report 6s ago / receipt 6s ago
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll

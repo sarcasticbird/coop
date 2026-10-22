@@ -1,0 +1,196 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: unavailable[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-label...  agent        running    unknown          no visible report                                        
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  界 é long-label...  agent        running    unknown          not bound                                                
+  Host: fixture-empty (fixture-empty-alias)[K
+[K
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[40;H[H
+
+Master: test-master | As: owner[K
+
+
+
+  界 é long-label...  agent        running    waiting          work unknown / local pause                               
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[H
+Master: test-master | As: owner[K
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER                                           
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-label...  agent        running    waiting          work unknown / local pause                               
+  界 é long-label...  agent        running    unknown          not bound                                                
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Host: fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+
+[40;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local pause[K
+Presence: idle | heartbeat: 1s ago (not work progress)[K
+Source: master diagnostics | report: 1s ago | receipt: 1s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Project: -[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+Diagnostic master: test-master | source: host-owned target binding[K
+Bound host: local | worker: fixture-worker-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T21:56:18Z[K
+Report age: 1s ago | receipt age: 1s ago[K
+Work observation age: unknown[K
+Wait observation age: 1s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Stage: unknown | phase: unknown[K
+Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Observed: 2026-10-21T21:56:18Z | worker started: 2026-10-21T20:56:18Z[K
+Task: unknown[K
+PR: unknown[K
+Head: unknown[K
+Job: unknown[K
+Session: unknown | submission: unknown[K
+Retry: unknown | deadline: unknown[K
+Dependencies: unknown[K
+GitHub: unknown | origin: unknown | category: unknown[K
+  Observed: unknown | last success: unknown[K
+
+Esc Fleet | Enter Connect | x | ? | PgUp/PgDn scroll[K[40;H[H
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago (not work progress)[K
+Source: master diagnostics | report: 2s ago | receipt: 2s ago[K
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago[K
+
+Wait observation age: 2s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H

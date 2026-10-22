@@ -1,0 +1,40 @@
+Threads > Composer (create)
+Master: test-master
+Principal: owner
+Content: masked
+> Title: [hidden, 0 bytes]
+  Engagement: [hidden, 0 bytes]
+  Stable member IDs (comma separated): [hidden, 0 bytes]
+Thread: new | parent: none (root)
+Request: WR4TKY3SDRDCI52DHLAQY3JU2P
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members:
+Creates a thread only; no message or wake.
+Enter inserts newline, never sends. Tab changes field.
+Not submitted; preview and review all before a second Ctrl+S submits.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc draft | ^S preview | ^V reveal | F1 help

@@ -1,0 +1,20 @@
+Fleet > Details
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Name: same-name
+Host: local / this machine
+VM lifecycle: running
+Activity: unknown
+Task: unknown
+PR: unknown
+Blocker: unknown
+Presence: unknown (no current bound
+observation)
+Source: no host-owned diagnostic binding
+Host health: ok; snapshot <5s old
+Target: local / agent / fixture-a
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | Enter Connect | x | ? | PgDn

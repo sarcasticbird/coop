@@ -1,0 +1,20 @@
+Fleet Ledger | Filter: All
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second
+Principal: principal-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second
+No target selected
+BIRD / HOST          REPORTED ACTIVITY
+Host: local
+  [ok; snapshot <5s old]
+  same-name           unknown
+  not bound
+Host: fixture-empty
+  [ok; snapshot <5s old]
+  (no Coops)
+
+Enter Details | h filter | ? help | PgDn

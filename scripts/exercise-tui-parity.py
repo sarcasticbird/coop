@@ -147,7 +147,14 @@ def main():
                     if b"Synthetic" in raw or "Content: revealed" in screen:
                         raise RuntimeError(f"{stem}: private synthetic body/revealed state appeared")
                     lines = screen.splitlines()
-                    if not lines or not lines[0].startswith(page):
+                    split = width >= 100 and page in ("Fleet", "Fleet > Details")
+                    if split:
+                        capture.assert_split(screen, width, details=page == "Fleet > Details",
+                                             selected=phase in ("fleet-selected", "details"))
+                        entry["checks"].extend(["both split panes and focused title"])
+                        if phase in ("fleet-selected", "details"):
+                            entry["checks"].append("persistent Fleet selection marker")
+                    elif not lines or not lines[0].startswith(page):
                         raise RuntimeError(f"{stem}: expected pinned page {page!r}; see capture")
                     entry["checks"].extend(["expected page", "no synthetic body in cumulative raw"])
                     if reader:

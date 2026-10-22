@@ -1,0 +1,58 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name        agent        running 
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+[K
+Enter Details | h filter | ? help | PgDn[20;H[H
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: unknown / not bound[K
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Name: same-name[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: unknown[K
+Work / blocker: no host-owned [K
+diagnostic binding[K
+Presence: unknown (no current bound [K
+observation)[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: same-name[K
+Project: -[K
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | Enter Connect | x | ? | PgDn[20;H

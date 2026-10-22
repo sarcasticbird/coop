@@ -1,0 +1,20 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name        agent        running 
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+[K
+Enter Details | h filter | ? help | PgDn[20;H

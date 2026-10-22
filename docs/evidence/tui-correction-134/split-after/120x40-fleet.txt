@@ -1,0 +1,40 @@
++- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: test-master                                                  |
+|Host: local                                   | |Principal: owner                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           waiting                 | |No target selected                                                   |
+|  work unknown / local pause                  | |Up/Down previews a bird; Enter opens Details.                        |
+|  Report 0s ago / receipt 0s ago              | |                                                                     |
+|Host: fixture-empty                           | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  (no Coops)                                  | |                                                                     |
+|Host: fixture-offline                         | |                                                                     |
+|  [unreachable]                               | |                                                                     |
+|Host: fixture-remote                          | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           stale                   | |                                                                     |
+|  old diagnostic report                       | |                                                                     |
+|  Report STALE 1m30s ago / receipt STALE 1m...| |                                                                     |
+|  same-name           unknown                 | |                                                                     |
+|  no visible diagnostic report                | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers

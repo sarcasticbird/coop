@@ -1,0 +1,40 @@
+[?25l[?1049h[2J[H[?25l[?2004h[H+- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: test-master                                                  |
+|Host: local                                   | |Principal: owner                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  界 é long-label...  waiting                 | |No target selected                                                   |
+|  work unknown / local pause                  | |Up/Down previews a bird; Enter opens Details.                        |
+|  Report 0s ago / receipt 0s ago              | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[40;H

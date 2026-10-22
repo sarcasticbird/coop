@@ -1,0 +1,4070 @@
+{
+  "source": "aa96a9ede673e07926b5475fdb6f6ac4cc8628fd",
+  "binary": "/tmp/opencode/hawk-137-details-final.test",
+  "sha256": "4b10784f85be00f22beb632c4891a1dbb4ff6f36ef0a9487fcc6bac3e75646fe",
+  "harness_sha256": "b9c723d524c0f33c45d3756fb8e08815f8f83a286f94307d27e21c35509a91c3",
+  "replay_sha256": "ad563dd804f4989485dbed8d0bce63c04691220b8def0e4bb04c903aec3fefa6",
+  "fixture": "TestRuntimeCapture / synthetic only; fixture rejects action dispatch and sends",
+  "stress": true,
+  "method": "native Bubble Tea on real PTY; fixed 0.8s input boundaries; ioctl + SIGWINCH resize",
+  "source_limit": "source is caller-supplied build provenance, not proof of an unmodified checkout",
+  "raw_policy": "Each checkpoint ANSI is cumulative within one fixed-dimension segment. Before a changed-size ioctl, drain the old segment, preserve it, then start a new raw segment. Replay starts blank and relies on the native resize repaint; no synthetic ANSI is inserted. Full session ANSI preserves every byte across all phases; segment offsets and dimensions describe how to interpret it. A same-size SIGWINCH retains the current segment.",
+  "limits": [
+    "No quiet-refresh content equality inferred from timestamps or fixed waits.",
+    "Selection identity is checked wherever rendered; hidden internal state is not observable.",
+    "Multi-candidate/long/Unicode runtime coverage requires --stress; ordinary fixture has one message.",
+    "Replay covers the existing capture script's CSI/Unicode subset, not a full terminal emulator.",
+    "No live transport, sends, confirmations, owner UAT or visual-parity verdict."
+  ],
+  "sessions": [
+    {
+      "id": "120x40-color",
+      "initial_width": 120,
+      "initial_height": 40,
+      "no_color": false,
+      "segments": [
+        {
+          "index": 0,
+          "width": 120,
+          "height": 40,
+          "start_byte": 0,
+          "end_byte": 21328,
+          "raw": "120x40-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 40,
+          "height": 20,
+          "start_byte": 21328,
+          "end_byte": 22439,
+          "raw": "120x40-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 80,
+          "height": 24,
+          "start_byte": 22439,
+          "end_byte": 24794,
+          "raw": "120x40-color-segment-2.ansi"
+        },
+        {
+          "index": 3,
+          "width": 120,
+          "height": 40,
+          "start_byte": 24794,
+          "end_byte": 34109,
+          "raw": "120x40-color-segment-3.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 4304
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 4895
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 6018
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 10290
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 10862
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 11364
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 11855
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 12362
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 12775
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 13188
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 13601
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 14108
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 14599
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 15101
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 15673
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 16264
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 16670
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 16740
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 18786
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 19052
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 19315
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 21328
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 21328,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 21970
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 22439,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 23728
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 24794,
+          "segment": 3
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 26946
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 26946
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 27324
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 29392
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 29770
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 34046
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "120x40-color-session.ansi"
+    },
+    {
+      "id": "120x40-no-color",
+      "initial_width": 120,
+      "initial_height": 40,
+      "no_color": true,
+      "segments": [
+        {
+          "index": 0,
+          "width": 120,
+          "height": 40,
+          "start_byte": 0,
+          "end_byte": 21541,
+          "raw": "120x40-no-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 40,
+          "height": 20,
+          "start_byte": 21541,
+          "end_byte": 22652,
+          "raw": "120x40-no-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 80,
+          "height": 24,
+          "start_byte": 22652,
+          "end_byte": 25007,
+          "raw": "120x40-no-color-segment-2.ansi"
+        },
+        {
+          "index": 3,
+          "width": 120,
+          "height": 40,
+          "start_byte": 25007,
+          "end_byte": 34322,
+          "raw": "120x40-no-color-segment-3.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 4517
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 5108
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 6231
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 10503
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 11075
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 11577
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 12068
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 12575
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 12988
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 13401
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 13814
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 14321
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 14812
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 15314
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 15886
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 16477
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 16883
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 16953
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 18999
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 19265
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 19528
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 21541
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 21541,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 22183
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 22652,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 23941
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 25007,
+          "segment": 3
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 27159
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 27159
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 27537
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 29605
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 29983
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 34259
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "120x40-no-color-session.ansi"
+    },
+    {
+      "id": "80x24-color",
+      "initial_width": 80,
+      "initial_height": 24,
+      "no_color": false,
+      "segments": [
+        {
+          "index": 0,
+          "width": 80,
+          "height": 24,
+          "start_byte": 0,
+          "end_byte": 9981,
+          "raw": "80x24-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 40,
+          "height": 20,
+          "start_byte": 9981,
+          "end_byte": 11090,
+          "raw": "80x24-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 80,
+          "height": 24,
+          "start_byte": 11090,
+          "end_byte": 13445,
+          "raw": "80x24-color-segment-2.ansi"
+        },
+        {
+          "index": 3,
+          "width": 120,
+          "height": 40,
+          "start_byte": 13445,
+          "end_byte": 22760,
+          "raw": "80x24-color-segment-3.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 1701
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 2079
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 2986
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 4709
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5052
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5314
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5544
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5744
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5976
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6122
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6300
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6559
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 6853
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 7179
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 7233
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 8376
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 8626
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 8873
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 9981
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 9981,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 10621
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 11090,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 12379
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 13445,
+          "segment": 3
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 15597
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 15597
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 15975
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 18043
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 18421
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 22697
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "80x24-color-session.ansi"
+    },
+    {
+      "id": "80x24-no-color",
+      "initial_width": 80,
+      "initial_height": 24,
+      "no_color": true,
+      "segments": [
+        {
+          "index": 0,
+          "width": 80,
+          "height": 24,
+          "start_byte": 0,
+          "end_byte": 9981,
+          "raw": "80x24-no-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 40,
+          "height": 20,
+          "start_byte": 9981,
+          "end_byte": 11090,
+          "raw": "80x24-no-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 80,
+          "height": 24,
+          "start_byte": 11090,
+          "end_byte": 13445,
+          "raw": "80x24-no-color-segment-2.ansi"
+        },
+        {
+          "index": 3,
+          "width": 120,
+          "height": 40,
+          "start_byte": 13445,
+          "end_byte": 22760,
+          "raw": "80x24-no-color-segment-3.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 1701
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 2079
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 2986
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 4709
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5052
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5314
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5544
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5744
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5860
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 5976
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6122
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6300
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 6559
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 6853
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 7179
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 7233
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 8376
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 8626
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 8873
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 9981
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 9981,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 10621
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 11090,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 12379
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 13445,
+          "segment": 3
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 15597
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 15597
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 15975
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 18043
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 18421
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 22697
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "80x24-no-color-session.ansi"
+    },
+    {
+      "id": "40x20-color",
+      "initial_width": 40,
+      "initial_height": 20,
+      "no_color": false,
+      "segments": [
+        {
+          "index": 0,
+          "width": 40,
+          "height": 20,
+          "start_byte": 0,
+          "end_byte": 7382,
+          "raw": "40x20-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 80,
+          "height": 24,
+          "start_byte": 7382,
+          "end_byte": 9735,
+          "raw": "40x20-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 120,
+          "height": 40,
+          "start_byte": 9735,
+          "end_byte": 19050,
+          "raw": "40x20-color-segment-2.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 826
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 1077
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 1742
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 2547
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 2807
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3026
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3213
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3370
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3483
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3555
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3624
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3737
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3880
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 4055
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 4271
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 4522
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 4828
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 4878
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 5469
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 5607
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 5745
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 6273
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 6273,
+          "segment": 0
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 6921
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 7382,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 8628
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 9735,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 11887
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 11887
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 12265
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 14333
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 14711
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 18987
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "40x20-color-session.ansi"
+    },
+    {
+      "id": "40x20-no-color",
+      "initial_width": 40,
+      "initial_height": 20,
+      "no_color": true,
+      "segments": [
+        {
+          "index": 0,
+          "width": 40,
+          "height": 20,
+          "start_byte": 0,
+          "end_byte": 7382,
+          "raw": "40x20-no-color-segment-0.ansi"
+        },
+        {
+          "index": 1,
+          "width": 80,
+          "height": 24,
+          "start_byte": 7382,
+          "end_byte": 9735,
+          "raw": "40x20-no-color-segment-1.ansi"
+        },
+        {
+          "index": 2,
+          "width": 120,
+          "height": 40,
+          "start_byte": 9735,
+          "end_byte": 20259,
+          "raw": "40x20-no-color-segment-2.ansi"
+        }
+      ],
+      "events": [
+        {
+          "input": "Fleet selection down",
+          "hex": "1b5b42",
+          "byte_offset": 826
+        },
+        {
+          "input": "open Details",
+          "hex": "0d",
+          "byte_offset": 1077
+        },
+        {
+          "input": "Esc Details",
+          "hex": "1b",
+          "byte_offset": 1742
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 2547
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 2807
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3026
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3213
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3370
+        },
+        {
+          "input": "Fleet PgDn",
+          "hex": "1b5b367e",
+          "byte_offset": 3483
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3555
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3624
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3737
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 3880
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 4055
+        },
+        {
+          "input": "Fleet PgUp (no reselection)",
+          "hex": "1b5b357e",
+          "byte_offset": 4271
+        },
+        {
+          "input": "workspace 2",
+          "hex": "32",
+          "byte_offset": 4522
+        },
+        {
+          "input": "Threads section",
+          "hex": "6c",
+          "byte_offset": 4828
+        },
+        {
+          "input": "open reader",
+          "hex": "0d",
+          "byte_offset": 4878
+        },
+        {
+          "input": "explicit message selection down",
+          "hex": "1b5b42",
+          "byte_offset": 5469
+        },
+        {
+          "input": "restore first message selection up",
+          "hex": "1b5b41",
+          "byte_offset": 5607
+        },
+        {
+          "input": "reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 5745
+        },
+        {
+          "input": "reader refresh",
+          "hex": "72",
+          "byte_offset": 6273
+        },
+        {
+          "resize": [
+            40,
+            20
+          ],
+          "byte_offset": 6273,
+          "segment": 0
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 6921
+        },
+        {
+          "resize": [
+            80,
+            24
+          ],
+          "byte_offset": 7382,
+          "segment": 1
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 8628
+        },
+        {
+          "resize": [
+            120,
+            40
+          ],
+          "byte_offset": 9735,
+          "segment": 2
+        },
+        {
+          "input": "resized reader PgDn (no reselection)",
+          "hex": "1b5b367e",
+          "byte_offset": 13096
+        },
+        {
+          "input": "Esc reader",
+          "hex": "1b",
+          "byte_offset": 13096
+        },
+        {
+          "input": "reopen reader",
+          "hex": "0d",
+          "byte_offset": 13474
+        },
+        {
+          "input": "Esc reopened reader",
+          "hex": "1b",
+          "byte_offset": 15542
+        },
+        {
+          "input": "Fleet workspace",
+          "hex": "31",
+          "byte_offset": 15920
+        },
+        {
+          "input": "quit without confirmation or sending",
+          "hex": "03",
+          "byte_offset": 20196
+        }
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "raw": "40x20-no-color-session.ansi"
+    }
+  ],
+  "captures": [
+    {
+      "stem": "120x40-color-000-fleet-120x40",
+      "session": "120x40-color",
+      "phase": "fleet",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4304,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-001-fleet-selected-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-selected",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4895,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-002-details-120x40",
+      "session": "120x40-color",
+      "phase": "details",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6018,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-003-fleet-return-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-return",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 10290,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-004-fleet-scrolled-1-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-1",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 10862,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-005-fleet-scrolled-2-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-2",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 11364,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-006-fleet-scrolled-3-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-3",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 11855,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-007-fleet-scrolled-4-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-4",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 12362,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-008-fleet-scrolled-5-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-5",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 12775,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-009-fleet-scrolled-6-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scrolled-6",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 13188,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-010-fleet-scroll-return-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-scroll-return",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 16264,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-011-threads-120x40",
+      "session": "120x40-color",
+      "phase": "threads",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 16740,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-012-reader-masked-120x40",
+      "session": "120x40-color",
+      "phase": "reader-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 18786,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-color-013-reader-selected-120x40",
+      "session": "120x40-color",
+      "phase": "reader-selected",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 19315,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-color-014-reader-pgdown-120x40",
+      "session": "120x40-color",
+      "phase": "reader-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 21328,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-015-reader-refresh-120x40",
+      "session": "120x40-color",
+      "phase": "reader-refresh",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 21328,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-016-reader-resize-40x20",
+      "session": "120x40-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 21328,
+      "end_byte": 21970,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-017-reader-resize-pgdown-40x20",
+      "session": "120x40-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 21328,
+      "end_byte": 22439,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-018-reader-resize-80x24",
+      "session": "120x40-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 22439,
+      "end_byte": 23728,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-019-reader-resize-pgdown-80x24",
+      "session": "120x40-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 22439,
+      "end_byte": 24794,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-020-reader-resize-120x40",
+      "session": "120x40-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 26946,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-021-reader-resize-pgdown-120x40",
+      "session": "120x40-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 26946,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-color-022-threads-return-120x40",
+      "session": "120x40-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 27324,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-023-reader-reopened-masked-120x40",
+      "session": "120x40-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 29392,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-color-024-threads-second-return-120x40",
+      "session": "120x40-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 29770,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-color-025-fleet-final-return-120x40",
+      "session": "120x40-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 24794,
+      "end_byte": 34046,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-026-fleet-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4517,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-027-fleet-selected-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-selected",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5108,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-028-details-120x40",
+      "session": "120x40-no-color",
+      "phase": "details",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6231,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-029-fleet-return-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-return",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 10503,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-030-fleet-scrolled-1-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-1",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 11075,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-031-fleet-scrolled-2-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-2",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 11577,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-032-fleet-scrolled-3-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-3",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 12068,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-033-fleet-scrolled-4-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-4",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 12575,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-034-fleet-scrolled-5-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-5",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 12988,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-035-fleet-scrolled-6-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scrolled-6",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 13401,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-036-fleet-scroll-return-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-scroll-return",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 16477,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-037-threads-120x40",
+      "session": "120x40-no-color",
+      "phase": "threads",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 16953,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-038-reader-masked-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 18999,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-039-reader-selected-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-selected",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 19528,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-040-reader-pgdown-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 21541,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-041-reader-refresh-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-refresh",
+      "width": 120,
+      "height": 40,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 21541,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-042-reader-resize-40x20",
+      "session": "120x40-no-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 21541,
+      "end_byte": 22183,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-043-reader-resize-pgdown-40x20",
+      "session": "120x40-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 21541,
+      "end_byte": 22652,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-044-reader-resize-80x24",
+      "session": "120x40-no-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 22652,
+      "end_byte": 23941,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-045-reader-resize-pgdown-80x24",
+      "session": "120x40-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 22652,
+      "end_byte": 25007,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-046-reader-resize-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 27159,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-047-reader-resize-pgdown-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 27159,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "120x40-no-color-048-threads-return-120x40",
+      "session": "120x40-no-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 27537,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-049-reader-reopened-masked-120x40",
+      "session": "120x40-no-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 29605,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-050-threads-second-return-120x40",
+      "session": "120x40-no-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 29983,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "120x40-no-color-051-fleet-final-return-120x40",
+      "session": "120x40-no-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 25007,
+      "end_byte": 34259,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-052-fleet-80x24",
+      "session": "80x24-color",
+      "phase": "fleet",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1701,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-053-fleet-selected-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-selected",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2079,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-054-details-80x24",
+      "session": "80x24-color",
+      "phase": "details",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2986,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-055-fleet-return-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-return",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4709,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-056-fleet-scrolled-1-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-1",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5052,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-057-fleet-scrolled-2-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-2",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5314,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-058-fleet-scrolled-3-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-3",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5544,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-059-fleet-scrolled-4-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-4",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5744,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-060-fleet-scrolled-5-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-5",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5860,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-061-fleet-scrolled-6-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scrolled-6",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5860,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-062-fleet-scroll-return-80x24",
+      "session": "80x24-color",
+      "phase": "fleet-scroll-return",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6853,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-063-threads-80x24",
+      "session": "80x24-color",
+      "phase": "threads",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 7233,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-064-reader-masked-80x24",
+      "session": "80x24-color",
+      "phase": "reader-masked",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 8376,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-color-065-reader-selected-80x24",
+      "session": "80x24-color",
+      "phase": "reader-selected",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 8873,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-color-066-reader-pgdown-80x24",
+      "session": "80x24-color",
+      "phase": "reader-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 9981,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-067-reader-refresh-80x24",
+      "session": "80x24-color",
+      "phase": "reader-refresh",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 9981,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-068-reader-resize-40x20",
+      "session": "80x24-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 9981,
+      "end_byte": 10621,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-069-reader-resize-pgdown-40x20",
+      "session": "80x24-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 9981,
+      "end_byte": 11090,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-070-reader-resize-80x24",
+      "session": "80x24-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 11090,
+      "end_byte": 12379,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-071-reader-resize-pgdown-80x24",
+      "session": "80x24-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 11090,
+      "end_byte": 13445,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-072-reader-resize-120x40",
+      "session": "80x24-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15597,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-073-reader-resize-pgdown-120x40",
+      "session": "80x24-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15597,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-color-074-threads-return-120x40",
+      "session": "80x24-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15975,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-075-reader-reopened-masked-120x40",
+      "session": "80x24-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 18043,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-color-076-threads-second-return-120x40",
+      "session": "80x24-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 18421,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-color-077-fleet-final-return-120x40",
+      "session": "80x24-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 22697,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-078-fleet-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1701,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-079-fleet-selected-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-selected",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2079,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-080-details-80x24",
+      "session": "80x24-no-color",
+      "phase": "details",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2986,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-081-fleet-return-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-return",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4709,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-082-fleet-scrolled-1-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-1",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5052,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-083-fleet-scrolled-2-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-2",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5314,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-084-fleet-scrolled-3-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-3",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5544,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-085-fleet-scrolled-4-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-4",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5744,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-086-fleet-scrolled-5-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-5",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5860,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-087-fleet-scrolled-6-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scrolled-6",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5860,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-088-fleet-scroll-return-80x24",
+      "session": "80x24-no-color",
+      "phase": "fleet-scroll-return",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6853,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-089-threads-80x24",
+      "session": "80x24-no-color",
+      "phase": "threads",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 7233,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-090-reader-masked-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-masked",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 8376,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-091-reader-selected-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-selected",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 8873,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-092-reader-pgdown-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 9981,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-093-reader-refresh-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-refresh",
+      "width": 80,
+      "height": 24,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 9981,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-094-reader-resize-40x20",
+      "session": "80x24-no-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 9981,
+      "end_byte": 10621,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-095-reader-resize-pgdown-40x20",
+      "session": "80x24-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 1,
+      "start_byte": 9981,
+      "end_byte": 11090,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-096-reader-resize-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 11090,
+      "end_byte": 12379,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-097-reader-resize-pgdown-80x24",
+      "session": "80x24-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 2,
+      "start_byte": 11090,
+      "end_byte": 13445,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-098-reader-resize-120x40",
+      "session": "80x24-no-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15597,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-099-reader-resize-pgdown-120x40",
+      "session": "80x24-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15597,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "80x24-no-color-100-threads-return-120x40",
+      "session": "80x24-no-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 15975,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-101-reader-reopened-masked-120x40",
+      "session": "80x24-no-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 18043,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-102-threads-second-return-120x40",
+      "session": "80x24-no-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 18421,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "80x24-no-color-103-fleet-final-return-120x40",
+      "session": "80x24-no-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 3,
+      "start_byte": 13445,
+      "end_byte": 22697,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-104-fleet-40x20",
+      "session": "40x20-color",
+      "phase": "fleet",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 826,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-105-fleet-selected-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-selected",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1077,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-106-details-40x20",
+      "session": "40x20-color",
+      "phase": "details",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1742,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-107-fleet-return-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-return",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2547,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-108-fleet-scrolled-1-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-1",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2807,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-109-fleet-scrolled-2-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-2",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3026,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-110-fleet-scrolled-3-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-3",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3213,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-111-fleet-scrolled-4-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-4",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3370,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-112-fleet-scrolled-5-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-5",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3483,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-113-fleet-scrolled-6-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scrolled-6",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3555,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-114-fleet-scroll-return-40x20",
+      "session": "40x20-color",
+      "phase": "fleet-scroll-return",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4522,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-115-threads-40x20",
+      "session": "40x20-color",
+      "phase": "threads",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4878,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-116-reader-masked-40x20",
+      "session": "40x20-color",
+      "phase": "reader-masked",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5469,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-color-117-reader-selected-40x20",
+      "session": "40x20-color",
+      "phase": "reader-selected",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5745,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-color-118-reader-pgdown-40x20",
+      "session": "40x20-color",
+      "phase": "reader-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6273,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-119-reader-refresh-40x20",
+      "session": "40x20-color",
+      "phase": "reader-refresh",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6273,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-120-reader-resize-40x20",
+      "session": "40x20-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6921,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-121-reader-resize-pgdown-40x20",
+      "session": "40x20-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 7382,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-122-reader-resize-80x24",
+      "session": "40x20-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 1,
+      "start_byte": 7382,
+      "end_byte": 8628,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-123-reader-resize-pgdown-80x24",
+      "session": "40x20-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 1,
+      "start_byte": 7382,
+      "end_byte": 9735,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-124-reader-resize-120x40",
+      "session": "40x20-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 11887,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-125-reader-resize-pgdown-120x40",
+      "session": "40x20-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 11887,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-color-126-threads-return-120x40",
+      "session": "40x20-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 12265,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-127-reader-reopened-masked-120x40",
+      "session": "40x20-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 14333,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-color-128-threads-second-return-120x40",
+      "session": "40x20-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 14711,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-color-129-fleet-final-return-120x40",
+      "session": "40x20-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 18987,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-130-fleet-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 826,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-131-fleet-selected-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-selected",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1077,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-132-details-40x20",
+      "session": "40x20-no-color",
+      "phase": "details",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 1742,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-133-fleet-return-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-return",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2547,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-134-fleet-scrolled-1-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-1",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 2807,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-135-fleet-scrolled-2-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-2",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3026,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-136-fleet-scrolled-3-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-3",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3213,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-137-fleet-scrolled-4-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-4",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3370,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-138-fleet-scrolled-5-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-5",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3483,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-139-fleet-scrolled-6-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scrolled-6",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 3555,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-140-fleet-scroll-return-40x20",
+      "session": "40x20-no-color",
+      "phase": "fleet-scroll-return",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4522,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-141-threads-40x20",
+      "session": "40x20-no-color",
+      "phase": "threads",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 4878,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-142-reader-masked-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-masked",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5469,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-143-reader-selected-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-selected",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 5745,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-144-reader-pgdown-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6273,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-145-reader-refresh-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-refresh",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6273,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-146-reader-resize-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-resize",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 6921,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-147-reader-resize-pgdown-40x20",
+      "session": "40x20-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 40,
+      "height": 20,
+      "segment": 0,
+      "start_byte": 0,
+      "end_byte": 7382,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-148-reader-resize-80x24",
+      "session": "40x20-no-color",
+      "phase": "reader-resize",
+      "width": 80,
+      "height": 24,
+      "segment": 1,
+      "start_byte": 7382,
+      "end_byte": 8628,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-149-reader-resize-pgdown-80x24",
+      "session": "40x20-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 80,
+      "height": 24,
+      "segment": 1,
+      "start_byte": 7382,
+      "end_byte": 9735,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-150-reader-resize-120x40",
+      "session": "40x20-no-color",
+      "phase": "reader-resize",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 13096,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-151-reader-resize-pgdown-120x40",
+      "session": "40x20-no-color",
+      "phase": "reader-resize-pgdown",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 13096,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": []
+    },
+    {
+      "stem": "40x20-no-color-152-threads-return-120x40",
+      "session": "40x20-no-color",
+      "phase": "threads-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 13474,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-153-reader-reopened-masked-120x40",
+      "session": "40x20-no-color",
+      "phase": "reader-reopened-masked",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 15542,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw",
+        "pinned reader identity",
+        "masked reader controls",
+        "exact fixture-message identity wherever visible",
+        "Esc Threads"
+      ],
+      "visible_reply_targets": [
+        "fixture-message"
+      ],
+      "visible_message_selections": [
+        "fixture-message"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-154-threads-second-return-120x40",
+      "session": "40x20-no-color",
+      "phase": "threads-second-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 15920,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    },
+    {
+      "stem": "40x20-no-color-155-fleet-final-return-120x40",
+      "session": "40x20-no-color",
+      "phase": "fleet-final-return",
+      "width": 120,
+      "height": 40,
+      "segment": 2,
+      "start_byte": 9735,
+      "end_byte": 20196,
+      "checks": [
+        "expected page",
+        "no synthetic body in cumulative raw"
+      ]
+    }
+  ],
+  "status": "passed"
+}

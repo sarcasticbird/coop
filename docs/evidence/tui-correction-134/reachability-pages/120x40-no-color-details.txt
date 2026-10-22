@@ -1,0 +1,40 @@
++- FLEET | Filter: All ------------------------+ +- DETAILS [focus] ---------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: test-master                                                  |
+|Host: local                                   | |Principal: owner                                                     |
+|  [ok; snapshot <5s old]                      | |Name: same-name                   | Host: local / this machine       |
+|> same-name           waiting                 | |REPORTED WORK                                                        |
+|  work unknown / local pause                  | |Activity: waiting                                                    |
+|  Report 4s ago / receipt 4s ago              | |Task: unknown                     | PR: unknown                      |
+|Host: fixture-empty                           | |Blocker: local pause                                                 |
+|  [ok; snapshot <5s old]                      | |OBSERVATION                                                          |
+|  (no Coops)                                  | |Source: mapped master diagnostics                                    |
+|Host: fixture-offline                         | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|  [unreachable]                               | |Presence: idle | heartbeat: 4s ago                                   |
+|Host: fixture-remote                          | |Report age: 4s ago                | Receipt age: 4s ago              |
+|  [ok; snapshot <5s old]                      | |Work age: unknown                 | Wait age: 4s ago                 |
+|  same-name           stale                   | |Heartbeat is not work progress.                                      |
+|  old diagnostic report                       | |TARGET                                                               |
+|  Report STALE 1m34s ago / receipt STALE 1m...| |Target: local / agent / fixture-a                                    |
+|  same-name           unknown                 | |2 then t: full Team diagnostics                                      |
+|  no visible diagnostic report                | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help

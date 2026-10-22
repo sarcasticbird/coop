@@ -1,0 +1,20 @@
+Fleet > Details
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Name: same-name
+Host: local / this machine
+REPORTED WORK
+Activity: unknown
+Task: unknown
+PR: unknown
+Blocker: unknown
+OBSERVATION
+Source: no host-owned diagnostic binding
+VM lifecycle: running
+Host health: ok; snapshot <5s old
+Presence: unknown (no current bound
+observation)
+Heartbeat is not work progress.
+TARGET
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | c Connect | x | ? | PgDn

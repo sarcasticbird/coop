@@ -1,0 +1,24 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Content: masked
+Title: [hidden, 17 bytes]
+Engagement: [hidden, 4 bytes]
+Members (owner included): [hidden, 2 members]
+Request: E2MSCOEZPOVIAWANA6TTPQNICN
+Exact Master: test-master
+Exact Principal: owner (owner) | epoch: 1
+Creates a thread only; no message or wake.
+Not created; review all pages before Ctrl+S creates.
+Esc edits; input changes require a new preview.
+
+
+
+
+
+
+
+
+
+PgDn review | Ctrl+S creates
+Esc edit | ^S create | ^V reveal | F1 help
