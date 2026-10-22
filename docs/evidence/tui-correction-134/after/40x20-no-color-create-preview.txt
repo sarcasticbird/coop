@@ -1,0 +1,20 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Creation members (owner included): [hidd
+en, 2 members]
+  Title: [hidden, 17 bytes]
+  Engagement: [hidden, 4 bytes]
+> Stable member IDs (comma separated): [
+hidden, 10 bytes]
+Thread: new | parent: none (root)
+Request: PB7CXRDKAPCIFZEWJ37DMP7RAG
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members:
+Creates a thread only; no message or wak
+e.
+Enter inserts newline, never sends. Tab
+Review captured context and input; Pg...
+Esc draft | ^S create | ^V view | F1 ...

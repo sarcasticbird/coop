@@ -1,0 +1,40 @@
+Draft protection
+Private buffers exist only in this process.
+Master: test-master
+Principal: owner
+Thread: fixture-thread
+Request: ACLBYHXFMYQQXZ2CX7G75E6CGM
+k Keep in memory | d Discard | r/Esc Return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Keep in memory, discard, or return
+k Keep | d Discard | r/Esc Return

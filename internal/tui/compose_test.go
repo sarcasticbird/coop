@@ -75,7 +75,7 @@ func TestComposeCreationFullPageAndCapturedPreview(t *testing.T) {
 			}
 			m, _ = coordinationKey(m, "ctrl+v")
 			preview := strings.Join(m.composeLines(), "\n")
-			for _, want := range []string{"test-master", "owner (owner)", "owner,hawk,robin", "coop", id, "no message or wake"} {
+			for _, want := range []string{"test-master", "owner (owner)", "hawk,owner,robin", "coop", id, "no message or wake"} {
 				if !strings.Contains(preview, want) {
 					t.Fatalf("preview omitted %s", want)
 				}

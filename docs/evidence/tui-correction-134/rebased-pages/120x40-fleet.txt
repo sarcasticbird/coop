@@ -1,0 +1,40 @@
+Fleet Ledger | Filter: All
+No target selected
+Master: test-master | As: owner
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER
+  Host: local (this machine)
+    [ok; snapshot <5s old]
+  same-name           agent        running    waiting          work unknown / local pause
+  Host: fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  (no Coops)
+  Host: fixture-offline (fixture-offline-alias)
+    [unreachable]
+  Host: fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+  same-name           agent        stopped    stale            old diagnostic report
+  same-name           agent        absent     unknown          no visible diagnostic report
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter Details | h filter | ? help

@@ -1,0 +1,944 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+Master: test-master[K
+Principal: owner[K
+No target selected[K
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+  same-name           waiting                                                   
+  work unknown / local pause[K
+  Report 0s ago / receipt 0s ago[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           stale                                                     
+  old diagnostic report[K
+  Report STALE 1m30s ago / receipt STALE 1m30s ago[K
+  same-name           unknown                                                   
+  no visible diagnostic report[K
+[K
+Enter Details | h filter | ? help[K[24;H[H
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> same-name           waiting                                                   
+  work unknown / local pause[K
+  Report 0s ago / receipt 0s ago[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           stale                                                     
+  old diagnostic report[K
+  Report STALE 1m30s ago / receipt STALE 1m30s ago[K
+  same-name           unknown                                                   
+  no visible diagnostic report[K
+[K
+
+[24;H[H
+
+
+
+
+
+
+
+  Report 2s ago / receipt 2s ago[K
+
+
+
+
+
+
+
+
+
+  Report STALE 1m32s ago / receipt STALE 1m32s ago[K
+
+
+
+
+[24;H[HFleet > Details[K
+
+
+Name: same-name                        | Host: local / this machine[K
+REPORTED WORK[K
+Activity: waiting[K
+Task: unknown                          | PR: unknown[K
+Blocker: local pause[K
+OBSERVATION[K
+Source: mapped master diagnostics[K
+VM lifecycle: running                  | Host health: ok; snapshot <5s old[K
+Presence: idle | heartbeat: 2s ago[K
+Report age: 2s ago                     | Receipt age: 2s ago[K
+Work age: unknown                      | Wait age: 2s ago[K
+Heartbeat is not work progress.[K
+TARGET[K
+Target: local / agent / fixture-a[K
+2 then t: full Team diagnostics[K
+[K
+[K
+[K
+
+
+Esc Fleet | c Connect | x | ?[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 4s ago[K
+Report age: 4s ago                     | Receipt age: 4s ago[K
+Work age: unknown                      | Wait age: 4s ago[K
+
+
+
+
+
+
+
+
+
+[24;H[HFleet Ledger | Filter: All[K
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> same-name           waiting                                                   
+  work unknown / local pause[K
+  Report 4s ago / receipt 4s ago[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           stale                                                     
+  old diagnostic report[K
+  Report STALE 1m34s ago / receipt STALE 1m34s ago[K
+  same-name           unknown                                                   
+  no visible diagnostic report[K
+
+
+Enter Details | h filter | ? help[K[24;H[HThreads[K
+
+Principal: owner (owner)[K
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+
+
+Enter open | n new | ? help | Esc[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[24;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 1 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc Threads | p reply | ^V reveal | ?[K[24;H[HThreads[K
+
+
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+Returned to Threads[K
+Enter open | n new | ? help | Esc[K[24;H[HTeam[K
+
+Principal: owner[K
+Source: master Team presence | Team snapshot age: 0s ago[K
+Read only; heartbeat is not work progress[K
+  AGENT             HOST            PRESENCE      WORK / BLOCKER                
+> same-name         local           idle          unknown                       
+  same-name         fixture-remote  paused        unknown                       
+  same-name         fixture-remote  unknown       unknown                       
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+Esc Fleet | Enter inspect | r | ?[K[24;H[HTeam > Agent[K
+
+
+Agent: same-name[K
+Host: local[K
+Presence: idle | heartbeat: 11s ago[K
+Handling: waiting[K
+Work / blocker: work unknown / local pause[K
+Source: master Team presence | Team snapshot age: 0s ago[K
+Read only; heartbeat is not work progress[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+AgentID: fixture-a[K
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-22T16:33:51Z[K
+Report age: 11s ago | receipt age: 11s ago[K
+Work observation age: unknown[K
+Wait observation age: 11s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll[K[24;H[H
+
+
+
+
+Presence: idle | heartbeat: 12s ago[K
+
+
+
+
+
+
+
+
+
+
+
+Report age: 12s ago | receipt age: 12s ago[K
+
+Wait observation age: 12s ago[K
+
+
+
+[24;H[HTeam Help[K
+Master Team and diagnostics are read-only observations, not VM state or action [K
+authority.[K
+List: up/down or j/k select agent; Enter inspects the captured [K
+agent/host/worker/generation.[K
+Detail: j/k or PgUp/PgDn scroll; Esc returns to the same Team selection and [K
+viewport.[K
+r refresh | f follow/poll | t/l/i/g sections | 1 Fleet | 3 Servers | q quit[K
+Missing, denied, unsupported and clock-skewed evidence is unknown. STALE is [K
+retained evidence, not current work.[K
+Heartbeat age is not work progress. Report, receipt, work and wait ages are [K
+separate.[K
+Placement changes invalidate reports; return and inspect again. Reads never [K
+wake agents or perform recovery.[K
+? or Esc returns without changing selection or dispatching an action.[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+F1/Esc return | PgUp/PgDn scroll[K[24;H[HTeam > Agent[K
+Master: test-master[K
+Principal: owner[K
+Agent: same-name[K
+Host: local[K
+Presence: idle | heartbeat: 14s ago[K
+Handling: waiting[K
+Work / blocker: work unknown / local pause[K
+Source: master Team presence | Team snapshot age: 3s ago[K
+Read only; heartbeat is not work progress[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+AgentID: fixture-a[K
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-22T16:33:51Z[K
+Report age: 14s ago | receipt age: 14s ago[K
+Work observation age: unknown[K
+Wait observation age: 14s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Snapshot refreshed[K
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll[K[24;H[HServers | SSH references[K
+
+
+HOST   CONFIGURED SSH REFERENCE[K
+Master configuration is separate; removing a reference does not delete VMs.[K
+> local (this machine)[K
+    [ok; snapshot <5s old][K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+a add | e edit | d remove | v | ?[K[24;H[HADD SERVER[K
+
+
+Name: [K
+SSH reference: [K
+Existing SSH reference only; not master setup. No provisioning, tokens or trust 
+bypass.[K
+Editing name; tab field / enter save / esc cancel[K
+[K
+[K
+[K
+[K
+[K
+
+
+
+
+
+
+
+
+
+
+Tab field | Enter save | F1 help | Esc[K[24;H[HSSH Server Help[K
+Register an existing SSH reference from ~/.ssh/config; master coordination setup
+ is separate.[K
+No token entry, provisioning, trust bypass or service startup. Paths and configu
+ration stay on the selected host.[K
+Tab selects field; type literal text (including ?); Enter saves; Esc cancels. Re
+moval needs full review and explicit consent.[K
+F1 or Esc returns to the same editor field and viewport without changing input.[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+F1/Esc return | PgUp/PgDn scroll[K[24;H[HADD SERVER[K
+Master: test-master[K
+Principal: owner[K
+Name: [K
+SSH reference: [K
+Existing SSH reference only; not master setup. No provisioning, tokens or trust 
+bypass.[K
+Editing name; tab field / enter save / esc cancel[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Tab field | Enter save | F1 help | Esc[K[24;H[HServers | SSH references[K
+
+
+HOST   CONFIGURED SSH REFERENCE[K
+Master configuration is separate; removing a reference does not delete VMs.[K
+> local (this machine)[K
+    [ok; snapshot <5s old][K
+  fixture-empty (fixture-empty-alias)[K
+    [ok; snapshot <5s old][K
+  fixture-offline (fixture-offline-alias)[K
+    [unreachable][K
+  fixture-remote (fixture-ssh-alias)[K
+    [ok; snapshot <5s old][K
+server change cancelled[K
+
+
+
+
+
+
+
+
+server change cancelled[K
+a add | e edit | d remove | v | ?[K[24;H[HFleet Ledger | Filter: All[K
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> same-name           waiting                                                   
+  work unknown / local pause[K
+  Report 22s ago / receipt 22s ago[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+  [unreachable][K
+Host: fixture-remote[K
+  [ok; snapshot <5s old][K
+  same-name           stale                                                     
+  old diagnostic report[K
+  Report STALE 1m52s ago / receipt STALE 1m52s ago[K
+  same-name           unknown                                                   
+  no visible diagnostic report[K
+
+
+Enter Details | h filter | ? help[K[24;H[HFleet > Details[K
+
+
+Name: same-name                        | Host: local / this machine[K
+REPORTED WORK[K
+Activity: waiting[K
+Task: unknown                          | PR: unknown[K
+Blocker: local pause[K
+OBSERVATION[K
+Source: mapped master diagnostics[K
+VM lifecycle: running                  | Host health: ok; snapshot <5s old[K
+Presence: idle | heartbeat: 23s ago[K
+Report age: 23s ago                    | Receipt age: 23s ago[K
+Work age: unknown                      | Wait age: 23s ago[K
+Heartbeat is not work progress.[K
+TARGET[K
+Target: local / agent / fixture-a[K
+2 then t: full Team diagnostics[K
+[K
+[K
+[K
+
+[K
+Esc Fleet | c Connect | x | ?[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 24s ago[K
+Report age: 24s ago                    | Receipt age: 24s ago[K
+Work age: unknown                      | Wait age: 24s ago[K
+
+
+
+
+
+
+
+
+
+[24;H[HDetails Help[K
+
+
+Target: local / agent / fixture-a[K
+Host destination: this machine[K
+Runtime: same-name[K
+Connect needs a running VM; Apply and Backup need a stopped VM.[K
+Observations do not grant action authority; every action revalidates the [K
+captured target.[K
+1 Fleet | 2 Coordination | 3 Servers[K
+up/down or j/k: select | enter/tab: Details[K
+r: refresh | ?: help | esc: back/cancel | q: quit[K
+Fleet: h host filter | Enter Details (never Connect)[K
+Details: c Connect | u up | s stop | d destroy[K
+x: selected target/host operations | v: services/about[K
+Servers: a add | e update | d remove[K
+Forms: type | tab field | backspace edit | enter save[K
+Confirmation: y confirm | n or esc cancel[K
+Busy operations serialize changes; Ctrl+C exits.[K
+? or esc: return[K
+Coordination: t team | l threads | i inbox | g goals | n create | c compose | p 
+reply/prompt[K
+
+F1/Esc return | PgUp/PgDn scroll[K[24;H[HFleet > Details[K
+
+
+Name: same-name                        | Host: local / this machine[K
+REPORTED WORK[K
+Activity: waiting[K
+Task: unknown                          | PR: unknown[K
+Blocker: local pause[K
+OBSERVATION[K
+Source: mapped master diagnostics[K
+VM lifecycle: running                  | Host health: ok; snapshot <5s old[K
+Presence: idle | heartbeat: 25s ago[K
+Report age: 25s ago                    | Receipt age: 25s ago[K
+Work age: unknown                      | Wait age: 25s ago[K
+Heartbeat is not work progress.[K
+TARGET[K
+Target: local / agent / fixture-a[K
+2 then t: full Team diagnostics[K
+[K
+[K
+[K
+[K
+
+Esc Fleet | c Connect | x | ?[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 26s ago[K
+Report age: 26s ago                    | Receipt age: 26s ago[K
+Work age: unknown                      | Wait age: 26s ago[K
+
+
+
+
+
+
+
+
+
+[24;H[HConnect preflight[K
+
+
+Target: local / agent / fixture-a[K
+Target: local / agent / fixture-a[K
+Name: same-name[K
+Host destination: this machine[K
+Project: -[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+Master context is not the lifecycle destination.[K
+Connect on the foreground terminal? Remote SSH: Ctrl+] detaches; Ctrl+D is [K
+application EOF and may end the guest shell. Ctrl+C reaches the foreground [K
+application. Local: exit the foreground application to return. Return to the [K
+same Details and filter; no automatic reconnect.[K
+No automatic retry or rollback. Review every page, then Enter continues; Esc [K
+cancels.[K
+VM lifecycle: running; Connect requires running. A stopped VM needs explicit [K
+Start first.[K
+Enter continues only after complete review; Esc returns to Details.[K
+Exact CLI arguments: ["--agent" "fixture-a" "--"][K
+
+
+Esc cancel | PgDn review | disabled[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc cancel | Enter after full review[K[24;H[HFleet > Details[K
+
+
+Name: same-name                        | Host: local / this machine[K
+REPORTED WORK[K
+Activity: waiting[K
+Task: unknown                          | PR: unknown[K
+Blocker: local pause[K
+OBSERVATION[K
+Source: mapped master diagnostics[K
+VM lifecycle: running                  | Host health: ok; snapshot <5s old[K
+Presence: idle | heartbeat: 35s ago[K
+Report age: 35s ago                    | Receipt age: 35s ago[K
+Work age: unknown                      | Wait age: 35s ago[K
+Heartbeat is not work progress.[K
+TARGET[K
+Target: local / agent / fixture-a[K
+2 then t: full Team diagnostics[K
+action cancelled[K
+[K
+[K
+
+action cancelled[K
+Esc Fleet | c Connect | x | ?[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 36s ago[K
+Report age: 36s ago                    | Receipt age: 36s ago[K
+Work age: unknown                      | Wait age: 36s ago[K
+
+
+
+
+
+
+
+
+
+[24;H[HTeam > Agent[K
+
+
+Agent: same-name[K
+Host: local[K
+Presence: idle | heartbeat: 36s ago[K
+Handling: waiting[K
+Work / blocker: work unknown / local pause[K
+Source: master Team presence | Team snapshot age: 24s ago[K
+Read only; heartbeat is not work progress[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+AgentID: fixture-a[K
+Captured Host: local | Worker: fixture-worker-1 | Generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-22T16:33:51Z[K
+Report age: 36s ago | receipt age: 36s ago[K
+Work observation age: unknown[K
+Wait observation age: 36s ago[K
+Reported observations below are not current health or action authority.[K
+Handling: waiting | reason: local_pause[K
+Snapshot refreshed[K
+Esc Team | r refresh | PgDn more | ? | PgUp/PgDn scroll[K[24;H[HTeam[K
+
+
+Source: master Team presence | Team snapshot age: 25s ago[K
+Read only; heartbeat is not work progress[K
+  AGENT             HOST            PRESENCE      WORK / BLOCKER                
+> same-name         local           idle          unknown                       
+  same-name         fixture-remote  paused        unknown                       
+  same-name         fixture-remote  unknown       unknown                       
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+Returned to Team[K
+Esc Fleet | Enter inspect | r | ?[K[24;H[H
+
+
+Source: master Team presence | Team snapshot age: 26s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[HThreads[K
+
+Principal: owner (owner)[K
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+Enter open | n new | ? help | Esc[K[24;H[HThreads > Composer (create)[K
+
+Principal: owner[K
+Content: masked[K
+> Title: [hidden, 0 bytes][K
+  Engagement: [hidden, 0 bytes][K
+  Stable member IDs (comma separated): [hidden, 0 bytes][K
+Thread: new | parent: none (root)[K
+Request: 6NIBZXFDACVOXFDZS5FN6IJ7LO[K
+Captured master: test-master[K
+Principal: owner (owner) | epoch: 1[K
+Engagement: [K
+Captured members: [K
+Creates a thread only; no message or wake.[K
+Enter inserts newline, never sends. Tab changes field.[K
+Not submitted; preview and review all before a second Ctrl+S submits.[K
+
+
+
+
+
+
+[K
+Esc draft | ^S preview | ^V reveal | F1 help[K[24;H[H
+
+
+
+> Title: [hidden, 17 bytes][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+
+  Title: [hidden, 17 bytes][K
+> Engagement: [hidden, 0 bytes][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+
+
+> Engagement: [hidden, 4 bytes][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+
+
+  Engagement: [hidden, 4 bytes][K
+> Stable member IDs (comma separated): [hidden, 0 bytes][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+
+
+
+> Stable member IDs (comma separated): [hidden, 10 bytes][K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[HThreads > Preview (create)[K
+
+
+
+Title: [hidden, 17 bytes][K
+Engagement: [hidden, 4 bytes][K
+Members (owner included): [hidden, 2 members][K
+Request: 6NIBZXFDACVOXFDZS5FN6IJ7LO[K
+Exact Master: test-master[K
+Exact Principal: owner (owner) | epoch: 1[K
+Creates a thread only; no message or wake.[K
+Not created; review all pages before Ctrl+S creates.[K
+Esc edits; input changes require a new preview.[K
+[K
+[K
+[K
+
+
+
+
+
+
+PgDn review | Ctrl+S creates[K
+Esc edit | ^S create | ^V reveal | F1 help[K[24;H

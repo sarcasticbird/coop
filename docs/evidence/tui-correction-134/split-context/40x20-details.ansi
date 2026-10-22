@@ -1,0 +1,58 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+Master: master-shared-prefix-shared-pref
+ix-shared-prefix-shared-prefix-shared-pr
+efix-shared-prefix-shared-prefix-shared-
+prefix-second[K
+Principal: principal-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second[K
+No target selected[K
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+  same-name           unknown           
+  not bound[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+[K
+Enter Details | h filter | ? help | PgDn[20;H[H
+
+
+
+
+
+
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> same-name           unknown           
+  not bound[K
+Host: fixture-empty[K
+  [ok; snapshot <5s old][K
+  (no Coops)[K
+Host: fixture-offline[K
+
+[20;H[HFleet > Details[K
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Name: same-name[K
+Host: local / this machine[K
+REPORTED WORK[K
+Activity: unknown[K
+Task: unknown[K
+PR: unknown[K
+Blocker: unknown[K
+OBSERVATION[K
+Source: no host-owned diagnostic binding
+VM lifecycle: running[K
+Host health: ok; snapshot <5s old[K
+Presence: unknown (no current bound [K
+observation)[K
+Heartbeat is not work progress.[K
+TARGET[K
+UNKNOWN | no host-owned diagnostic bi...
+Esc Fleet | c Connect | x | ? | PgDn[K[20;H

@@ -1,0 +1,20 @@
+Team > Agent
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Agent: same-name
+Host: local
+Presence: idle | heartbeat: 18s ago
+Handling: waiting
+Work / blocker: work unknown / local
+pause
+Source: master Team presence | Team
+snapshot age: 1s ago
+Read only; heartbeat is not work
+progress
+Exact Master: master-shared-prefix-share
+d-prefix-shared-prefix-shared-prefix-sha
+red-prefix-shared-prefix-shared-prefix-s
+hared-prefix-second
+Exact Principal: principal-shared-prefix
+Snapshot refreshed
+Esc Team | r refresh | PgDn more | ?

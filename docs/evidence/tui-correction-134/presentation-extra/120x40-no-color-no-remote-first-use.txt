@@ -1,0 +1,40 @@
+Servers | SSH references
+Master: test-master
+Principal: owner
+HOST   CONFIGURED SSH REFERENCE
+Master configuration is separate; removing a reference does not delete VMs.
+SSH setup: no SSH servers registered. Press a to add an existing reference from ~/.ssh/config.
+SSH registration is separate from master setup. It does not provision a host, enter tokens, bypass trust, or start
+services.
+> local (this machine)
+    [ok; snapshot <5s old]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+a add | e edit | d remove | v | ?

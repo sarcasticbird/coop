@@ -1,0 +1,20 @@
++- FLEET | Filter: All ------------------------+ +- DETAILS [focus] ---------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: master-shared-prefix-shared-prefix-shared-prefix-shared-pr...|
+|Host: local                                   | |Principal: principal-shared-prefix-shared-prefix-shared-prefix-sha...|
+|  [ok; snapshot <5s old]                      | |OBSERVATION                                                          |
+|> same-name           unknown                 | |Source: no host-owned diagnostic binding                             |
+|  not bound                                   | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|Host: fixture-empty                           | |Presence: unknown (no current bound observation)                     |
+|  [ok; snapshot <5s old]                      | |Heartbeat is not work progress.                                      |
+|  (no Coops)                                  | |TARGET                                                               |
+|Host: fixture-offline                         | |Target: local / agent / fixture-a                                    |
+|  [unreachable]                               | |Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared|
+|Host: fixture-remote                          | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+|  [ok; snapshot <5s old]                      | |d                                                                    |
+|  same-name           unknown                 | |Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-|
+|  not bound                                   | |shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix|
+|  same-name           unknown                 | |-second                                                              |
+|  not bound                                   | |2 then t: full Team diagnostics                                      |
++----------------------------------------------+ +---------------------------------------------------------------------+
+UNKNOWN | no host-owned diagnostic binding; work unknown
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help

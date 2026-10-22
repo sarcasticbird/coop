@@ -249,28 +249,46 @@ func (m fleetModel) composeLines() (lines []string) {
 		}
 	}
 	lines = []string{"Threads > " + state + " (" + f.kind + ")", "Master: " + f.master, "Principal: " + f.self.Principal.ID}
+	privacy := "masked"
+	if canReveal && f.reveal {
+		privacy = "revealed"
+	}
+	lines = append(lines, "Content: "+privacy)
+	if f.kind == "create" && f.preview {
+		members := append(coordIDs(f.values[2]), f.self.Principal.ID)
+		slices.Sort(members)
+		members = slices.Compact(members)
+		for i, label := range []string{"Title", "Engagement"} {
+			value := fmt.Sprintf("[hidden, %d bytes]", len(f.values[i]))
+			if canReveal && f.reveal {
+				value = valueOr(f.values[i], "none")
+			}
+			lines = append(lines, label+": "+value)
+		}
+		value := fmt.Sprintf("[hidden, %d members]", len(members))
+		if canReveal && f.reveal {
+			value = strings.Join(members, ",")
+		}
+		lines = append(lines, "Members (owner included): "+value, "Request: "+f.requestID, "Exact Master: "+f.master, fmt.Sprintf("Exact Principal: %s (%s) | epoch: %d", f.self.Principal.ID, f.self.Principal.Kind, f.self.RestoreEpoch), "Creates a thread only; no message or wake.")
+		if f.frozen {
+			lines = append(lines, "Outcome unknown; Ctrl+R retries ONLY this identical request.")
+		} else {
+			lines = append(lines, "Not created; review all pages before Ctrl+S creates.", "Esc edits; input changes require a new preview.")
+		}
+		return lines
+	}
 	if f.kind == "reply" {
 		lines = append(lines, "Blank recipients use captured parent author: "+f.parentAuthor)
 	}
 	if f.kind == "send" {
 		lines = append(lines, "Blank To is a note; wakes nobody.")
 	}
-	if f.kind == "create" && f.preview && canReveal {
-		members := append(coordIDs(f.values[2]), f.self.Principal.ID)
-		slices.Sort(members)
-		members = slices.Compact(members)
-		value := fmt.Sprintf("[hidden, %d members]", len(members))
-		if f.reveal {
-			value = strings.Join(members, ",")
-		}
-		lines = append(lines, "Creation members (owner included): "+value)
-	}
 	if f.kind == "decision" {
 		lines = append(lines, fmt.Sprintf("Goal: %s\nExact revision: %s\nExpected decision sequence: %d\nState: %s", f.authority.Revision.Ref.GoalID, f.authority.Revision.Ref.RevisionSHA256, f.authority.DecisionSequence, f.authority.State))
 	}
 	for i, label := range f.labels {
 		prefix := "  "
-		if i == f.field {
+		if i == f.field && !f.preview {
 			prefix = "> "
 		}
 		value := fmt.Sprintf("[hidden, %d bytes]", len(f.values[i]))
@@ -290,6 +308,8 @@ func (m fleetModel) composeLines() (lines []string) {
 	}
 	if f.frozen {
 		lines = append(lines, "Ctrl+R retries ONLY this identical request.", "No automatic retry; Esc draft options.")
+	} else if f.preview {
+		lines = append(lines, "Not submitted; review all pages before Ctrl+S submits.", "Esc edits; input changes require a new preview.")
 	} else {
 		lines = append(lines, "Enter inserts newline, never sends. Tab changes field.", "Not submitted; preview and review all before a second Ctrl+S submits.")
 	}

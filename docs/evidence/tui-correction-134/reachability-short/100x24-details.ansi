@@ -1,0 +1,70 @@
+[?25l[?1049h[2J[H[?25l[?2004h[H[1;38;5;116m+- FLEET [focus] | Filter: All --------+[0m +- DETAILS -----------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY| |Master: master-shared-prefix-shared-prefix-shared-pref...|
+|Host: local                           | |Principal: principal-shared-prefix-shared-prefix-share...|
+|  [ok; snapshot <5s old]              | |                                                         |
+|  same-name          unknown          | |No target selected                                       |
+|  not bound                           | |Up/Down previews a bird; Enter opens Details.            |
+|Host: fixture-empty                   | |                                                         |
+|  [ok; snapshot <5s old]              | |                                                         |
+|  (no Coops)                          | |                                                         |
+|Host: fixture-offline                 | |                                                         |
+|  [unreachable]                       | |                                                         |
+|Host: fixture-remote                  | |                                                         |
+|  [ok; snapshot <5s old]              | |                                                         |
+|  same-name          unknown          | |                                                         |
+|  not bound                           | |                                                         |
+|  same-name          unknown          | |                                                         |
+|  not bound                           | |                                                         |
+|                                      | |                                                         |
+|                                      | |                                                         |
+|                                      | |                                                         |
+|                                      | |                                                         |
++--------------------------------------+ +---------------------------------------------------------+
+[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[24;H[H
+
+
+|  [ok; snapshot <5s old]              | |Name: same-name                                          |
+|[1;38;5;116m> same-name          unknown          [0m| |Host: local / this machine                               |
+|  not bound                           | |[1;38;5;116mREPORTED WORK                                            [0m|
+|Host: fixture-empty                   | |Activity: unknown                                        |
+|  [ok; snapshot <5s old]              | |Task: unknown                                            |
+|  (no Coops)                          | |PR: unknown                                              |
+|Host: fixture-offline                 | |Blocker: unknown                                         |
+|  [unreachable]                       | |[1;38;5;116mOBSERVATION                                              [0m|
+|Host: fixture-remote                  | |Source: no host-owned diagnostic binding                 |
+|  [ok; snapshot <5s old]              | |VM lifecycle: running                                    |
+|  same-name          unknown          | |Host health: ok; snapshot <5s old                        |
+|  not bound                           | |Presence: unknown (no current bound observation)         |
+|  same-name          unknown          | |Heartbeat is not work progress.                          |
+|  not bound                           | |[1;38;5;116mTARGET                                                   [0m|
+|                                      | |Target: local / agent / fixture-a                        |
+|                                      | |Exact Master: master-shared-prefix-shared-prefix-shared-p|
+|                                      | |refix-shared-prefix-shared-prefix-shared-prefix-shared-pr|
+|                                      | |efix-shared-prefix-second                                |
+
+UNKNOWN | not bound[K
+[24;H[H+- FLEET | Filter: All ----------------+ [1;38;5;116m+- DETAILS [focus] ---------------------------------------+[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+UNKNOWN | no host-owned diagnostic binding; work unknown[K
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help[K[24;H

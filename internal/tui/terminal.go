@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/muesli/cancelreader"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
+	"golang.org/x/sys/unix"
 )
 
 // Bubble Tea reinitializes raw mode after exec and captures a new baseline.
@@ -25,6 +26,11 @@ func (c *foregroundCommand) SetStdin(r io.Reader)  { c.command.Stdin = r }
 func (c *foregroundCommand) SetStdout(w io.Writer) { c.command.Stdout = w }
 func (c *foregroundCommand) SetStderr(w io.Writer) { c.command.Stderr = w }
 func (c *foregroundCommand) Run() (err error) {
+	restoreFlags, err := saveTerminalDescriptorFlags(c.command.Stdin, c.command.Stdout, c.command.Stderr)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, restoreFlags()) }()
 	file, ok := c.command.Stdin.(*os.File)
 	if !ok || !term.IsTerminal(file.Fd()) {
 		return errors.New("foreground action requires terminal stdin")
@@ -35,6 +41,47 @@ func (c *foregroundCommand) Run() (err error) {
 	}
 	defer func() { err = errors.Join(err, term.Restore(file.Fd(), state)) }()
 	return c.command.Run()
+}
+
+// A child shares inherited open-file descriptions with its caller. Restoring
+// termios does not undo O_NONBLOCK left by a terminal client on stdout/stderr.
+func saveTerminalDescriptorFlags(streams ...any) (func() error, error) {
+	type descriptor struct {
+		fd    uintptr
+		flags int
+	}
+	var saved []descriptor
+	for _, stream := range streams {
+		file, ok := stream.(*os.File)
+		if !ok {
+			continue
+		}
+		conn, err := file.SyscallConn()
+		if err != nil {
+			return nil, err
+		}
+		var readErr error
+		// File.Fd can itself change blocking mode; observe the original flags.
+		if err = conn.Control(func(fd uintptr) {
+			if !term.IsTerminal(fd) {
+				return
+			}
+			var flags int
+			flags, readErr = unix.FcntlInt(fd, unix.F_GETFL, 0)
+			if readErr == nil {
+				saved = append(saved, descriptor{fd, flags})
+			}
+		}); err != nil || readErr != nil {
+			return nil, errors.Join(err, readErr)
+		}
+	}
+	return func() (err error) {
+		for _, item := range saved {
+			_, restoreErr := unix.FcntlInt(item.fd, unix.F_SETFL, item.flags)
+			err = errors.Join(err, restoreErr)
+		}
+		return err
+	}, nil
 }
 
 // Bubble Tea releases its input reader and alternate screen before Run and

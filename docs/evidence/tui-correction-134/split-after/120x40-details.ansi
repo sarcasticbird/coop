@@ -1,0 +1,196 @@
+[?25l[?1049h[2J[H[?25l[?2004h[H[1;38;5;116m+- FLEET [focus] | Filter: All ----------------+[0m +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: test-master                                                  |
+|Host: local                                   | |Principal: owner                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           waiting                 | |No target selected                                                   |
+|  work unknown / local pause                  | |Up/Down previews a bird; Enter opens Details.                        |
+|  Report 0s ago / receipt 0s ago              | |                                                                     |
+|Host: fixture-empty                           | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  (no Coops)                                  | |                                                                     |
+|Host: fixture-offline                         | |                                                                     |
+|  [unreachable]                               | |                                                                     |
+|Host: fixture-remote                          | |                                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  same-name           stale                   | |                                                                     |
+|  old diagnostic report                       | |                                                                     |
+|  Report STALE 1m30s ago / receipt STALE 1m...| |                                                                     |
+|  same-name           unknown                 | |                                                                     |
+|  no visible diagnostic report                | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[40;H[H
+
+
+|  [ok; snapshot <5s old]                      | |Name: same-name                   | Host: local / this machine       |
+|[1;38;5;116m> same-name           waiting                 [0m| |[1;38;5;116mREPORTED WORK                                                        [0m|
+|  work unknown / local pause                  | |Activity: waiting                                                    |
+|  Report 0s ago / receipt 0s ago              | |Task: unknown                     | PR: unknown                      |
+|Host: fixture-empty                           | |Blocker: local pause                                                 |
+|  [ok; snapshot <5s old]                      | |[1;38;5;116mOBSERVATION                                                          [0m|
+|  (no Coops)                                  | |Source: mapped master diagnostics                                    |
+|Host: fixture-offline                         | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|  [unreachable]                               | |Presence: idle | heartbeat: 0s ago                                   |
+|Host: fixture-remote                          | |Report age: 0s ago                | Receipt age: 0s ago              |
+|  [ok; snapshot <5s old]                      | |Work age: unknown                 | Wait age: 0s ago                 |
+|  same-name           stale                   | |Heartbeat is not work progress.                                      |
+|  old diagnostic report                       | |[1;38;5;116mTARGET                                                               [0m|
+|  Report STALE 1m30s ago / receipt STALE 1m...| |Target: local / agent / fixture-a                                    |
+|  same-name           unknown                 | |2 then t: full Team diagnostics                                      |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[H
+
+
+
+
+
+|  Report 2s ago / receipt 2s ago              | |Task: unknown                     | PR: unknown                      |
+
+
+
+
+|  [unreachable]                               | |Presence: idle | heartbeat: 2s ago                                   |
+|Host: fixture-remote                          | |Report age: 2s ago                | Receipt age: 2s ago              |
+|  [ok; snapshot <5s old]                      | |Work age: unknown                 | Wait age: 2s ago                 |
+
+
+|  Report STALE 1m32s ago / receipt STALE 1m...| |Target: local / agent / fixture-a                                    |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[H+- FLEET | Filter: All ------------------------+ [1;38;5;116m+- DETAILS [focus] ---------------------------------------------------+[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help[K[40;H[H
+
+
+
+
+
+|  Report 4s ago / receipt 4s ago              | |Task: unknown                     | PR: unknown                      |
+
+
+
+
+|  [unreachable]                               | |Presence: idle | heartbeat: 4s ago                                   |
+|Host: fixture-remote                          | |Report age: 4s ago                | Receipt age: 4s ago              |
+|  [ok; snapshot <5s old]                      | |Work age: unknown                 | Wait age: 4s ago                 |
+
+
+|  Report STALE 1m34s ago / receipt STALE 1m...| |Target: local / agent / fixture-a                                    |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H

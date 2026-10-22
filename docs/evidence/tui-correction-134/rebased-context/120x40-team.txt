@@ -1,0 +1,40 @@
+Team
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shar...
+Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefi...
+Source: master Team presence | Team snapshot age: 1s ago
+Read only; heartbeat is not work progress
+  AGENT               HOST              PRESENCE      HANDLING      WORK / BLOCKER
+> same-name           local             idle          unknown       unknown
+  same-name           fixture-remote    paused        unknown       unknown
+  same-name           fixture-remote    unknown       unknown       unknown
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed
+Esc Fleet | Enter inspect | r | ?

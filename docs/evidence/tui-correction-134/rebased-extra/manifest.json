@@ -1,0 +1,80 @@
+{
+  "source": "58255eae188887fb8e8e04f33c98df60f59ef888",
+  "binary": "/tmp/opencode/hawk-137-rebased.test",
+  "sha256": "8859948b18cbd246b1625094ad049f6dfbee5242a5a1d3b29be9a5467c8c4566",
+  "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)",
+  "method": "PTY, native Bubble Tea, timed keyboard navigation",
+  "captures": [
+    "120x40-reply-composer",
+    "120x40-reply-preview",
+    "120x40-receipt",
+    "120x40-missing-master",
+    "120x40-no-remote-first-use",
+    "120x40-destroy-confirmation",
+    "120x40-destroy-reviewed",
+    "120x40-no-color-reply-composer",
+    "120x40-no-color-reply-preview",
+    "120x40-no-color-receipt",
+    "120x40-no-color-missing-master",
+    "120x40-no-color-no-remote-first-use",
+    "120x40-no-color-destroy-confirmation",
+    "120x40-no-color-destroy-reviewed",
+    "80x24-reply-composer",
+    "80x24-reply-preview",
+    "80x24-receipt",
+    "80x24-missing-master",
+    "80x24-no-remote-first-use",
+    "80x24-destroy-confirmation",
+    "80x24-destroy-reviewed",
+    "80x24-no-color-reply-composer",
+    "80x24-no-color-reply-preview",
+    "80x24-no-color-receipt",
+    "80x24-no-color-missing-master",
+    "80x24-no-color-no-remote-first-use",
+    "80x24-no-color-destroy-confirmation",
+    "80x24-no-color-destroy-reviewed",
+    "40x20-reply-composer",
+    "40x20-reply-preview",
+    "40x20-receipt",
+    "40x20-missing-master",
+    "40x20-no-remote-first-use",
+    "40x20-destroy-confirmation",
+    "40x20-destroy-reviewed",
+    "40x20-no-color-reply-composer",
+    "40x20-no-color-reply-preview",
+    "40x20-no-color-receipt",
+    "40x20-no-color-missing-master",
+    "40x20-no-color-no-remote-first-use",
+    "40x20-no-color-destroy-confirmation",
+    "40x20-no-color-destroy-reviewed"
+  ],
+  "extended": false,
+  "supplemental": true,
+  "exact_context": false,
+  "exact_context_page_down_keys": {},
+  "fixture_overlay": "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs.",
+  "harness_sha256": "9e42e42bed28048f1cf26f9b6b05af510f9be5ebd9ad71803aafceae711103de",
+  "fixture_sources": {
+    "internal/tui/runtime_capture_test.go": {
+      "sha256": "04d62c264fdf95dc223982d10087541dc780adeb726d1ab7feb0243282d8733c"
+    },
+    "internal/tui/runtime_baseline_test.go": {
+      "sha256": "3bb67d3db57078a2665aa55174c75ad54510be08ca8a1739624f13e5dd19d5db"
+    },
+    "internal/tui/team_view_test.go": {
+      "sha256": "3196c4c890ef1290608cdef63db684fc700ec7e13e774398f78ece682837e204"
+    },
+    "internal/tui/coordination_test.go": {
+      "sha256": "b79b203c99ce2381dfb50c8421eac1fb0782b898bdcb1d74bac723a660bab68c"
+    },
+    "internal/tui/fleet_test.go": {
+      "sha256": "0c2a5ad781470056bba4c09725fac61aa2c5fa8ba9913e853e0cda2e7db922f2"
+    },
+    "internal/tui/tuifixture/fixture.go": {
+      "sha256": "980cf1a3067b129ecfdd67eaf7fa19a33d20ee87b1b0371f29d29f583375c8b0"
+    },
+    "internal/tui/tuifixture/fixture_test.go": {
+      "sha256": "69b1033a051cee6c6e3b28b2c4a836d0553f8dbf0b885499b56798fa23d2915f"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+CONFIRM DESTROY
+Master: test-master
+Principal: owner
+Target: local / agent / fixture-a
+Target: local / agent / fixture-a
+Name: same-name
+Host destination: this machine
+Project: -
+Exact Master: test-master
+Exact Principal: owner
+Master context is not the lifecycle
+destination.
+Remove this Coop and its persistent
+state volumes?
+No automatic retry or rollback. Review
+every page, then y confirms; n/Esc
+cancels.
+Exact CLI arguments: ["--agent"
+
+Esc cancel | PgDn review | disabled

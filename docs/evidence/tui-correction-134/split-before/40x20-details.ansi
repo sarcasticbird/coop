@@ -1,0 +1,77 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+  same-name        agent        running 
+  Host: fixture-empty (fixture-empty-...
+    [ok; snapshot <5s old][K
+  (no Coops)[K
+  Host: fixture-offline (fixture-offl...
+    [unreachable][K
+  Host: fixture-remote (fixture-ssh-a...
+    [ok; snapshot <5s old][K
+  same-name        agent        stopped 
+  same-name        agent        absent  
+[K
+[K
+[K
+Enter Details | h filter | ? help[K[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  Host: local (this machine)[K
+    [ok; snapshot <5s old][K
+> same-name        agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: same-name[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Task: unknown[K
+PR: unknown[K
+Blocker: local pause[K
+Presence: idle | heartbeat: 2s ago[K
+Report age: 2s ago[K
+Receipt age: 2s ago[K
+Work age: unknown[K
+Wait age: 2s ago[K
+Source: mapped master diagnostics[K
+Host health: ok; snapshot <5s old[K
+Target: local / agent / fixture-a[K
+
+Esc Fleet | Enter Connect | x | ? | PgDn[20;H[H
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 4s ago[K
+Report age: 4s ago[K
+Receipt age: 4s ago[K
+
+Wait age: 4s ago[K
+
+
+
+
+[20;H

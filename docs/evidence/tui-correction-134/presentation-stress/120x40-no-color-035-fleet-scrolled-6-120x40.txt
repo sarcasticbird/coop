@@ -1,0 +1,40 @@
+Fleet Ledger | Filter: All
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  界 é long-label...  agent        running    unknown          not bound
+  Host: fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  (no Coops)
+  Host: fixture-offline (fixture-offline-alias)
+    [unreachable]
+  Host: fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+  界 é long-label...  agent        stopped    stale            old diagnostic report
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll

@@ -1,0 +1,20 @@
+Connect preflight
+Master: test-master
+Principal: owner
+Target: local / agent / fixture-a
+Ctrl+C reaches the foreground applicatio
+n. Local: exit the foreground applicatio
+n to return. Return to the same Details
+and filter; no automatic reconnect.
+No automatic retry or rollback. Review e
+very page, then y confirms; n/Esc cancel
+s.
+VM lifecycle: running; Connect requires
+running. A stopped VM needs explicit Sta
+rt first.
+Enter continues only after complete revi
+ew; Esc returns to Details.
+Exact CLI arguments: ["--agent" "fixture
+-a" "--"]
+
+Esc cancel | Enter after full review ...

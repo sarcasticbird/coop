@@ -1,0 +1,39 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+  界 é long-la...  agent        running 
+[K
+Enter Details | h filter | ? help | P...[20;H[H
+Master: test-master | As: owner[K
+  NAME             KIND         VM      
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-la...  agent        running 
+  Activity: waiting / work unknown / ...
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H

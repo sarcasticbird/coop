@@ -1,0 +1,20 @@
+Fleet > Details
+Master: test-master
+Principal: owner
+Name: 界 é long-label-long-label-long-la
+bel-long-label-long-label-
+Host: local / this machine
+REPORTED WORK
+Activity: waiting
+Task: unknown
+PR: unknown
+Blocker: local pause
+OBSERVATION
+Source: mapped master diagnostics
+VM lifecycle: running
+Host health: ok; snapshot <5s old
+Presence: idle | heartbeat: 2s ago
+Report age: 2s ago
+Receipt age: 2s ago
+
+Esc Fleet | c Connect | x | ? | PgDn

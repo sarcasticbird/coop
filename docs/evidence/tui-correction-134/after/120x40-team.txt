@@ -1,0 +1,40 @@
+Team
+Master: test-master
+Principal: owner
+Source: master Team presence | Team snapshot age: 0s ago
+Read only; heartbeat is not work progress
+  AGENT               HOST              PRESENCE      HANDLING      WORK / BLOCKER
+> same-name           local             idle          unknown       unknown
+  same-name           fixture-remote    paused        unknown       unknown
+  same-name           fixture-remote    unknown       unknown       unknown
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed
+Esc Fleet | Enter inspect | r | ?

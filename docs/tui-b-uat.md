@@ -1,5 +1,10 @@
 # B Runtime UAT Handoff
 
+Current corrective evidence and owner handoff: [task #134](evidence/tui-correction-134/README.md).
+The stage-5 record below is historical; its source delivery did not pass owner
+visual UAT. Owner acceptance remains failed/pending until Chris explicitly accepts
+the corrected result.
+
 This is the stage-5 handoff for [task #121](https://github.com/sarcasticbird/coop/issues/121),
 approved goal `goal_CJ3FNEQKI6DAL7AKADQKRVUNCT`, revision
 `9a400eb725c4a40237cf4f7baf39a23980c21582417827eb7fd9d10c1294ce62`.

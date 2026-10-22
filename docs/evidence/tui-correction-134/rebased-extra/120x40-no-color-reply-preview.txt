@@ -1,0 +1,40 @@
+Threads > Preview (reply)
+Master: test-master
+Principal: owner
+Content: masked
+Blank recipients use captured parent author: hawk
+  To IDs (comma separated): hawk
+  Body: [hidden, 21 bytes]
+Thread: fixture-thread | parent: fixture-message
+Request: HRQD5Q6AW7CP5NIALGTXDHJDKP
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members: owner,hawk
+Not submitted; review all pages before Ctrl+S submits.
+Esc edits; input changes require a new preview.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PgDn review | Ctrl+S submits
+Esc edit | ^S submit | ^V reveal | F1 help

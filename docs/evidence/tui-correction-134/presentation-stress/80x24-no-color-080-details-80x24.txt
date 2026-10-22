@@ -1,0 +1,24 @@
+Fleet > Details
+Master: test-master
+Principal: owner
+Name: 界 é long-label-long-label-long-label-long-label-long-label-
+Host: local / this machine
+VM lifecycle: running
+Activity: waiting
+Work / blocker: work unknown / local pause
+Presence: idle | heartbeat: 2s ago (not work progress)
+Source: master diagnostics | report: 2s ago | receipt: 2s ago
+Host health: ok; snapshot <5s old
+Selected: local / agent / fixture-a
+Runtime: 界 é long-label-long-label-long-label-long-label-long-label-
+Project: -
+Exact Master: test-master
+Exact Principal: owner
+Diagnostic master: test-master | source: host-owned target binding
+Bound host: local | worker: fixture-worker-1 | generation: 1
+Agent: fixture-a
+Source: worker diagnostics via master | epoch: 1
+fresh receipt | received: 2026-10-21T21:57:16Z
+Report age: 2s ago | receipt age: 2s ago
+
+Esc Fleet | Enter Connect | x | ? | PgUp/PgDn scroll

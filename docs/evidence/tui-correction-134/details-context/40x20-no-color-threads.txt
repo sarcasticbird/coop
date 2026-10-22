@@ -1,0 +1,20 @@
+Threads
+Master: master-shared-prefix-shared-p...
+Principal: principal-shared-prefix-sh...
+Threads / masked on opening; no body
+previews
+> Design check | ID: fixture-thread |
+  Members: owner, hawk
+Next page: none
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed
+Enter open | n new | ? help | Esc

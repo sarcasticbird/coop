@@ -1,0 +1,20 @@
+Threads > Composer (send)
+Master: test-master
+Principal: owner
+Content: masked
+Blank To is a note; wakes nobody.
+> To IDs (comma separated): |
+  Body: [hidden, 0 bytes]
+Thread: fixture-thread | parent: none (r
+oot)
+Request: TUS3WJXEL2EIQNXFIUUKAM3MX5
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members: owner,hawk
+Enter inserts newline, never sends. Tab
+changes field.
+Not submitted; preview and review all be
+fore a second Ctrl+S submits.
+
+Esc draft | ^S preview | ^V reveal | F1

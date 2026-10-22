@@ -1,0 +1,40 @@
+Fleet Ledger | Filter: All
+Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-
+prefix-second | As: unavailable
+  NAME                KIND         VM         ACTIVITY         WORK / BLOCKER
+  Host: local (this machine)
+    [ok; snapshot <5s old]
+> same-name           agent        running    unknown          not bound
+  Host: fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  (no Coops)
+  Host: fixture-offline (fixture-offline-alias)
+    [unreachable]
+  Host: fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+  same-name           agent        stopped    unknown          not bound
+  same-name           agent        absent     unknown          not bound
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter Details | h filter | ? help

@@ -1,0 +1,20 @@
+Details Help
+Target: local / agent / fixture-a
+Host destination: this machine
+Runtime: same-name
+Connect needs a running VM; Apply and Ba
+ckup need a stopped VM.
+Observations do not grant action authori
+ty; every action revalidates the capture
+d target.
+1 Fleet | 2 Coordination | 3 Servers
+up/down or j/k: select | enter/tab: Deta
+ils
+r: refresh | ?: help | esc: back/cancel
+| q: quit
+Fleet: h host filter | Enter Details (ne
+ver Connect)
+Details: Enter Connect | u up | s stop |
+ d destroy
+
+F1/Esc return | PgUp/PgDn scroll

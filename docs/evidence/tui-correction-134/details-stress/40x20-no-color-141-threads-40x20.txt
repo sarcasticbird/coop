@@ -1,0 +1,20 @@
+Threads
+Master: test-master
+Principal: owner (owner)
+Threads / masked on opening; no body
+previews
+> Design check | ID: fixture-thread |
+  Members: owner, hawk
+Next page: none
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed
+Enter open | n new | ? help | Esc

@@ -1,0 +1,484 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+No target selected[K
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+  界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+[K
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[24;H[H
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[HFleet > Details[K
+Master: test-master[K
+Principal: owner[K
+Name: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Host: local / this machine[K
+VM lifecycle: running[K
+Activity: waiting[K
+Work / blocker: work unknown / local pause[K
+Presence: idle | heartbeat: 1s ago (not work progress)[K
+Source: master diagnostics | report: 1s ago | receipt: 1s ago[K
+Host health: ok; snapshot <5s old[K
+Selected: local / agent / fixture-a[K
+Runtime: 界 é long-label-long-label-long-label-long-label-long-label-[K
+Project: -[K
+Exact Master: test-master[K
+Exact Principal: owner[K
+Diagnostic master: test-master | source: host-owned target binding[K
+Bound host: local | worker: fixture-worker-1 | generation: 1[K
+Agent: fixture-a[K
+Source: worker diagnostics via master | epoch: 1[K
+fresh receipt | received: 2026-10-21T19:13:29Z[K
+Report age: 1s ago | receipt age: 1s ago[K
+
+Esc Fleet | Enter Connect | x | ? | PgUp/PgDn scroll[K[24;H[H
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago (not work progress)[K
+Source: master diagnostics | report: 2s ago | receipt: 2s ago[K
+
+
+
+
+
+
+
+
+
+
+
+Report age: 2s ago | receipt age: 2s ago[K
+
+[24;H[HFleet Ledger | Filter: All[K
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll[K[24;H[H
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+  界 é long-lab...  agent        running    unknown / not bound                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+Master: test-master | As: owner[K
+  NAME              KIND         VM         ACTIVITY / WORK / BLOCKER           
+  local (this machine)[K
+    [ok; snapshot <5s old][K
+> 界 é long-lab...  agent        running    waiting / work unknown / local pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[HThreads[K
+Master: test-master[K
+Principal: owner (owner)[K
+Threads / masked on opening; no body previews[K
+> Design check | ID: fixture-thread | [K
+  Members: owner, hawk[K
+Next page: none[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+
+Enter open | n new | ? help | Esc[K[24;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snapshot refreshed[K
+[24;H[HThreads > fixture-thread[K
+
+
+Design check | Content: masked[K
+Engagement:  | Members: owner,hawk[K
+Loaded: 30 / limit 500 | follow: false[K
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-02 | seq 2 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-03 | seq 3 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-04 | seq 4 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-05 | seq 5 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-06 | seq 6 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-07 | seq 7 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-08 | seq 8 | hawk | parent none[K
+
+Esc Threads | p reply | ^V reveal | ? | PgUp/PgDn scroll[K[24;H[H
+
+
+
+
+
+Reply target: fixture-message-02 / hawk (page keys do not reselect)[K
+  [unread this session] fixture-message | seq 1 | hawk | parent none[K
+
+> [unread this session] fixture-message-02 | seq 2 | hawk | parent none[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+
+
+
+Reply target: fixture-message / hawk (page keys do not reselect)[K
+> [unread this session] fixture-message | seq 1 | hawk | parent none[K
+
+  [unread this session] fixture-message-02 | seq 2 | hawk | parent none[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+[24;H[H
+
+
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-09 | seq 9 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-10 | seq 10 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-11 | seq 11 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-12 | seq 12 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-13 | seq 13 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-14 | seq 14 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-15 | seq 15 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-16 | seq 16 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+  [unread this session] fixture-message-17 | seq 17 | hawk | parent none[K
+[body masked; Ctrl+V to reveal][K
+Reply target offscreen: fixture-message[K
+[24;H

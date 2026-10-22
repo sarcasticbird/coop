@@ -1,0 +1,24 @@
+Servers | SSH references
+Master: test-master
+Principal: owner
+HOST   CONFIGURED SSH REFERENCE
+Master configuration is separate; removing a reference does not delete VMs.
+> local (this machine)
+    [ok; snapshot <5s old]
+  fixture-empty (fixture-empty-alias)
+    [ok; snapshot <5s old]
+  fixture-offline (fixture-offline-alias)
+    [unreachable]
+  fixture-remote (fixture-ssh-alias)
+    [ok; snapshot <5s old]
+
+
+
+
+
+
+
+
+
+
+a add | e edit | d remove | v | ?

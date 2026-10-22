@@ -31,14 +31,21 @@ func TestLedgerDetailsConnectReturn(t *testing.T) {
 			}
 			m, _ = fleetKey(m, "down")
 			target := m.selected
-			if target == (hostrouter.Target{}) || m.detail || strings.Contains(m.View(), "Project:") {
+			if target == (hostrouter.Target{}) || m.detail || m.pending != nil || (!m.splitFleet() && strings.Contains(m.View(), "Project:")) {
 				t.Fatal("highlight must not open an inspector or authorize Connect")
 			}
 			m, _ = fleetKey(m, "pgdown")
 			scroll := m.scroll
 			m, cmd := fleetKey(m, "enter")
-			if cmd != nil || !m.detail || !strings.HasPrefix(m.View(), "Fleet > Details") || strings.Contains(m.View(), "fixture-empty") {
-				t.Fatal("Enter must drill into a single full-page Details body")
+			if cmd != nil || !m.detail || m.detailEntry == nil || m.detailEntry.Target != target || m.selected != target {
+				t.Fatal("Enter must focus Details for the selected target")
+			}
+			if m.splitFleet() {
+				if !strings.Contains(m.View(), "FLEET | Filter: All") || !strings.Contains(m.View(), "DETAILS [focus]") || !strings.Contains(m.View(), "fixture-empty") || !strings.Contains(strings.Join(actualSplitRightInterior(t, m), ""), identity(target)) {
+					t.Fatal("wide Details must retain both panes and the selected identity", m.View())
+				}
+			} else if !strings.HasPrefix(m.View(), "Fleet > Details") || strings.Contains(m.View(), "fixture-empty") {
+				t.Fatal("narrow Details must retain a single full-page body")
 			}
 			for _, resized := range tuifixture.Sizes() {
 				out, _ := m.Update(tea.WindowSizeMsg{Width: resized.Width, Height: resized.Height})
@@ -58,6 +65,10 @@ func TestLedgerDetailsConnectReturn(t *testing.T) {
 				return exec.Command("true"), nil // Never executed by this model test.
 			}
 			m, cmd = fleetKey(m, "enter")
+			if cmd != nil || m.pending != nil || calls != 0 || !m.detail || m.detailEntry.Target != target {
+				t.Fatal("Enter in Details must retain focus without opening Connect")
+			}
+			m, cmd = fleetKey(m, "c")
 			if cmd != nil || m.pending == nil || m.pending.operation != "enter" || calls != 0 {
 				t.Fatal("Connect must capture a confirmation before foreground dispatch")
 			}
@@ -128,7 +139,7 @@ func TestLedgerFilterCapturesRegistrationAndClearsSelection(t *testing.T) {
 	m.hosts[0], m.hosts[1] = m.hosts[1], m.hosts[0]
 	m, _ = fleetKey(m, "enter")
 	if m.filter != remote || m.selected != (hostrouter.Target{}) || len(m.rows()) != 1 || !strings.Contains(m.View(), "1H/1T hidden") {
-		t.Fatal("filter retargeted, selected implicitly or hid its scope")
+		t.Fatalf("filter retargeted, selected implicitly or hid its scope: filter matches=%t selected=%v rows=%d\n%s", m.filter == remote, m.selected, len(m.rows()), m.View())
 	}
 	m, _ = fleetKey(m, "down")
 	if m.selected.Host != remote {
@@ -198,7 +209,7 @@ func TestLedgerRegistryFailureRetainsBlockedCachedRows(t *testing.T) {
 	m = out.(fleetModel)
 	defer m.cancel()
 	if len(m.hosts) != 2 || len(m.hosts[1].entries) != 1 || !strings.Contains(m.View(), "cached destination") {
-		t.Fatal("registry failure discarded cached remote hosts")
+		t.Fatalf("registry failure discarded cached remote hosts or hid cached-destination warning: hosts=%d\n%s", len(m.hosts), m.View())
 	}
 	if _, ok := m.entry(m.hosts[1].entries[0].Target); ok {
 		t.Fatal("cached registration authorized an action")
@@ -232,7 +243,7 @@ func TestLedgerLongIdentitiesRemainDistinct(t *testing.T) {
 func TestLedgerConnectRechecksLifecycleAtConfirmation(t *testing.T) {
 	m := fixtureFleet()
 	m, _ = fleetKey(m, "enter")
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "c")
 	if m.pending == nil {
 		t.Fatal("Connect was not captured")
 	}

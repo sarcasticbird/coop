@@ -47,6 +47,9 @@ func TestPageParityExactContextSurvivesHeaderClipping(t *testing.T) {
 							t.Fatal("context exceeds viewport")
 						}
 						body := strings.Join(strings.Split(view, "\n")[conversationHeader:size.Height-2], "")
+						if page == "unbound-details" && m.splitFleet() {
+							body = strings.Join(actualSplitRightInterior(t, m)[2:], "")
+						}
 						seenMaster = seenMaster || strings.Contains(body, master)
 						seenPrincipal = seenPrincipal || strings.Contains(body, principal)
 					}
@@ -84,7 +87,12 @@ func TestPageParityDetailsPresenceAndContext(t *testing.T) {
 		if len(strings.Split(view, "\n")) != size.Height {
 			t.Fatal("footer is not fixed at terminal bottom", view)
 		}
-		if !strings.HasPrefix(view, "Fleet > Details\nMaster: test-master\nPrincipal:") || !strings.Contains(strings.Split(view, "\n")[len(strings.Split(view, "\n"))-1], "Esc Fleet") {
+		pinned := strings.HasPrefix(view, "Fleet > Details\nMaster: test-master\nPrincipal:")
+		if m.splitFleet() {
+			pane := actualSplitRightInterior(t, m)
+			pinned = strings.Contains(strings.Split(view, "\n")[0], "DETAILS [focus]") && pane[0] == "Master: test-master" && strings.HasPrefix(pane[1], "Principal:")
+		}
+		if !pinned || !strings.Contains(strings.Split(view, "\n")[len(strings.Split(view, "\n"))-1], "Esc Fleet") {
 			t.Fatal("scroll lost pinned identity or return", view)
 		}
 	}

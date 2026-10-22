@@ -1,0 +1,105 @@
+{
+  "source": "b6e4fc8760b11246ed40be63b3a7b169507eb057",
+  "binary": "/tmp/opencode/hawk-137-repaired.test",
+  "sha256": "00736c1944672ca43ce4202961c2f4a42801e920644d25e88b1088940ae798b5",
+  "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)",
+  "method": "PTY, native Bubble Tea, timed keyboard navigation",
+  "captures": [
+    "120x40-fleet",
+    "120x40-fleet-selected",
+    "120x40-details",
+    "120x40-details-exact-context",
+    "120x40-threads",
+    "120x40-reader",
+    "120x40-team",
+    "120x40-team-detail",
+    "120x40-team-exact-context",
+    "120x40-no-color-fleet",
+    "120x40-no-color-fleet-selected",
+    "120x40-no-color-details",
+    "120x40-no-color-details-exact-context",
+    "120x40-no-color-threads",
+    "120x40-no-color-reader",
+    "120x40-no-color-team",
+    "120x40-no-color-team-detail",
+    "120x40-no-color-team-exact-context",
+    "80x24-fleet",
+    "80x24-fleet-selected",
+    "80x24-details",
+    "80x24-details-exact-context",
+    "80x24-threads",
+    "80x24-reader",
+    "80x24-team",
+    "80x24-team-detail",
+    "80x24-team-exact-context",
+    "80x24-no-color-fleet",
+    "80x24-no-color-fleet-selected",
+    "80x24-no-color-details",
+    "80x24-no-color-details-exact-context",
+    "80x24-no-color-threads",
+    "80x24-no-color-reader",
+    "80x24-no-color-team",
+    "80x24-no-color-team-detail",
+    "80x24-no-color-team-exact-context",
+    "40x20-fleet",
+    "40x20-fleet-selected",
+    "40x20-details",
+    "40x20-details-exact-context",
+    "40x20-threads",
+    "40x20-reader",
+    "40x20-team",
+    "40x20-team-detail",
+    "40x20-team-exact-context",
+    "40x20-no-color-fleet",
+    "40x20-no-color-fleet-selected",
+    "40x20-no-color-details",
+    "40x20-no-color-details-exact-context",
+    "40x20-no-color-threads",
+    "40x20-no-color-reader",
+    "40x20-no-color-team",
+    "40x20-no-color-team-detail",
+    "40x20-no-color-team-exact-context"
+  ],
+  "extended": false,
+  "supplemental": false,
+  "exact_context": true,
+  "exact_context_page_down_keys": {
+    "120x40-details-exact-context": 0,
+    "120x40-team-exact-context": 0,
+    "120x40-no-color-details-exact-context": 0,
+    "120x40-no-color-team-exact-context": 0,
+    "80x24-details-exact-context": 0,
+    "80x24-team-exact-context": 0,
+    "80x24-no-color-details-exact-context": 0,
+    "80x24-no-color-team-exact-context": 0,
+    "40x20-details-exact-context": 5,
+    "40x20-team-exact-context": 3,
+    "40x20-no-color-details-exact-context": 5,
+    "40x20-no-color-team-exact-context": 3
+  },
+  "fixture_overlay": "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs.",
+  "harness_sha256": "9e42e42bed28048f1cf26f9b6b05af510f9be5ebd9ad71803aafceae711103de",
+  "fixture_sources": {
+    "internal/tui/runtime_capture_test.go": {
+      "sha256": "04d62c264fdf95dc223982d10087541dc780adeb726d1ab7feb0243282d8733c"
+    },
+    "internal/tui/runtime_baseline_test.go": {
+      "sha256": "3bb67d3db57078a2665aa55174c75ad54510be08ca8a1739624f13e5dd19d5db"
+    },
+    "internal/tui/team_view_test.go": {
+      "sha256": "3196c4c890ef1290608cdef63db684fc700ec7e13e774398f78ece682837e204"
+    },
+    "internal/tui/coordination_test.go": {
+      "sha256": "b79b203c99ce2381dfb50c8421eac1fb0782b898bdcb1d74bac723a660bab68c"
+    },
+    "internal/tui/fleet_test.go": {
+      "sha256": "0c2a5ad781470056bba4c09725fac61aa2c5fa8ba9913e853e0cda2e7db922f2"
+    },
+    "internal/tui/tuifixture/fixture.go": {
+      "sha256": "980cf1a3067b129ecfdd67eaf7fa19a33d20ee87b1b0371f29d29f583375c8b0"
+    },
+    "internal/tui/tuifixture/fixture_test.go": {
+      "sha256": "69b1033a051cee6c6e3b28b2c4a836d0553f8dbf0b885499b56798fa23d2915f"
+    }
+  }
+}

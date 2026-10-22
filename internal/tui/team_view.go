@@ -150,7 +150,7 @@ func (m fleetModel) teamLines(master string) []string {
 		return lines
 	}
 	lines = append(lines, context...)
-	if m.width >= 100 || m.width <= 0 {
+	if m.width >= 65 || m.width <= 0 {
 		lines = append(lines, teamLedgerRow(m.width, "  ", "AGENT", "HOST", "PRESENCE", "HANDLING", "WORK / BLOCKER"))
 	} else {
 		lines = append(lines, "  AGENT / HOST")
@@ -164,7 +164,7 @@ func (m fleetModel) teamLines(master string) []string {
 			prefix = "> "
 		}
 		name, host := valueOr(p.Alias, p.AgentID), valueOr(p.HostID, "unknown")
-		if m.width >= 100 || m.width <= 0 {
+		if m.width >= 65 || m.width <= 0 {
 			lines = append(lines, teamLedgerRow(m.width, prefix, name, host, valueOr(p.State, "unknown"), "unknown", "unknown"))
 		} else {
 			width := max(1, m.width)
@@ -176,6 +176,9 @@ func (m fleetModel) teamLines(master string) []string {
 }
 
 func teamLedgerRow(width int, prefix, name, host, presence, handling, work string) string {
+	if width >= 65 && width < 100 {
+		return prefix + ledgerCell(name, 16) + "  " + ledgerCell(host, 14) + "  " + ledgerCell(presence, 12) + "  " + ledgerCell(work, width-50)
+	}
 	return prefix + ledgerCell(name, 18) + "  " + ledgerCell(host, 16) + "  " + ledgerCell(presence, 12) + "  " + ledgerCell(handling, 12) + "  " + ledgerCell(work, max(14, width-68))
 }
 

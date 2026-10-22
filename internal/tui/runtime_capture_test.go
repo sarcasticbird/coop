@@ -29,6 +29,13 @@ func TestRuntimeCapture(t *testing.T) {
 		coord.coordination.self = source.self
 	}
 	m.coordination, m.services.Coordination = coord.coordination, source
+	if os.Getenv("COOP_TUI_CAPTURE_REPORTED_WORK") == "1" {
+		for id, report := range source.reports {
+			report.Report.Work = c.DiagnosticWork{ObservedAt: report.Report.ObservedAt, TaskURL: "https://github.com/example/fixture/issues/42", PRURL: "https://github.com/example/fixture/pull/43", Stage: "implement"}
+			report.Report.Wait.Dependencies = []string{"https://github.com/example/fixture/issues/41"}
+			source.reports[id] = report
+		}
+	}
 	m.coordination.section = "threads"
 	stress := os.Getenv("COOP_TUI_CAPTURE_STRESS") == "1"
 	m.coordination.threads = []c.Thread{{ID: "fixture-thread", Title: "Design check", Members: []string{"owner", "hawk"}}}

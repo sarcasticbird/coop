@@ -1,0 +1,24 @@
+Fleet > Details
+Master: test-master
+Principal: owner
+Name: same-name                        | Host: local / this machine
+VM lifecycle: running                  | Activity: waiting
+Task: unknown                          | PR: unknown
+Blocker: local pause
+Presence: idle | heartbeat: 2s ago
+Report age: 2s ago                     | Receipt age: 2s ago
+Work age: unknown                      | Wait age: 2s ago
+Source: mapped master diagnostics
+Host health: ok; snapshot <5s old
+Target: local / agent / fixture-a
+2 then t: full Team diagnostics
+
+
+
+
+
+
+
+
+
+Esc Fleet | Enter Connect | x | ?

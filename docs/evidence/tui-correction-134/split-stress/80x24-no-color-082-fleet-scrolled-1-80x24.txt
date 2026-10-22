@@ -1,0 +1,24 @@
+Fleet Ledger | Filter: All
+Principal: owner
+BIRD / HOST          REPORTED ACTIVITY
+Host: local
+  [ok; snapshot <5s old]
+> 界 é long-label...  waiting
+  work unknown / local pause
+  Report 3s ago / receipt 3s ago
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+  界 é long-label...  unknown
+  not bound
+
+Enter Details | h filter | ? help | PgUp/PgDn scroll

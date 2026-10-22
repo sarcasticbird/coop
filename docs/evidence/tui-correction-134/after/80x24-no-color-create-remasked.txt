@@ -1,0 +1,24 @@
+Threads > Preview (create)
+Master: test-master
+Principal: owner
+Creation members (owner included): [hidden, 2 members]
+  Title: [hidden, 17 bytes]
+  Engagement: [hidden, 4 bytes]
+> Stable member IDs (comma separated): [hidden, 10 bytes]
+Thread: new | parent: none (root)
+Request: QG3RQ2PVRABHWQ4O4HAIZB2AAF
+Captured master: test-master
+Principal: owner (owner) | epoch: 1
+Engagement:
+Captured members:
+Creates a thread only; no message or wake.
+Enter inserts newline, never sends. Tab changes field.
+Not submitted; preview and review all before a second Ctrl+S submits.
+
+
+
+
+
+
+Review captured context and input; PgDn for more; Ctrl+S submits
+Esc draft | ^S create | ^V view | F1

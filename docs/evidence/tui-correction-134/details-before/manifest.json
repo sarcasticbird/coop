@@ -1,0 +1,45 @@
+{
+  "source": "3e12e8d0b1e21d71a694a31613ae0aec3e3590be",
+  "binary": "/tmp/opencode/hawk-137-details-before.test",
+  "sha256": "8859948b18cbd246b1625094ad049f6dfbee5242a5a1d3b29be9a5467c8c4566",
+  "fixture": "TestRuntimeCapture / tuifixture.New (synthetic only)",
+  "method": "PTY, native Bubble Tea, timed keyboard navigation",
+  "captures": [
+    "120x40-details",
+    "120x40-no-color-details",
+    "80x24-details",
+    "80x24-no-color-details",
+    "40x20-details",
+    "40x20-no-color-details"
+  ],
+  "extended": false,
+  "supplemental": false,
+  "exact_context": false,
+  "details_only": true,
+  "exact_context_page_down_keys": {},
+  "fixture_overlay": "Updated test-only launcher; source identifies production revision, not an unmodified source tree. Build with these fixture inputs.",
+  "harness_sha256": "2722daddd7934dd8d7dba6ace4e7fca2d1f305233377a82fa46bc8dd76e78cf1",
+  "fixture_sources": {
+    "internal/tui/runtime_capture_test.go": {
+      "sha256": "04d62c264fdf95dc223982d10087541dc780adeb726d1ab7feb0243282d8733c"
+    },
+    "internal/tui/runtime_baseline_test.go": {
+      "sha256": "3bb67d3db57078a2665aa55174c75ad54510be08ca8a1739624f13e5dd19d5db"
+    },
+    "internal/tui/team_view_test.go": {
+      "sha256": "3196c4c890ef1290608cdef63db684fc700ec7e13e774398f78ece682837e204"
+    },
+    "internal/tui/coordination_test.go": {
+      "sha256": "b79b203c99ce2381dfb50c8421eac1fb0782b898bdcb1d74bac723a660bab68c"
+    },
+    "internal/tui/fleet_test.go": {
+      "sha256": "0c2a5ad781470056bba4c09725fac61aa2c5fa8ba9913e853e0cda2e7db922f2"
+    },
+    "internal/tui/tuifixture/fixture.go": {
+      "sha256": "980cf1a3067b129ecfdd67eaf7fa19a33d20ee87b1b0371f29d29f583375c8b0"
+    },
+    "internal/tui/tuifixture/fixture_test.go": {
+      "sha256": "69b1033a051cee6c6e3b28b2c4a836d0553f8dbf0b885499b56798fa23d2915f"
+    }
+  }
+}

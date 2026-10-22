@@ -1,0 +1,229 @@
+[?25l[?1049h[2J[H[?25l[?2004h[HFleet Ledger | Filter: All[K
+Master: test-master[K
+Principal: owner[K
+No target selected[K
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+  界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 0s ago / receipt 0s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+[K
+Enter Details | h filter | ? help | PgDn[20;H[H
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 0s ago / receipt 0s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+
+[20;H[HFleet > Details[K
+
+
+Name: 界 é long-label-long-label-long-la
+bel-long-label-long-label-[K
+Host: local / this machine[K
+REPORTED WORK[K
+Activity: waiting[K
+Task: unknown[K
+PR: unknown[K
+Blocker: local pause[K
+OBSERVATION[K
+Source: mapped master diagnostics[K
+VM lifecycle: running[K
+Host health: ok; snapshot <5s old[K
+Presence: idle | heartbeat: 1s ago[K
+Report age: 1s ago[K
+Receipt age: 1s ago[K
+
+Esc Fleet | c Connect | x | ? | PgDn[K[20;H[H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Presence: idle | heartbeat: 2s ago[K
+Report age: 2s ago[K
+Receipt age: 2s ago[K
+
+[20;H[HFleet Ledger | Filter: All[K
+
+
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 2s ago / receipt 2s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+
+Enter Details | h filter | ? help | PgDn[20;H[H
+Principal: owner[K
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 3s ago / receipt 3s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+
+[20;H[H
+BIRD / HOST          REPORTED ACTIVITY[K
+Host: local[K
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 4s ago / receipt 4s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+
+[20;H[H
+Host: local[K
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 4s ago / receipt 4s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+
+[20;H[H
+  [ok; snapshot <5s old][K
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 5s ago / receipt 5s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+
+[20;H[H
+
+
+
+  Report 6s ago / receipt 6s ago[K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[20;H[H
+> 界 é long-label...  waiting           
+  work unknown / local pause[K
+  Report 6s ago / receipt 6s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+
+[20;H[H
+  work unknown / local pause[K
+  Report 7s ago / receipt 7s ago[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+  not bound[K
+  界 é long-label...  unknown           
+
+[20;H
