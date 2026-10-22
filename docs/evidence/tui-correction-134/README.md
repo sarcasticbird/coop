@@ -5,8 +5,9 @@ Task: https://github.com/sarcasticbird/coop/issues/134. Approved correction revi
 Environment: `coop-tui-b-runtime-v1`. This is author integration evidence, not
 independent QA. **Owner visual UAT remains FAILED/PENDING until Chris accepts.**
 
-Latest candidate: [Compact Details Correction](details-README.md), including fresh
-built-terminal before/after evidence and exact build identities. Earlier local
+Latest candidate: [Responsive Fleet/Details](split-README.md), including fresh
+built-terminal before/after evidence and exact build identities. The earlier
+[Compact Details Correction](details-README.md) and local
 repair evidence is in [Presentation Repairs](#presentation-repairs) and the
 [Post-Rebase Candidate](#post-rebase-candidate); those source identities remain
 historical, not clearance for the newer Details correction.

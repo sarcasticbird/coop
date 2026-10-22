@@ -1,0 +1,274 @@
+[?25l[?1049h[2J[H[?25l[?2004h[H+- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: test-master                                                  |
+|Host: local                                   | |Principal: owner                                                     |
+|  [ok; snapshot <5s old]                      | |                                                                     |
+|  界 é long-label...  waiting                 | |No target selected                                                   |
+|  work unknown / local pause                  | |Up/Down previews a bird; Enter opens Details.                        |
+|  Report 0s ago / receipt 0s ago              | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+[K
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[40;H[H
+
+
+|  [ok; snapshot <5s old]                      | |Name: 界 é long-label-long-label-long-label-long-label-long-label-   |
+|> 界 é long-label...  waiting                 | |Host: local / this machine                                           |
+|  work unknown / local pause                  | |REPORTED WORK                                                        |
+|  Report 0s ago / receipt 0s ago              | |Activity: waiting                                                    |
+|  界 é long-label...  unknown                 | |Task: unknown                     | PR: unknown                      |
+|  not bound                                   | |Blocker: local pause                                                 |
+|  界 é long-label...  unknown                 | |OBSERVATION                                                          |
+|  not bound                                   | |Source: mapped master diagnostics                                    |
+|  界 é long-label...  unknown                 | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|  not bound                                   | |Presence: idle | heartbeat: 0s ago                                   |
+|  界 é long-label...  unknown                 | |Report age: 0s ago                | Receipt age: 0s ago              |
+|  not bound                                   | |Work age: unknown                 | Wait age: 0s ago                 |
+|  界 é long-label...  unknown                 | |Heartbeat is not work progress.                                      |
+|  not bound                                   | |TARGET                                                               |
+|  界 é long-label...  unknown                 | |Target: local / agent / fixture-a                                    |
+|  not bound                                   | |2 then t: full Team diagnostics                                      |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[H+- FLEET | Filter: All ------------------------+ +- DETAILS [focus] ---------------------------------------------------+
+
+
+
+
+
+|  Report 1s ago / receipt 1s ago              | |Activity: waiting                                                    |
+
+
+
+
+
+|  not bound                                   | |Presence: idle | heartbeat: 1s ago                                   |
+|  界 é long-label...  unknown                 | |Report age: 1s ago                | Receipt age: 1s ago              |
+|  not bound                                   | |Work age: unknown                 | Wait age: 1s ago                 |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help[K[40;H[H
+
+
+
+
+
+|  Report 2s ago / receipt 2s ago              | |Activity: waiting                                                    |
+
+
+
+
+
+|  not bound                                   | |Presence: idle | heartbeat: 2s ago                                   |
+|  界 é long-label...  unknown                 | |Report age: 2s ago                | Receipt age: 2s ago              |
+|  not bound                                   | |Work age: unknown                 | Wait age: 2s ago                 |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H[H+- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers[K[40;H[H
+
+|  [ok; snapshot <5s old]                      | |Principal: owner                                                     |
+|> 界 é long-label...  waiting                 | |Name: 界 é long-label-long-label-long-label-long-label-long-label-   |
+|  work unknown / local pause                  | |Host: local / this machine                                           |
+|  Report 3s ago / receipt 3s ago              | |REPORTED WORK                                                        |
+|  界 é long-label...  unknown                 | |Activity: waiting                                                    |
+|  not bound                                   | |Task: unknown                     | PR: unknown                      |
+|  界 é long-label...  unknown                 | |Blocker: local pause                                                 |
+|  not bound                                   | |OBSERVATION                                                          |
+|  界 é long-label...  unknown                 | |Source: mapped master diagnostics                                    |
+|  not bound                                   | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|  界 é long-label...  unknown                 | |Presence: idle | heartbeat: 3s ago                                   |
+|  not bound                                   | |Report age: 3s ago                | Receipt age: 3s ago              |
+|  界 é long-label...  unknown                 | |Work age: unknown                 | Wait age: 3s ago                 |
+|  not bound                                   | |Heartbeat is not work progress.                                      |
+|  界 é long-label...  unknown                 | |TARGET                                                               |
+|  not bound                                   | |Target: local / agent / fixture-a                                    |
+|  界 é long-label...  unknown                 | |2 then t: full Team diagnostics                                      |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+|  not bound                                   | |                                                                     |
+|  界 é long-label...  unknown                 | |                                                                     |
+
+
+[40;H[H
+
+
+
+
+|  Report 4s ago / receipt 4s ago              | |REPORTED WORK                                                        |
+
+
+
+
+
+
+|  界 é long-label...  unknown                 | |Presence: idle | heartbeat: 4s ago                                   |
+|  not bound                                   | |Report age: 4s ago                | Receipt age: 4s ago              |
+|  界 é long-label...  unknown                 | |Work age: unknown                 | Wait age: 4s ago                 |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[40;H

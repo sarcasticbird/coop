@@ -1,0 +1,40 @@
++- FLEET [focus] | Filter: All ----------------+ +- DETAILS -----------------------------------------------------------+
+|BIRD / HOST          REPORTED ACTIVITY        | |Master: master-shared-prefix-shared-prefix-shared-prefix-shared-prefi|
+|Host: local                                   | |x-shared-prefix-shared-prefix-shared-prefix-shared-prefix-second     |
+|  [ok; snapshot <5s old]                      | |Principal: principal-shared-prefix-shared-prefix-shared-prefix-shared|
+|> same-name           unknown                 | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+|  not bound                                   | |d                                                                    |
+|Host: fixture-empty                           | |Name: same-name                   | Host: local / this machine       |
+|  [ok; snapshot <5s old]                      | |REPORTED WORK                                                        |
+|  (no Coops)                                  | |Activity: unknown                                                    |
+|Host: fixture-offline                         | |Task: unknown                     | PR: unknown                      |
+|  [unreachable]                               | |Blocker: unknown                                                     |
+|Host: fixture-remote                          | |OBSERVATION                                                          |
+|  [ok; snapshot <5s old]                      | |Source: no host-owned diagnostic binding                             |
+|  same-name           unknown                 | |VM lifecycle: running             | Host health: ok; snapshot <5s old|
+|  not bound                                   | |Presence: unknown (no current bound observation)                     |
+|  same-name           unknown                 | |Heartbeat is not work progress.                                      |
+|  not bound                                   | |TARGET                                                               |
+|                                              | |Target: local / agent / fixture-a                                    |
+|                                              | |Exact Master: master-shared-prefix-shared-prefix-shared-prefix-shared|
+|                                              | |-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix-secon|
+|                                              | |d                                                                    |
+|                                              | |Exact Principal: principal-shared-prefix-shared-prefix-shared-prefix-|
+|                                              | |shared-prefix-shared-prefix-shared-prefix-shared-prefix-shared-prefix|
+|                                              | |-second                                                              |
+|                                              | |2 then t: full Team diagnostics                                      |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
+|                                              | |                                                                     |
++----------------------------------------------+ +---------------------------------------------------------------------+
+UNKNOWN | not bound
+Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers
