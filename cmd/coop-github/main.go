@@ -23,6 +23,10 @@ func main() {
 		args = append([]string{"gh"}, args...)
 	}
 	if err := run(args, os.Stdin, os.Stdout); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.ExitCode())
+		}
 		_, _ = fmt.Fprintln(os.Stderr, "coop-github:", err)
 		os.Exit(1)
 	}
@@ -140,16 +144,26 @@ func run(args []string, input io.Reader, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		config := "/run/coop/github/gh-config"
-		if os.MkdirAll(config, 0700) != nil {
-			return errors.New("cannot prepare GitHub CLI configuration")
-		}
-		env = replaceEnv(env, "GH_CONFIG_DIR", config)
-		return syscall.Exec(githubapp.CoreGH, append([]string{githubapp.CoreGH}, ghArgs...), env)
+		return runGH(githubapp.CoreGH, ghArgs, env, input, output, os.Stderr)
 	default:
 		return errors.New("unsupported GitHub helper operation")
 	}
 }
+
+func runGH(binary string, args, env []string, input io.Reader, output, stderr io.Writer) error {
+	// gh expands ordinary and shell aliases after owner validation. Never load
+	// persistent configuration into a process carrying an installation token.
+	config, err := os.MkdirTemp("", "coop-gh-config-")
+	if err != nil {
+		return errors.New("cannot prepare GitHub CLI configuration")
+	}
+	defer func() { _ = os.RemoveAll(config) }()
+	cmd := exec.Command(binary, args...)
+	cmd.Env = replaceEnv(env, "GH_CONFIG_DIR", config)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = input, output, stderr
+	return cmd.Run()
+}
+
 func replaceEnv(env []string, key, value string) []string {
 	result := make([]string, 0, len(env)+1)
 	for _, entry := range env {
