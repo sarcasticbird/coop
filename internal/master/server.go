@@ -9,9 +9,11 @@ import (
 	"strconv"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/taskstore"
 )
 
 type Service struct {
+	Tasks        taskstore.Backend
 	BackupConfig []byte
 	Store        *Store
 	MCPHandler   func(c.Principal) http.Handler
@@ -23,7 +25,7 @@ type Envelope struct {
 }
 
 func ErrorCode(err error) string {
-	for _, e := range []error{c.ErrInvalid, c.ErrForbidden, c.ErrNotFound, c.ErrConflict, c.ErrCapacity, c.ErrSize, c.ErrEpoch} {
+	for _, e := range []error{c.ErrInvalid, c.ErrForbidden, c.ErrNotFound, c.ErrConflict, c.ErrCapacity, c.ErrSize, c.ErrEpoch, c.ErrUnsupported} {
 		if errors.Is(err, e) {
 			return e.Error()
 		}
@@ -34,6 +36,8 @@ func writeError(w http.ResponseWriter, err error) {
 	code := ErrorCode(err)
 	status := http.StatusServiceUnavailable
 	switch code {
+	case "unsupported_operation":
+		status = http.StatusNotImplemented
 	case "invalid_request":
 		status = 400
 	case "forbidden":
@@ -124,6 +128,7 @@ func NewHandler(service *Service, policy *Policy) http.Handler {
 		}
 	}
 	registerGitHubCache(mux, service, wrap)
+	registerTasks(mux, service, wrap)
 	mux.HandleFunc("GET /api/v1/deliveries/{id}", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.OwnDelivery(r.Context(), p, r.PathValue("id"))
 	}))

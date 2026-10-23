@@ -98,6 +98,15 @@ against this inventory; a newly added command must receive an explicit row.
 | `mcp serve`, `mcp stdio`, `master serve` | Services runbook, never started/daemonized by the browser; private configuration and operator-managed service lifetime |
 | `team`, `team inspect`, `inbox` | Team presence and selected-agent diagnostics are available through `team --watch`; unified coordination and pending delivery views belong to #94 |
 | `cache status` | Read-only CLI/MCP cache diagnostics; no GitHub calls or agent wake, see `docs/github-cache.md` |
+| `task` | CLI/runbook | Task-provider command help |
+| `task capabilities` | CLI/runbook | Read authoritative task-provider identity |
+| `task read` | CLI/runbook | Read one scoped task and immutable assignment |
+| `task list` | CLI/runbook | List tasks for an exact goal revision |
+| `task create` | CLI/runbook | Plan within an existing approved goal using a stable request ID |
+| `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
+| `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
+| `pilot status` | CLI/runbook | Read the saved fixture receipt |
+| `pilot mcp` | CLI/runbook | Private stdio access to the same fixture coordinator |
 | `thread list`, `thread create`, `thread read`, `thread members` | Coordination slice #94; thread navigation, compose/context and owner-authorized exact-set membership |
 | `message send`, `message status` | Coordination slice #94; private compose/reply and durable receipt status |
 | `goal propose`, `goal list`, `goal authority` | Coordination slice #94; structured proposals and exact revision authority |

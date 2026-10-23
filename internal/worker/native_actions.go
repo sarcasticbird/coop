@@ -211,7 +211,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	reader.config = cfg
 	// Reject correctable local Project choices before binding an immutable
 	// request. Dynamic discovery and authority reads still retain exact intent.
-	if os.IsNotExist(readErr) && (in.Operation == "create-task" || in.Operation == "rebind-task") && (len(cfg.Projects) > 0 || len(cfg.ProjectOwners) == 0) {
+	if os.IsNotExist(readErr) && !nativeKataTaskAction(cfg, in) && (in.Operation == "create-task" || in.Operation == "rebind-task") && (len(cfg.Projects) > 0 || len(cfg.ProjectOwners) == 0) {
 		if _, err = selectNativeTaskProject(ctx, cfg, reader, in); err != nil {
 			return empty, err
 		}
@@ -239,6 +239,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	var task NativeTask
 	var pr PR
 	guard := func() error {
+		if kataTaskSource(cfg) {
+			if _, err := TaskProviderClient(ctx, cfg); err != nil {
+				return err
+			}
+		}
 		paused, e := NewVersionedFileStore(cfg.StateDir, 3).Paused()
 		if e != nil {
 			return e
@@ -387,7 +392,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return recordNativeWait(ctx, cfg, m, reader, x, in, record)
 	}
 	if os.IsNotExist(readErr) {
-		if in.Operation == "create-task" || in.Operation == "rebind-task" {
+		if !nativeKataTaskAction(cfg, in) && (in.Operation == "create-task" || in.Operation == "rebind-task") {
 			if _, err = selectNativeTaskProject(ctx, cfg, reader, in); err != nil {
 				return empty, err
 			}
@@ -465,6 +470,14 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				return empty, err
 			}
 			if err = effect("task-metadata", func() error {
+				if isKataTask(b.TaskURL) {
+					cl, e := TaskProviderClient(ctx, cfg)
+					if e != nil {
+						return e
+					}
+					_, e = cl.TaskBind(ctx, c.TaskBindInput{Binding: b, ExpectedRevision: existing.ProviderRevision, ExpectedAssignmentSHA: record.ExpectedAssignmentSHA, RequestID: "native-bind-" + BodyHash(jobID+in.RequestID)})
+					return e
+				}
 				_, n, _ := parseRef(b.TaskURL)
 				_, _, e := reader.api(ctx, strings.Split(existing.Task.Repo, "/")[0], "POST", "repos/"+existing.Task.Repo+"/issues/"+stringID(n)+"/comments", map[string]string{"body": NativeTaskMetadata(b)})
 				return e
@@ -522,6 +535,21 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		}
 		if record.Result.URL == "" {
 			err = effect("create-task", func() error {
+				if kataTaskSource(cfg) {
+					cl, e := TaskProviderClient(ctx, cfg)
+					if e != nil {
+						return e
+					}
+					created, e := cl.TaskCreate(ctx, c.TaskCreateInput{Goal: x.Goal, ExpectedApprovalSequence: a.ApprovalSequence, Repository: in.Repository, BaseBranch: in.BaseBranch, Title: in.Title, Body: in.Body, DependsOn: in.DependsOn, RequestID: "native-create-" + BodyHash(jobID+in.RequestID)})
+					if e != nil {
+						return e
+					}
+					if !nativeTaskReferenceInRepo(created.Reference, in.Repository) || !isKataTask(created.Reference) || created.Binding == nil {
+						return c.ErrConflict
+					}
+					record.Result.URL = created.Reference
+					return nil
+				}
 				raw, _, e := reader.api(ctx, strings.Split(in.Repository, "/")[0], "POST", "repos/"+in.Repository+"/issues", map[string]any{"title": in.Title, "body": in.Body})
 				if e != nil {
 					return e
@@ -538,7 +566,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			}
 		}
 		b.TaskURL = record.Result.URL
-		if record.Step == "create-task" {
+		if record.Step == "create-task" && !isKataTask(b.TaskURL) {
 			if err = effect("task-metadata", func() error {
 				_, n, e := parseRef(b.TaskURL)
 				if e != nil {
@@ -835,6 +863,14 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		}
 		if record.Step != "task-completed" {
 			if err = effect("task-completed", func() error {
+				if isKataTask(task.Task.URL) {
+					cl, e := TaskProviderClient(ctx, cfg)
+					if e != nil {
+						return e
+					}
+					_, e = cl.TaskComplete(ctx, c.TaskCompleteInput{Reference: task.Task.URL, Goal: x.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), PullRequestURL: pr.URL, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)})
+					return e
+				}
 				_, n, _ := parseRef(task.Task.URL)
 				_, _, e := reader.api(ctx, strings.Split(task.Task.Repo, "/")[0], "PATCH", "repos/"+task.Task.Repo+"/issues/"+stringID(n), map[string]string{"state": "closed", "state_reason": "completed"})
 				return e

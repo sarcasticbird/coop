@@ -12,9 +12,10 @@ import (
 )
 
 type NativeTask struct {
-	Task    Task
-	Binding NativeTaskBinding
-	PRs     []PR
+	ProviderRevision int64 `json:"provider_revision,omitempty"`
+	Task             Task
+	Binding          NativeTaskBinding
+	PRs              []PR
 }
 type NativePRMetadata struct {
 	Version       int         `json:"version"`
@@ -33,7 +34,7 @@ func ParseNativePRMetadata(body, repo, task string, goal c.GoalRef, assignmentSH
 	if err := nativeMetadata(body, "pr", &out); err != nil {
 		return out, err
 	}
-	if out.Version != 3 || out.Goal != goal || out.TaskURL != task || out.AssignmentSHA != assignmentSHA || !referenceInRepo(task, repo, "issues") || !hexSHA.MatchString(assignmentSHA) {
+	if out.Version != 3 || out.Goal != goal || out.TaskURL != task || out.AssignmentSHA != assignmentSHA || !nativeTaskReferenceInRepo(task, repo) || !hexSHA.MatchString(assignmentSHA) {
 		return out, ghError("invalid_native_PR_assignment")
 	}
 	return out, nil
@@ -46,6 +47,9 @@ func (g *GitHubClient) ReadNativeTask(ctx context.Context, cfg Config, ref strin
 	repo, err := nativeTaskRepo(ref)
 	if err != nil || !containsFold(cfg.CodeOwners, strings.Split(repo, "/")[0]) || len(cfg.Repositories) > 0 && !containsFold(cfg.Repositories, repo) {
 		return out, ghError("native_task_outside_scope")
+	}
+	if isKataTask(ref) {
+		return g.readKataTask(ctx, cfg, ref)
 	}
 	_, number, err := parseRef(ref)
 	if err != nil {

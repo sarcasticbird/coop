@@ -7,9 +7,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/taskstore"
 )
 
 type Config struct {
+	Tasks       *taskstore.Config `toml:"tasks"`
 	GitHubCache GitHubCacheConfig `toml:"github_cache"`
 	MasterID    string            `toml:"master_id"`
 	EpochPath   string            `toml:"epoch_path"`
@@ -44,6 +46,11 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := validateGitHubCacheConfig(out.GitHubCache, out.Principals); err != nil {
 		return out, err
+	}
+	if out.Tasks != nil {
+		if _, err := taskstore.New(*out.Tasks); err != nil {
+			return out, err
+		}
 	}
 	host, _, err := net.SplitHostPort(out.Listen)
 	if err != nil {

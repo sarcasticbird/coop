@@ -38,6 +38,7 @@ type OpenCodeConfig struct {
 	ReconcileInterval time.Duration `json:"-"`
 }
 type Config struct {
+	TaskSource             *TaskSourceConfig        `json:"task_source,omitempty"`
 	GitHubCache            *GitHubCacheWorkerConfig `json:"github_cache,omitempty"`
 	Master                 *MasterConfig            `json:"master,omitempty"`
 	Team                   *TeamPolicy              `json:"team,omitempty"`

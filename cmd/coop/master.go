@@ -17,6 +17,7 @@ import (
 	"github.com/sarcasticbird/coop/internal/master"
 	"github.com/sarcasticbird/coop/internal/masterclient"
 	"github.com/sarcasticbird/coop/internal/mastermcp"
+	"github.com/sarcasticbird/coop/internal/taskstore"
 	"github.com/spf13/cobra"
 )
 
@@ -85,6 +86,12 @@ func installMasterCommands(root *cobra.Command) {
 			return err
 		}
 		service := &master.Service{Store: store, BackupConfig: privateConfig}
+		if cfg.Tasks != nil {
+			service.Tasks, err = taskstore.New(*cfg.Tasks)
+			if err != nil {
+				return err
+			}
+		}
 		service.MCPHandler = func(p c.Principal) http.Handler {
 			return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mastermcp.NewServer(service, p) }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: c.MaxJSON, DisableLocalhostProtection: true})
 		}

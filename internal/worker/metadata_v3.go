@@ -8,19 +8,7 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
-type NativeTaskBinding struct {
-	Version          int       `json:"version"`
-	Goal             c.GoalRef `json:"goal"`
-	TaskURL          string    `json:"task_url"`
-	TaskScopeSHA     string    `json:"task_scope_sha256"`
-	PolicySHA        string    `json:"policy_sha256"`
-	ApprovalSequence int64     `json:"approval_sequence"`
-	BaseBranch       string    `json:"base_branch"`
-	AuthorID         int64     `json:"author_id"`
-	PeerID           int64     `json:"peer_id"`
-	QAID             int64     `json:"qa_id,omitempty"`
-	DependsOn        []string  `json:"depends_on,omitempty"`
-}
+type NativeTaskBinding = c.NativeTaskBinding
 
 func NativeAssignmentSHA(b NativeTaskBinding) string {
 	raw, _ := json.Marshal(b)

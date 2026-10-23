@@ -38,7 +38,7 @@ func prepareNativeWait(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	seen := map[string]bool{}
 	pending := false
 	for _, ref := range in.DependsOn {
-		if !validGitHubURL(ref) || ref == x.Job.TaskURL || seen[ref] {
+		if !nativeCanonicalTaskReference(ref) || ref == x.Job.TaskURL || seen[ref] {
 			return nil, c.ErrInvalid
 		}
 		seen[ref] = true

@@ -21,6 +21,13 @@ func (s MasterGoalAuthority) Resolve(ctx context.Context, ref c.GoalRef) (c.Goal
 	return s.Client.ResolveGoal(ctx, ref)
 }
 func nativeTaskRepo(ref string) (string, error) {
+	if isKataTask(ref) {
+		_, _, repo, err := c.ParseKataTaskReference(ref)
+		if err != nil || !validRepo(repo) {
+			return "", c.ErrInvalid
+		}
+		return repo, nil
+	}
 	parts := strings.Split(strings.TrimPrefix(ref, "https://github.com/"), "/")
 	if !validGitHubURL(ref) || len(parts) != 4 || parts[2] != "issues" || !numericID.MatchString(parts[3]) || !validRepo(parts[0]+"/"+parts[1]) {
 		return "", errors.New("native task URL is not a canonical GitHub issue")

@@ -35,6 +35,9 @@ func selectNativeTaskProject(ctx context.Context, cfg Config, g *GitHubClient, i
 }
 
 func nativePlaceTask(ctx context.Context, cfg Config, g *GitHubClient, in NativeAction, b NativeTaskBinding, r *nativeActionRecord, effect func(string, func() error) error) error {
+	if isKataTask(b.TaskURL) {
+		return nil
+	}
 	selected, err := selectNativeTaskProject(ctx, cfg, g, in)
 	if err != nil {
 		return err

@@ -35,6 +35,9 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return errors.New("expected run, validate, preflight, dry-run, status, pause or resume")
 	}
 	command := args[0]
+	if command == "tasks" {
+		return tasksCommand(args[1:], out)
+	}
 	if command == "native" {
 		return nativeCommand(args[1:], out)
 	}

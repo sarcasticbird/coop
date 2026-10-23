@@ -164,6 +164,8 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	rootCmd.PersistentFlags().SetInterspersed(false)
 	rootCmd.Flags().SetInterspersed(false)
 	installMasterCommands(rootCmd)
+	rootCmd.AddCommand(pilotCommand())
+	rootCmd.AddCommand(taskCommand())
 	rootCmd.AddCommand(tuiExecCommand())
 	rejectCredentials := func(cmd *cobra.Command) error {
 		if cmd.Flags().Changed("credentials") {

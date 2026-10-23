@@ -48,6 +48,7 @@ func bind[In any](server *mcp.Server, s *master.Store, name, description string,
 func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 	s := service.Store
 	server := mcp.NewServer(&mcp.Implementation{Name: "coop-master", Version: "1"}, nil)
+	registerTaskProviderTools(server, service, p)
 	if slices.Contains(p.Capabilities, "read") {
 		registerGitHubCacheStatus(server, service, p)
 		bind(server, s, "coop_master_team", "Read scoped agent presence and placement.", true, func(ctx context.Context, _ empty) (any, error) { return s.Team(ctx, p) })

@@ -108,6 +108,11 @@ func (c *OpenCodeConfig) UnmarshalJSON(raw []byte) error {
 }
 
 func Defaults(c Config) Config {
+	if c.TaskSource != nil {
+		copy := *c.TaskSource
+		copy.RetainGitHubTasks = append([]string(nil), copy.RetainGitHubTasks...)
+		c.TaskSource = &copy
+	}
 	c.Projects = append([]ProjectRef(nil), c.Projects...)
 	if c.Wake != nil {
 		copy := *c.Wake
@@ -243,6 +248,9 @@ func validActor(a Actor, kind string) bool {
 }
 
 func ValidateConfig(c Config) error {
+	if err := validateTaskSource(c); err != nil {
+		return err
+	}
 	if err := validateGitHubCacheWorker(c); err != nil {
 		return err
 	}

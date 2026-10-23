@@ -29,6 +29,9 @@ func artifactRepo(ref, kind string) (string, error) {
 	return p[0] + "/" + p[1], nil
 }
 func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in c.ArtifactLink) (c.ArtifactLink, error) {
+	return svc.registerArtifact(ctx, actor, in, nil)
+}
+func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in c.ArtifactLink, reservation *taskBindReservation) (c.ArtifactLink, error) {
 	var out c.ArtifactLink
 	s := svc.Store
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -36,7 +39,11 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 		return out, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	p, err := authorize(ctx, tx, actor, "send")
+	capability := "send"
+	if in.Kind == "task" && strings.HasPrefix(in.URL, "kata:") {
+		capability = "read"
+	}
+	p, err := authorize(ctx, tx, actor, capability)
 	if err != nil {
 		return out, err
 	}
@@ -44,11 +51,36 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 	if err != nil {
 		return out, err
 	}
+	if err = admission(ctx, tx); err != nil {
+		return out, err
+	}
 	if !a.Valid {
 		return out, c.ErrForbidden
 	}
+	ref := in.URL
+	if in.Kind == "pull_request" {
+		ref = in.TaskURL
+	}
+	pending, hasPending, err := taskMutation(ctx, tx, ref)
+	if err != nil {
+		return out, err
+	}
+	if hasPending {
+		if reservation == nil || !sameTaskMutation(pending, *reservation) || in.Kind != "task" || in.URL != pending.Input.Binding.TaskURL || in.AssignmentSHA != digest(pending.Input.Binding) || in.ExpectedAssignmentSHA != pending.Input.ExpectedAssignmentSHA {
+			return out, c.ErrConflict
+		}
+	}
 	if yes, e := request(ctx, tx, p.ID, in.RequestID, "artifact", in, &out); yes || e != nil {
-		return out, e
+		if e != nil || !hasPending {
+			return out, e
+		}
+		if err = finishTaskMutation(ctx, tx, ref); err != nil {
+			return out, err
+		}
+		return out, tx.Commit()
+	}
+	if reservation != nil && !hasPending {
+		return out, c.ErrConflict
 	}
 	sha, e := hex.DecodeString(in.AssignmentSHA)
 	if e != nil || len(sha) != 32 {
@@ -60,7 +92,7 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 	} else if in.Kind != "task" {
 		return out, c.ErrInvalid
 	}
-	repo, err := artifactRepo(in.URL, kind)
+	repo, err := svc.artifactRepository(in.URL, kind)
 	if err != nil {
 		return out, err
 	}
@@ -84,7 +116,7 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 		if p.ID != a.Actors.Author.PrincipalID {
 			return out, c.ErrForbidden
 		}
-		parentRepo, e := artifactRepo(in.TaskURL, "issues")
+		parentRepo, e := svc.artifactRepository(in.TaskURL, "issues")
 		if e != nil || parentRepo != repo {
 			return out, c.ErrInvalid
 		}
@@ -97,6 +129,15 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 	err = tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=?", in.Goal.GoalID, in.Goal.RevisionSHA256, in.URL).Scan(&existing)
 	if err != nil && err != sql.ErrNoRows {
 		return out, err
+	}
+	if err == nil && existing != in.AssignmentSHA && strings.HasPrefix(in.URL, "kata:") {
+		published, e := taskPublished(ctx, tx, in.Goal, in.URL)
+		if e != nil {
+			return out, e
+		}
+		if published {
+			return out, c.ErrConflict
+		}
 	}
 	if err == nil && existing != in.AssignmentSHA && in.ExpectedAssignmentSHA != existing {
 		return out, c.ErrConflict
@@ -121,6 +162,11 @@ func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in 
 	}
 	if err = event(ctx, tx, "artifact", a.Revision.Proposal.ThreadID, ""); err != nil {
 		return out, err
+	}
+	if hasPending {
+		if err = finishTaskMutation(ctx, tx, ref); err != nil {
+			return out, err
+		}
 	}
 	return out, tx.Commit()
 }
@@ -160,4 +206,19 @@ func (svc *Service) Artifacts(ctx context.Context, actor c.Principal, in c.Artif
 		out.Links = append(out.Links, link)
 	}
 	return out, rows.Err()
+}
+
+// Kata refs are immutable identities scoped to the configured private provider.
+func (svc *Service) artifactRepository(ref, kind string) (string, error) {
+	if kind == "issues" && strings.HasPrefix(ref, "kata:") {
+		project, _, repo, err := c.ParseKataTaskReference(ref)
+		if err != nil {
+			return "", err
+		}
+		if svc.Tasks == nil || svc.Tasks.Capabilities().Provider != "kata" || project != svc.Tasks.Capabilities().ProjectUID {
+			return "", c.ErrForbidden
+		}
+		return repo, nil
+	}
+	return artifactRepo(ref, kind)
 }
