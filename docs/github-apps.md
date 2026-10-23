@@ -95,9 +95,14 @@ for everyone who can access the Project.
 Unknown owners, conflicting contexts, unsupported hosts and expired tokens fail
 without using a human credential. Each invocation reads the current generation,
 even if its parent holds an old credential-file path. Credential-printing/login
-commands and inherited network tracing are disabled by the helper. Guest root
-can bypass these controls and read its tokens. These are accidental-disclosure
-controls, not secret isolation from the agent.
+commands and inherited network tracing are disabled by the helper. Each guarded
+`gh` invocation uses a fresh temporary configuration directory, removed when the
+command exits. Ordinary and shell aliases (including aliases in the former shared
+`/run/coop/github/gh-config` directory) are not loaded, and `gh alias set` or
+`gh config set` changes do not persist between invocations. Use literal commands
+so the helper can validate their owner context before injecting credentials.
+Guest root can bypass these controls and read its tokens. These are
+accidental-disclosure controls, not sandboxing or secret isolation from the agent.
 
 Run `coop credentials watch --profile example --interval 15m --retry 1m` under
 a host supervisor for unattended renewal. It refreshes running agents only and
