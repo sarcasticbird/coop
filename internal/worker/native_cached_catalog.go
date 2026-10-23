@@ -27,7 +27,10 @@ type cachedNativeReader struct {
 	clock        Clock
 }
 
-func NewCachedNativeReader(_ Config, live NativeCatalogReader, cache GitHubCacheClient, clock Clock) NativeCatalogReader {
+func NewCachedNativeReader(cfg Config, live NativeCatalogReader, cache GitHubCacheClient, clock Clock) NativeCatalogReader {
+	if kataTaskSource(cfg) {
+		return live
+	}
 	if clock == nil {
 		clock = RealClock{}
 	}

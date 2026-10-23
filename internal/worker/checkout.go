@@ -141,7 +141,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		owner.Mode = "planning"
 		checkout = filepath.Join(root, "planning")
 	} else {
-		repo, _, err := parseRef(j.TaskURL)
+		repo, err := nativeTaskRepo(j.TaskURL)
 		if err != nil || !containsFold(c.config.CodeOwners, strings.Split(repo, "/")[0]) {
 			return j, errors.New("task checkout outside configured scope")
 		}

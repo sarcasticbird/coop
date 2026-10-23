@@ -44,6 +44,7 @@ func validateMasterConfig(c Config) error {
 	}
 	legacy := c
 	legacy.GitHubCache = nil
+	legacy.TaskSource = nil
 	legacy.Version = 2
 	legacy.Master = nil
 	return ValidateConfig(legacy)

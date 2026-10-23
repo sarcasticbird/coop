@@ -78,7 +78,7 @@ renewal, production peer/QA routing, or a live worker migration.
 
 ## Production integration boundary
 
-Existing workers still admit engineering work from GitHub issue assignments. A
+The default worker configuration admits engineering work from GitHub issue assignments. A
 Kata catalog wrapper alone cannot replace that path: fresh action guards,
 checkout repository resolution, task/PR metadata, artifact registration and action
 recovery also require GitHub issue identities.
@@ -96,3 +96,7 @@ Kata completion. Resolve existing uncertain executions before changing admission
 Use one authoritative Kata placement that remains available when a client laptop
 is disconnected. Native conversation turns remain conversations; they do not
 provide an alternate engineering authorization path.
+
+The optional production provider is documented in
+[Kata tasks through Coop](kata-task-provider.md). It reuses the existing native
+engineering engine and is separate from these fixture-only commands.

@@ -25,7 +25,7 @@ func pilotCommand() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		d := json.NewDecoder(io.LimitReader(f, 64<<10))
 		d.DisallowUnknownFields()
 		var r pilot.Request

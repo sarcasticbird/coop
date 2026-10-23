@@ -39,6 +39,12 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	if cfg.Version != 3 || cfg.Master == nil {
 		return out, errors.New("native catalog requires v3 configuration")
 	}
+	if kataTaskSource(cfg) {
+		if _, err := TaskProviderClient(ctx, cfg); err != nil {
+			return out, err
+		}
+	}
+	_, selectedOnly := master.(*taskSnapshotMaster)
 	reader := NewGitHubClient(g.runner)
 	reader.observation = g.observation
 	reader.config = cfg
@@ -96,7 +102,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	}
 	tasks := map[string]NativeTask{}
 	for _, link := range links {
-		if link.Kind != "task" {
+		if link.Kind != "task" || !selectedOnly && !nativeDiscoveryTask(cfg, link.URL) {
 			continue
 		}
 		if _, duplicate := tasks[link.URL]; duplicate {
@@ -119,7 +125,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		tasks[link.URL] = t
 	}
 	for _, link := range links {
-		if link.Kind != "pull_request" {
+		if link.Kind != "pull_request" || !selectedOnly && !nativeDiscoveryTask(cfg, link.TaskURL) {
 			continue
 		}
 		task, ok := tasks[link.TaskURL]
@@ -138,9 +144,12 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	}
 	// Existing Project field readers supply ordering/status only. Native authority
 	// always comes from the structured master goal and v3 metadata above.
-	if len(cfg.Projects) > 0 || len(cfg.ProjectOwners) > 0 {
+	if (len(cfg.Projects) > 0 || len(cfg.ProjectOwners) > 0) && nativeGitHubTasksPresent(tasks) {
 		projectTasks := map[string]Task{}
 		for ref, t := range tasks {
+			if isKataTask(ref) {
+				continue
+			}
 			t.Task.Ready = false
 			projectTasks[ref] = t.Task
 		}

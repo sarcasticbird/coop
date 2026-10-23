@@ -103,7 +103,7 @@ func (p *Coordinator) save(r Result) error {
 		return e
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if _, e = f.Write(b); e != nil {
 		_ = f.Close()
 		return e
@@ -146,11 +146,11 @@ func (p *Coordinator) Run(ctx context.Context, in Request) (Result, error) {
 	if e != nil {
 		return r, e
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if e = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); e != nil {
 		return r, c.ErrConflict
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
 	fingerprint := digest([]any{in, p.ConfigSHA})
 	r, e = p.Status(in.RequestID)
 	if e == nil {

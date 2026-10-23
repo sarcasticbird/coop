@@ -131,7 +131,7 @@ func recoverNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMas
 	if err = code.CheckContinuation(ctx, x.Job); err != nil {
 		return result, err
 	}
-	if record.Step == "merge" {
+	if record.Step == "merge" && !isKataTask(x.Job.TaskURL) {
 		// An acknowledged merge is never replayed. Only confirm the original
 		// exact head/assignment is merged and its task is already completed.
 		authority, e := nativeCurrentGoal(ctx, cfg, m, x.Goal)

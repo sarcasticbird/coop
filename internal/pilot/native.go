@@ -117,7 +117,7 @@ func (a *adapters) nativeCall(ctx context.Context, client *http.Client, method, 
 	if e != nil {
 		return e
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	data, e := io.ReadAll(io.LimitReader(res.Body, (16<<20)+1))
 	if e != nil {
 		return e

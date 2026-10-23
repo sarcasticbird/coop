@@ -81,7 +81,7 @@ func nativePreparedAction(r nativeActionRecord) bool {
 	}
 	switch r.Operation {
 	case "create-task":
-		return r.Step == "" || (r.Step == "create-task" || r.Step == "task-metadata" || r.Step == "project-add" || r.Step == "project-ready") && validGitHubURL(r.Result.URL)
+		return r.Step == "" || (r.Step == "create-task" || r.Step == "task-metadata" || r.Step == "project-add" || r.Step == "project-ready") && nativeCanonicalTaskReference(r.Result.URL)
 	case "rebind-task":
 		return r.Step == "" || r.Step == "task-metadata" || r.Step == "project-add" || r.Step == "project-ready"
 	case "publish-pr":

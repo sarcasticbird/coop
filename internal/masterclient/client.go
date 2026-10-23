@@ -123,7 +123,7 @@ func (cl *Client) call(ctx context.Context, method, path string, in, out any) er
 			Error string `json:"error"`
 		}
 		_ = json.Unmarshal(raw, &e)
-		for _, known := range []error{c.ErrInvalid, c.ErrForbidden, c.ErrNotFound, c.ErrConflict, c.ErrCapacity, c.ErrSize, c.ErrEpoch} {
+		for _, known := range []error{c.ErrInvalid, c.ErrForbidden, c.ErrNotFound, c.ErrConflict, c.ErrCapacity, c.ErrSize, c.ErrEpoch, c.ErrUnsupported} {
 			if e.Error == known.Error() {
 				return known
 			}
