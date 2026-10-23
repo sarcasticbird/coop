@@ -45,6 +45,16 @@ func TestTasksPlanningHelperUsesMasterPolicyForCoordinator(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/tasks/capabilities":
 			data = c.TaskCapabilities{Provider: "kata", ProjectUID: project, PolicySHA: canonicalPolicy}
+		case "/api/v1/tasks/adopt":
+			var in c.TaskAdoptInput
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				t.Error(err)
+			}
+			if in.Reference != "native-reference" || in.ExpectedRevision != 11 || in.ExpectedApprovalSequence != 7 || in.RequestID != "rook-adopt-task" {
+				t.Error("adopt helper changed observed intent")
+			}
+			creates++
+			data = c.ProviderTask{Reference: in.Reference, Goal: in.Goal}
 		case "/api/v1/tasks/create":
 			var in c.TaskCreateInput
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -89,6 +99,18 @@ func TestTasksPlanningHelperUsesMasterPolicyForCoordinator(t *testing.T) {
 	}
 	if creates != 1 || !bytes.Contains(out.Bytes(), []byte("Planned task")) {
 		t.Fatalf("planning response missing: %s", out.String())
+	}
+	adopt := c.TaskAdoptInput{Reference: "native-reference", Goal: in.Goal, Repository: in.Repository, BaseBranch: in.BaseBranch, ExpectedRevision: 11, ExpectedApprovalSequence: 7, RequestID: "rook-adopt-task"}
+	raw, _ = json.Marshal(adopt)
+	if err = os.WriteFile(inputPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err = run([]string{"tasks", "adopt", "--config", configPath, "--input", inputPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if creates != 2 || !bytes.Contains(out.Bytes(), []byte("native-reference")) {
+		t.Fatalf("adopt response %s", out.String())
 	}
 	if len(cfg.Team.Members[len(cfg.Team.Members)-1].Capabilities) != 0 {
 		t.Fatal("helper assigned coordinator engineering capabilities")

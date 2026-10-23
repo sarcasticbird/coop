@@ -12,6 +12,7 @@ import (
 // engineering or goal-approval rights.
 func taskCommand() *cobra.Command {
 	group := &cobra.Command{Use: "task", Short: "Manage work through the master's task provider", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group.AddCommand(taskUICommand())
 	group.AddCommand(&cobra.Command{Use: "capabilities", Short: "Read the configured task provider identity", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		cl, e := masterClient(cmd)
 		if e != nil {
@@ -76,5 +77,39 @@ func taskCommand() *cobra.Command {
 	}}
 	create.Flags().StringVar(&file, "file", "", "task JSON including exact goal, observed approval sequence and stable request_id")
 	group.AddCommand(create)
+
+	var adoptFile string
+	adopt := &cobra.Command{Use: "adopt", Short: "Adopt an existing Kata issue into an exact approved goal", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if adoptFile == "" {
+			return c.ErrInvalid
+		}
+		f, e := os.Open(adoptFile)
+		if e != nil {
+			return e
+		}
+		defer func() { _ = f.Close() }()
+		raw, e := io.ReadAll(io.LimitReader(f, c.MaxJSON+1))
+		if e != nil {
+			return e
+		}
+		if len(raw) > c.MaxJSON {
+			return c.ErrSize
+		}
+		var in c.TaskAdoptInput
+		if e = c.DecodeJSON(raw, &in); e != nil {
+			return e
+		}
+		if in.RequestID == "" || in.ExpectedRevision < 1 || in.ExpectedApprovalSequence < 1 {
+			return c.ErrInvalid
+		}
+		cl, e := masterClient(cmd)
+		if e != nil {
+			return e
+		}
+		v, e := cl.TaskAdopt(cmd.Context(), in)
+		return printMaster(cmd, v, e)
+	}}
+	adopt.Flags().StringVar(&adoptFile, "file", "", "adoption JSON with existing reference, exact goal, observed provider revision and approval sequence, and stable request_id")
+	group.AddCommand(adopt)
 	return group
 }

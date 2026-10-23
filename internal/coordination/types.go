@@ -50,11 +50,12 @@ type CreateThread struct {
 	RequestID  string   `json:"request_id"`
 }
 type Thread struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
-	Engagement string    `json:"engagement"`
-	Members    []string  `json:"members"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string              `json:"id"`
+	Title      string              `json:"title"`
+	Engagement string              `json:"engagement"`
+	Members    []string            `json:"members"`
+	CreatedAt  time.Time           `json:"created_at"`
+	Source     *ConversationSource `json:"source,omitempty"`
 }
 type SendMessage struct {
 	// Nil is legacy/unguarded; an explicit empty set must survive JSON encoding.
@@ -74,20 +75,21 @@ type Ping struct {
 	RequestID  string `json:"request_id"`
 }
 type Message struct {
-	Continuation    *TaskContinuation `json:"task_continuation,omitempty"`
-	ID              string            `json:"id"`
-	ThreadID        string            `json:"thread_id"`
-	AuthorID        string            `json:"author_id"`
-	AuthorKind      string            `json:"author_kind"`
-	Recipients      []string          `json:"recipients"`
-	ParentMessageID string            `json:"parent_message_id,omitempty"`
-	Body            string            `json:"body"`
-	RequestID       string            `json:"request_id"`
-	Sequence        int64             `json:"sequence"`
-	ChainID         string            `json:"chain_id"`
-	Hop             int               `json:"hop"`
-	CreatedAt       time.Time         `json:"created_at"`
-	Imported        bool              `json:"imported,omitempty"`
+	Continuation    *TaskContinuation   `json:"task_continuation,omitempty"`
+	ID              string              `json:"id"`
+	ThreadID        string              `json:"thread_id"`
+	AuthorID        string              `json:"author_id"`
+	AuthorKind      string              `json:"author_kind"`
+	Recipients      []string            `json:"recipients"`
+	ParentMessageID string              `json:"parent_message_id,omitempty"`
+	Body            string              `json:"body"`
+	RequestID       string              `json:"request_id"`
+	Sequence        int64               `json:"sequence"`
+	ChainID         string              `json:"chain_id"`
+	Hop             int                 `json:"hop"`
+	CreatedAt       time.Time           `json:"created_at"`
+	Imported        bool                `json:"imported,omitempty"`
+	Source          *ConversationSource `json:"source,omitempty"`
 }
 type NativeIntent struct {
 	SessionID string `json:"session_id"`
@@ -103,12 +105,13 @@ type Delivery struct {
 	ReplyMessageID string        `json:"reply_message_id,omitempty"`
 }
 type MessageReceipt struct {
-	MasterID     string     `json:"master_id"`
-	RestoreEpoch int64      `json:"restore_epoch"`
-	Backend      string     `json:"backend"`
-	MessageID    string     `json:"message_id"`
-	Sequence     int64      `json:"sequence"`
-	Deliveries   []Delivery `json:"deliveries"`
+	MasterID     string              `json:"master_id"`
+	RestoreEpoch int64               `json:"restore_epoch"`
+	Backend      string              `json:"backend"`
+	MessageID    string              `json:"message_id"`
+	Sequence     int64               `json:"sequence"`
+	Deliveries   []Delivery          `json:"deliveries"`
+	Source       *ConversationSource `json:"source,omitempty"`
 }
 type PublishReply struct {
 	RestoreEpoch int64        `json:"restore_epoch"`

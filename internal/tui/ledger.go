@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,6 +37,9 @@ func ledgerRow(width int, prefix, name, kind, vm, activity, work string) string 
 }
 
 func diagnosticReference(ref string) string {
+	if strings.HasPrefix(ref, "kata:") {
+		return "ticket title unknown"
+	}
 	parts := strings.Split(ref, "/")
 	if len(parts) >= 7 {
 		return parts[4] + " #" + parts[6]
@@ -70,7 +74,7 @@ func diagnosticSummary(now time.Time, report *c.AgentDiagnostics, failure string
 	activity := strings.ReplaceAll(valueOr(d.Wait.Handling, "unknown"), "_", " ")
 	work := "work unknown"
 	if !d.Work.ObservedAt.IsZero() && !d.Work.ObservedAt.After(now) && now.Sub(d.Work.ObservedAt) < c.PresenceStale {
-		work = valueOr(diagnosticReference(d.Work.TaskURL), "no task reported")
+		work = diagnosticWorkName(d.Work)
 		if d.Work.Stage != "" {
 			work += " / " + strings.ReplaceAll(d.Work.Stage, "_", " ")
 		}
@@ -116,4 +120,40 @@ func (m fleetModel) ledgerSummary(e hostrouter.InventoryEntry) (string, string) 
 		return "unknown", "access context changed"
 	}
 	return diagnosticSummary(time.Now(), entry.report, entry.failure)
+}
+
+func diagnosticWorkName(work c.DiagnosticWork) string {
+	if strings.TrimSpace(work.WorkTitle) != "" {
+		return strings.Join(strings.Fields(coordClean(work.WorkTitle)), " ")
+	}
+	if work.TaskURL == "" {
+		return "no task reported"
+	}
+	if strings.HasPrefix(work.TaskURL, "kata:") {
+		return "ticket title unknown"
+	}
+	return "ticket title unknown (" + diagnosticReference(work.TaskURL) + ")"
+}
+
+func diagnosticProgress(now time.Time, report *c.AgentDiagnostics, failure string) string {
+	activity, _ := diagnosticSummary(now, report, failure)
+	if activity == "unknown" || activity == "stale" {
+		return "unknown"
+	}
+	work := report.Report.Work
+	if work.ObservedAt.IsZero() || work.ObservedAt.After(now) || now.Sub(work.ObservedAt) >= c.PresenceStale || work.ProgressAt == nil || work.ProgressAt.IsZero() || work.ProgressAt.After(now) {
+		return "unknown"
+	}
+	return now.Sub(*work.ProgressAt).Round(time.Second).String() + " ago"
+}
+
+func diagnosticBlocker(wait c.DiagnosticWait) string {
+	if len(wait.Dependencies) > 0 {
+		blocker := "dependency " + diagnosticReference(wait.Dependencies[0])
+		if len(wait.Dependencies) > 1 {
+			blocker += fmt.Sprintf(" (+%d)", len(wait.Dependencies)-1)
+		}
+		return blocker
+	}
+	return strings.ReplaceAll(valueOr(wait.Reason, "none reported"), "_", " ")
 }

@@ -69,10 +69,11 @@ and Kata labels grant no authority. Retrying the identical request reconciles
 its original task; changed payloads cannot reuse a request ID.
 
 MCP exposes `coop_master_task_capabilities`, `coop_master_task`,
-`coop_master_tasks` and, only to owners/planners, `coop_master_create_task`.
+`coop_master_tasks` and, only to owners/planners, `coop_master_create_task`
+and `coop_master_adopt_task`.
 It does not expose generic rebind or completion tools.
 
-Inside an agent Coop, use `coop-worker tasks capabilities|read|list|create
+Inside an agent Coop, use `coop-worker tasks capabilities|read|list|create|adopt
 --config /var/lib/coop/worker/config.json`; reads and mutations take a private
 structured JSON file with `--input`. This lets a chief of staff plan through the
 master without engineering or goal-approval privileges. Planning pins the provider
@@ -113,3 +114,79 @@ backup or with its daemon stopped, rather than copying its live database file.
 AgentsView remains a separate history viewer. It is neither task authority nor
 current worker health. See [the isolated archive experiment](kenn-tools-pilot.md)
 for its tested OpenCode import and evidence limitations.
+
+## Adopt native intake without a duplicate ticket
+
+Native comments and actor labels grant no approval. Rook first uses
+`coop-worker tasks read --config /var/lib/coop/worker/config.json --input READ_JSON`
+with `{"reference":"kata://PROJECT_UID/ISSUE_UID/owner/repository"}`. Read the
+current issue revision and inspect the exact current goal authority through Coop.
+Then use `coop-worker tasks adopt` with the same config and a private input file:
+
+```json
+{
+  "reference": "kata://PROJECT_UID/ISSUE_UID/owner/repository",
+  "goal": {
+    "source": "master",
+    "master_id": "MASTER_ID",
+    "goal_id": "GOAL_ID",
+    "revision_sha256": "EXACT_APPROVED_REVISION_SHA256"
+  },
+  "repository": "owner/repository",
+  "base_branch": "main",
+  "expected_revision": 7,
+  "expected_approval_sequence": 1,
+  "request_id": "stable-adoption-request"
+}
+```
+
+Use the actual read revision and approved decision sequence, not the illustrative
+numbers above. The owner/planner operation admits that exact existing UID and
+validates repository/base, policy, actors and dependencies. A retry reuses its
+original request identity. `coop task adopt --file PRIVATE_JSON` and the
+`coop_master_adopt_task` MCP tool expose the same operation. Stale revision,
+unapproved scope or missing planning authority fails explicitly. Rook proposes a
+new goal when needed and waits for an authenticated owner decision. It must not
+infer approval from a native `approved` comment or reserved provider metadata.
+
+If approval changes after the native adoption write but before registration, the
+original request stays fixed. The same authenticated owner/planner can recover
+through `POST /api/v1/tasks/bind` with a fresh request ID, the current approved
+binding, the observed native revision, and the old binding's SHA in
+`expected_assignment_sha`. This only reconciles a journaled adoption that has
+not entered any task registry. It keeps the existing issue UID. If approval
+changes again during recovery, read the new revision and assignment and submit
+another fresh binding request under the current approval.
+
+Conversation replies still use the existing worker comms/outbox and stable native
+publication identity. See [the cutover recipe](consolidation-cutover.md) for source
+mapping, canonical reads, old history, backups and restore recovery. No credential
+or private profile path belongs in ticket text.
+
+## Bounded current conversation reads
+
+Exact comment reads and canonical page refreshes require a local Kata **0.19.0
+SQLite profile, schema 34**. That native API's `show --thread` includes replies
+and backlink bodies, and has no exact-comment GET. Coop therefore checks the
+local daemon's pinned instance, version, project and issue access, then reads the
+single current comment row from Kata's canonical database using the existing
+SQLite driver with `mode=ro` and `query_only`. It never writes or migrates that
+database, copies a discussion, or substitutes stale creation-event text.
+
+The private profile's `[storage].dsn` selects an absolute SQLite path; when it is
+absent, Kata's documented default is `<home>/kata.db`. The file and its immediate
+directory must belong to the current host user and permit no group/other access;
+symlink files/directories are refused. Unknown versions/schemas, PostgreSQL,
+relative DSNs, inaccessible files and mismatched identities fail closed. Do not
+change live profile permissions or storage to bypass a failure. A Kata upgrade
+requires reviewing this narrow reader against the new native contract first.
+Native writes, event polling and notifications continue through the native API.
+Guests receive neither the database path nor provider credentials.
+
+Canonical message pages measure the complete master response envelope against
+the existing byte limit. A large page is retried at the same cursor with a
+smaller event window, at most seven attempts. The accepted provider page's
+cursor remains intact, including deduplicated edits and unrelated trailing
+events. A single oversized result fails explicitly. Native UI membership probes
+use an empty inbound selection to exclude discussion history before launching
+the literal `kata tui ISSUE_UID` command.

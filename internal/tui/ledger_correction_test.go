@@ -139,7 +139,7 @@ func TestLedgerDiagnosticsWithoutDetailsAndQuietRefresh(t *testing.T) {
 	source.reports[e.Diagnostics.AgentID] = v
 	m = runLedgerDiagnostic(t, m)
 	activity, work := m.ledgerSummary(e)
-	if m.detail || activity != "waiting" || work != "coop #132 / implement / dependency coop #131" || !strings.Contains(m.View(), "coop #132") {
+	if m.detail || activity != "waiting" || work != "ticket title unknown (coop #132) / implement / dependency coop #131" || !strings.Contains(m.View(), "coop #132") {
 		t.Fatal("list did not consume exact evidence without drill-in", activity, work, m.View())
 	}
 	before, selected, scroll := m.View(), m.selected, m.scroll
@@ -205,7 +205,9 @@ func TestLedgerDiagnosticSafety(t *testing.T) {
 			if change != "missing" {
 				source.reports[e.Diagnostics.AgentID] = v
 			}
-			m = runLedgerDiagnostic(t, m)
+			if change != "inventory-stale" {
+				m = runLedgerDiagnostic(t, m)
+			}
 			activity, work := m.ledgerSummary(e)
 			if change == "old-work" || change == "skew-work" {
 				if activity != "waiting" || !strings.Contains(work, "work ") {

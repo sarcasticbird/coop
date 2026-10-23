@@ -4,6 +4,29 @@
 coordination into one terminal. This is the consolidated issue #94 operator
 reference. This document is not evidence that live UAT has passed.
 
+`coop task tui [REFERENCE]` opens the native Kata project or an issue selected by
+its canonical `kata://` reference. `coop chat` opens the standing team ticket only
+when the authenticated master advertises an active Kata conversation source.
+Both use private `work-tools.toml` beside `master-client.toml`:
+
+```toml
+master_id = "configured-master-id"
+project_uid = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+host_name = "registered-server-name"
+# Optional exact pin; Chat otherwise uses the authenticated conversation source.
+team_issue_uid = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+```
+
+The registered host runs its own private `master.toml` provider. Requests contain
+only master, project and optional issue IDs. The receiver verifies the local Kata
+daemon and immutable project and issue IDs before opening `kata tui`. Client
+credentials and provider paths stay on their owning hosts. Installed Stow profile
+references are supported; private targets still require current ownership and mode
+0600. About and `coop doctor` show the configured destination and source revision.
+Candidate verification uses `candidate.json` in the same profile with
+`source_revision`, `artifact_sha256` and `profile` pins. `profile` is the absolute
+Coop configuration directory. Missing pins remain unknown; mismatches are shown.
+
 ## Architecture And Authority
 
 The Bubble Tea event loop renders snapshots and dispatches through injected
@@ -233,10 +256,13 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `team inspect` | CLI/runbook | Read one agent's diagnostics; Team --watch opens the same detail with Enter |
 | `cache status` | CLI/runbook | Read scoped master GitHub cache freshness without provider calls or agent wake |
 | `task` | CLI/runbook | Task-provider command help |
+| `task tui` | CLI/runbook | Open native Kata in the pinned project, optionally at a canonical issue reference |
+| `chat` | CLI/runbook | Open the authenticated active standing team ticket in native Kata |
 | `task capabilities` | CLI/runbook | Read authoritative task-provider identity |
 | `task read` | CLI/runbook | Read one scoped task and immutable assignment |
 | `task list` | CLI/runbook | List tasks for an exact goal revision |
 | `task create` | CLI/runbook | Plan within an existing approved goal using a stable request ID |
+| `task adopt` | CLI/runbook | Adopt the existing Kata UID under an exact approved goal and observed provider revision |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
 | `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
 | `pilot status` | CLI/runbook | Read the saved fixture receipt |
@@ -273,6 +299,10 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `master placement set` | CLI/runbook | Reconciled stopped placement and explicit next generation |
 | `master history import` | CLI/runbook | Explicit read-only history import with source/digest, no wakes/decisions |
 | `master history list` | CLI/runbook | Inspect imported history, not live thread authority |
+| `master conversation cursor` | CLI/runbook | Owner inspects exact source cursor and restore epoch |
+| `master conversation map` | CLI/runbook | Owner maps a drained thread at an explicit native baseline |
+| `master conversation reaccept` | CLI/runbook | Owner accepts exact observed restore cursor while paused |
+| `master conversation legacy` | CLI/runbook | Members read bounded legacy local history, including with provider offline |
 | `master cutover` | CLI/runbook | Explicit source retirement, no implicit migration |
 | `help` | CLI/runbook | CLI command help; contextual keyboard help via ? |
 | `completion bash` | CLI/runbook | Generate for operator's shell, do not execute in Bubble Tea |
@@ -330,3 +360,8 @@ Separately authorize disposable fixtures before any manual mutation, fault
 injection or terminal attachment. Checklist output and author fixture success
 are neither live UAT nor independent QA. Preserve failures, unavailable backend
 checks and unperformed steps as pending rather than reporting a blanket pass.
+
+For the versioned candidate, canonical conversation transition, preserved legacy
+reads, and required operator round trip, see
+[the consolidation cutover recipe](consolidation-cutover.md). A dirty preview or
+passing fixture suite does not establish installed fleet acceptance.

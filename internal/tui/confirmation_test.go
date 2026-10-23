@@ -53,7 +53,7 @@ func TestConfirmationCompleteReviewAtEverySize(t *testing.T) {
 				r.Args = append(r.Args, literal)
 				return r, nil
 			}
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			m, cmd := fleetKey(m, "d")
 			if cmd != nil || m.pending == nil || m.busy {
 				t.Fatal("shortcut dispatched without consent")
@@ -125,7 +125,7 @@ func TestConfirmationResizeResetsReviewAtEverySize(t *testing.T) {
 				m := fixtureFleet()
 				m.width, m.height = size.Width, size.Height
 				m.hosts[0].entries[0].Name = strings.Repeat("long-fixture-name-", 600)
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				m, _ = fleetKey(m, "d")
 				m = reviewFleetConfirmation(t, m)
 				if m.pending.reviewedThrough == 0 || m.scroll == 0 {
@@ -163,7 +163,7 @@ func TestConfirmationCancelRestoresDetailsScrollAtEverySize(t *testing.T) {
 			t.Run(fmt.Sprintf("%dx%d/%s", size.Width, size.Height, key), func(t *testing.T) {
 				m := fixtureFleet()
 				m.width, m.height = size.Width, size.Height
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				m.scroll = 7
 				captured := *m.detailEntry
 				m, _ = fleetKey(m, "s")
@@ -183,7 +183,7 @@ func TestConfirmationCancelRestoresDetailsScrollAtEverySize(t *testing.T) {
 func TestConfirmationMenuRestoresDetailsAndFreezesPreparedArguments(t *testing.T) {
 	m := fixtureFleet()
 	m.width, m.height = 40, 20
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m.scroll = 3
 	m, _ = fleetKey(m, "x")
 	m, _ = fleetKey(m, "esc")
@@ -226,7 +226,7 @@ func TestConfirmationReconcileNeverRevivesInvalidatedIntent(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			m := fixtureFleet()
 			original := m.hosts[0].entries[0]
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			m, _ = fleetKey(m, "s")
 			switch change {
 			case "name":
@@ -275,7 +275,7 @@ func TestConfirmationDetailsMenuParityAndLiteralArguments(t *testing.T) {
 						r.Args = append(r.Args, "--fixture=literal $(text); 'quoted'", "two words")
 						return r, nil
 					}
-					m, _ = fleetKey(m, "enter")
+					m, _ = fleetKey(m, "tab")
 					if i == 0 {
 						m, _ = fleetKey(m, tc.key)
 					} else {
@@ -308,7 +308,7 @@ func TestConfirmationBackupSecretConsequenceAtEverySize(t *testing.T) {
 			m.width, m.height = size.Width, size.Height
 			m.selected = m.hosts[1].entries[0].Target
 			m.hosts[1].entries[0].State = "stopped"
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			m, _ = fleetKey(m, "x")
 			m.operations.index = specIndex(t, "backup")
 			m, _ = fleetKey(m, "enter")
@@ -351,7 +351,7 @@ func TestConfirmationStaleRegistrationAndDeniedOutcome(t *testing.T) {
 					calls++
 					return hostrouter.ActionResult{Target: r.Target}, errors.New("permission denied")
 				})
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				m, _ = fleetKey(m, "s")
 				m = reviewFleetConfirmation(t, m)
 				if mode == "registration" {

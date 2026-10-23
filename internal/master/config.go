@@ -11,17 +11,18 @@ import (
 )
 
 type Config struct {
-	Tasks       *taskstore.Config `toml:"tasks"`
-	GitHubCache GitHubCacheConfig `toml:"github_cache"`
-	MasterID    string            `toml:"master_id"`
-	EpochPath   string            `toml:"epoch_path"`
-	Database    string            `toml:"database"`
-	Listen      string            `toml:"listen"`
-	TLSCertFile string            `toml:"tls_cert_file"`
-	TLSKeyFile  string            `toml:"tls_key_file"`
-	Policy      Policy            `toml:"policy"`
-	Principals  []c.Principal     `toml:"principals"`
-	Placements  []c.Placement     `toml:"placements"`
+	Conversations *ConversationConfig `toml:"conversations"`
+	Tasks         *taskstore.Config   `toml:"tasks"`
+	GitHubCache   GitHubCacheConfig   `toml:"github_cache"`
+	MasterID      string              `toml:"master_id"`
+	EpochPath     string              `toml:"epoch_path"`
+	Database      string              `toml:"database"`
+	Listen        string              `toml:"listen"`
+	TLSCertFile   string              `toml:"tls_cert_file"`
+	TLSKeyFile    string              `toml:"tls_key_file"`
+	Policy        Policy              `toml:"policy"`
+	Principals    []c.Principal       `toml:"principals"`
+	Placements    []c.Placement       `toml:"placements"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -50,6 +51,25 @@ func LoadConfig(path string) (Config, error) {
 	if out.Tasks != nil {
 		if _, err := taskstore.New(*out.Tasks); err != nil {
 			return out, err
+		}
+	}
+	if out.Conversations != nil {
+		cfg := out.Conversations
+		if out.Tasks == nil {
+			return out, c.ErrInvalid
+		}
+		// One private provider identity may supply the pin for both workflows.
+		if cfg.InstanceUID == "" {
+			cfg.InstanceUID = out.Tasks.InstanceUID
+		}
+		if out.Tasks.InstanceUID == "" {
+			out.Tasks.InstanceUID = cfg.InstanceUID
+		}
+		if cfg.ProjectUID == "" {
+			cfg.ProjectUID = out.Tasks.ProjectUID
+		}
+		if cfg.InstanceUID == "" || cfg.InstanceUID != out.Tasks.InstanceUID || cfg.ProjectUID != out.Tasks.ProjectUID || !validID(cfg.BridgePrincipal) || !validID(cfg.IntakePrincipal) || (cfg.TeamThreadID == "") != (cfg.TeamIssueUID == "") {
+			return out, c.ErrInvalid
 		}
 	}
 	host, _, err := net.SplitHostPort(out.Listen)

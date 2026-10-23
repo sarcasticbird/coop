@@ -13,6 +13,7 @@ import (
 
 const MaxDiagnosticsBytes = 32 << 10
 const MaxDiagnosticTransitions = 32
+const MaxDiagnosticTitleBytes = 256
 
 // Diagnostics contain observations only. They never authorize work or recovery.
 type WorkerDiagnostics struct {
@@ -54,6 +55,9 @@ func ValidateDiagnosticBinding(b DiagnosticBinding) error {
 }
 
 type DiagnosticWork struct {
+	// ProgressAt records owned execution/checkpoint evidence, never a heartbeat.
+	ProgressAt      *time.Time              `json:"progress_at,omitempty"`
+	WorkTitle       string                  `json:"work_title,omitempty"`
 	Continuation    *TaskContinuationTarget `json:"continuation_target,omitempty"`
 	ObservedAt      time.Time               `json:"observed_at"`
 	JobID           string                  `json:"job_id,omitempty"`
@@ -111,12 +115,19 @@ var diagnosticRef = regexp.MustCompile(`^/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+/(issues
 var diagnosticSHA = regexp.MustCompile(`^([a-f0-9]{40}|[a-f0-9]{64})$`)
 
 func DiagnosticCode(v string) bool { return v == "" || diagnosticCode.MatchString(v) }
+func ValidDiagnosticTitle(v string) bool {
+	return len(v) <= MaxDiagnosticTitleBytes && utf8.ValidString(v) && !strings.ContainsFunc(v, func(r rune) bool { return !unicode.IsPrint(r) })
+}
 func ValidDiagnosticModel(m *DiagnosticModel) bool {
 	return m != nil && diagnosticModelID.MatchString(m.Provider) && diagnosticModelID.MatchString(m.Model) && (m.Variant == "" || diagnosticID.MatchString(m.Variant))
 }
 func DiagnosticReference(v string) bool {
 	if v == "" {
 		return true
+	}
+	if strings.HasPrefix(v, "kata:") {
+		_, _, _, err := ParseKataTaskReference(v)
+		return len(v) <= 512 && err == nil
 	}
 	u, err := url.Parse(v)
 	return err == nil && len(v) <= 512 && u.Scheme == "https" && u.Host == "github.com" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.RawPath == "" && diagnosticRef.MatchString(u.Path)
@@ -147,6 +158,9 @@ func ValidateDiagnostics(d WorkerDiagnostics) error {
 		}
 	}
 	if !DiagnosticReference(d.Work.TaskURL) || !DiagnosticReference(d.Work.PRURL) {
+		return ErrInvalid
+	}
+	if !ValidDiagnosticTitle(d.Work.WorkTitle) || d.Work.ProgressAt != nil && (d.Work.ProgressAt.IsZero() || d.Work.ProgressAt.After(d.ObservedAt)) {
 		return ErrInvalid
 	}
 	for _, ref := range d.Wait.Dependencies {

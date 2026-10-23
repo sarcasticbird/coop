@@ -1187,3 +1187,40 @@ func TestCoordinationSmallTerminalSelectionAndPaging(t *testing.T) {
 		t.Fatal("back retained reader scroll")
 	}
 }
+
+func TestCoordinationFollowReplacesCanonicalEditAndIgnoresStalePage(t *testing.T) {
+	m, _ := coordinationFixture()
+	m.coordination.thread = &c.Thread{ID: "thread"}
+	m.coordination.messages = []c.Message{{ID: "first", Body: "unchanged", Sequence: 1}, {ID: "edited", Body: "original", Sequence: 2, AuthorKind: "owner", Source: &c.ConversationSource{CommentUID: "native-comment", Revision: "2", VerifiedSenderID: "owner"}}}
+	m.coordination.after = 2
+	m.coordination.cursor = 1
+	m.coordination.messageSelected = "edited"
+	m.coordination.follow = true
+	m.coordination.readerReveal = false
+	anchor, offset := m.conversationAnchor()
+	edit := c.Message{ID: "edited", Body: "canonical correction", Sequence: 5, AuthorKind: "external", Source: &c.ConversationSource{CommentUID: "native-comment", Revision: "5"}}
+	out, _ := m.Update(coordResult{serial: m.coordination.serial, self: m.coordination.self, data: c.MessagePage{Messages: []c.Message{edit}, Next: 6}})
+	m = out.(fleetModel)
+	if strings.Contains(m.View(), "canonical correction") {
+		t.Fatal("follow revealed masked edit")
+	}
+	revealed := m
+	revealed.coordination.readerReveal = true
+	if !strings.Contains(revealed.View(), "canonical correction") {
+		t.Fatal("revealed reader retained old body")
+	}
+	if len(m.coordination.messages) != 2 || m.coordination.messages[1].Body != "canonical correction" || m.coordination.messages[1].Source.VerifiedSenderID != "" || m.coordination.messages[1].AuthorKind != "external" {
+		t.Fatalf("canonical edit dropped: %+v", m.coordination.messages)
+	}
+	gotAnchor, gotOffset := m.conversationAnchor()
+	if m.coordination.cursor != 1 || m.coordination.messageSelected != "edited" || m.coordination.after != 6 || !m.coordination.follow || m.coordination.readerReveal || gotAnchor != anchor || gotOffset != offset {
+		t.Fatal("edit changed reader position or masking")
+	}
+	stale := edit
+	stale.Body, stale.Sequence, stale.Source = "stale", 3, &c.ConversationSource{CommentUID: "native-comment", Revision: "3", VerifiedSenderID: "owner"}
+	out, _ = m.Update(coordResult{serial: m.coordination.serial, self: m.coordination.self, data: c.MessagePage{Messages: []c.Message{stale}, Next: 4}})
+	m = out.(fleetModel)
+	if m.coordination.messages[1].Body != "canonical correction" || m.coordination.after != 6 {
+		t.Fatal("stale page overwrote current edit")
+	}
+}

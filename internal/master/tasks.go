@@ -2,6 +2,7 @@ package master
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/taskstore"
 )
 
 func (svc *Service) TaskCapabilities(ctx context.Context, actor c.Principal) (c.TaskCapabilities, error) {
@@ -20,7 +22,15 @@ func (svc *Service) TaskCapabilities(ctx context.Context, actor c.Principal) (c.
 	if svc.Tasks == nil {
 		return c.TaskCapabilities{}, c.ErrUnsupported
 	}
-	return svc.Tasks.Capabilities(), nil
+	out := svc.Tasks.Capabilities()
+	if svc.Store.ConversationActive(ctx) && svc.Store.conversations.TeamThreadID != "" {
+		thread, e := svc.Store.Thread(ctx, actor, svc.Store.conversations.TeamThreadID)
+		if e == nil && thread.Source != nil && thread.Source.IssueUID == svc.Store.conversations.TeamIssueUID {
+			source := *thread.Source
+			out.Conversation = &source
+		}
+	}
+	return out, nil
 }
 func (svc *Service) taskAuthority(ctx context.Context, actor c.Principal, goal c.GoalRef, mutation bool) (c.Principal, c.GoalAuthority, error) {
 	if svc.Tasks == nil {
@@ -50,6 +60,9 @@ func (svc *Service) TaskRead(ctx context.Context, actor c.Principal, in c.TaskRe
 	}
 	task, err := svc.Tasks.Read(ctx, in.Reference)
 	if err != nil {
+		if errors.Is(err, c.ErrInvalid) || errors.Is(err, c.ErrNotFound) {
+			return svc.taskIntakeRead(ctx, actor, in.Reference)
+		}
 		return task, err
 	}
 	if _, _, err = svc.taskAuthority(ctx, actor, task.Goal, false); err != nil {
@@ -133,6 +146,9 @@ func (svc *Service) taskBinding(ctx context.Context, p c.Principal, a c.GoalAuth
 func planner(p c.Principal) bool { return p.Kind == "owner" || slices.Contains(p.Capabilities, "plan") }
 
 type taskCreateIntent struct {
+	ProjectUID       string              `json:"project_uid,omitempty"`
+	ProviderKey      string              `json:"provider_key,omitempty"`
+	ObservedIssueUID string              `json:"observed_issue_uid,omitempty"`
 	Binding          c.NativeTaskBinding `json:"binding"`
 	Reference        string              `json:"reference,omitempty"`
 	ProviderRevision int64               `json:"provider_revision,omitempty"`
@@ -170,14 +186,30 @@ func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.Task
 		return c.ProviderTask{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	saved := taskCreateIntent{Binding: intent, CreatedAt: svc.Store.now().UTC()}
+	project := svc.Tasks.Capabilities().ProjectUID
+	providerKey := taskstore.CreationKey(in.Goal, in.RequestID)
+	saved := taskCreateIntent{Binding: intent, CreatedAt: svc.Store.now().UTC(), ProjectUID: project, ProviderKey: providerKey}
 	found, err := request(ctx, tx, p.ID, in.RequestID, "task-create", in, &saved)
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
 	if found {
-		if !reflect.DeepEqual(saved.Binding, intent) {
+		if !reflect.DeepEqual(saved.Binding, intent) || (saved.ProjectUID != "" && saved.ProjectUID != project) || (saved.ProviderKey != "" && saved.ProviderKey != providerKey) {
 			return c.ProviderTask{}, c.ErrConflict
+		}
+		if saved.ProjectUID == "" || saved.ProviderKey == "" {
+			saved.ProjectUID = project
+			saved.ProviderKey = providerKey
+			if saved.Reference != "" {
+				p, uid, _, e := c.ParseKataTaskReference(saved.Reference)
+				if e != nil || p != project {
+					return c.ProviderTask{}, c.ErrConflict
+				}
+				saved.ObservedIssueUID = uid
+			}
+			if _, err = tx.ExecContext(ctx, "UPDATE requests SET result=? WHERE actor=? AND request_id=?", encode(saved), p.ID, in.RequestID); err != nil {
+				return c.ProviderTask{}, err
+			}
 		}
 	} else if err = saveRequest(ctx, tx, p.ID, in.RequestID, "task-create", in, saved); err != nil {
 		return c.ProviderTask{}, err
@@ -216,6 +248,10 @@ func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.Task
 		if !found || !reflect.DeepEqual(current.Binding, intent) || (current.Reference != "" && current.Reference != task.Reference) {
 			return c.ProviderTask{}, c.ErrConflict
 		}
+		if current.ObservedIssueUID != "" && current.ObservedIssueUID != task.IssueUID {
+			return c.ProviderTask{}, c.ErrConflict
+		}
+		current.ObservedIssueUID = task.IssueUID
 		current.Reference = task.Reference
 		current.ProviderRevision = task.Revision
 		saved = current
@@ -294,7 +330,7 @@ func (svc *Service) TaskBind(ctx context.Context, actor c.Principal, in c.TaskBi
 			return c.ProviderTask{}, c.ErrConflict
 		}
 	}
-	reservation, err := svc.reserveTaskBinding(ctx, p.ID, in, same)
+	reservation, err := svc.reserveTaskBinding(ctx, p.ID, in, same, task)
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
@@ -307,7 +343,9 @@ func (svc *Service) TaskBind(ctx context.Context, actor c.Principal, in c.TaskBi
 		}
 		return result, errors.Join(err, svc.reconcileTaskMutation(ctx, observed))
 	}
-	_, err = svc.registerArtifact(ctx, p, c.ArtifactLink{Goal: in.Binding.Goal, Kind: "task", URL: in.Binding.TaskURL, AssignmentSHA: sha, ExpectedAssignmentSHA: in.ExpectedAssignmentSHA, RequestID: "task-register-" + digest(struct{ Actor, Request string }{p.ID, in.RequestID})}, &reservation)
+	_, err = svc.registerArtifact(ctx, p, c.ArtifactLink{Goal: in.Binding.Goal, Kind: "task", URL: in.Binding.TaskURL, AssignmentSHA: sha, ExpectedAssignmentSHA: in.ExpectedAssignmentSHA, RequestID: "task-register-" + digest(struct{ Actor, Request string }{p.ID, in.RequestID})}, &reservation, func(tx *sql.Tx) error {
+		return svc.taskBindingAuthority(ctx, tx, p, in.Binding)
+	})
 	return result, err
 }
 func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.TaskCompleteInput) (c.ProviderTask, error) {
@@ -380,6 +418,13 @@ func registerTasks(mux *http.ServeMux, svc *Service, wrap func(func(http.Respons
 			return nil, err
 		}
 		return svc.TaskCreate(r.Context(), p, in)
+	}))
+	mux.HandleFunc("POST /api/v1/tasks/adopt", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.TaskAdoptInput
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return svc.TaskAdopt(r.Context(), p, in)
 	}))
 	mux.HandleFunc("POST /api/v1/tasks/bind", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		var in c.TaskBindInput

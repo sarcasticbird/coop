@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS members(thread_id TEXT REFERENCES threads(id),princip
 CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,thread_id TEXT NOT NULL REFERENCES threads(id),author_id TEXT NOT NULL REFERENCES principals(id),body BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,message_id TEXT NOT NULL REFERENCES messages(id),agent_id TEXT NOT NULL REFERENCES principals(id),state TEXT NOT NULL,body BLOB NOT NULL,UNIQUE(message_id,agent_id));
 CREATE TABLE IF NOT EXISTS requests(actor TEXT NOT NULL REFERENCES principals(id),request_id TEXT NOT NULL,digest TEXT NOT NULL,kind TEXT NOT NULL,result BLOB NOT NULL,PRIMARY KEY(actor,request_id));
+CREATE INDEX IF NOT EXISTS task_creation_native_key ON requests(json_extract(result,'$.project_uid'),json_extract(result,'$.provider_key')) WHERE kind='task-create';
+CREATE INDEX IF NOT EXISTS task_creation_native_issue ON requests(json_extract(result,'$.project_uid'),json_extract(result,'$.observed_issue_uid')) WHERE kind='task-create';
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,thread_id TEXT NOT NULL REFERENCES threads(id),message_id TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id,seq);
 CREATE INDEX IF NOT EXISTS deliveries_pending ON deliveries(agent_id,state,id);

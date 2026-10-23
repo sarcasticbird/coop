@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	textansi "github.com/charmbracelet/x/ansi"
+	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 	"github.com/sarcasticbird/coop/internal/tui/team"
 )
@@ -27,9 +28,7 @@ func (m fleetModel) splitWidths() (int, int) {
 func (m fleetModel) previewDetails() fleetModel {
 	p := m
 	p.detail = true
-	if m.detail {
-		return p
-	}
+	p.preview = !m.detail
 	if p.detailEntry == nil {
 		for _, e := range m.rows() {
 			if e.Target == m.selected {
@@ -38,7 +37,9 @@ func (m fleetModel) previewDetails() fleetModel {
 			}
 		}
 	}
-	p.diagnostics = fleetDiagnostics{}
+	if !m.detail {
+		p.diagnostics = fleetDiagnostics{}
+	}
 	if p.detailEntry == nil {
 		return p
 	}
@@ -47,6 +48,15 @@ func (m fleetModel) previewDetails() fleetModel {
 	if m.detailInvalid || !ok || current.Name != e.Name || current.Project != e.Project || !sameBinding(current.Diagnostics, e.Diagnostics) {
 		p.detailInvalid = true
 		p.diagnostics.failure = "target unavailable or changed; select again"
+		return p
+	}
+	if m.detail {
+		if e.Diagnostics != nil && (m.services.Coordination == nil || m.services.Coordination.MasterID() != e.Diagnostics.MasterID || c.ValidateDiagnosticBinding(*e.Diagnostics) != nil || !m.diagnosticBindingUnique(*e.Diagnostics)) {
+			p.diagnostics.failure = "bound master unavailable or mismatched; work unknown"
+		}
+		if p.diagnostics.report != nil && m.fleetDiagnosticContextChanged(p.diagnostics) {
+			p.diagnostics.failure = "access context changed; work unknown"
+		}
 		return p
 	}
 	if cached, ok := m.ledgerDiagnostics.entries[e.Target]; ok && sameBinding(e.Diagnostics, &cached.binding) {
@@ -59,7 +69,7 @@ func (m fleetModel) previewDetails() fleetModel {
 	return p
 }
 
-func (m fleetModel) fleetPaneLines() ([]string, int) {
+func (m fleetModel) fleetPaneLines() ([]string, int, int) {
 	lines := []string{"BIRD / HOST          REPORTED ACTIVITY"}
 	if m.filter != (hostrouter.Host{}) {
 		hosts, targets := 0, 0
@@ -71,7 +81,7 @@ func (m fleetModel) fleetPaneLines() ([]string, int) {
 		}
 		lines = append(lines, fmt.Sprintf("%dH/%dT hidden", hosts, targets))
 	}
-	selected := -1
+	selected, selectedEnd := -1, -1
 	foundHost := false
 	for _, h := range m.hosts {
 		if m.filter != (hostrouter.Host{}) && h.host != m.filter {
@@ -98,9 +108,33 @@ func (m fleetModel) fleetPaneLines() ([]string, int) {
 			}
 			nameWidth := min(18, max(8, m.width/2-2))
 			lines = append(lines, prefix+ledgerCell(ledgerName(e), nameWidth)+"  "+ledgerCell(activity, max(1, m.width-nameWidth-4)))
-			lines = append(lines, textansi.Truncate("  "+coordClean(work), m.width, "..."))
+			vm := "VM: " + e.State
+			if _, ok := m.entry(e.Target); !ok {
+				vm = "VM: unknown; last " + e.State
+			}
+			lines = append(lines, textansi.Truncate("  "+coordClean(vm), m.width, "..."))
+			if e.Target == m.selected {
+				progress, blocker := "unknown", "unknown"
+				if cached, ok := m.ledgerDiagnostics.entries[e.Target]; ok && activity != "unknown" && activity != "stale" && cached.report != nil {
+					progress = diagnosticProgress(time.Now(), cached.report, cached.failure)
+					blocker = diagnosticBlocker(cached.report.Report.Wait)
+					at := cached.report.Report.Work.ObservedAt
+					if !at.IsZero() && !at.After(time.Now()) && time.Since(at) < c.PresenceStale {
+						work = diagnosticWorkName(cached.report.Report.Work)
+						if stage := cached.report.Report.Work.Stage; stage != "" {
+							work += " / " + strings.ReplaceAll(stage, "_", " ")
+						}
+					}
+				}
+				lines = append(lines, textansi.Truncate("  Task: "+coordClean(work), m.width, "..."), textansi.Truncate("  Progress: "+progress, m.width, "..."), textansi.Truncate("  Blocker: "+coordClean(blocker), m.width, "..."))
+			} else {
+				lines = append(lines, textansi.Truncate("  "+coordClean(work), m.width, "..."))
+			}
 			if cached, ok := m.ledgerDiagnostics.entries[e.Target]; ok && cached.report != nil {
 				lines = append(lines, textansi.Truncate("  Report "+teamAge(cached.report.Report.ObservedAt)+" / receipt "+teamAge(cached.report.ReceivedAt), m.width, "..."))
+			}
+			if e.Target == m.selected {
+				selectedEnd = len(lines) - 1
 			}
 		}
 	}
@@ -110,7 +144,7 @@ func (m fleetModel) fleetPaneLines() ([]string, int) {
 	if !foundHost && m.filter != (hostrouter.Host{}) {
 		lines = append(lines, "Filtered host removed; h to choose scope")
 	}
-	return lines, selected
+	return lines, selected, selectedEnd
 }
 
 func fleetHostHealth(h hostState) string {
@@ -149,7 +183,7 @@ func (m fleetModel) detailsPaneLines() []string {
 		}
 		logical = m.fleetDetailsLines(state, health)
 	} else {
-		logical = append(logical, "", "No target selected", "Up/Down previews a bird; Enter opens Details.")
+		logical = append(logical, "", "No target selected", "Up/Down previews a bird; Enter attaches; Tab opens Details.")
 	}
 	lines := []string{
 		textansi.Truncate(coordClean(logical[1]), m.width, "..."),
@@ -168,7 +202,7 @@ func (m fleetModel) focusedContent() ([]string, string, int) {
 	left, right := m.splitWidths()
 	if !m.detail {
 		m.width = left
-		lines, selected := m.fleetPaneLines()
+		lines, selected, _ := m.fleetPaneLines()
 		return lines, "", selected
 	}
 	m = m.previewDetails()
@@ -181,7 +215,7 @@ func (m fleetModel) splitView() string {
 	height := m.height - 4
 	left := m
 	left.width = leftWidth
-	leftLines, _ := left.fleetPaneLines()
+	leftLines, _, _ := left.fleetPaneLines()
 	leftScroll := m.scroll
 	if m.detail {
 		leftScroll = m.ledgerScroll
@@ -259,9 +293,12 @@ func (m fleetModel) splitView() string {
 		out = append(out, "|"+lp+"| |"+rp+"|")
 	}
 	out = append(out, "+"+strings.Repeat("-", leftWidth)+"+ +"+strings.Repeat("-", rightWidth)+"+")
-	footer := "Up/Down select | Tab/Enter Details | h filter | ? help | 2 Coordination | 3 Servers"
+	footer := "Enter attach | t Tasks | C Chat | Tab Details | h filter | ? help"
 	if m.detail {
-		footer = "Up/Down/PgDn scroll | Tab/Esc Fleet | c Connect | x actions | 2/t Team | ? help"
+		footer = "Tab/Esc Fleet | c Connect | t Tasks | C Chat | x actions | ? help"
+	}
+	if !m.canonicalComms() {
+		footer += " | 2 Coordination | 3 Servers"
 	}
 	if m.registryError != "" {
 		feedback = m.registryError + "; cached destination; actions blocked"

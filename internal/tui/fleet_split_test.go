@@ -29,7 +29,7 @@ func TestSplitFleetBreakpointAndExplicitConnect(t *testing.T) {
 			if width >= 100 && (!strings.Contains(view, "FLEET [focus]") || !strings.Contains(view, "REPORTED WORK") || !strings.Contains(view, "DETAILS")) {
 				t.Fatal("selection did not preview right pane", view)
 			}
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			if !m.detail || m.detailEntry.Target != target || m.pending != nil {
 				t.Fatal("Enter did not focus captured Details")
 			}
@@ -141,7 +141,7 @@ func TestSplitDetailsKeyboardReachesExactContext(t *testing.T) {
 				coord.coordination.self.Principal.ID = principal
 				m.services.Coordination, m.coordination = source, coord.coordination
 				m.width, m.height = size[0], size[1]
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				target := m.selected
 				seenMaster, seenPrincipal, seenEnd := false, false, false
 				var pinned []string
@@ -159,7 +159,7 @@ func TestSplitDetailsKeyboardReachesExactContext(t *testing.T) {
 					visible := strings.Join(body[2:], "")
 					seenMaster = seenMaster || strings.Contains(visible, master)
 					seenPrincipal = seenPrincipal || strings.Contains(visible, principal)
-					seenEnd = seenEnd || strings.Contains(visible, "2 then t: full Team diagnostics")
+					seenEnd = seenEnd || strings.Contains(visible, "l then t: full Team diagnostics")
 					if step < 100 {
 						var cmd tea.Cmd
 						m, cmd = fleetKey(m, key)

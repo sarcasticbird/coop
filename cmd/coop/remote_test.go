@@ -407,14 +407,15 @@ func TestReceiveHostInvocationInteractiveRevalidation(t *testing.T) {
 func TestRemoteCommandClassificationExhaustive(t *testing.T) {
 	remote := strings.Fields("init up down status shell sync apply rebuild destroy backup restore doctor upgrade ping approve team inbox")
 	remote = append(remote,
+		"work-ui-exec",
 		"credentials refresh", "credentials watch", "worker status", "worker pause", "worker resume", "worker requests",
-		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover",
+		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover", "master conversation cursor", "master conversation map", "master conversation reaccept", "master conversation legacy",
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team inspect",
 		"goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
-		"task capabilities", "task read", "task list", "task create",
+		"task capabilities", "task read", "task list", "task create", "task adopt",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register", "cache status")
 	// Inventory/ls aggregate on the controller rather than executing a remote CLI.
-	controller := []string{"task", "pilot", "pilot run", "pilot status", "pilot mcp", "host-exec", "tui-exec", "inventory", "ls", "tui", "server add", "server update", "server remove", "server list", "help", "completion bash", "completion fish", "completion powershell", "completion zsh"}
+	controller := []string{"task", "task tui", "chat", "pilot", "pilot run", "pilot status", "pilot mcp", "host-exec", "tui-exec", "inventory", "ls", "tui", "server add", "server update", "server remove", "server list", "help", "completion bash", "completion fish", "completion powershell", "completion zsh"}
 	classified := map[string]bool{"": true}
 	for _, name := range remote {
 		classified[name] = true

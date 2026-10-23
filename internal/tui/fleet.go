@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	textansi "github.com/charmbracelet/x/ansi"
+	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
 	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/tui/team"
@@ -30,12 +31,14 @@ type Inventory interface {
 }
 
 type Services struct {
-	Coordination Coordination
-	Version      string
-	Inventory    Inventory
-	Registry     Registry
-	Actions      hostrouter.ActionClient
-	Terminal     hostrouter.TerminalClient
+	Coordination    Coordination
+	Version         string
+	BuildProvenance string
+	WorkDestination string
+	Inventory       Inventory
+	Registry        Registry
+	Actions         hostrouter.ActionClient
+	Terminal        hostrouter.TerminalClient
 	// Foreground uses the existing CLI on the released controlling terminal.
 	Foreground func(context.Context, hostrouter.ActionRequest) (*exec.Cmd, error)
 	// PrepareAction captures configured references before the consent preview.
@@ -71,6 +74,8 @@ type pendingAction struct {
 
 type fleetModel struct {
 	coordination          coordState
+	work                  fleetWork
+	preview               bool
 	diagnostics           fleetDiagnostics
 	ledgerDiagnostics     ledgerDiagnostics
 	services              Services
@@ -199,7 +204,7 @@ func (m fleetModel) entry(t hostrouter.Target) (hostrouter.InventoryEntry, bool)
 		return hostrouter.InventoryEntry{}, false
 	}
 	for _, h := range m.hosts {
-		if h.host == t.Host && h.errorCode == "" && !h.updated.IsZero() {
+		if h.host == t.Host && h.errorCode == "" && !h.updated.IsZero() && !h.updated.After(time.Now()) && time.Since(h.updated) < c.PresenceStale {
 			for _, e := range h.entries {
 				if e.Target == t {
 					return e, true
@@ -277,50 +282,68 @@ func (m *fleetModel) reconcile() {
 }
 
 // Ledger coordinates exclude the pinned context and the feedback/footer rows.
-func (m fleetModel) ledgerViewport() (line, start, limit, maxScroll int) {
+func (m fleetModel) ledgerViewport() (line, end, start, limit, maxScroll int) {
 	if m.splitFleet() {
 		left, _ := m.splitWidths()
 		probe := m
 		probe.width = left
-		lines, selected := probe.fleetPaneLines()
+		lines, selected, selectedEnd := probe.fleetPaneLines()
 		scroll := m.scroll
 		if m.detail {
 			scroll = m.ledgerScroll
 		}
-		return selected - 1, min(scroll, max(0, len(lines)-(m.height-4))), max(1, m.height-5), max(0, len(lines)-(m.height-4))
+		return selected - 1, selectedEnd - 1, min(scroll, max(0, len(lines)-(m.height-4))), max(1, m.height-5), max(0, len(lines)-(m.height-4))
 	}
 	if m.workspace != 0 || m.detail || m.filtering || m.help || m.runbook || m.form != nil || m.pending != nil || m.operations != nil || m.height <= 0 {
-		return -1, 0, 0, 0
+		return -1, -1, 0, 0, 0
 	}
 	lines, _, line := m.content()
+	end = line
+	pane, selected, selectedEnd := m.fleetPaneLines()
+	if selected >= 0 {
+		span := 0
+		for _, row := range pane[selected : selectedEnd+1] {
+			span += len(strings.Split(readingWrap(row, m.width), "\n"))
+		}
+		end += span - 1
+	}
 	limit = max(1, m.height-2)
 	maxScroll = max(0, len(lines)-limit)
 	if m.height >= 4 {
 		if line >= 0 {
 			line--
+			end--
 		}
 		limit--
 	}
-	return line, min(m.scroll, maxScroll), limit, maxScroll
+	return line, end, min(m.scroll, maxScroll), limit, maxScroll
 }
 
 func (m fleetModel) ledgerSelectionVisible() bool {
-	line, start, limit, _ := m.ledgerViewport()
+	line, _, start, limit, _ := m.ledgerViewport()
 	return line >= 0 && line >= start && line < start+limit
 }
 
 func (m *fleetModel) revealLedgerSelection() {
-	line, start, limit, maxScroll := m.ledgerViewport()
+	line, end, start, limit, maxScroll := m.ledgerViewport()
 	if line < 0 {
 		return
 	}
-	if line >= start && line < start+limit {
+	// Keep the whole selected work block together when the viewport can hold it.
+	// Very short terminals still reveal the bird name rather than losing selection.
+	if end-line+1 > limit {
+		end = line
+	}
+	if line >= start && end < start+limit {
 		return
 	}
 	scroll := start
-	if line < start || line >= start+limit {
-		scroll = min(line, maxScroll)
+	if line < start {
+		scroll = line
+	} else if end >= start+limit {
+		scroll = end - limit + 1
 	}
+	scroll = max(0, min(scroll, maxScroll))
 	if m.detail && m.splitFleet() {
 		m.ledgerScroll = scroll
 	} else {
@@ -330,6 +353,19 @@ func (m *fleetModel) revealLedgerSelection() {
 
 func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case fleetWorkResult:
+		if msg.serial != m.work.serial || m.services.Coordination == nil || msg.master != m.services.Coordination.MasterID() {
+			return m, nil
+		}
+		m.work.busy = false
+		m.work.checked = time.Now()
+		m.work.master, m.work.self = msg.master, msg.self
+		m.work.capabilities = msg.capabilities
+		m.invalidateFleetDiagnosticContext()
+		if msg.err != nil {
+			m.work.capabilities = c.TaskCapabilities{}
+		}
+		return m, nil
 	case fleetDiagnosticResult:
 		return m.fleetDiagnosticUpdate(msg)
 	case ledgerDiagnosticResult:
@@ -344,10 +380,10 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, msg.run
 	case fleetRefresh:
 		cmd := m.refresh()
-		return m, tea.Batch(cmd, fleetClock())
+		return m, tea.Batch(cmd, m.refreshWorkCapabilities(), fleetClock())
 	case fleetTick:
 		cmd := m.refresh()
-		ledger := m.refreshLedgerDiagnostics()
+		ledger := tea.Batch(m.refreshLedgerDiagnostics(), m.refreshWorkCapabilities())
 		if m.workspace == 0 && m.detail && !time.Time(msg).Before(m.diagnostics.next) {
 			diagnostic := m.refreshFleetDiagnostics()
 			return m, tea.Batch(cmd, diagnostic, ledger, fleetClock())
@@ -474,6 +510,9 @@ func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.actionCancel = nil
 		}
 		m.status = identity(msg.target) + " " + msg.operation + " succeeded"
+		if msg.operation == "task" || msg.operation == "chat" {
+			m.status = "Returned from native " + msg.operation
+		}
 		if msg.err != nil {
 			m.status = identity(msg.target) + " " + msg.operation + " failed: " + msg.err.Error() + "; refresh and inspect before retrying"
 		}
@@ -682,6 +721,15 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.coordination.form == nil && (m.workspace == 0 && (key == "t" || key == "C") || m.canonicalComms() && (key == "2" || key == "3")) {
+		if key == "C" || key == "3" {
+			return m.openWorkUI("chat")
+		}
+		return m.openWorkUI("task")
+	}
+	if m.workspace == 0 && !m.detail && key == "enter" {
+		return m.directAttach()
+	}
 	if m.workspace == 0 && !m.detail {
 		switch key {
 		case "h":
@@ -692,7 +740,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.scroll = 0
 			return m, nil
-		case "enter", "tab", "shift+tab", "u", "s", "d", "x":
+		case "tab", "shift+tab", "u", "s", "d", "x":
 			for _, e := range m.rows() {
 				if e.Target == m.selected {
 					if e.Diagnostics != nil {
@@ -713,7 +761,7 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 			}
-			m.status = "No target selected; use up/down to select, then Enter for Details"
+			m.status = "No target selected; use up/down to select, then Tab for Details"
 			return m, nil
 		}
 	}
@@ -793,13 +841,17 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "1":
 		m.workspace = 0
 		m.scroll = 0
-	case "2":
+	case "l", "g", "2":
+		if key == "g" {
+			m.coordination.section = "goals"
+			m.coordination.thread, m.coordination.authority, m.coordination.receipt, m.coordination.teamDetail = nil, nil, nil, nil
+		}
 		m.workspace = 1
 		m.scroll = 0
-		if m.coordination.seen.IsZero() {
+		if m.coordination.seen.IsZero() || key == "g" {
 			return m, m.coordLoad(false)
 		}
-	case "3":
+	case "S", "3":
 		m.workspace = 2
 		m.scroll = 0
 	case "tab", "shift+tab":
@@ -890,20 +942,13 @@ func (m fleetModel) keyFleet(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-			if m.splitFleet() {
+			if m.workspace == 0 {
 				m.revealLedgerSelection()
 				return m, nil
 			}
 			lines, _, selectedLine := m.focusedContent()
 			if selectedLine >= 0 && m.height > 0 {
 				limit := max(1, m.height-2)
-				if m.workspace == 0 {
-					selectedLine-- // Fleet context occupies a pinned line.
-					limit = max(1, m.height-3)
-					if m.splitFleet() {
-						limit = max(1, m.height-5)
-					}
-				}
 				if selectedLine < m.scroll {
 					m.scroll = selectedLine
 				}
@@ -1166,7 +1211,11 @@ func (m fleetModel) dispatch(p pendingAction) (tea.Model, tea.Cmd) {
 func (m fleetModel) content() ([]string, string, int) {
 	var lines []string
 	selectedLine := -1
-	lines = append(lines, "COOP   [1 Fleet]   [2 Coordination]   [3 Servers]", "")
+	navigation := "COOP   [1 Fleet]   [t Tasks]   [C Chat]   [2 Coordination]   [3 Servers]"
+	if m.canonicalComms() {
+		navigation = "COOP   [1 Fleet]   [2 Tasks]   [3 Chat]"
+	}
+	lines = append(lines, navigation, "")
 	if m.workspace == 1 {
 		if m.teamList() || m.conversationPage() || m.composePage() || m.coordination.teamDetail != nil && m.coordination.form == nil {
 			lines = m.coordLines()
@@ -1333,7 +1382,11 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.help {
 		selectedLine = -1
-		lines = []string{"Keyboard Help", "1 Fleet | 2 Coordination | 3 Servers", "up/down or j/k: select | enter/tab: Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: h host filter | Enter Details (never Connect)", "Details: c Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
+		nav := "1 Fleet | t Tasks | C Chat | 2 Coordination | 3 Servers"
+		if m.canonicalComms() {
+			nav = "1 Fleet | 2 Tasks | 3 Chat"
+		}
+		lines = []string{"Keyboard Help", nav, "up/down or j/k: select | Enter attach | Tab Details", "r: refresh | ?: help | esc: back/cancel | q: quit", "Fleet: Enter attach | t Tasks | C Chat | h host filter", "Details: c Connect | u up | s stop | d destroy", "x: selected target/host operations | v: services/about", "g: goal decisions | l: legacy Coordination / Team | S: Servers", "Servers: a add | e update | d remove", "Forms: type | tab field | backspace edit | enter save", "Confirmation: y confirm | n or esc cancel", "Busy operations serialize changes; Ctrl+C exits.", "? or esc: return"}
 		lines = append(lines, "Coordination: t team | l threads | i inbox | g goals | n create | c compose | p reply/prompt", "m members | s receipt | a authority | o propose JSON | d decision | f follow | ] next page", "Goals list: e next authorized engagement (resets page)", "Private forms: Tab field | Ctrl+V reveal | Ctrl+S preview then submit | Ctrl+R identical retry | Esc draft options")
 		if m.workspace == 0 && m.detailEntry != nil && m.detail {
 			lines = append(append(m.pageContext("Details Help"), "Target: "+identity(m.detailEntry.Target), "Host destination: "+valueOr(m.detailEntry.Target.Host.Address, "this machine"), "Runtime: "+m.detailEntry.Name, "Connect needs a running VM; Apply and Backup need a stopped VM.", "Observations do not grant action authority; every action revalidates the captured target."), lines[1:]...)
@@ -1364,6 +1417,7 @@ func (m fleetModel) content() ([]string, string, int) {
 	}
 	if m.runbook {
 		lines = append([]string{"Coop build: " + valueOr(m.services.Version, "unknown (embedded caller)")}, serviceRunbook()...)
+		lines = append(lines, "Build provenance: "+valueOr(m.services.BuildProvenance, "unknown"), "Work destination: "+valueOr(m.services.WorkDestination, "unconfigured"))
 		selectedLine = -1
 	}
 	if m.form != nil && !m.help {
@@ -1426,8 +1480,8 @@ func (m fleetModel) content() ([]string, string, int) {
 		lines = append(lines, strings.Split(m.output, "\n")...)
 	}
 	if m.workspace == 0 && !m.detail && !m.filtering && !m.help && !m.runbook && m.form == nil && m.pending == nil && m.operations == nil && m.coordination.leaving == "" {
-		pane, selected := m.fleetPaneLines()
-		context := m.pageContext(lines[0])
+		pane, selected, _ := m.fleetPaneLines()
+		context := []string{lines[0]}
 		if m.selected == (hostrouter.Target{}) {
 			context = append(context, "No target selected")
 		}
@@ -1487,9 +1541,12 @@ func (m fleetModel) content() ([]string, string, int) {
 		}
 	}
 	if m.workspace == 0 {
-		footer = "Enter Details | h filter | ? help"
+		footer = "Enter attach | t Tasks | C Chat | Tab Details | ?"
 		if m.detail {
-			footer = "Esc Fleet | c Connect | x | ?"
+			footer = "Esc Fleet | t Tasks | C Chat | c Connect | x | ?"
+		}
+		if !m.canonicalComms() {
+			footer += " | 2 Coordination | 3 Servers"
 		}
 		if m.filtering {
 			footer = "Enter apply | Esc cancel | arrows select"

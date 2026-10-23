@@ -36,7 +36,7 @@ func TestLedgerDetailsConnectReturn(t *testing.T) {
 			}
 			m, _ = fleetKey(m, "pgdown")
 			scroll := m.scroll
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			if cmd != nil || !m.detail || m.detailEntry == nil || m.detailEntry.Target != target || m.selected != target {
 				t.Fatal("Enter must focus Details for the selected target")
 			}
@@ -120,7 +120,7 @@ func TestLedgerInitialLoadingNeverSelectsTarget(t *testing.T) {
 }
 
 func TestLedgerShortcutsOnlyOpenDetails(t *testing.T) {
-	for _, key := range []string{"u", "s", "d", "x", "enter"} {
+	for _, key := range []string{"u", "s", "d", "x", "tab"} {
 		m := fixtureFleet()
 		m, cmd := fleetKey(m, key)
 		if cmd != nil || !m.detail || m.pending != nil || m.operations != nil || m.busy || len(m.services.Actions.(*fixtureActions).requests) != 0 {
@@ -162,7 +162,7 @@ func TestLedgerCapturedIntentDoesNotRevive(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			m := fixtureFleet()
 			m.selected = m.hosts[1].entries[0].Target
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			m, _ = fleetKey(m, "d")
 			if m.pending == nil {
 				t.Fatal("missing captured action")
@@ -193,7 +193,7 @@ func TestLedgerCapturedIntentDoesNotRevive(t *testing.T) {
 			}
 			m, _ = fleetKey(m, "esc")
 			m, _ = fleetKey(m, "down")
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			if m.detailInvalid {
 				t.Fatal("fresh explicit selection could not establish new intent")
 			}
@@ -230,7 +230,7 @@ func TestLedgerLongIdentitiesRemainDistinct(t *testing.T) {
 	// drill-in, including duplicate labels with identical truncated prefixes.
 	for _, e := range []hostrouter.InventoryEntry{a, b} {
 		m.selected = e.Target
-		m, _ = fleetKey(m, "enter")
+		m, _ = fleetKey(m, "tab")
 		lines, _, _ := m.content()
 		text := strings.Join(strings.Fields(strings.Join(lines, "")), "")
 		if !strings.Contains(text, strings.Join(strings.Fields(identity(e.Target)), "")) || m.detailEntry.Target != e.Target || !strings.Contains(text, "VMlifecycle:running") {
@@ -242,7 +242,7 @@ func TestLedgerLongIdentitiesRemainDistinct(t *testing.T) {
 
 func TestLedgerConnectRechecksLifecycleAtConfirmation(t *testing.T) {
 	m := fixtureFleet()
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "c")
 	if m.pending == nil {
 		t.Fatal("Connect was not captured")
@@ -280,7 +280,7 @@ func TestLedgerResizeKeepsSelectedHighlightVisible(t *testing.T) {
 			t.Fatal("resized Ledger exceeds terminal bounds")
 		}
 	}
-	m, cmd := fleetKey(m, "enter")
+	m, cmd := fleetKey(m, "tab")
 	if cmd != nil || !m.detail || m.detailEntry.Target != target {
 		t.Fatal("Enter did not open Details for the visible selected target")
 	}
@@ -318,7 +318,7 @@ func TestLedgerFocusSurvivesReturnAndRefresh(t *testing.T) {
 			}
 			target := m.selected
 			if strings.HasPrefix(journey, "details") {
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 			}
 			out, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 			m = out.(fleetModel)
@@ -346,7 +346,7 @@ func TestLedgerFocusSurvivesReturnAndRefresh(t *testing.T) {
 			if m.detail || m.selected != target || !m.ledgerSelectionVisible() || !strings.Contains(m.View(), "> ") {
 				t.Fatalf("journey hid or replaced selected target %s at scroll %d:\n%s", identity(target), m.scroll, m.View())
 			}
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			if cmd != nil || !m.detail || m.detailEntry.Target != target {
 				t.Fatal("Details did not open the same visible target")
 			}
@@ -371,7 +371,7 @@ func TestLedgerReturnAndRefreshPreserveIntentionalPaging(t *testing.T) {
 			}
 			switch journey {
 			case "details":
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				m, _ = fleetKey(m, "esc")
 			case "help":
 				m, _ = fleetKey(m, "?")

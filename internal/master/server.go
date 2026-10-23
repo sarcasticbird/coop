@@ -217,6 +217,37 @@ func NewHandler(service *Service, policy *Policy) http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.Thread(r.Context(), p, r.PathValue("id"))
 	}))
+	mux.HandleFunc("GET /api/v1/conversation-cursor", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		return s.ConversationCursor(r.Context(), p)
+	}))
+	mux.HandleFunc("POST /api/v1/conversation-cursor/reaccept", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.ReacceptConversationCursor
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return s.ReacceptConversationCursor(r.Context(), p, in)
+	}))
+	mux.HandleFunc("GET /api/v1/threads/{id}/legacy-messages", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var after int64
+		if value := r.URL.Query().Get("after"); value != "" {
+			var err error
+			after, err = strconv.ParseInt(value, 10, 64)
+			if err != nil || after < 0 {
+				return nil, c.ErrInvalid
+			}
+		}
+		return s.LegacyMessages(r.Context(), p, r.PathValue("id"), after)
+	}))
+	mux.HandleFunc("GET /api/v1/conversation-observations", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		return s.ConversationObservations(r.Context(), p, r.URL.Query().Get("after"))
+	}))
+	mux.HandleFunc("POST /api/v1/conversation-sources", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.MapConversation
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return s.MapConversation(r.Context(), p, in)
+	}))
 	mux.HandleFunc("POST /api/v1/thread-members", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		var in c.SetMembers
 		if err := decode(w, r, &in); err != nil {

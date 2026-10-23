@@ -151,7 +151,7 @@ func TestRuntimeIntegrationColorProfileParity(t *testing.T) {
 				t.Fatal("did not reach Fleet")
 			}
 			check("Fleet")
-			key("enter")
+			key("tab")
 			if !m.detail {
 				t.Fatal("did not reach Details")
 			}
@@ -293,7 +293,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 				private()
 			}
 			resizePrivate()
-			for _, key := range []string{"1", "enter", "c"} {
+			for _, key := range []string{"1", "tab", "c"} {
 				var cmd tea.Cmd
 				m, cmd = coordinationKey(m, key)
 				if cmd != nil {

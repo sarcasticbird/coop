@@ -16,6 +16,7 @@ func registerTaskProviderTools(server *mcp.Server, service *master.Service, p c.
 		bind(server, service.Store, "coop_master_tasks", "List scoped tasks for an exact goal revision.", true, func(ctx context.Context, in c.TaskListInput) (any, error) { return service.TaskList(ctx, p, in) })
 	}
 	if p.Kind == "owner" || slices.Contains(p.Capabilities, "plan") {
+		bind(server, service.Store, "coop_master_adopt_task", "Adopt an existing native Kata issue UID into an exact currently approved goal. Requires provider revision CAS, observed approval sequence and stable request_id. Never creates another issue or approves a goal.", false, func(ctx context.Context, in c.TaskAdoptInput) (any, error) { return service.TaskAdopt(ctx, p, in) })
 		bind(server, service.Store, "coop_master_create_task", "Plan a task only within an already approved goal, with independent assigned actors. Requires observed approval sequence and stable request_id; cannot approve a new goal.", false, func(ctx context.Context, in c.TaskCreateInput) (any, error) { return service.TaskCreate(ctx, p, in) })
 	}
 }

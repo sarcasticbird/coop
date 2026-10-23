@@ -332,7 +332,14 @@ type messageEnvelope struct {
 		Error                                 *struct{ Name string }
 	}
 	Parts []struct {
-		Type                      string
+		ID, CallID string
+		Type       string
+		// Tool input/output and streaming text remain outside this bounded
+		// observation projection. Only tool execution state is progress evidence.
+		State struct {
+			Status string
+			Time   struct{ Start, End int64 }
+		}
 		Auto, Overflow, Synthetic bool
 		Metadata                  struct {
 			CompactionContinue bool `json:"compaction_continue"`
@@ -445,6 +452,18 @@ func (c *OpenCodeClient) readTurn(ctx context.Context, j Job) (Turn, string, err
 	}
 	if compacted {
 		turn.State = "compacting"
+	}
+	if last != nil {
+		// The exact worker parent or verified compaction lineage above owns
+		// this assistant. Hash metadata, never text, tool arguments or output.
+		raw, err := json.Marshal(struct {
+			Session, Parent string
+			Message         *messageEnvelope
+		}{j.SessionID, j.MessageID, last})
+		if err != nil {
+			return turn, latestUser, err
+		}
+		turn.ProgressFingerprint = BodyHash(string(raw))
 	}
 	if last != nil && last.Info.Error != nil {
 		turn.State = "interrupted"

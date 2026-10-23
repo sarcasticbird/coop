@@ -138,6 +138,9 @@ type Snapshot struct {
 	Complete    bool
 }
 type Job struct {
+	ProgressAt                                                                   *time.Time        `json:",omitempty"`
+	ProgressFingerprint                                                          string            `json:",omitempty"`
+	WorkTitle                                                                    string            `json:",omitempty"`
 	ContinuationMessageID                                                        string            `json:",omitempty"`
 	Master                                                                       *MasterJobBinding `json:",omitempty"`
 	SubmittedModel                                                               *ModelIdentity    `json:",omitempty"`
@@ -193,6 +196,8 @@ type Artifacts struct {
 	ProgressHash   string
 }
 type Turn struct {
+	// ProgressFingerprint projects owned message/tool metadata only.
+	ProgressFingerprint                        string         `json:",omitempty"`
 	SubmittedModel                             *ModelIdentity `json:",omitempty"`
 	ExecutedModel                              *ModelIdentity `json:",omitempty"`
 	SessionID, MessageID, State, ErrorCategory string

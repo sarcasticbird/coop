@@ -99,10 +99,13 @@ against this inventory; a newly added command must receive an explicit row.
 | `team`, `team inspect`, `inbox` | Team presence and selected-agent diagnostics are available through `team --watch`; unified coordination and pending delivery views belong to #94 |
 | `cache status` | Read-only CLI/MCP cache diagnostics; no GitHub calls or agent wake, see `docs/github-cache.md` |
 | `task` | CLI/runbook | Task-provider command help |
+| `task tui` | CLI/runbook | Native Kata project or canonical issue reference through the configured master host |
+| `chat` | CLI/runbook | Native Kata standing team ticket from the authenticated active conversation source |
 | `task capabilities` | CLI/runbook | Read authoritative task-provider identity |
 | `task read` | CLI/runbook | Read one scoped task and immutable assignment |
 | `task list` | CLI/runbook | List tasks for an exact goal revision |
 | `task create` | CLI/runbook | Plan within an existing approved goal using a stable request ID |
+| `task adopt` | CLI/runbook | Adopt an existing Kata UID with current provider revision and exact approved goal |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
 | `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
 | `pilot status` | CLI/runbook | Read the saved fixture receipt |
@@ -113,6 +116,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `goal approve`, `goal reject`, `goal pause`, `goal resume`, `goal complete`, `goal reopen`, `approve` | Coordination slice #94; owner-only revision/sequence checks; legacy approval is not silently mapped to a different authority |
 | `master backup`, `master restore` | Advanced runbook: explicit master recovery CLI in `docs/master.md`, not a guest backup/restore action; offline restore requires separately authorized recovery environment |
 | `master reconcile status`, `master reconcile pause`, `master reconcile resume`, `master reconcile evidence`, `master reconcile resolve` | Advanced runbook: master recovery authority, exact epoch and guest evidence; never confused with guest worker controls |
+| `master conversation cursor`, `master conversation map`, `master conversation reaccept`, `master conversation legacy` | Advanced runbook: inspect exact native cursor, map drained anchors, acknowledge restore epoch, or read member history; no fleet action applies cutover implicitly |
 | `master placement set`, `master history import`, `master history list`, `master cutover` | Advanced runbook: coordination administration with explicit generations, history digest and source retirement; no implicit migration/cutover through fleet actions |
 | `help`, `--help`, `--version` | `?` keyboard help, `v` About/runbook and existing CLI help/build identity |
 | `completion bash`, `completion zsh`, `completion fish`, `completion powershell` | About/runbook documents shell integration; completion is generated for the shell, not executed inside Bubble Tea |
@@ -145,3 +149,11 @@ For the staged B implementation use the reproduction and acceptance map in
 Operator-assisted Blackbook/rack-mini UAT is **pending**. Independent Robin
 exact-head review and Wren private exact-artifact QA remain required. Neither
 author tests nor a printed checklist replace their evidence.
+
+The [consolidation cutover recipe](consolidation-cutover.md) records candidate
+provenance, the bounded maintenance window, backups, source cursor recovery and
+operator acceptance. Owners can inspect `coop master conversation cursor`, map a
+drained thread with `map`, and read local history with `legacy THREAD`. Hark keeps
+its existing authenticated Coop MCP; native history reads do not require a second
+provider connection. Reaccepting a source cursor after restore does not resume
+workers or grant new goal authority.

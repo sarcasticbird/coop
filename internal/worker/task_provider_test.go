@@ -477,3 +477,29 @@ func TestKataCoordinatorSkipsDiscoveryButRetainedHistoryKeepsStrictPolicy(t *tes
 		t.Fatal("retained engineering history skipped provider pin")
 	}
 }
+
+// A native issue, even with plausible assignment metadata, cannot enter the
+// engineering catalog without a current registered task artifact.
+func TestNativeCreatedTicketCannotExecuteWithoutAdmission(t *testing.T) {
+	cfg, authority, runner, _, _ := taskSnapshotFixture(t)
+	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
+	authority.links = nil
+	reads := 0
+	sha, _ := TeamPolicySHA(*cfg.Team)
+	installTaskProviderHTTP(t, &cfg, func(path string) any {
+		if path != "/api/v1/tasks/capabilities" {
+			reads++
+			t.Errorf("unregistered issue read %s", path)
+		}
+		return c.TaskCapabilities{Provider: "kata", ProjectUID: providerProject, PolicySHA: sha}
+	})
+	catalog, err := NewGitHubClient(runner).NativeSnapshot(t.Context(), cfg, authority)
+	if err != nil || !catalog.Complete || len(catalog.Tasks) != 0 || reads != 0 {
+		t.Fatalf("unregistered native intake in engineering catalog %+v reads=%d err=%v", catalog, reads, err)
+	}
+	for _, candidate := range NativeCandidates(cfg, catalog, nil, time.Now()) {
+		if candidate.Job.Kind != "plan" {
+			t.Fatal("native intake executed", candidate.Job.Kind)
+		}
+	}
+}

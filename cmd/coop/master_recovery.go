@@ -170,5 +170,5 @@ func installMasterRecovery(masterCmd *cobra.Command) {
 	for _, flag := range []string{"thread", "source-url", "history-sha256"} {
 		_ = cutover.MarkFlagRequired(flag)
 	}
-	masterCmd.AddCommand(backup, restore, reconcile, placement, history, cutover)
+	masterCmd.AddCommand(conversationCommand(), backup, restore, reconcile, placement, history, cutover)
 }
