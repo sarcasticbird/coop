@@ -232,6 +232,10 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `team` | UI | Coordination Team presence/placement; CLI --watch remains read-only |
 | `team inspect` | CLI/runbook | Read one agent's diagnostics; Team --watch opens the same detail with Enter |
 | `cache status` | CLI/runbook | Read scoped master GitHub cache freshness without provider calls or agent wake |
+| `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
+| `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
+| `pilot status` | CLI/runbook | Read the saved fixture receipt |
+| `pilot mcp` | CLI/runbook | Private stdio access to the same fixture coordinator |
 | `inbox` | UI | Authenticated agent's pending delivery page; owner denial is not an empty inbox |
 | `thread list` | UI | Threads with continuation cursor |
 | `thread create` | UI | New thread, engagement and stable member set, preview/submit |
