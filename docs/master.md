@@ -256,6 +256,12 @@ resume observation of the same owned native intent. Engineering has the
 corresponding `native resolve` command.
 Keep uncertain GitHub mutation journals for explicit remote artifact inspection.
 
+A canceled conversation can retain an unsent durable reply. The worker preserves
+that outbox record and skips dispatch only when local recovery and a current
+master receipt confirm cancellation of the same delivery, agent, epoch and native
+intent. It creates no publication receipt and replays no prompt. Missing or
+conflicting evidence and transport failures continue to block publication.
+
 ## Offline acceptance
 
 Run `scripts/uat-master.sh` from the repository to exercise deterministic master
