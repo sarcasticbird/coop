@@ -30,23 +30,54 @@ func recoverySnapshotPath(cfg Config, epoch int64) string {
 	return filepath.Join(masterDir(cfg), "recovery", jsonNumberEpoch(epoch)+"-"+jsonNumberEpoch(cfg.Master.Generation)+"-"+BodyHash(cfg.Master.InstanceID)+".json")
 }
 func jsonNumberEpoch(epoch int64) string { b, _ := json.Marshal(epoch); return string(b) }
+
+// A view is local to one producer-locked operation. Recovery and placement
+// writers own that same lock, so evidence cannot change during its lifetime.
+// Never retain a view across lock releases or worker ticks.
+type masterRecoveryView struct {
+	cfg            Config
+	adoption       masterPlacementAdoption
+	adoptionLoaded bool
+	adoptionErr    error
+	accepted       masterRecoverySnapshot
+	acceptedLoaded bool
+	acceptedErr    error
+}
+
+func (v *masterRecoveryView) loadAdoption() (masterPlacementAdoption, error) {
+	if !v.adoptionLoaded {
+		v.adoption, v.adoptionErr = loadPlacementAdoption(v.cfg)
+		v.adoptionLoaded = true
+	}
+	return v.adoption, v.adoptionErr
+}
+
 func recoveryRetired(cfg Config, kind, key string, raw []byte) (bool, error) {
-	if _, ok, e := adoptedRecoveryRecord(cfg, kind, key, raw); e != nil || ok {
+	return (&masterRecoveryView{cfg: cfg}).retired(kind, key, raw)
+}
+
+func (view *masterRecoveryView) retired(kind, key string, raw []byte) (bool, error) {
+	if _, ok, e := view.adoptedRecord(kind, key, raw); e != nil || ok {
 		return ok, e
 	}
-	b, err := readPrivate(filepath.Join(masterDir(cfg), "recovery", "accepted.json"), MaxSnapshot)
+	if !view.acceptedLoaded {
+		b, err := readPrivate(filepath.Join(masterDir(view.cfg), "recovery", "accepted.json"), MaxSnapshot)
+		if err == nil && (strictTeamJSON(b, &view.accepted) != nil || view.accepted.Version != 1) {
+			err = c.ErrConflict
+		}
+		view.acceptedErr = err
+		view.acceptedLoaded = true
+	}
+	err := view.acceptedErr
 	if os.IsNotExist(err) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	var v masterRecoverySnapshot
-	if strictTeamJSON(b, &v) != nil || v.Version != 1 {
-		return false, c.ErrConflict
-	}
+	v, cfg := view.accepted, view.cfg
 	if v.MasterID != cfg.Master.MasterID || v.InstanceID != cfg.Master.InstanceID || v.Generation != cfg.Master.Generation {
-		adoption, e := loadPlacementAdoption(cfg)
+		adoption, e := view.loadAdoption()
 		if e != nil || string(mustRecoveryJSON(v)) != string(mustRecoveryJSON(adoption.Accepted)) {
 			return false, c.ErrConflict
 		}
