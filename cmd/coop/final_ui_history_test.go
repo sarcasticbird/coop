@@ -30,7 +30,7 @@ func TestFinalReviewNativeEntryWithValidHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(dir, "kata")
-	script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*'daemon locate'*) echo '{\"kind\":\"local\",\"source\":\"local_default\",\"network\":\"unix\",\"address\":\"unix:///tmp/kata.sock\"}';;\n*'projects show'*) echo '{\"project\":{\"uid\":\"%s\"}}';;\n*'show '*' --inbound coop-inspect-'*) echo '{\"issue\":{\"uid\":\"%s\",\"project_uid\":\"%s\"}}';;\n*'show '*) cat show.json;;\nesac\n", project, issue, project)
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*'daemon locate'*) echo '{\"kind\":\"local\",\"source\":\"local_default\",\"network\":\"unix\",\"address\":\"unix:///tmp/kata.sock\"}';;\n*'projects show'*) echo '{\"project\":{\"uid\":\"%s\"}}';;\n*'show '*' --inbound=coop-inspect-'*) echo '{\"issue\":{\"uid\":\"%s\",\"project_uid\":\"%s\"}}';;\n*'show '*) cat show.json;;\nesac\n", project, issue, project)
 	if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

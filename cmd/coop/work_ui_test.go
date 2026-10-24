@@ -29,7 +29,9 @@ func TestWorkUIEntryUsesPinnedMasterAndProject(t *testing.T) {
 	binary := filepath.Join(dir, "kata")
 	project := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	issue := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	script := "#!/bin/sh\ncase \"$*\" in\n*'daemon locate'*) echo '{\"kind\":\"local\",\"source\":\"local_default\",\"network\":\"unix\",\"address\":\"unix:///tmp/kata.sock\"}';;\n*'projects show'*) echo '{\"project\":{\"uid\":\"" + project + "\"}}';;\n*'show '*) echo '{\"issue\":{\"uid\":\"" + issue + "\",\"project_uid\":\"" + project + "\"}}';;\n*) printf '%s\\n' \"$PWD\" \"$KATA_HOME\" \"${KATA_REMOTE-unset}\" \"$@\";;\nesac\n"
+	// Kata's optional --inbound value must be attached with '='. A separate
+	// actor becomes an extra positional argument, which native show rejects.
+	script := "#!/bin/sh\nfor arg do [ \"$arg\" != --inbound ] || exit 2; done\ncase \"$*\" in\n*'daemon locate'*) echo '{\"kind\":\"local\",\"source\":\"local_default\",\"network\":\"unix\",\"address\":\"unix:///tmp/kata.sock\"}';;\n*'projects show'*) echo '{\"project\":{\"uid\":\"" + project + "\"}}';;\n*'show '*) echo '{\"issue\":{\"uid\":\"" + issue + "\",\"project_uid\":\"" + project + "\"}}';;\n*) printf '%s\\n' \"$PWD\" \"$KATA_HOME\" \"${KATA_REMOTE-unset}\" \"$@\";;\nesac\n"
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

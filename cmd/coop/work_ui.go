@@ -203,7 +203,7 @@ func nativeWorkUICommand(ctx context.Context, req hostrouter.WorkUIRequest, mast
 	if req.IssueUID != "" {
 		// A fresh unclaimed inbound actor selects no discussion, as in the
 		// provider's bounded issue inspector. TUI argv still contains only the UID.
-		raw, err = probe("show", req.IssueUID, "--inbound", "coop-inspect-"+rand.Text())
+		raw, err = probe("show", req.IssueUID, "--inbound=coop-inspect-"+rand.Text())
 		if err != nil {
 			return nil, err
 		}
