@@ -150,8 +150,12 @@ func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.R
 				if strictTeamJSON(raw, &v) != nil || v.Version != 3 || entry.Name() != BodyHash(v.JobID+"\x00"+v.RequestID)+".json" {
 					return nil, "", c.ErrConflict
 				}
-				r.Uncertain = v.State != "completed"
-				r.Terminal = v.State == "completed"
+				// The producer lock excludes an in-flight helper. Prepared is
+				// before a write or an acknowledged checkpoint; each remote
+				// effect persists uncertain before it starts. Retiring a known
+				// checkpoint does not complete or replay the original action.
+				r.Terminal = v.State == "completed" || v.State == "prepared"
+				r.Uncertain = !r.Terminal
 			}
 			if job != nil {
 				r.Terminal = job.SessionID == "" || job.MessageID == "" || job.SubmissionState == "prepared" || job.SubmissionState == "completed"
