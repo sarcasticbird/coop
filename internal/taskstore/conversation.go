@@ -274,6 +274,10 @@ func (k *kata) AppendComment(ctx context.Context, actor c.Principal, in CommentW
 	if in.ReplyToUID != "" {
 		input["reply_to"] = in.ReplyToUID
 		input["kind"] = "reply"
+		// Distinct Coop messages may share a parent. Kata otherwise allows
+		// only one reply per author/kind; the immutable native key still
+		// deduplicates retries and rejects changed payloads.
+		input["force"] = true
 	}
 	var raw struct {
 		Issue   Issue   `json:"issue"`
