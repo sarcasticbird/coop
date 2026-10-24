@@ -341,6 +341,14 @@ does not fabricate missing messages or replay replies from an older epoch.
 Orphan evidence stays in the private database after resolution. Already replied,
 cancelled and suppressed delivery truth is retained.
 
+A stopped action saved as `prepared` is an unstarted write or an acknowledged
+checkpoint, rather than an unknown remote outcome. The recovery inventory holds
+the producer lock while observing it. Operator review may retire that checkpoint
+without completing or replaying its remaining work. An earlier inventory that
+misclassified it stays immutable; a fresh report adds matching checkpoint proof.
+Actions saved as `uncertain`, and unknown action states, still require matching
+terminal evidence before resume.
+
 After resolving every guest's evidence, each stopped worker accepts the reviewed
 manifest, then the operator resumes admission:
 
