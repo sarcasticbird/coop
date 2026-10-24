@@ -171,6 +171,15 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		}
 		receipt, err := m.Client.PublishReply(ctx, in.Reply)
 		if err != nil {
+			if errors.Is(err, c.ErrConflict) {
+				canceled, proofErr := m.masterReplyCanceled(ctx, in)
+				if proofErr != nil {
+					return errors.Join(err, proofErr)
+				}
+				if canceled {
+					continue
+				}
+			}
 			return err
 		}
 		if receipt.RestoreEpoch != m.connection.Epoch {
@@ -188,4 +197,30 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Explicit cancellation retires dispatch, not the saved reply or an unknown
+// native write. Require matching local recovery and current master evidence;
+// never fabricate a published receipt or weaken other publication failures.
+func (m *MasterComms) masterReplyCanceled(ctx context.Context, in masterOutbox) (bool, error) {
+	turn, err := loadMasterTurn(m.Config, in.Reply.DeliveryID)
+	if err != nil {
+		return false, err
+	}
+	if turn.Phase != "cancelled" || turn.RestoreEpoch != in.Epoch || in.Reply.RestoreEpoch != in.Epoch || turn.InstanceID != in.InstanceID || in.Reply.InstanceID != in.InstanceID || turn.Generation != in.Reply.Generation || turn.Job.SessionID != in.Reply.Intent.SessionID || turn.Job.MessageID != in.Reply.Intent.MessageID {
+		return false, nil
+	}
+	status, err := m.Client.MessageStatus(ctx, turn.Message.ID)
+	if err != nil {
+		return false, err
+	}
+	if status.MasterID != in.MasterID || status.RestoreEpoch != in.Epoch || status.MessageID != turn.Message.ID {
+		return false, c.ErrConflict
+	}
+	for _, d := range status.Deliveries {
+		if d.ID == in.Reply.DeliveryID && d.MessageID == turn.Message.ID && d.AgentID == m.Config.Master.AgentID && d.State == "cancelled" && d.Intent != nil && *d.Intent == in.Reply.Intent {
+			return true, nil
+		}
+	}
+	return false, nil
 }
