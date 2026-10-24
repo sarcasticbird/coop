@@ -15,7 +15,7 @@ func continuationFixture(t *testing.T) (*Store, c.Principal, c.Principal, c.Thre
 	if e != nil {
 		t.Fatal(e)
 	}
-	in := c.SendMessage{ThreadID: th.ID, Recipients: []string{b.ID}, Body: "Continue approved work", RequestID: "continue", Continuation: &c.TaskContinuation{SourceMessageID: src.MessageID, Target: c.TaskContinuationTarget{JobID: strings.Repeat("a", 64), TaskURL: "https://github.com/code/repo/issues/1", SessionID: "ses_saved", MessageID: "msg_saved", InstanceID: "instance", Generation: 1}}}
+	in := c.SendMessage{ThreadID: th.ID, Recipients: []string{b.ID}, Body: "Continue approved work", RequestID: "continue", Continuation: &c.TaskContinuation{SourceMessageID: src.MessageID, Target: c.TaskContinuationTarget{JobID: strings.Repeat("a", 64), TaskURL: "kata://01arz3ndektsv4rrffq69g5fav/01ARZ3NDEKTSV4RRFFQ69G5FAW/code/repo", SessionID: "ses_saved", MessageID: "msg_saved", InstanceID: "instance", Generation: 1}}}
 	return s, o, b, th, in
 }
 func TestContinuationAuthorizationIdempotencyAndRevocation(t *testing.T) {

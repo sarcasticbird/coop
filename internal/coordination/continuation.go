@@ -33,7 +33,8 @@ func ValidContinuationIntent(session, message string) bool {
 	return strings.HasPrefix(session, "ses_") && strings.HasPrefix(message, "msg_") && continuationNativeID.MatchString(session) && continuationNativeID.MatchString(message)
 }
 func ValidateContinuationTarget(t TaskContinuationTarget) error {
-	if len(t.JobID) != 64 || !diagnosticSHA.MatchString(t.JobID) || !DiagnosticReference(t.TaskURL) || !strings.Contains(t.TaskURL, "/issues/") || !ValidContinuationIntent(t.SessionID, t.MessageID) || !diagnosticID.MatchString(t.InstanceID) || t.Generation < 1 {
+	validTask := DiagnosticReference(t.TaskURL) && (strings.HasPrefix(t.TaskURL, "kata://") || strings.Contains(t.TaskURL, "/issues/"))
+	if len(t.JobID) != 64 || !diagnosticSHA.MatchString(t.JobID) || !validTask || !ValidContinuationIntent(t.SessionID, t.MessageID) || !diagnosticID.MatchString(t.InstanceID) || t.Generation < 1 {
 		return ErrInvalid
 	}
 	return nil
