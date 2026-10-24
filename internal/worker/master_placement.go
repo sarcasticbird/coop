@@ -49,8 +49,12 @@ func loadPlacementAdoption(cfg Config) (masterPlacementAdoption, error) {
 // Historical records can be read only when their exact original bytes belong
 // to the inventory accepted before this explicit placement transition.
 func adoptedRecoveryRecord(cfg Config, kind, name string, raw []byte) (c.RecoveryEvidence, bool, error) {
+	return (&masterRecoveryView{cfg: cfg}).adoptedRecord(kind, name, raw)
+}
+
+func (view *masterRecoveryView) adoptedRecord(kind, name string, raw []byte) (c.RecoveryEvidence, bool, error) {
 	var empty c.RecoveryEvidence
-	v, e := loadPlacementAdoption(cfg)
+	v, e := view.loadAdoption()
 	if os.IsNotExist(e) {
 		return empty, false, nil
 	}

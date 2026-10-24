@@ -643,6 +643,11 @@ tasks do not automatically loop or consume more model turns.
 Queuing a prepared conversation reply retries brief producer-lock contention
 for up to five seconds, with the same deterministic outbox identity. Other
 errors and longer contention remain explicit; publication is never duplicated.
+Outbox flushing reads and validates placement/accepted recovery evidence once per
+producer-locked flush, not once per retained record. The view is discarded before
+unlocking; subsequent flushes re-read the evidence. Historical journals and
+publication receipts remain intact. See the [producer-lock evidence and operator
+gate](evidence/reply-producer-lock.md) for measurements and acceptance limits.
 
 Upgrade the master and all recipient workers before granting `task_continue`.
 Older workers deliberately reject unknown typed inbox data; do not send typed

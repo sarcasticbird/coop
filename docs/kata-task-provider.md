@@ -121,6 +121,9 @@ Native comments and actor labels grant no approval. Rook first uses
 `coop-worker tasks read --config /var/lib/coop/worker/config.json --input READ_JSON`
 with `{"reference":"kata://PROJECT_UID/ISSUE_UID/owner/repository"}`. Read the
 current issue revision and inspect the exact current goal authority through Coop.
+The project UID is the URL hostname and is canonically lowercase; the issue UID
+retains its uppercase spelling. Reuse the canonical reference returned by the
+helper rather than constructing or case-normalizing the entire URL.
 Then use `coop-worker tasks adopt` with the same config and a private input file:
 
 ```json

@@ -132,6 +132,7 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			return errors.New("invalid outbox entry")
@@ -140,7 +141,7 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, ok, e := adoptedRecoveryRecord(m.Config, "outbox", e.Name(), raw); e != nil {
+		if _, ok, e := recovery.adoptedRecord("outbox", e.Name(), raw); e != nil {
 			return e
 		} else if ok {
 			continue
@@ -149,7 +150,7 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		if strictTeamJSON(raw, &in) != nil || in.Version != 1 || in.MasterID != m.Config.Master.MasterID || in.InstanceID != m.Config.Master.InstanceID || e.Name() != in.Reply.RequestID+".json" || !hexSHA.MatchString(in.Reply.RequestID) {
 			return errors.New("outbox ownership mismatch")
 		}
-		retired, retireErr := recoveryRetired(m.Config, "outbox", e.Name(), raw)
+		retired, retireErr := recovery.retired("outbox", e.Name(), raw)
 		if retireErr != nil {
 			return retireErr
 		}
