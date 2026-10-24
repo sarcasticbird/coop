@@ -29,3 +29,8 @@ func (cl *Client) TaskComplete(ctx context.Context, in c.TaskCompleteInput) (out
 	err = cl.call(ctx, "POST", "/api/v1/tasks/complete", in, &out)
 	return
 }
+
+func (cl *Client) TaskAdopt(ctx context.Context, in c.TaskAdoptInput) (out c.ProviderTask, err error) {
+	err = cl.call(ctx, "POST", "/api/v1/tasks/adopt", in, &out)
+	return
+}

@@ -52,7 +52,7 @@ func (m foregroundHarness) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
-	for _, code := range []string{"0", "7", "signal", "remote detach"} {
+	for _, code := range []string{"0", "7", "signal", "remote detach", "direct attach", "native tasks", "native chat"} {
 		t.Run(code, func(t *testing.T) {
 			master, slave, err := pty.Open()
 			if err != nil {
@@ -85,6 +85,9 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 			m.ctx = ctx
 			m.services.Foreground = func(ctx context.Context, _ hostrouter.ActionRequest) (*exec.Cmd, error) {
 				finish := "exit " + code
+				if code == "native tasks" || code == "native chat" {
+					finish = "exit 0"
+				}
 				if code == "signal" {
 					finish = "kill -TERM $$"
 				}
@@ -93,7 +96,7 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 			p, _ := (operationForm{entry: m.hosts[0].entries[0], index: specIndex(t, "enter")}).action()
 			var client *fixtureTerminal
 			var attachment *fixtureAttachment
-			if code == "remote detach" {
+			if code == "remote detach" || code == "direct attach" {
 				r, w := io.Pipe()
 				defer func() { _ = w.Close() }()
 				attachment = &fixtureAttachment{reader: r, done: make(chan struct{})}
@@ -112,7 +115,19 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 			m.scroll, m.ledgerScroll, m.ledgerFocus = 2, 1, true
 			var out tea.Model
 			var cmd tea.Cmd
-			if client != nil {
+			if code == "direct attach" {
+				m.detail = false
+				direct, run := fleetKey(m, "enter")
+				out, cmd = direct, run
+			} else if code == "native tasks" || code == "native chat" {
+				m.detail = false
+				key := "t"
+				if code == "native chat" {
+					key = "C"
+				}
+				direct, run := fleetKey(m, key)
+				out, cmd = direct, run
+			} else if client != nil {
 				out, cmd = m.dispatch(p)
 			} else {
 				out, cmd = m.dispatchOperation(p)
@@ -176,10 +191,15 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 				t.Fatalf("remote input = %q, want only Ctrl+D", attachment.writes.String())
 			}
 			want := "succeeded"
+			wantDetail := code != "direct attach"
+			if code == "native tasks" || code == "native chat" {
+				want = "Returned from native"
+				wantDetail = false
+			}
 			if code == "7" || code == "signal" {
 				want = "failed"
 			}
-			if result.busy || result.selected != m.selected || !result.refreshing || !strings.Contains(result.status, want) || !result.detail || result.detailEntry.Target != captured.Target || result.filter != m.filter || result.scroll != 2 || result.ledgerScroll != 1 || !result.ledgerFocus {
+			if result.busy || result.selected != m.selected || !result.refreshing || !strings.Contains(result.status, want) || result.detail != wantDetail || result.detailEntry.Target != captured.Target || result.filter != m.filter || result.scroll != 2 || result.ledgerScroll != 1 || !result.ledgerFocus {
 				t.Fatalf("unusable return: busy=%t selected=%t refreshing=%t status=%q detail=%t target=%t filter=%t scroll=%d ledgerScroll=%d ledgerFocus=%t", result.busy, result.selected == m.selected, result.refreshing, result.status, result.detail, result.detailEntry != nil && result.detailEntry.Target == captured.Target, result.filter == m.filter, result.scroll, result.ledgerScroll, result.ledgerFocus)
 			}
 		})

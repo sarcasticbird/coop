@@ -83,7 +83,7 @@ func TestPresentationConnectAndDetailsHelp(t *testing.T) {
 		coord, source := coordinationFixture()
 		m.services.Coordination, m.coordination = source, coord.coordination
 		m.width, m.height = size.Width, size.Height
-		m, _ = fleetKey(m, "enter")
+		m, _ = fleetKey(m, "tab")
 		m, _ = fleetKey(m, "?")
 		lines, _, _ := m.content()
 		all := strings.Join(lines, " ")

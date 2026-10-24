@@ -15,7 +15,7 @@ func TestDetailsOverviewIsCompactAndWorkFirst(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", size.Width, size.Height), func(t *testing.T) {
 			m, _ := boundFleetFixture()
 			m.width, m.height = size.Width, size.Height
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			m = runFleetDiagnostic(t, m, cmd)
 			now := time.Now()
 			m.diagnostics.report.Report.Work = c.DiagnosticWork{ObservedAt: now, TaskURL: "https://github.com/example/fixture/issues/42", PRURL: "https://github.com/example/fixture/pull/43", Stage: "implement"}
@@ -31,7 +31,7 @@ func TestDetailsOverviewIsCompactAndWorkFirst(t *testing.T) {
 				t.Fatal("short context unnecessarily repeated", all)
 			}
 			view := strings.Join(strings.Split(m.View(), "\n")[:size.Height-2], "")
-			for _, want := range []string{"VM lifecycle: running", "Activity: waiting", "Task: fixture #42", "PR: fixture #43", "Blocker: dependency fixture #41", "Host:"} {
+			for _, want := range []string{"VM lifecycle: running", "Activity: waiting", "Task: ticket title unknown (fixture #42)", "PR: fixture #43", "Blocker: dependency fixture #41", "Host:"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("overview buries %q: %s", want, view)
 				}
@@ -56,7 +56,7 @@ func TestDetailsOverviewDoesNotPromoteRetainedWork(t *testing.T) {
 	for _, failure := range []string{"denied", "stale-report", "future-report", "missing-wait", "stale-work", "future-work", "missing-work"} {
 		t.Run(failure, func(t *testing.T) {
 			m, _ := boundFleetFixture()
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			m = runFleetDiagnostic(t, m, cmd)
 			r := m.diagnostics.report
 			r.Report.Work = c.DiagnosticWork{ObservedAt: time.Now(), TaskURL: "https://github.com/example/fixture/issues/42", PRURL: "https://github.com/example/fixture/pull/43", Stage: "implement"}

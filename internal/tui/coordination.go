@@ -318,6 +318,7 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		q.teamFailure = "master epoch changed; current work unknown"
 	}
 	q.failed = r.err != nil
+	m.invalidateFleetDiagnosticContext()
 	if r.err != nil {
 		q.status = coordError(r.err)
 		q.readerReveal = false
@@ -437,8 +438,13 @@ func (m fleetModel) coordUpdate(r coordResult) (tea.Model, tea.Cmd) {
 		// Preserve the visible top message independently of the selected reply target.
 		anchor, offset := m.conversationAnchor()
 		for _, message := range data.Messages {
-			if !slices.ContainsFunc(q.messages, func(old c.Message) bool { return old.ID == message.ID }) {
+			index := slices.IndexFunc(q.messages, func(old c.Message) bool { return old.ID == message.ID })
+			if index < 0 {
 				q.messages = append(q.messages, message)
+			} else if message.Sequence > q.messages[index].Sequence {
+				// Canonical edit events keep the same message identity. Replace the
+				// whole record so edited native text also loses verified attribution.
+				q.messages[index] = message
 			}
 			q.after = max(q.after, message.Sequence)
 		}

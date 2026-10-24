@@ -82,7 +82,7 @@ func (m *fleetModel) refreshLedgerDiagnostics() tea.Cmd {
 		}
 		for i := range result.results {
 			r := &result.results[i]
-			r.epoch, r.err = identity.RestoreEpoch, err
+			r.self, r.checked, r.epoch, r.err = identity, checked, identity.RestoreEpoch, err
 			if err == nil {
 				r.snapshot = readTeamReport(ctx, source, r.binding.Placement, rows)
 			}
@@ -115,6 +115,7 @@ func (m fleetModel) ledgerDiagnosticUpdate(r ledgerDiagnosticResult) (tea.Model,
 	if r.serial != q.serial || m.services.Coordination == nil || r.master != m.services.Coordination.MasterID() {
 		return m, nil
 	}
+	visible := m.ledgerSelectionVisible()
 	q.busy, q.cancel = false, nil
 	q.next = time.Now().Add(5 * time.Second)
 	if r.master != q.master || !ledgerSameContext(r.self, q.self) {
@@ -124,6 +125,7 @@ func (m fleetModel) ledgerDiagnosticUpdate(r ledgerDiagnosticResult) (tea.Model,
 		}
 	}
 	q.self, q.master, q.checked = r.self, r.master, r.checked
+	m.invalidateFleetDiagnosticContext()
 	for _, result := range r.results {
 		entry, ok := q.entries[result.target]
 		if !ok || entry.binding != result.binding {
@@ -131,6 +133,9 @@ func (m fleetModel) ledgerDiagnosticUpdate(r ledgerDiagnosticResult) (tea.Model,
 		}
 		m.acceptFleetDiagnostic(&entry.fleetDiagnostics, result)
 		q.entries[result.target] = entry
+	}
+	if visible {
+		m.revealLedgerSelection()
 	}
 	return m, nil
 }

@@ -18,7 +18,9 @@ import (
 	"time"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/taskstore"
 	_ "modernc.org/sqlite"
+	"sync"
 )
 
 type StoreConfig struct {
@@ -26,13 +28,18 @@ type StoreConfig struct {
 	Now                       func() time.Time
 }
 type Store struct {
-	db              *sql.DB
-	path, epochPath string
-	lock            *os.File
-	databaseLock    *os.File
-	id              string
-	epoch           int64
-	now             func() time.Time
+	work                taskstore.WorkBackend
+	conversations       ConversationConfig
+	sourceMu            sync.Mutex
+	sourceRecoveryAfter publicationRecoveryCursor
+	sourceIntakeAfter   string
+	db                  *sql.DB
+	path, epochPath     string
+	lock                *os.File
+	databaseLock        *os.File
+	id                  string
+	epoch               int64
+	now                 func() time.Time
 }
 type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -144,8 +151,11 @@ func OpenStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	return s, nil
 }
 func (s *Store) initialize(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, schema+recoverySchema+githubCacheSchema); err != nil {
+	if _, err := s.db.ExecContext(ctx, schema+recoverySchema+githubCacheSchema+conversationSchema); err != nil {
 		return fmt.Errorf("initialize master schema: %w", err)
+	}
+	if err := s.initializeConversationPublications(ctx); err != nil {
+		return fmt.Errorf("initialize conversation publication keys: %w", err)
 	}
 	if err := s.initializeGitHubCache(ctx); err != nil {
 		return err

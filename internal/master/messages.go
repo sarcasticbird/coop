@@ -41,16 +41,26 @@ func (s *Store) Send(ctx context.Context, actor c.Principal, in c.SendMessage) (
 		}
 	}
 	if yes, e := request(ctx, tx, p.ID, in.RequestID, "send", in, &out); yes || e != nil {
-		return out, e
+		if e != nil {
+			return out, e
+		}
+		_ = tx.Rollback()
+		return s.publishSource(ctx, p, out)
 	}
 	out, err = s.insertMessage(ctx, tx, p, in)
 	if err != nil {
 		return out, err
 	}
+	if err = s.stageSource(ctx, tx, p, &out, ""); err != nil {
+		return out, err
+	}
 	if err = saveRequest(ctx, tx, p.ID, in.RequestID, "send", in, out); err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	return s.publishSource(ctx, p, out)
 }
 
 func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in c.SendMessage) (c.MessageReceipt, error) {
@@ -74,10 +84,11 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 		m.Hop = 1
 	}
 	if in.ParentMessageID != "" {
-		parent, err := loadMessage(ctx, tx, in.ParentMessageID)
+		parent, err := s.sourceParent(ctx, tx, p, in.ThreadID, in.ParentMessageID)
 		if err != nil {
 			return out, err
 		}
+		m.ParentMessageID = parent.ID
 		if parent.ThreadID != in.ThreadID {
 			return out, c.ErrForbidden
 		}
@@ -126,7 +137,7 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 			d.Reason = "peer_hop_limit"
 		} else {
 			var pending int
-			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('queued','received','running','admitted')", id).Scan(&pending); err != nil {
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('publishing','queued','received','running','admitted')", id).Scan(&pending); err != nil {
 				return out, err
 			}
 			if pending >= c.MaxPending {
@@ -206,9 +217,12 @@ func (s *Store) Message(ctx context.Context, actor c.Principal, id string) (c.Me
 }
 func (s *Store) MessageStatus(ctx context.Context, actor c.Principal, id string) (c.MessageReceipt, error) {
 	m, err := s.Message(ctx, actor, id)
-	out := c.MessageReceipt{MasterID: s.id, RestoreEpoch: s.epoch, Backend: "master", MessageID: id, Sequence: m.Sequence, Deliveries: []c.Delivery{}}
+	out := c.MessageReceipt{MasterID: s.id, RestoreEpoch: s.epoch, Backend: "master", MessageID: id, Sequence: m.Sequence, Deliveries: []c.Delivery{}, Source: m.Source}
 	if err != nil {
 		return out, err
+	}
+	if m.Source != nil {
+		out.Backend = "kata"
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT body FROM deliveries WHERE message_id=? ORDER BY agent_id", id)
 	if err != nil {
@@ -326,7 +340,11 @@ func (s *Store) PublishReply(ctx context.Context, actor c.Principal, in c.Publis
 		return out, err
 	}
 	if yes, e := request(ctx, tx, p.ID, in.RequestID, "reply", in, &out); yes || e != nil {
-		return out, e
+		if e != nil {
+			return out, e
+		}
+		_ = tx.Rollback()
+		return s.publishSource(ctx, p, out)
 	}
 	if d.State != "running" || d.Intent == nil || *d.Intent != in.Intent || d.ReplyMessageID != "" {
 		return out, c.ErrConflict
@@ -335,7 +353,12 @@ func (s *Store) PublishReply(ctx context.Context, actor c.Principal, in c.Publis
 	if err != nil {
 		return out, err
 	}
-	d.State = "replied"
+	if err = s.stageSource(ctx, tx, p, &out, d.ID); err != nil {
+		return out, err
+	}
+	if out.Source == nil {
+		d.State = "replied"
+	}
 	d.ReplyMessageID = out.MessageID
 	d.Reason = ""
 	if err = saveDelivery(ctx, tx, d); err != nil {
@@ -347,7 +370,10 @@ func (s *Store) PublishReply(ctx context.Context, actor c.Principal, in c.Publis
 	if err = event(ctx, tx, "delivery", m.ThreadID, m.ID); err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	return s.publishSource(ctx, p, out)
 }
 
 func (s *Store) Pending(ctx context.Context, actor c.Principal, in c.PendingQuery) (c.DeliveryPage, error) {
@@ -395,7 +421,21 @@ func (s *Store) Messages(ctx context.Context, actor c.Principal, thread string, 
 	if err = member(ctx, s.db, p, thread); err != nil {
 		return out, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT body FROM messages WHERE thread_id=? AND seq>? ORDER BY seq LIMIT ?", thread, after, c.MaxPageRecords+1)
+	if source, e := s.conversationSource(ctx, s.db, thread); e != nil {
+		return out, e
+	} else if source != nil {
+		return s.sourceMessages(ctx, p, thread, *source, after)
+	}
+	return s.storedMessages(ctx, thread, after, false)
+}
+func (s *Store) storedMessages(ctx context.Context, thread string, after int64, legacy bool) (c.MessagePage, error) {
+	out := c.MessagePage{Messages: []c.Message{}}
+	query := "SELECT body FROM messages WHERE thread_id=? AND seq>?"
+	if legacy {
+		query += " AND json_extract(body,'$.source') IS NULL"
+	}
+	query += " ORDER BY seq LIMIT ?"
+	rows, err := s.db.QueryContext(ctx, query, thread, after, c.MaxPageRecords+1)
 	if err != nil {
 		return out, err
 	}

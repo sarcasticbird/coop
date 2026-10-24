@@ -370,6 +370,7 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 				if v.Task != nil {
 					b := v.Task.Binding
 					x.Binding = &b
+					x.Job.WorkTitle = diagnosticTitle(v.Task.Task.Title)
 				}
 				if err := saveNativeExecution(d.config, x); err != nil {
 					return false, err
@@ -694,6 +695,9 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		if err != nil {
 			return d.rejectUnsubmitted(x, err)
 		}
+		if candidate.Task != nil {
+			x.Job.WorkTitle = diagnosticTitle(candidate.Task.Task.Title)
+		}
 		prompt, err := nativePrompt(d.config, *x, candidate)
 		if errors.Is(err, c.ErrSize) {
 			return d.rejectPromptSize(x, len(prompt))
@@ -729,6 +733,9 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		}
 		if submitErr == nil && turn.Accepted {
 			x.Job.SubmissionState = "accepted"
+			if turn.SessionID == x.Job.SessionID && turn.MessageID == x.Job.MessageID {
+				x.Job = recordNativeProgress(x.Job, BodyHash(x.Job.SessionID+":"+x.Job.MessageID+":accepted"), d.clock.Now())
+			}
 		}
 		if err = saveNativeExecution(d.config, *x); err != nil {
 			return false, err
@@ -771,6 +778,7 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 	x.Job.ReconcileFailures = 0
 	x.Job.ReconcileError = ""
 	x.Job = observedModel(x.Job, turn)
+	x.Job = observedNativeProgress(x.Job, turn, d.clock.Now())
 	if !turn.Terminal {
 		return false, saveNativeExecution(d.config, *x)
 	}
@@ -924,6 +932,7 @@ func (d *NativeDispatcher) resumeBlockedWithRequest(ctx context.Context, x *Nati
 		return false, errors.New("blocked native turn lacks exact terminal evidence")
 	}
 	x.Job = observedModel(x.Job, observed)
+	x.Job = observedNativeProgress(x.Job, observed, d.clock.Now())
 	x.Job.SubmissionState = "completed"
 	x.Job.Phase = "completed"
 	x.Job.TerminalAt = d.clock.Now()

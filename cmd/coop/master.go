@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -92,6 +94,38 @@ func installMasterCommands(root *cobra.Command) {
 				return err
 			}
 		}
+		if cfg.Conversations != nil {
+			work, ok := service.Tasks.(taskstore.WorkBackend)
+			if !ok {
+				return c.ErrUnsupported
+			}
+			if err = store.ConfigureConversations(ctx, work, *cfg.Conversations); err != nil {
+				return err
+			}
+		}
+		var bridge sync.WaitGroup
+		if cfg.Conversations != nil {
+			bridge.Add(1)
+			go func() {
+				defer bridge.Done()
+				ticker := time.NewTicker(time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if e := store.PollConversations(ctx); e != nil && ctx.Err() == nil {
+							slog.Error("poll Kata conversations", "error", e)
+						}
+						if e := store.RecoverConversationPublications(ctx); e != nil && ctx.Err() == nil {
+							slog.Error("recover Kata publications", "error", e)
+						}
+					}
+				}
+			}()
+		}
+		defer func() { cancel(); bridge.Wait() }()
 		service.MCPHandler = func(p c.Principal) http.Handler {
 			return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mastermcp.NewServer(service, p) }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: c.MaxJSON, DisableLocalhostProtection: true})
 		}

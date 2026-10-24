@@ -95,7 +95,7 @@ func TestOperationGatingAndCapture(t *testing.T) {
 			t.Fatal("not gated", name)
 		}
 	}
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "x")
 	m.operations.index = specIndex(t, "rebuild")
 	m, _ = fleetKey(m, "enter")
@@ -206,7 +206,7 @@ func TestHostOperationsAndRegistrationChanges(t *testing.T) {
 func TestOperationFormEditingCancellationAndValidation(t *testing.T) {
 	m := fixtureFleet()
 	m.selected = m.hosts[1].entries[0].Target
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "x")
 	m.operations.index = specIndex(t, "ping")
 	m, _ = fleetKey(m, "enter")

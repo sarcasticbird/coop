@@ -23,6 +23,9 @@ import (
 // Re-exec keeps Cobra globals, cwd, signals and interactive prompts out of the
 // Bubble Tea event loop. The receiver and SSH backend retain all CLI safeguards.
 func tuiCommand(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
+	if req.Operation == "work-ui" {
+		return workUIForegroundCommand(ctx, req.Args)
+	}
 	if req.Operation != "command" {
 		return nil, errors.New("invalid TUI operation")
 	}
@@ -113,10 +116,17 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig str
 	if client, err := masterclient.LoadConfig(masterConfig); err == nil {
 		coordination = client
 	}
+	foreground := func(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
+		if req.Operation == "work-ui" {
+			return workUIForegroundCommand(ctx, req.Args, masterConfig)
+		}
+		return tuiCommand(ctx, req)
+	}
 	return tui.RunWithServices(tui.Services{Registry: r, Version: resolvedVersion(),
+		BuildProvenance: currentBuildProvenance(), WorkDestination: workDestination(),
 		Coordination: coordination,
 		Inventory:    hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
-		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: tuiCommand, PrepareAction: prepare})
+		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: foreground, PrepareAction: prepare})
 }
 
 func tuiExecCommand() *cobra.Command {

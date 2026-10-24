@@ -38,6 +38,8 @@ type Status struct {
 }
 
 type CurrentWork struct {
+	ProgressAt     *time.Time     `json:"progress_at,omitempty"`
+	WorkTitle      string         `json:"work_title,omitempty"`
 	Actor          Actor          `json:"actor"`
 	Role           string         `json:"role"`
 	Stage          string         `json:"stage"`
@@ -55,6 +57,12 @@ type CurrentWork struct {
 
 func currentWork(c Config, s Snapshot, j Job, now time.Time) *CurrentWork {
 	w := &CurrentWork{Actor: c.Self, Role: j.Kind, Stage: j.Kind, Phase: j.Phase, TaskURL: j.TaskURL, GoalURL: j.GoalURL, PRURL: j.PRURL, HeadSHA: j.HeadSHA, SubmittedModel: j.SubmittedModel, ExecutedModel: j.ExecutedModel}
+	w.ProgressAt, w.WorkTitle = j.ProgressAt, diagnosticTitle(j.WorkTitle)
+	if w.WorkTitle == "" {
+		if task, ok := taskFor(s, j.TaskURL); ok {
+			w.WorkTitle = diagnosticTitle(task.Title)
+		}
+	}
 	switch j.Kind {
 	case "implement", "fix", "deliver":
 		w.Role = "implementer"

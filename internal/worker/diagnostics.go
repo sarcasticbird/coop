@@ -113,9 +113,18 @@ func diagnosticReference(cfg Config, ref string) string {
 	if err != nil {
 		return ""
 	}
-	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
-	repo := strings.Join(parts[:2], "/")
-	if !containsFold(cfg.CodeOwners, parts[0]) || len(cfg.Repositories) > 0 && !containsFold(cfg.Repositories, repo) {
+	var repo string
+	if isKataTask(ref) {
+		project, _, repository, err := c.ParseKataTaskReference(ref)
+		if err != nil || !kataTaskSource(cfg) || project != cfg.TaskSource.ProjectUID {
+			return ""
+		}
+		repo = repository
+	} else {
+		parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+		repo = strings.Join(parts[:2], "/")
+	}
+	if !containsFold(cfg.CodeOwners, strings.Split(repo, "/")[0]) || len(cfg.Repositories) > 0 && !containsFold(cfg.Repositories, repo) {
 		return ""
 	}
 	return ref
@@ -139,6 +148,11 @@ func (b *diagnosticBuilder) snapshot(cfg Config, epoch int64, s Status, err erro
 		d.Work.SessionID = s.SessionID
 	}
 	if p := s.Native; p != nil {
+		if p.ProgressAt != nil && !p.ProgressAt.IsZero() && !p.ProgressAt.After(now) {
+			at := p.ProgressAt.UTC()
+			d.Work.ProgressAt = &at
+		}
+		d.Work.WorkTitle = diagnosticTitle(p.WorkTitle)
 		d.Wait.Deadline = p.Deadline
 		if p.Continuation != nil && c.ValidateContinuationTarget(*p.Continuation) == nil && diagnosticReference(cfg, p.Continuation.TaskURL) != "" {
 			target := *p.Continuation
@@ -148,6 +162,9 @@ func (b *diagnosticBuilder) snapshot(cfg Config, epoch int64, s Status, err erro
 			d.Work.JobID = p.PrimaryJobID
 		}
 		for _, blocker := range p.Blocked {
+			if s.Current == nil && blocker.JobID == p.PrimaryJobID {
+				d.Work.TaskURL = diagnosticReference(cfg, blocker.Task)
+			}
 			for _, ref := range blocker.Dependencies {
 				if safe := diagnosticReference(cfg, ref); safe != "" && len(d.Wait.Dependencies) < c.MaxDiagnosticTransitions && !slices.Contains(d.Wait.Dependencies, safe) {
 					d.Wait.Dependencies = append(d.Wait.Dependencies, safe)
@@ -156,6 +173,11 @@ func (b *diagnosticBuilder) snapshot(cfg Config, epoch int64, s Status, err erro
 		}
 	}
 	if w := s.Current; w != nil {
+		if w.ProgressAt != nil && !w.ProgressAt.IsZero() && !w.ProgressAt.After(now) {
+			at := w.ProgressAt.UTC()
+			d.Work.ProgressAt = &at
+		}
+		d.Work.WorkTitle = diagnosticTitle(w.WorkTitle)
 		if c.DiagnosticCode(w.Stage) {
 			d.Work.Stage = w.Stage
 		}

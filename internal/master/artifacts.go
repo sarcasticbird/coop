@@ -31,7 +31,7 @@ func artifactRepo(ref, kind string) (string, error) {
 func (svc *Service) RegisterArtifact(ctx context.Context, actor c.Principal, in c.ArtifactLink) (c.ArtifactLink, error) {
 	return svc.registerArtifact(ctx, actor, in, nil)
 }
-func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in c.ArtifactLink, reservation *taskBindReservation) (c.ArtifactLink, error) {
+func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in c.ArtifactLink, reservation *taskBindReservation, finalizers ...func(*sql.Tx) error) (c.ArtifactLink, error) {
 	var out c.ArtifactLink
 	s := svc.Store
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -76,6 +76,11 @@ func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in 
 		}
 		if err = finishTaskMutation(ctx, tx, ref); err != nil {
 			return out, err
+		}
+		for _, finalize := range finalizers {
+			if err = finalize(tx); err != nil {
+				return out, err
+			}
 		}
 		return out, tx.Commit()
 	}
@@ -165,6 +170,11 @@ func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in 
 	}
 	if hasPending {
 		if err = finishTaskMutation(ctx, tx, ref); err != nil {
+			return out, err
+		}
+	}
+	for _, finalize := range finalizers {
+		if err = finalize(tx); err != nil {
 			return out, err
 		}
 	}

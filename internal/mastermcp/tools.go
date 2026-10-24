@@ -56,8 +56,14 @@ func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 			return s.AgentDiagnostics(ctx, p, in.AgentID)
 		})
 		bind(server, s, "coop_master_threads", "Read member threads.", true, func(ctx context.Context, in c.ThreadQuery) (any, error) { return s.Threads(ctx, p, in) })
+		bind(server, s, "coop_master_read_legacy_thread", "Read a bounded page of legacy local history without waking or publishing.", true, func(ctx context.Context, in threadInput) (any, error) {
+			return s.LegacyMessages(ctx, p, in.ThreadID, in.After)
+		})
 		bind(server, s, "coop_master_read_thread", "Read a bounded message page.", true, func(ctx context.Context, in threadInput) (any, error) {
 			return s.Messages(ctx, p, in.ThreadID, in.After)
+		})
+		bind(server, s, "coop_master_conversation_observations", "Read scoped rejected native conversation event diagnostics.", true, func(ctx context.Context, in c.ThreadQuery) (any, error) {
+			return s.ConversationObservations(ctx, p, in.After)
 		})
 		bind(server, s, "coop_master_message_status", "Read durable receipt states, separate from presence.", true, func(ctx context.Context, in messageInput) (any, error) { return s.MessageStatus(ctx, p, in.MessageID) })
 		if p.Kind == "agent" {
@@ -71,6 +77,11 @@ func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 		bind(server, s, "coop_master_continue_task", "Queue a deduplicated continuation of an exact held approved task. Requires task_continue permission. Check message_status for admitted, resumed or refused; queued is not execution.", false, func(ctx context.Context, in c.ContinueTaskRequest) (any, error) { return s.ContinueTask(ctx, p, in) })
 	}
 	if p.Kind == "owner" && slices.Contains(p.Capabilities, "manage") {
+		bind(server, s, "coop_master_conversation_cursor", "Inspect exact source cursor and accepted restore epoch.", true, func(ctx context.Context, _ empty) (any, error) { return s.ConversationCursor(ctx, p) })
+		bind(server, s, "coop_master_reaccept_conversation_cursor", "Owner reconciles the exact source cursor and immutable event UID while paused; legacy anchor repair requires independent evidence; never rewinds.", false, func(ctx context.Context, in c.ReacceptConversationCursor) (any, error) {
+			return s.ReacceptConversationCursor(ctx, p, in)
+		})
+		bind(server, s, "coop_master_map_conversation", "Map an existing member thread to a pinned native issue and explicit cutover event cursor.", false, func(ctx context.Context, in c.MapConversation) (any, error) { return s.MapConversation(ctx, p, in) })
 		bind(server, s, "coop_master_set_members", "Replace thread membership using an exact observed member set.", false, func(ctx context.Context, in c.SetMembers) (any, error) { return s.SetMembers(ctx, p, in) })
 		bind(server, s, "coop_master_create_thread", "Create a private engagement thread with existing principals.", false, func(ctx context.Context, in c.CreateThread) (any, error) { return s.CreateThread(ctx, p, in) })
 	}

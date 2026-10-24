@@ -9,6 +9,7 @@ import (
 )
 
 func TestTaskCommandsNeverStartVMForInvalidInput(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	oldRuntime, oldSession := newRuntime, runSession
 	t.Cleanup(func() { newRuntime, runSession = oldRuntime, oldSession })
 	newRuntime = func() runtime.Runtime { t.Fatal("task command constructed VM runtime"); return nil }
@@ -35,5 +36,19 @@ func TestTaskCommandRegistered(t *testing.T) {
 	cmd := root()
 	if command, _, e := cmd.Find([]string{"task", "read"}); e != nil || command.Name() != "read" {
 		t.Fatal("missing task read", command, e)
+	}
+}
+
+func TestTaskAdoptCommandRegistered(t *testing.T) {
+	cmd := root()
+	command, _, err := cmd.Find([]string{"task", "adopt"})
+	if err != nil || command.Name() != "adopt" {
+		t.Fatal("missing authenticated task adoption command", command.Name(), err)
+	}
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"task", "adopt"})
+	if err = cmd.Execute(); err == nil {
+		t.Fatal("adoption accepted missing explicit input")
 	}
 }

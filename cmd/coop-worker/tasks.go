@@ -20,7 +20,7 @@ func tasksCommand(args []string, out io.Writer) error {
 		return c.ErrInvalid
 	}
 	switch args[0] {
-	case "capabilities", "read", "list", "create":
+	case "capabilities", "read", "list", "create", "adopt":
 	default:
 		return c.ErrInvalid
 	}
@@ -72,6 +72,14 @@ func tasksCommand(args []string, out io.Writer) error {
 		var in c.TaskListInput
 		if err = decode(&in); err == nil {
 			result, err = cl.TaskList(ctx, in)
+		}
+	case "adopt":
+		var in c.TaskAdoptInput
+		if err = decode(&in); err == nil {
+			if in.RequestID == "" || in.ExpectedApprovalSequence < 1 || in.ExpectedRevision < 1 {
+				return c.ErrInvalid
+			}
+			result, err = cl.TaskAdopt(ctx, in)
 		}
 	case "create":
 		var in c.TaskCreateInput

@@ -55,10 +55,11 @@ type NativeTaskBinding struct {
 	DependsOn        []string `json:"depends_on,omitempty"`
 }
 type TaskCapabilities struct {
-	Provider    string `json:"provider"`
-	ProjectUID  string `json:"project_uid"`
-	ProjectName string `json:"project_name"`
-	PolicySHA   string `json:"policy_sha256"`
+	Provider     string              `json:"provider"`
+	ProjectUID   string              `json:"project_uid"`
+	ProjectName  string              `json:"project_name"`
+	PolicySHA    string              `json:"policy_sha256"`
+	Conversation *ConversationSource `json:"conversation,omitempty"`
 }
 type ProviderTask struct {
 	Reference    string             `json:"reference"`
@@ -106,4 +107,16 @@ type TaskCompleteInput struct {
 	AssignmentSHA  string  `json:"assignment_sha256"`
 	PullRequestURL string  `json:"pull_request_url"`
 	RequestID      string  `json:"request_id"`
+}
+
+// TaskAdoptInput admits an existing native issue under current server authority.
+type TaskAdoptInput struct {
+	Reference                string   `json:"reference"`
+	Goal                     GoalRef  `json:"goal"`
+	Repository               string   `json:"repository"`
+	BaseBranch               string   `json:"base_branch"`
+	ExpectedRevision         int64    `json:"expected_revision"`
+	ExpectedApprovalSequence int64    `json:"expected_approval_sequence"`
+	DependsOn                []string `json:"depends_on,omitempty"`
+	RequestID                string   `json:"request_id"`
 }

@@ -95,7 +95,7 @@ func TestFleetConfirmationCapturesHostAndTargetAcrossReorder(t *testing.T) {
 	m := fixtureFleet()
 	m.selected = m.hosts[1].entries[0].Target
 	captured := m.selected
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "d")
 	if m.pending == nil || m.pending.entry.Target != captured {
 		t.Fatal("confirmation did not capture the selected target")
@@ -121,7 +121,7 @@ func TestFleetConfirmationRejectsChangedRegistryAndStaleInventory(t *testing.T) 
 		t.Run(change, func(t *testing.T) {
 			m := fixtureFleet()
 			m.selected = m.hosts[1].entries[0].Target
-			m, _ = fleetKey(m, "enter")
+			m, _ = fleetKey(m, "tab")
 			m, _ = fleetKey(m, "d")
 			if m.pending == nil || m.pending.entry.Target != m.selected {
 				t.Fatal("confirmation did not capture the selected target")
@@ -150,7 +150,7 @@ func TestFleetConfirmationRejectsChangedRegistryAndStaleInventory(t *testing.T) 
 func TestFleetDropsRefreshFromBeforeAction(t *testing.T) {
 	m := fixtureFleet()
 	old := m.epoch
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "s")
 	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
@@ -374,7 +374,7 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	m := fixtureFleet()
 	rt := runtime.NewMock()
 	m.legacy = rt
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "s")
 	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
@@ -391,7 +391,7 @@ func TestFleetLocalLifecycleAndEntryCompatibility(t *testing.T) {
 	}
 	m = fixtureFleet()
 	m.legacy = rt
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, cmd = fleetKey(m, "c")
 	if cmd != nil || m.pending == nil || m.pending.operation != "enter" {
 		t.Fatal("local connect did not require confirmation")
@@ -420,7 +420,7 @@ func TestFleetActionCancellationAndRemoteProjectContract(t *testing.T) {
 		<-ctx.Done()
 		return hostrouter.ActionResult{Target: r.Target}, ctx.Err()
 	})
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "s")
 	m, cmd := fleetKey(m, "y")
 	if cmd == nil {
@@ -448,7 +448,7 @@ func TestFleetNarrowOverlayKeepsConfirmationAndFooter(t *testing.T) {
 	m.width = 30
 	m.height = 10
 	m.selected = m.hosts[1].entries[0].Target
-	m, _ = fleetKey(m, "enter")
+	m, _ = fleetKey(m, "tab")
 	m, _ = fleetKey(m, "d")
 	view := m.View()
 	if !strings.Contains(view, "CONFIRM DESTROY") || !strings.Contains(view, "PgDn review") || len(strings.Split(view, "\n")) > m.height {

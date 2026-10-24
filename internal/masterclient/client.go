@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -266,5 +267,29 @@ func (cl *Client) PlacementProof(ctx context.Context) (out c.PlacementProof, err
 
 func (cl *Client) OwnDelivery(ctx context.Context, id string) (out c.Delivery, err error) {
 	err = cl.call(ctx, "GET", "/api/v1/deliveries/"+url.PathEscape(id), nil, &out)
+	return
+}
+
+// MapConversation pins a private thread to its canonical native issue.
+func (cl *Client) MapConversation(ctx context.Context, in c.MapConversation) (out c.Thread, err error) {
+	err = cl.call(ctx, "POST", "/api/v1/conversation-sources", in, &out)
+	return
+}
+
+func (cl *Client) ConversationObservations(ctx context.Context, after string) (out c.ConversationObservationPage, err error) {
+	err = cl.call(ctx, "GET", "/api/v1/conversation-observations?after="+url.QueryEscape(after), nil, &out)
+	return
+}
+
+func (cl *Client) ConversationCursor(ctx context.Context) (out c.ConversationCursor, err error) {
+	err = cl.call(ctx, "GET", "/api/v1/conversation-cursor", nil, &out)
+	return
+}
+func (cl *Client) ReacceptConversationCursor(ctx context.Context, in c.ReacceptConversationCursor) (out c.ConversationCursor, err error) {
+	err = cl.call(ctx, "POST", "/api/v1/conversation-cursor/reaccept", in, &out)
+	return
+}
+func (cl *Client) LegacyMessages(ctx context.Context, thread string, after int64) (out c.MessagePage, err error) {
+	err = cl.call(ctx, "GET", "/api/v1/threads/"+url.PathEscape(thread)+"/legacy-messages?after="+strconv.FormatInt(after, 10), nil, &out)
 	return
 }

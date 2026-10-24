@@ -58,7 +58,7 @@ func TestTaskToolsRespectPlanningGrant(t *testing.T) {
 					t.Fatalf("missing %s", name)
 				}
 			}
-			if tools["coop_master_create_task"] != tc.create {
+			if tools["coop_master_create_task"] != tc.create || tools["coop_master_adopt_task"] != tc.create {
 				t.Fatal("planning grant mismatch")
 			}
 			if tc.kind != "owner" && tools["coop_master_decide_goal"] {

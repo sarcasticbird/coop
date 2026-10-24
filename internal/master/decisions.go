@@ -85,11 +85,18 @@ func (svc *Service) DecideGoal(ctx context.Context, actor c.Principal, in c.Goal
 	if err != nil {
 		return out, err
 	}
+	receipt, err := s.stageGoalDecisionReceipt(ctx, tx, p, in, out)
+	if err != nil {
+		return out, err
+	}
 	if err = saveRequest(ctx, tx, p.ID, in.RequestID, "decision", in, out); err != nil {
 		return out, err
 	}
 	if err = event(ctx, tx, "goal_decision", out.Revision.Proposal.ThreadID, ""); err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	return out, s.publishCanonicalReceipt(ctx, receipt)
 }

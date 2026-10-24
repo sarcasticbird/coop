@@ -42,7 +42,7 @@ func TestFleetMappedWorkAtEverySize(t *testing.T) {
 			m, source := boundFleetFixture()
 			m.width, m.height = size.Width, size.Height
 			target := m.selected
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			if !m.diagnostics.busy || !strings.Contains(m.View(), "Loading diagnostics") {
 				t.Fatal("initial read not visible", m.View())
 			}
@@ -71,7 +71,7 @@ func TestFleetMappedWorkAtEverySize(t *testing.T) {
 			}
 			m, _ = fleetKey(m, "esc")
 			m.selected = m.hosts[0].entries[0].Target
-			m, cmd = fleetKey(m, "enter")
+			m, cmd = fleetKey(m, "tab")
 			if cmd != nil || m.diagnostics.report != nil || !strings.Contains(strings.Join(m.fleetDetailsLines("running", "ok"), "\n"), "Task: unknown") {
 				t.Fatal("unbound duplicate-name target borrowed report")
 			}
@@ -102,7 +102,7 @@ func TestFleetBindingMismatchAndAmbiguityStayUnknown(t *testing.T) {
 				row.Target.Host = hostrouter.Local
 				m.hosts[0].entries = append(m.hosts[0].entries, row)
 			}
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			if cmd != nil {
 				m = runFleetDiagnostic(t, m, cmd)
 			}
@@ -120,7 +120,7 @@ func TestFleetChangedBindingRejectsPendingAndLateReads(t *testing.T) {
 	for _, change := range []string{"placement", "registration", "removed"} {
 		t.Run(change, func(t *testing.T) {
 			m, _ := boundFleetFixture()
-			m, cmd := fleetKey(m, "enter")
+			m, cmd := fleetKey(m, "tab")
 			late := cmd()
 			m, _ = fleetKey(m, "d")
 			switch change {
@@ -144,7 +144,7 @@ func TestFleetChangedBindingRejectsPendingAndLateReads(t *testing.T) {
 		})
 	}
 	m, _ := boundFleetFixture()
-	m, cmd := fleetKey(m, "enter")
+	m, cmd := fleetKey(m, "tab")
 	late := cmd()
 	m, _ = fleetKey(m, "esc")
 	out, _ := m.Update(late)
@@ -160,7 +160,7 @@ func TestFleetScrolledFaultsAndRestoreEpoch(t *testing.T) {
 			t.Run(fmt.Sprintf("%dx%d/%s", size.Width, size.Height, failure), func(t *testing.T) {
 				m, source := boundFleetFixture()
 				m.width, m.height = size.Width, size.Height
-				m, cmd := fleetKey(m, "enter")
+				m, cmd := fleetKey(m, "tab")
 				m = runFleetDiagnostic(t, m, cmd)
 				cached := m.diagnostics.report
 				m.scroll = 25
@@ -185,7 +185,7 @@ func TestFleetScrolledFaultsAndRestoreEpoch(t *testing.T) {
 		}
 	}
 	m, source := boundFleetFixture()
-	m, cmd := fleetKey(m, "enter")
+	m, cmd := fleetKey(m, "tab")
 	m = runFleetDiagnostic(t, m, cmd)
 	id := m.detailEntry.Diagnostics.AgentID
 	v := source.reports[id]
@@ -214,7 +214,7 @@ func TestFleetDiagnosticBindingThroughMasterHTTP(t *testing.T) {
 	m.services.Coordination = owner
 	m.hosts[1].entries[0].Diagnostics = &c.DiagnosticBinding{MasterID: owner.MasterID(), Placement: identity.Placement}
 	m.selected = m.hosts[1].entries[0].Target
-	m, cmd := fleetKey(m, "enter")
+	m, cmd := fleetKey(m, "tab")
 	m = runFleetDiagnostic(t, m, cmd)
 	if m.diagnostics.report == nil || m.diagnostics.report.Report.Placement != identity.Placement || m.diagnostics.report.Report.Wait.Reason != "local_pause" {
 		t.Fatal("real master report not mapped to explicit target binding", m.diagnostics.failure)
@@ -227,7 +227,7 @@ func TestFleetDiagnosticBindingThroughMasterHTTP(t *testing.T) {
 func TestFleetWrappedIdentityConflictInvalidatesCache(t *testing.T) {
 	for _, err := range []error{c.ErrConflict, c.ErrEpoch} {
 		m, source := boundFleetFixture()
-		m, cmd := fleetKey(m, "enter")
+		m, cmd := fleetKey(m, "tab")
 		m = runFleetDiagnostic(t, m, cmd)
 		source.err = fmt.Errorf("private response sentinel: %w", err)
 		cmd = m.refreshFleetDiagnostics()
@@ -245,7 +245,7 @@ func TestFleetDiagnosticFeedbackPreservesControlOutcomes(t *testing.T) {
 				t.Run(fmt.Sprintf("%dx%d/%s/%s", size.Width, size.Height, diagnostic, action), func(t *testing.T) {
 					m, source := boundFleetFixture()
 					m.width, m.height = size.Width, size.Height
-					m, cmd := fleetKey(m, "enter")
+					m, cmd := fleetKey(m, "tab")
 					switch diagnostic {
 					case "denied":
 						m = runFleetDiagnostic(t, m, cmd)

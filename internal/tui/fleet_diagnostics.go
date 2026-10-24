@@ -3,7 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +14,8 @@ import (
 )
 
 type fleetDiagnostics struct {
+	self     c.SelfIdentity
+	checked  time.Time
 	serial   uint64
 	busy     bool
 	cancel   context.CancelFunc
@@ -24,6 +26,8 @@ type fleetDiagnostics struct {
 }
 
 type fleetDiagnosticResult struct {
+	self     c.SelfIdentity
+	checked  time.Time
 	serial   uint64
 	target   hostrouter.Target
 	binding  c.DiagnosticBinding
@@ -100,9 +104,9 @@ func (m *fleetModel) refreshFleetDiagnostics() tea.Cmd {
 	serial, target := q.serial, e.Target
 	return func() tea.Msg {
 		defer cancel()
-		r := fleetDiagnosticResult{serial: serial, target: target, binding: binding}
+		r := fleetDiagnosticResult{serial: serial, target: target, binding: binding, checked: time.Now()}
 		identity, err := source.Self(ctx)
-		r.epoch, r.err = identity.RestoreEpoch, err
+		r.self, r.epoch, r.err = identity, identity.RestoreEpoch, err
 		if err == nil {
 			value, err := readTeamDetail(ctx, source, binding.Placement)
 			r.err = err
@@ -145,6 +149,11 @@ func (m fleetModel) acceptFleetDiagnostic(q *fleetDiagnostics, r fleetDiagnostic
 		}
 		return
 	}
+	if m.fleetDiagnosticContextChanged(fleetDiagnostics{self: r.self, checked: r.checked}) {
+		q.report, q.presence = nil, nil
+		q.failure = "access context changed; work unknown"
+		return
+	}
 	s := r.snapshot
 	if s.err != nil {
 		q.failure = diagnosticFailure(s.err)
@@ -159,6 +168,9 @@ func (m fleetModel) acceptFleetDiagnostic(q *fleetDiagnostics, r fleetDiagnostic
 	}
 	if q.report == nil || s.report.Report.RestoreEpoch > q.report.Report.RestoreEpoch || (s.report.Report.RestoreEpoch == q.report.Report.RestoreEpoch && !s.report.Report.ObservedAt.Before(q.report.Report.ObservedAt) && !s.report.ReceivedAt.Before(q.report.ReceivedAt)) {
 		q.report, q.failure = &s.report, ""
+		q.checked, q.self = r.checked, r.self
+		q.self.Principal.Engagements = slices.Clone(r.self.Principal.Engagements)
+		q.self.Principal.Capabilities = slices.Clone(r.self.Principal.Capabilities)
 		q.presence = nil
 		for _, p := range s.rows {
 			if p.Placement == r.binding.Placement {
@@ -167,6 +179,22 @@ func (m fleetModel) acceptFleetDiagnostic(q *fleetDiagnostics, r fleetDiagnostic
 		}
 	} else {
 		q.failure = "out-of-order report ignored; current work unknown"
+	}
+}
+
+// Diagnostic evidence belongs to the complete authenticated read context. A
+// later accepted identity or denial invalidates it until a fresh read succeeds.
+func (m fleetModel) fleetDiagnosticContextChanged(q fleetDiagnostics) bool {
+	if q.checked.IsZero() {
+		return false
+	}
+	return m.coordination.checked.After(q.checked) && (m.coordination.failed || !ledgerSameContext(m.coordination.self, q.self)) || m.ledgerDiagnostics.checked.After(q.checked) && !ledgerSameContext(m.ledgerDiagnostics.self, q.self) || m.work.checked.After(q.checked) && !ledgerSameContext(m.work.self, q.self)
+}
+
+func (m *fleetModel) invalidateFleetDiagnosticContext() {
+	if m.diagnostics.report != nil && m.fleetDiagnosticContextChanged(m.diagnostics) {
+		m.diagnostics.report, m.diagnostics.presence = nil, nil
+		m.diagnostics.failure = "access context changed; work unknown"
 	}
 }
 
@@ -182,6 +210,9 @@ func (m fleetModel) fleetPresenceLine() string {
 func (m fleetModel) fleetDetailsLines(state, health string) []string {
 	e, q, now := *m.detailEntry, m.diagnostics, time.Now()
 	lines := m.pageContext("Fleet > Details")
+	if m.preview {
+		lines = []string{"Fleet > Work", "Bird: " + ledgerName(e), "Host: " + e.Target.Host.Name}
+	}
 	row := func(left, right string) {
 		left, right = coordClean(left), coordClean(right)
 		column := (m.width - 3) / 2
@@ -209,26 +240,24 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 		}
 	}
 	task, pr, blocker := "unknown", "unknown", "unknown"
+	progress := diagnosticProgress(now, q.report, failure)
 	if current {
 		d := q.report.Report
 		if at := d.Work.ObservedAt; !at.IsZero() && !at.After(now) && now.Sub(at) < c.PresenceStale {
-			task, pr = valueOr(diagnosticReference(d.Work.TaskURL), "none reported"), valueOr(diagnosticReference(d.Work.PRURL), "none reported")
+			task, pr = diagnosticWorkName(d.Work), valueOr(diagnosticReference(d.Work.PRURL), "none reported")
 			if d.Work.Stage != "" {
 				task += " / " + strings.ReplaceAll(d.Work.Stage, "_", " ")
 			}
 		}
-		blocker = strings.ReplaceAll(valueOr(d.Wait.Reason, "none reported"), "_", " ")
-		if len(d.Wait.Dependencies) > 0 {
-			blocker = "dependency " + diagnosticReference(d.Wait.Dependencies[0])
-			if len(d.Wait.Dependencies) > 1 {
-				blocker += fmt.Sprintf(" (+%d)", len(d.Wait.Dependencies)-1)
-			}
-		}
+		blocker = diagnosticBlocker(d.Wait)
 	}
-	row("Name: "+ledgerName(e), "Host: "+e.Target.Host.Name+" / "+valueOr(e.Target.Host.Address, "this machine"))
+	if !m.preview {
+		row("Name: "+ledgerName(e), "Host: "+e.Target.Host.Name+" / "+valueOr(e.Target.Host.Address, "this machine"))
+	}
 	row("REPORTED WORK", "")
 	row("Activity: "+activity, "")
 	row("Task: "+task, "PR: "+pr)
+	row("Progress: "+progress, "")
 	row("Blocker: "+blocker, "")
 	row("OBSERVATION", "")
 	source := "Source: no host-owned diagnostic binding"
@@ -246,6 +275,9 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 		row("Work age: "+teamAge(q.report.Report.Work.ObservedAt), "Wait age: "+teamAge(q.report.Report.Wait.ObservedAt))
 	}
 	row("Heartbeat is not work progress.", "")
+	if m.preview {
+		return append(lines, "Tab: Details and diagnostics | g: goal decisions")
+	}
 	row("TARGET", "")
 	if e.Name != ledgerName(e) {
 		row("Runtime: "+e.Name, "")
@@ -260,5 +292,5 @@ func (m fleetModel) fleetDetailsLines(state, health string) []string {
 			row("Exact "+context, "")
 		}
 	}
-	return append(lines, "2 then t: full Team diagnostics")
+	return append(lines, "l then t: full Team diagnostics")
 }

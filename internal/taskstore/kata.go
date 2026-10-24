@@ -17,12 +17,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
 type Config struct {
+	InstanceUID string `toml:"instance_uid"`
 	Provider    string `toml:"provider"`
 	Binary      string `toml:"binary"`
 	Home        string `toml:"home"`
@@ -37,9 +39,16 @@ type Backend interface {
 	Bind(context.Context, c.TaskBindInput, c.Principal) (c.ProviderTask, error)
 	Complete(context.Context, c.TaskCompleteInput, c.Principal) (c.ProviderTask, error)
 }
-type kata struct{ cfg Config }
+type kata struct {
+	cfg        Config
+	identityMu sync.Mutex
+	projectID  int64
+}
 
 func New(cfg Config) (Backend, error) {
+	if cfg.InstanceUID != "" && !validUID(cfg.InstanceUID) {
+		return nil, c.ErrInvalid
+	}
 	if cfg.Provider != "kata" || !filepath.IsAbs(cfg.Binary) || !filepath.IsAbs(cfg.Home) || strings.TrimSpace(cfg.ProjectName) == "" || strings.ContainsAny(cfg.ProjectName, "\x00\r\n") {
 		return nil, c.ErrInvalid
 	}
@@ -69,6 +78,11 @@ func hash(v any) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
+
+// CreationKey is the native create idempotency identity shared with the master's
+// durable intent journal. A matching native key alone grants no authority.
+func CreationKey(goal c.GoalRef, request string) string { return key("create", goal, request) }
+
 func key(kind string, goal c.GoalRef, request string) string {
 	return "coop-" + hash(struct {
 		Kind    string
@@ -225,7 +239,18 @@ func (k *kata) Read(ctx context.Context, ref string) (c.ProviderTask, error) {
 	if p != k.cfg.ProjectUID {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
-	raw, err := k.run(ctx, "", "show", uid)
+	var raw []byte
+	if k.cfg.InstanceUID != "" {
+		issue, e := k.InspectIssue(ctx, uid)
+		if e != nil {
+			return c.ProviderTask{}, e
+		}
+		raw, err = json.Marshal(struct {
+			Issue Issue `json:"issue"`
+		}{Issue: issue})
+	} else {
+		raw, err = k.run(ctx, "", "show", uid)
+	}
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
@@ -258,7 +283,7 @@ func (k *kata) Create(ctx context.Context, in c.TaskCreateInput, actor c.Princip
 	}
 	cr := creation{Input: in, Goal: in.Goal, Repository: in.Repository}
 	encoded, _ := json.Marshal(cr)
-	raw, err := k.run(ctx, actor.ID, "create", in.Title, "--body", in.Body, "--idempotency-key", key("create", in.Goal, in.RequestID), "--meta", "coop.creation="+string(encoded))
+	raw, err := k.run(ctx, actor.ID, "create", in.Title, "--body", in.Body, "--idempotency-key", CreationKey(in.Goal, in.RequestID), "--meta", "coop.creation="+string(encoded))
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
@@ -353,4 +378,11 @@ func (k *kata) Complete(ctx context.Context, in c.TaskCompleteInput, actor c.Pri
 		return task, readErr
 	}
 	return task, c.ErrConflict
+}
+
+// AdoptionBackend is intentionally separate from Create: adoption cannot create
+// an issue and must retain the inspected UID and exact scope revision.
+type AdoptionBackend interface {
+	InspectIssue(context.Context, string) (Issue, error)
+	Adopt(context.Context, c.TaskAdoptInput, c.NativeTaskBinding, c.Principal) (c.ProviderTask, error)
 }

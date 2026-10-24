@@ -28,7 +28,7 @@ func TestPageParityExactContextSurvivesHeaderClipping(t *testing.T) {
 						fleet := runtimeBaselineFleet()
 						fleet.width, fleet.height = size.Width, size.Height
 						fleet.services.Coordination, fleet.coordination = source, m.coordination
-						m, _ = fleetKey(fleet, "enter")
+						m, _ = fleetKey(fleet, "tab")
 						if m.detailEntry == nil || m.detailEntry.Diagnostics != nil {
 							t.Fatal("regression requires unbound Details")
 						}
@@ -66,7 +66,7 @@ func TestPageParityDetailsPresenceAndContext(t *testing.T) {
 	for _, size := range tuifixture.Sizes() {
 		m, _ := boundFleetFixture()
 		m.width, m.height = size.Width, size.Height
-		m, cmd := fleetKey(m, "enter")
+		m, cmd := fleetKey(m, "tab")
 		m = runFleetDiagnostic(t, m, cmd)
 		if m.diagnostics.presence == nil || !strings.Contains(m.View(), "Activity: waiting") || !strings.Contains(m.View(), "Presence:") {
 			t.Fatal("bound presence or work-first summary absent", m.View())

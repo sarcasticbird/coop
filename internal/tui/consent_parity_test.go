@@ -54,7 +54,7 @@ func TestConfirmationKeepsCapturedContextPinned(t *testing.T) {
 				coord.coordination.self.Principal.ID = principal
 				m.services.Coordination, m.coordination = source, coord.coordination
 				m.width, m.height = size.Width, size.Height
-				m, _ = fleetKey(m, "enter")
+				m, _ = fleetKey(m, "tab")
 				key := operation
 				if operation == "enter" {
 					key = "c"

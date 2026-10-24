@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
@@ -14,8 +15,9 @@ import (
 // writes cannot change a task or publish an old-assignment PR during that gap,
 // including after a process exit or an uncertain provider response.
 type taskBindReservation struct {
-	Actor string          `json:"actor"`
-	Input c.TaskBindInput `json:"input"`
+	Actor          string           `json:"actor"`
+	Input          c.TaskBindInput  `json:"input"`
+	AdoptionOrigin *c.TaskBindInput `json:"adoption_origin,omitempty"`
 }
 
 func taskMutationKey(ref string) string { return "task-bind:" + digest(ref) }
@@ -37,7 +39,7 @@ func taskMutation(ctx context.Context, q queryer, ref string) (taskBindReservati
 func sameTaskMutation(a, b taskBindReservation) bool {
 	return a.Actor == b.Actor && digest(a.Input) == digest(b.Input)
 }
-func (svc *Service) reserveTaskBinding(ctx context.Context, actor string, in c.TaskBindInput, providerSame bool) (taskBindReservation, error) {
+func (svc *Service) reserveTaskBinding(ctx context.Context, actor string, in c.TaskBindInput, providerSame bool, observed ...c.ProviderTask) (taskBindReservation, error) {
 	out := taskBindReservation{Actor: actor, Input: in}
 	tx, err := svc.Store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -53,8 +55,17 @@ func (svc *Service) reserveTaskBinding(ctx context.Context, actor string, in c.T
 	if err != nil {
 		return out, err
 	}
-	if exists && !sameTaskMutation(pending, out) {
-		return out, c.ErrConflict
+	if exists {
+		out.AdoptionOrigin = pending.AdoptionOrigin
+	}
+	replacing := exists && !sameTaskMutation(pending, out)
+	if replacing {
+		if len(observed) != 1 {
+			return out, c.ErrConflict
+		}
+		if err = svc.appliedAdoptionRecovery(ctx, tx, pending, &out, observed[0]); err != nil {
+			return out, err
+		}
 	}
 	var registered string
 	registryErr := tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Binding.Goal.GoalID, in.Binding.Goal.RevisionSHA256, in.Binding.TaskURL).Scan(&registered)
@@ -81,6 +92,11 @@ func (svc *Service) reserveTaskBinding(ctx context.Context, actor string, in c.T
 	}
 	if !exists {
 		if _, err = tx.ExecContext(ctx, "INSERT INTO meta(key,value) VALUES(?,?)", taskMutationKey(in.Binding.TaskURL), string(encode(out))); err != nil {
+			return out, err
+		}
+	}
+	if replacing {
+		if _, err = tx.ExecContext(ctx, "UPDATE meta SET value=? WHERE key=?", string(encode(out)), taskMutationKey(in.Binding.TaskURL)); err != nil {
 			return out, err
 		}
 	}
@@ -128,4 +144,102 @@ func (svc *Service) reconcileTaskMutation(ctx context.Context, task c.ProviderTa
 		return err
 	}
 	return tx.Commit()
+}
+
+// Only a fresh, currently authorized TaskBind may replace an applied adoption
+// that never reached the registry. The original journals remain immutable.
+func (svc *Service) appliedAdoptionRecovery(ctx context.Context, tx *sql.Tx, pending taskBindReservation, next *taskBindReservation, task c.ProviderTask) error {
+	old, in := pending.Input, next.Input
+	if pending.Actor != next.Actor || task.Binding == nil || task.BindingActor.ID != pending.Actor || task.State != "open" || task.Reference != in.Binding.TaskURL || task.Goal != in.Binding.Goal || old.Binding.Goal != in.Binding.Goal || digest(task.Binding) != digest(old.Binding) || task.Revision <= old.ExpectedRevision || in.ExpectedRevision != task.Revision || in.ExpectedAssignmentSHA != digest(old.Binding) {
+		return c.ErrConflict
+	}
+	project, uid, repo, err := c.ParseKataTaskReference(task.Reference)
+	if err != nil || task.ProjectUID != project || task.IssueUID != uid || task.Repository != repo || project != svc.Tasks.Capabilities().ProjectUID {
+		return c.ErrConflict
+	}
+	// Carry the original adoption through further failed recovery writes. Both
+	// the origin and current pending bind must still match immutable journals.
+	origin := old
+	if pending.AdoptionOrigin != nil {
+		origin = *pending.AdoptionOrigin
+	} else if old.ExpectedAssignmentSHA != "" {
+		return c.ErrConflict
+	}
+	if origin.ExpectedAssignmentSHA != "" || origin.Binding.TaskURL != task.Reference || origin.Binding.Goal != in.Binding.Goal {
+		return c.ErrConflict
+	}
+	for _, input := range []c.TaskBindInput{origin, old} {
+		var accepted bool
+		found, e := request(ctx, tx, pending.Actor, input.RequestID, "task-bind", input, &accepted)
+		if e != nil {
+			return e
+		}
+		if !found || !accepted {
+			return c.ErrConflict
+		}
+	}
+	// The reservation alone cannot turn arbitrary native metadata into authority.
+	// Require its exact originating authenticated adoption journal as well.
+	rows, err := tx.QueryContext(ctx, "SELECT request_id FROM requests WHERE actor=? AND kind='task-adopt' AND result=?", pending.Actor, encode(taskAdoptIntent{Binding: origin.Binding}))
+	if err != nil {
+		return err
+	}
+	proven := false
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if origin.RequestID == "adopt-bind-"+digest(struct{ Actor, Request string }{pending.Actor, id}) {
+			proven = true
+		}
+	}
+	err = errors.Join(rows.Err(), rows.Close())
+	if err != nil {
+		return err
+	}
+	if !proven {
+		return c.ErrConflict
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM artifacts WHERE kind='task' AND url LIKE ?", "kata://"+strings.ToLower(project)+"/"+uid+"/%").Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		return c.ErrConflict
+	}
+	p, err := authorize(ctx, tx, c.Principal{ID: next.Actor}, "read")
+	if err != nil {
+		return err
+	}
+	if !planner(p) {
+		return c.ErrForbidden
+	}
+	if err = admission(ctx, tx); err != nil {
+		return err
+	}
+	if err = svc.taskBindingAuthority(ctx, tx, p, in.Binding); err != nil {
+		return err
+	}
+	var goalThread string
+	if err = tx.QueryRowContext(ctx, "SELECT thread_id FROM goals WHERE id=?", in.Binding.Goal.GoalID).Scan(&goalThread); err != nil {
+		return err
+	}
+	if err = svc.taskAdoptionConversation(ctx, tx, p, goalThread, uid); err != nil {
+		return err
+	}
+	next.AdoptionOrigin = &origin
+	return nil
+}
+
+func (svc *Service) taskBindingAuthority(ctx context.Context, q queryer, p c.Principal, binding c.NativeTaskBinding) error {
+	current, err := svc.Store.resolveGoal(ctx, q, p, binding.Goal)
+	if err != nil {
+		return err
+	}
+	if !current.Valid || current.ApprovalSequence != binding.ApprovalSequence || current.Actors.Author.GitHubBotID != binding.AuthorID || current.Actors.Peer.GitHubBotID != binding.PeerID || current.Actors.QA.GitHubBotID != binding.QAID || svc.Tasks.Capabilities().PolicySHA != binding.PolicySHA {
+		return c.ErrConflict
+	}
+	return nil
 }

@@ -21,6 +21,14 @@ of a coop image without confirming permission. Codex is published under
 Apache-2.0 and OpenCode under MIT; their license and notice obligations still
 apply to redistributed copies.
 
+## Kata test schema
+
+`internal/taskstore/testdata/kata-v0.19.0-schema.sql` is the unmodified SQLite
+schema from [Kata v0.19.0](https://github.com/kenn-io/kata/blob/v0.19.0/internal/db/sqlitestore/schema.sql).
+It is used only by provider regression tests. Copyright (c) 2026 Wes McKinney;
+licensed under MIT. The full notice is retained beside it in
+`internal/taskstore/testdata/kata-v0.19.0-LICENSE.txt`.
+
 ## Master SQLite dependency notices
 
 The Coop master embeds modernc.org/sqlite v1.60.1 and the dependencies below. These upstream notices accompany the existing release archive. SQLite itself is in the public domain.

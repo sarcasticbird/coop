@@ -16,6 +16,8 @@ type NativeBlocker struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 }
 type NativeProgress struct {
+	ProgressAt      *time.Time                `json:"progress_at,omitempty"`
+	WorkTitle       string                    `json:"work_title,omitempty"`
 	Continuation    *c.TaskContinuationTarget `json:"continuation_target,omitempty"`
 	SessionID       string                    `json:"session_id,omitempty"`
 	SubmissionState string                    `json:"submission_state,omitempty"`
@@ -86,6 +88,14 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.PrimaryJobID = x.Job.ID
 		p.SessionID, p.SubmissionState = x.Job.SessionID, x.Job.SubmissionState
 		p.Current = currentWork(d.config, Snapshot{}, x.Job, d.clock.Now())
+		if p.Current.WorkTitle == "" {
+			for _, task := range d.catalog.Tasks {
+				if task.Task.URL == x.Job.TaskURL {
+					p.Current.WorkTitle = diagnosticTitle(task.Task.Title)
+					break
+				}
+			}
+		}
 		p.Current.Phase = x.Phase
 		if x.Job.Master != nil {
 			p.Current.Role = x.Job.Master.Role
@@ -152,6 +162,12 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 	})
 	if len(p.Blocked) > 16 {
 		p.Blocked = p.Blocked[:16]
+	}
+	if x, ok := d.history[p.PrimaryJobID]; ok {
+		p.ProgressAt, p.WorkTitle = x.Job.ProgressAt, diagnosticTitle(x.Job.WorkTitle)
+	}
+	if d.active != nil && d.active.Job.ID == p.PrimaryJobID {
+		p.ProgressAt, p.WorkTitle = d.active.Job.ProgressAt, p.Current.WorkTitle
 	}
 
 	if x, ok := d.history[p.PrimaryJobID]; ok && x.Phase == "blocked" && (x.Reason == "native_completed_without_result" || x.Reason == "native_dependency_wait") && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
