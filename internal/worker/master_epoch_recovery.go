@@ -104,7 +104,7 @@ func retiredTurn(cfg Config, turn MasterTurn) (bool, error) {
 func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.RecoveryEvidence, string, error) {
 	out := []c.RecoveryEvidence{}
 	files := []string{}
-	for _, kind := range []string{"inbox", "outbox", "published", "engineering", "actions"} {
+	for _, kind := range []string{"inbox", "outbox", "published", "engineering", "actions", "releases"} {
 		dir := filepath.Join(masterDir(cfg), kind)
 		entries, e := os.ReadDir(dir)
 		if os.IsNotExist(e) {
@@ -187,6 +187,15 @@ func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.R
 				// checkpoint does not complete or replay the original action.
 				r.Terminal = v.State == "completed" || v.State == "prepared"
 				r.Uncertain = !r.Terminal
+			case "releases":
+				r.Terminal, e = releaseRecoveryRecord(cfg, entry.Name(), raw)
+				if e != nil {
+					return nil, "", e
+				}
+				// Unknown writes need proof. Acknowledged checkpoints can be
+				// explicitly retired; a tagged release can still be observed
+				// through its accepted placement proof, never retagged.
+				r.Uncertain = !r.Terminal
 			}
 			if job != nil {
 				r.Terminal = job.SessionID == "" || job.MessageID == "" || job.SubmissionState == "prepared" || job.SubmissionState == "completed"
@@ -224,11 +233,12 @@ func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.R
 	} else if !os.IsNotExist(e) {
 		return nil, "", e
 	}
-	// The master retains the old schedule digest for this epoch. Carry it
-	// forward alongside the current digest; never replace accepted evidence.
+	// The master retains accepted schedule and release-observation digests for
+	// this epoch. Carry old observations alongside current bytes; never replace
+	// accepted evidence when a read-only publication check advances its result.
 	if adoption, e := loadPlacementAdoption(cfg); e == nil {
 		for _, r := range adoption.Accepted.Records {
-			if r.Kind != "schedule" {
+			if r.Kind != "schedule" && r.Kind != "releases" {
 				continue
 			}
 			seen := false

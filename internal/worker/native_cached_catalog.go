@@ -275,6 +275,9 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	out.ReadAt = r.clock.Now()
+	if err := loadCatalogHandoffs(ctx, m, &out); err != nil {
+		return out, err
+	}
 	out.Complete = true
 	return out, nil
 }

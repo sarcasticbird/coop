@@ -36,6 +36,7 @@ type NativeExecution struct {
 	PausedDecisionSequence      int64
 }
 type NativeCandidate struct {
+	Handoff     *c.Handoff
 	Job         Job
 	Goal        c.GoalAuthority
 	Task        *NativeTask
@@ -309,18 +310,30 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				continue
 			}
 			if cleared && qaCleared && (p.ChecksState == "success" || p.ChecksState == "none") && p.MergeState == "CLEAN" {
+				before := len(out)
 				add("deliver", a, &t, &p, BodyHash(peer.ID+":"+qa.ID+":"+p.ScopeRevision))
+				if len(out) > before {
+					out[len(out)-1].Handoff = releaseHandoff(catalog, t, p)
+				}
 			}
 		}
 		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
-			if nativeChangesRequested("qa", t.Binding, a, p, qa) {
+			handoff := qaReassessment(catalog, t, a, p, qa)
+			if nativeChangesRequested("qa", t.Binding, a, p, qa) && handoff == nil {
 				continue
 			}
 			revision := p.ScopeRevision + ":" + p.QAArtifact.SHA256 + ":" + NativeAcceptanceSHA(a)
+			if handoff != nil {
+				revision += ":reassess:" + handoff.ID
+			}
 			if qa.State == "DISMISSED" && qa.HeadSHA == p.HeadSHA {
 				revision += ":dismissed:" + qa.ID
 			}
+			before := len(out)
 			add("qa", a, &t, &p, revision)
+			if len(out) > before {
+				out[len(out)-1].Handoff = handoff
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Job.ID < out[j].Job.ID })

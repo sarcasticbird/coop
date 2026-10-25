@@ -263,6 +263,9 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `task list` | CLI/runbook | List tasks for an exact goal revision |
 | `task create` | CLI/runbook | Plan within an existing approved goal using a stable request ID |
 | `task adopt` | CLI/runbook | Adopt the existing Kata UID under an exact approved goal and observed provider revision |
+| `task reassess-qa` | CLI/runbook | Request exact-artifact QA reassessment with new private evidence |
+| `task request-release` | CLI/runbook | Owner records exact-source release authority |
+| `task handoffs` | CLI/runbook | Read bounded, scoped QA/release requests |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
 | `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
 | `pilot status` | CLI/runbook | Read the saved fixture receipt |

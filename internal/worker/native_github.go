@@ -140,6 +140,16 @@ func memberCapability(m TeamMember, capability string) bool {
 }
 
 func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTask, authority c.GoalAuthority, ref string) (PR, error) {
+	return g.readNativePR(ctx, cfg, t, authority, ref, false)
+}
+
+// ReadNativeReleasePR also validates the immutable source artifact after merge.
+// Normal discovery skips that expensive read for completed PRs.
+func (g *GitHubClient) ReadNativeReleasePR(ctx context.Context, cfg Config, t NativeTask, authority c.GoalAuthority, ref string) (PR, error) {
+	return g.readNativePR(ctx, cfg, t, authority, ref, true)
+}
+
+func (g *GitHubClient) readNativePR(ctx context.Context, cfg Config, t NativeTask, authority c.GoalAuthority, ref string, release bool) (PR, error) {
 	repo, n, err := parseRef(ref)
 	if err != nil || repo != t.Task.Repo || !referenceInRepo(ref, repo, "pull") {
 		return PR{}, ghError("invalid_native_PR_target")
@@ -202,9 +212,15 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 	}
 	artifactTask := t.Task
 	artifactTask.QA.Required = authority.Revision.Proposal.QA.Required
-	if err = reader.bindQAArtifact(ctx, artifactTask, &pr, m.Artifact); err != nil {
+	artifactPR := pr
+	if release {
+		artifactTask.QA.Required = true
+		artifactPR.Merged = false
+	}
+	if err = reader.bindQAArtifact(ctx, artifactTask, &artifactPR, m.Artifact); err != nil {
 		return PR{}, err
 	}
+	pr.QAArtifact = artifactPR.QAArtifact
 	freshHistory, e := reader.readPRScope(ctx, repo, n, item.prBodyVersion, &pr)
 	if e != nil {
 		return PR{}, e

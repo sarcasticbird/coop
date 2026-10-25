@@ -13,6 +13,7 @@ import (
 func taskCommand() *cobra.Command {
 	group := &cobra.Command{Use: "task", Short: "Manage work through the master's task provider", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(taskUICommand())
+	addTaskHandoffCommands(group)
 	group.AddCommand(&cobra.Command{Use: "capabilities", Short: "Read the configured task provider identity", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		cl, e := masterClient(cmd)
 		if e != nil {

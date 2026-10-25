@@ -92,3 +92,31 @@ func TestNativePRPinsCoherentBaseCommit(t *testing.T) {
 		t.Fatal("mixed base commits accepted for branch update")
 	}
 }
+
+func TestNativeReleasePRRevalidatesMergedSourceArtifact(t *testing.T) {
+	for _, required := range []bool{false, true} {
+		t.Run(map[bool]string{false: "qa-optional", true: "qa-required"}[required], func(t *testing.T) {
+			cfg, m, catalog, _ := dispatchFixture(t)
+			task := catalog.catalog.Tasks[0]
+			m.authority.Revision.Proposal.QA.Required = required
+			transport := &nativeDeliveryTransport{t: t, cfg: cfg, head: strings.Repeat("a", 40), merged: true}
+			transport.prBody = NativePRBody(NativePRMetadata{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding)})
+			transport.commands = &fakeCommands{respond: transport.response}
+			g := NewGitHubClient(transport)
+			ref := "https://github.com/code/repo/pull/1"
+			ordinary, err := g.ReadNativePR(t.Context(), cfg, task, m.authority, ref)
+			if err != nil || !ordinary.Merged || ordinary.QAArtifact != nil {
+				t.Fatal("ordinary merged discovery changed", err)
+			}
+			release, err := g.ReadNativeReleasePR(t.Context(), cfg, task, m.authority, ref)
+			if err != nil || !release.Merged || release.QAArtifact == nil || !hexSHA.MatchString(release.QAArtifact.SHA256) {
+				t.Fatal("release source not revalidated", release, err)
+			}
+			transport.failSourceAfterPush = true
+			transport.localHead = transport.head
+			if _, err = g.ReadNativeReleasePR(t.Context(), cfg, task, m.authority, ref); err == nil {
+				t.Fatal("unreadable source artifact accepted")
+			}
+		})
+	}
+}

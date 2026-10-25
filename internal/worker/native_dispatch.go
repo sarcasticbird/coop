@@ -828,6 +828,12 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	if v.Task != nil {
 		prompt += "\nTask title: " + v.Task.Task.Title + "\nTask body:\n" + v.Task.Task.Body
 	}
+	if v.Handoff != nil && v.Handoff.Input.Kind == "reassess-qa" {
+		prompt += "\nThis is a new bounded QA reassessment, not a replay or clearance. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + " and reconcile it with previous QA review " + v.Handoff.Input.ReviewID + ". Preserve previous evidence and limitations. Independently reassess the same exact artifact and submit a new supported QA verdict. Do not change source or invent device results."
+	}
+	if v.Handoff != nil && v.Handoff.Input.Kind == "release" {
+		prompt += "\nOwner-approved delivery extension " + v.Handoff.ID + " authorizes merging this exact reviewed PR after all existing gates and publishing tag " + v.Handoff.Input.Tag + " through " + v.Handoff.Input.Workflow + ". Original task, source acceptance and independent peer/QA bindings remain unchanged. Use the normal deliver action first. After confirmed merge, the assigned author can invoke /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal " + v.Handoff.Input.Goal.GoalID + " --revision " + v.Handoff.Input.Goal.RevisionSHA256 + " --handoff " + v.Handoff.ID + ". This guarded command returns waiting until release CI/publication succeeds; checking the same handoff never republishes the tag. A published receipt is not released-artifact QA or a Homebrew install pass."
+	}
 	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
 	}
