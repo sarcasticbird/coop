@@ -52,3 +52,19 @@ func TestTaskAdoptCommandRegistered(t *testing.T) {
 		t.Fatal("adoption accepted missing explicit input")
 	}
 }
+
+func TestHandoffCommandsRequireExplicitInput(t *testing.T) {
+	for _, name := range []string{"reassess-qa", "request-release", "handoffs"} {
+		cmd := root()
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		found, _, err := cmd.Find([]string{"task", name})
+		if err != nil || found.Name() != name {
+			t.Fatal("missing handoff command", name, err)
+		}
+		cmd.SetArgs([]string{"task", name})
+		if cmd.Execute() == nil {
+			t.Fatal("missing exact handoff input accepted", name)
+		}
+	}
+}

@@ -24,7 +24,8 @@ type NativeMaster interface {
 const NativeCatalogTimeout = 5 * time.Minute
 
 type NativeCatalog struct {
-	Cache *NativeCacheCoverage
+	Handoffs []c.Handoff
+	Cache    *NativeCacheCoverage
 	// TaskScope is nonempty for a validation-only view; never cache it as discovery.
 	TaskScope string
 	Goals     []c.GoalAuthority
@@ -193,6 +194,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	sort.Slice(out.Goals, func(i, j int) bool { return out.Goals[i].Revision.Ref.GoalID < out.Goals[j].Revision.Ref.GoalID })
 	out.ReadAt = time.Now().UTC()
+	if err := loadCatalogHandoffs(ctx, master, &out); err != nil {
+		return out, err
+	}
 	out.Complete = true
 	return out, nil
 }

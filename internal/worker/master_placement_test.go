@@ -52,6 +52,12 @@ func TestFinalReviewPlacementHistory(t *testing.T) {
 			if e = saveNativeAction(cfg, nativeActionRecord{Version: 3, JobID: native.Job.ID, RequestID: "move-action", State: "completed"}); e != nil {
 				t.Fatal(e)
 			}
+			releaseAPI := &releaseTestAPI{}
+			releaseHandoff := c.Handoff{ID: "ho_placement", Input: c.HandoffInput{Goal: goal, Tag: "v0.2.7", Workflow: "release.yml"}}
+			releaseSource := releaseTarget{Repository: "code/repo", SHA: strings.Repeat("c", 40)}
+			if receipt, err := publishNativeRelease(ctx, cfg, releaseAPI, releaseHandoff, releaseSource); err != nil || receipt.Phase != "waiting" {
+				t.Fatal("release fixture", receipt, err)
+			}
 			_, scheduleCatalog, _ := nativeWorkFixture(t)
 			scheduleCatalog.Tasks = nil
 			oldDispatcher, e := NewNativeDispatcher(cfg, client, &dispatchCatalog{catalog: scheduleCatalog}, code, &fakeCheckouts{}, RealClock{})
@@ -146,6 +152,25 @@ func TestFinalReviewPlacementHistory(t *testing.T) {
 			}
 			if _, e = AdoptMasterPlacement(ctx, cfg, next, moved); e != nil {
 				t.Fatalf("stopped placement adoption: %v", e)
+			}
+			writes := func() int {
+				n := 0
+				for _, call := range releaseAPI.calls {
+					if strings.HasPrefix(call, "POST ") {
+						n++
+					}
+				}
+				return n
+			}
+			writesBefore := writes()
+			if receipt, err := publishNativeRelease(ctx, next, releaseAPI, releaseHandoff, releaseSource); err != nil || receipt.Phase != "waiting" || writes() != writesBefore {
+				t.Fatal("pending publication lost or replayed after accepted placement", receipt, err)
+			}
+			releaseAPI.published = true
+			for i := 0; i < 2; i++ {
+				if receipt, err := publishNativeRelease(ctx, next, releaseAPI, releaseHandoff, releaseSource); err != nil || receipt.Phase != "published" || writes() != writesBefore {
+					t.Fatal("accepted publication observation could not advance or replayed writes", receipt, err)
+				}
 			}
 			adoption, e := loadPlacementAdoption(next)
 			if e != nil || string(adoption.ScheduleBefore) != string(scheduleBefore) {

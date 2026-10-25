@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REF
 CREATE TABLE IF NOT EXISTS goal_revisions(goal_id TEXT NOT NULL REFERENCES goals(id),sha TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(goal_id,sha));
 CREATE TABLE IF NOT EXISTS goal_decisions(goal_id TEXT NOT NULL REFERENCES goals(id),seq INTEGER NOT NULL,actor TEXT NOT NULL REFERENCES principals(id),body BLOB NOT NULL,PRIMARY KEY(goal_id,seq));
 CREATE TABLE IF NOT EXISTS artifacts(goal_id TEXT NOT NULL,revision TEXT NOT NULL,url TEXT NOT NULL,kind TEXT NOT NULL,assignment_sha TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(goal_id,revision,url),FOREIGN KEY(goal_id,revision) REFERENCES goal_revisions(goal_id,sha));
+CREATE TABLE IF NOT EXISTS handoffs(id TEXT PRIMARY KEY,goal_id TEXT NOT NULL,revision TEXT NOT NULL,release_key TEXT NOT NULL DEFAULT '',body BLOB NOT NULL,FOREIGN KEY(goal_id,revision) REFERENCES goal_revisions(goal_id,sha));
+CREATE INDEX IF NOT EXISTS handoffs_goal ON handoffs(goal_id,revision,id);
+CREATE UNIQUE INDEX IF NOT EXISTS handoffs_release ON handoffs(release_key) WHERE release_key<>'';
 `
 
 const recoverySchema = `
