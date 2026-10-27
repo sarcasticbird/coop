@@ -77,6 +77,9 @@ func ValidateNativeAuthority(ctx context.Context, source GoalAuthoritySource, b 
 	return a, nil
 }
 func ValidateNativeQA(b NativeTaskBinding, a c.GoalAuthority, review Review, report c.Message, expected NativeQAResult) error {
+	if expected.Assessment != "" || expected.HandoffID != "" {
+		return errors.New("post-merge assessment is not pre-merge QA clearance")
+	}
 	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || a.ApprovalSequence != b.ApprovalSequence || !a.Revision.Proposal.QA.Required || expected.Version != 3 || expected.Goal != b.Goal || expected.AssignmentSHA != NativeAssignmentSHA(b) || expected.TaskURL != b.TaskURL || !qaHeadSHA.MatchString(expected.HeadSHA) || !hexSHA.MatchString(expected.PRScopeRevision) || !hexSHA.MatchString(expected.ArtifactSHA) || expected.AcceptanceSHA != NativeAcceptanceSHA(a) || !hexSHA.MatchString(expected.EvidenceBodySHA) || expected.Environment != a.Revision.Proposal.QA.Environment || expected.EnvironmentRevision == "" || expected.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision || expected.Verdict != "approved" {
 		return errors.New("native QA scope mismatch")
 	}
@@ -89,4 +92,22 @@ func ValidateNativeQA(b NativeTaskBinding, a c.GoalAuthority, review Review, rep
 		return errors.New("native private QA evidence mismatch")
 	}
 	return nil
+}
+
+// ValidateNativePostMergeQA verifies an assessment, never historical merge clearance.
+func ValidateNativePostMergeQA(b NativeTaskBinding, a c.GoalAuthority, review Review, report c.Message, expected NativeQAResult, h c.Handoff) error {
+	in := h.Input
+	if c.ValidateHandoff(in) != nil || h.ID == "" || in.Kind != "first-postmerge-qa" || expected.Assessment != "first-postmerge" || expected.HandoffID != h.ID || in.Goal != b.Goal || in.TaskURL != b.TaskURL || in.AssignmentSHA != NativeAssignmentSHA(b) || in.HeadSHA != expected.HeadSHA || in.ArtifactSHA != expected.ArtifactSHA || in.Environment != expected.Environment || in.EnvironmentRevision != expected.EnvironmentRevision || (expected.Verdict != "approved" && expected.Verdict != "changes-needed") {
+		return errors.New("post-merge QA handoff mismatch")
+	}
+	var actual NativeQAResult
+	if nativeMetadata(review.Body, "qa", &actual) != nil || actual != expected || review.State != "COMMENTED" {
+		return errors.New("independent post-merge QA assessment required")
+	}
+	// Reuse the immutable evidence and actor checks, not the approval semantics.
+	clearance := expected
+	clearance.Assessment, clearance.HandoffID, clearance.Verdict = "", "", "approved"
+	copy := review
+	copy.State, copy.Body = "APPROVED", NativeQAMetadata(clearance)
+	return ValidateNativeQA(b, a, copy, report, clearance)
 }

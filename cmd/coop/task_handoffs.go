@@ -8,7 +8,7 @@ import (
 )
 
 func addTaskHandoffCommands(group *cobra.Command) {
-	for _, spec := range []struct{ name, kind string }{{"reassess-qa", "reassess-qa"}, {"request-release", "release"}} {
+	for _, spec := range []struct{ name, kind string }{{"first-postmerge-qa", "first-postmerge-qa"}, {"reassess-qa", "reassess-qa"}, {"request-release", "release"}} {
 		var file string
 		command := &cobra.Command{Use: spec.name, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			if file == "" {

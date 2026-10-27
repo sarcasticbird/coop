@@ -45,6 +45,8 @@ func nativeMetadata(body, kind string, out any) error {
 }
 
 type NativeQAResult struct {
+	Assessment          string    `json:"assessment,omitempty"`
+	HandoffID           string    `json:"handoff_id,omitempty"`
 	PRScopeRevision     string    `json:"pr_scope_revision"`
 	Version             int       `json:"version"`
 	Goal                c.GoalRef `json:"goal"`

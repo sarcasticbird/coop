@@ -1,9 +1,68 @@
-# QA reassessment and release handoffs
+# QA and release handoffs
 
 Coop records these follow-ups separately from the original goal, task binding,
 PR and reviews. A conversation acknowledgement is not an assignment or approval.
 Deploy the master API before updating workers and guest CLIs. Historical source
 acceptance, reviews and unknown-write holds remain in place.
+
+## Request first postmerge QA
+
+An authenticated owner or coordinator with `plan` capability can record a bounded
+first postmerge QA request against the original approved goal and task:
+
+```sh
+coop task first-postmerge-qa --file /private/path/first-postmerge-qa.json
+```
+
+The private JSON contains `kind: "first-postmerge-qa"` (or omits `kind`), the exact
+`goal`, canonical `task_url`, `pr_url`, `assignment_sha256`, `head_sha`,
+`artifact_sha256`, `environment`, `environment_revision`, `evidence_message_id`,
+and a stable `request_id`. QA must be required by the approved goal, and both
+environment fields must match its QA policy exactly. Omit `review_id`, `tag`,
+and `workflow`; those fields are forbidden for this kind. Evidence must come
+from an owner or the original assigned QA actor, in the goal thread or its
+configured private QA evidence destination. Developer evidence alone is not
+authority. Identical retries return the same handoff; changed payloads under the
+same actor/request ID conflict.
+
+This is an operator/master command, not a worker action or a substitute for an
+independent QA verdict. It does not authorize source edits, release, deployment,
+restart, re-adoption, or clearing historical evidence and unknown-write holds.
+The master validates registered task/PR bindings, not live GitHub merge state or
+artifact contents. Worker execution must independently validate those facts.
+With remote `--host`, the private file must exist on the selected host; the CLI
+does not upload a local evidence file.
+
+The matching worker admits one native `qa` job to the original independent QA
+actor for the exact merged artifact. Both configured retained Kata tasks and
+trusted retained GitHub tasks use their existing binding and registered PR
+association. Closed/completed tasks stay closed/completed. A prior QA review,
+including a dismissed review or one on another head, prevents first assessment;
+use the appropriate separately authorized disposition instead of inventing a
+changes-requested review. Wrong identity, stale approval/placement, artifact
+failure, missing engineering clearance and unresolved local source writes hold
+admission/publication. Later duplicate handoffs cannot create another first QA.
+
+The assigned QA actor uses the normal native `qa` action with `verdict` and
+private `report_body`. Publication is a GitHub `COMMENT` review bound to the exact
+commit, not `APPROVE` or `REQUEST_CHANGES`. Its `coop-qa:v3` metadata carries
+`assessment: "first-postmerge"`, the authenticated `handoff_id`, artifact digest,
+acceptance and environment revisions, and the native private evidence message ID
+and body digest. `ValidateNativePostMergeQA` verifies this provenance;
+`ValidateNativeQA` explicitly refuses to treat it as pre-merge clearance.
+An acknowledged action retry returns the same receipt. A lost external write
+response preserves the uncertain journal and requires operator inspection with
+the original request ID, never a new request or blind replay.
+
+Roll out separately authorized schema/master support first, then the matching
+operator CLI and QA worker. Old workers cannot execute this new kind. After
+installation is verified, the next operator command is the
+`coop task first-postmerge-qa --file ...` command above, populated with the
+retained source's actual identities and fresh evidence, not this capability's
+source-maintenance goal. Confirm original-QA pickup and its formal result.
+Production installation, historical QA disposition and owner UAT remain separate
+steps. A stored handoff is not job pickup or completion; a post-merge assessment
+does not repair the historical missing pre-merge QA or complete old acceptance.
 
 ## Reassess unchanged source after new evidence
 

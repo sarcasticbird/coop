@@ -101,6 +101,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		}
 		after = page.Next
 	}
+	if err := loadCatalogHandoffs(ctx, master, &out); err != nil {
+		return out, err
+	}
 	tasks := map[string]NativeTask{}
 	for _, link := range links {
 		if link.Kind != "task" || !selectedOnly && !nativeDiscoveryTask(cfg, link.URL) {
@@ -139,6 +142,12 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		pr, err := reader.ReadNativePR(ctx, cfg, task, byGoal[link.Goal], link.URL)
 		if err != nil {
 			return out, err
+		}
+		if pr.Merged && firstPostMergeQAHandoff(out, task, byGoal[link.Goal], pr) != nil {
+			pr, err = reader.ReadNativeReleasePR(ctx, cfg, task, byGoal[link.Goal], link.URL)
+			if err != nil {
+				return out, err
+			}
 		}
 		task.PRs = append(task.PRs, pr)
 		tasks[link.TaskURL] = task
@@ -194,9 +203,6 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	sort.Slice(out.Goals, func(i, j int) bool { return out.Goals[i].Revision.Ref.GoalID < out.Goals[j].Revision.Ref.GoalID })
 	out.ReadAt = time.Now().UTC()
-	if err := loadCatalogHandoffs(ctx, master, &out); err != nil {
-		return out, err
-	}
 	out.Complete = true
 	return out, nil
 }
