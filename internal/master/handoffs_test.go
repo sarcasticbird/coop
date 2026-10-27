@@ -9,7 +9,8 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
-func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
+func qaHandoffFixture(t *testing.T) (*Service, c.Principal, c.Principal, c.Principal, c.HandoffInput) {
+	t.Helper()
 	s, owner, planner, taskInput, _ := taskFixture(t)
 	ctx := context.Background()
 	qa := c.Principal{ID: "agent-three", Kind: "agent", Alias: "three", Engagements: []string{"coop"}, Capabilities: []string{"read", "send"}, GitHubBotID: 12}
@@ -60,6 +61,12 @@ func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
 	if _, err = s.RegisterArtifact(ctx, planner, c.ArtifactLink{Goal: task.Goal, Kind: "pull_request", URL: in.PRURL, TaskURL: task.Reference, AssignmentSHA: in.AssignmentSHA, RequestID: "register-pr"}); err != nil {
 		t.Fatal(err)
 	}
+	return s, owner, planner, qa, in
+}
+
+func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
+	s, owner, planner, _, in := qaHandoffFixture(t)
+	ctx := t.Context()
 	first, err := s.CreateHandoff(ctx, planner, in)
 	if err != nil {
 		t.Fatal(err)
@@ -92,12 +99,128 @@ func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
 	if _, err = s.CreateHandoff(ctx, owner, in); !errors.Is(err, c.ErrConflict) {
 		t.Fatal("stale assignment accepted", err)
 	}
-	page, err := s.Handoffs(ctx, owner, c.HandoffQuery{Goal: task.Goal})
+	page, err := s.Handoffs(ctx, owner, c.HandoffQuery{Goal: in.Goal})
 	if err != nil || len(page.Handoffs) != 2 {
 		t.Fatal("missing scoped requests", page, err)
 	}
-	if task.Reference != s.Tasks.(*testTasks).task.Reference || s.Tasks.(*testTasks).binds != 1 {
+	if in.TaskURL != s.Tasks.(*testTasks).task.Reference || s.Tasks.(*testTasks).binds != 1 {
 		t.Fatal("handoff rebound original task")
+	}
+}
+
+func TestFirstPostmergeQAAuthorityAndRetry(t *testing.T) {
+	for _, actor := range []string{"owner", "planner"} {
+		for _, evidenceAuthor := range []string{"owner", "qa"} {
+			t.Run(actor+"/"+evidenceAuthor, func(t *testing.T) {
+				s, owner, planner, qa, in := qaHandoffFixture(t)
+				in.Kind, in.ReviewID = "first-postmerge-qa", ""
+				in.Environment, in.EnvironmentRevision = "test", "v1"
+				if evidenceAuthor == "qa" {
+					report, err := s.Store.Send(t.Context(), qa, c.SendMessage{ThreadID: mustHandoffThread(t, s, owner, in.Goal), Body: "Original QA evidence", RequestID: "qa-evidence"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					in.EvidenceMessageID = report.MessageID
+				}
+				p := owner
+				if actor == "planner" {
+					p = planner
+				}
+				first, err := s.CreateHandoff(t.Context(), p, in)
+				if err != nil || first.Input != in {
+					t.Fatalf("handoff rejected or changed: %+v, %v", first, err)
+				}
+				again, err := s.CreateHandoff(t.Context(), p, in)
+				if err != nil || again != first {
+					t.Fatalf("retry changed handoff: %+v, %v", again, err)
+				}
+				for _, field := range []string{"head", "artifact", "evidence"} {
+					changed := in
+					switch field {
+					case "head":
+						changed.HeadSHA = strings.Repeat("c", 40)
+					case "artifact":
+						changed.ArtifactSHA = strings.Repeat("c", 64)
+					case "evidence":
+						report, err := s.Store.Send(t.Context(), owner, c.SendMessage{ThreadID: mustHandoffThread(t, s, owner, in.Goal), Body: "New evidence", RequestID: "changed-evidence"})
+						if err != nil {
+							t.Fatal(err)
+						}
+						changed.EvidenceMessageID = report.MessageID
+					}
+					if _, err = s.CreateHandoff(t.Context(), p, changed); !errors.Is(err, c.ErrConflict) {
+						t.Fatalf("changed %s retry accepted: %v", field, err)
+					}
+				}
+				page, err := s.Handoffs(t.Context(), owner, c.HandoffQuery{Goal: in.Goal})
+				if err != nil || len(page.Handoffs) != 1 || page.Handoffs[0].Input != in || s.Tasks.(*testTasks).binds != 1 {
+					t.Fatalf("request changed task or list: %+v, %v", page, err)
+				}
+			})
+		}
+	}
+}
+
+func TestFirstPostmergeQAGuards(t *testing.T) {
+	for _, change := range []string{"environment", "revision", "no-qa", "unprivileged", "evidence-author", "evidence-thread", "task-binding", "pr-binding", "pr-parent", "foreign-pr", "paused", "quiescent"} {
+		t.Run(change, func(t *testing.T) {
+			s, owner, planner, qa, in := qaHandoffFixture(t)
+			in.Kind, in.ReviewID = "first-postmerge-qa", ""
+			in.Environment, in.EnvironmentRevision = "test", "v1"
+			want := c.ErrForbidden
+			var err error
+			switch change {
+			case "environment":
+				in.Environment = "test "
+			case "revision":
+				in.EnvironmentRevision = "v2"
+			case "no-qa":
+				// The retained release fixture has an approved goal without required QA.
+				s, owner, planner, in = githubHandoffFixture(t)
+				in.Kind, in.Tag, in.Workflow = "first-postmerge-qa", "", ""
+				in.Environment, in.EnvironmentRevision = "test", "v1"
+			case "unprivileged":
+				planner = qa
+			case "evidence-author":
+				var report c.MessageReceipt
+				report, err = s.Store.Send(t.Context(), planner, c.SendMessage{ThreadID: mustHandoffThread(t, s, owner, in.Goal), Body: "Developer evidence", RequestID: "developer-evidence"})
+				in.EvidenceMessageID = report.MessageID
+			case "evidence-thread":
+				var thread c.Thread
+				thread, err = s.Store.CreateThread(t.Context(), owner, c.CreateThread{Title: "Unrelated", Engagement: "coop", Members: []string{owner.ID, planner.ID}, RequestID: "unrelated"})
+				if err == nil {
+					var report c.MessageReceipt
+					report, err = s.Store.Send(t.Context(), owner, c.SendMessage{ThreadID: thread.ID, Body: "Unrelated evidence", RequestID: "unrelated-evidence"})
+					in.EvidenceMessageID = report.MessageID
+				}
+			case "task-binding":
+				in.AssignmentSHA = strings.Repeat("d", 64)
+				want = c.ErrConflict
+			case "pr-binding":
+				_, err = s.Store.db.ExecContext(t.Context(), "UPDATE artifacts SET assignment_sha=? WHERE kind='pull_request'", strings.Repeat("d", 64))
+				want = c.ErrConflict
+			case "pr-parent":
+				_, err = s.Store.db.ExecContext(t.Context(), "UPDATE artifacts SET body=json_set(body,'$.task_url',?) WHERE kind='pull_request'", "kata:other")
+				want = c.ErrConflict
+			case "foreign-pr":
+				in.PRURL = "https://github.com/foreign/repo/pull/8"
+			case "paused":
+				a, e := s.ResolveGoal(t.Context(), owner, in.Goal)
+				if e != nil {
+					t.Fatal(e)
+				}
+				_, err = s.DecideGoal(t.Context(), owner, c.GoalDecisionInput{GoalID: in.Goal.GoalID, RevisionSHA256: in.Goal.RevisionSHA256, ExpectedDecisionSequence: a.DecisionSequence, Action: "pause", RequestID: "pause"})
+			case "quiescent":
+				_, err = s.Store.db.ExecContext(t.Context(), "UPDATE meta SET value='1' WHERE key='quiescent'")
+				want = c.ErrEpoch
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.CreateHandoff(t.Context(), planner, in); !errors.Is(err, want) {
+				t.Fatalf("unsafe handoff: got %v, want %v", err, want)
+			}
+		})
 	}
 }
 

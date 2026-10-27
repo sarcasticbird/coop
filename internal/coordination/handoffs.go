@@ -2,23 +2,26 @@ package coordination
 
 import (
 	"regexp"
+	"strings"
 	"time"
 )
 
 // HandoffInput grants a bounded follow-up, never a replacement task binding.
 type HandoffInput struct {
-	Kind              string  `json:"kind"`
-	Goal              GoalRef `json:"goal"`
-	TaskURL           string  `json:"task_url"`
-	PRURL             string  `json:"pr_url"`
-	AssignmentSHA     string  `json:"assignment_sha256"`
-	HeadSHA           string  `json:"head_sha"`
-	ArtifactSHA       string  `json:"artifact_sha256"`
-	ReviewID          string  `json:"review_id,omitempty"`
-	EvidenceMessageID string  `json:"evidence_message_id"`
-	Tag               string  `json:"tag,omitempty"`
-	Workflow          string  `json:"workflow,omitempty"`
-	RequestID         string  `json:"request_id"`
+	Kind                string  `json:"kind"`
+	Goal                GoalRef `json:"goal"`
+	TaskURL             string  `json:"task_url"`
+	PRURL               string  `json:"pr_url"`
+	AssignmentSHA       string  `json:"assignment_sha256"`
+	HeadSHA             string  `json:"head_sha"`
+	ArtifactSHA         string  `json:"artifact_sha256"`
+	ReviewID            string  `json:"review_id,omitempty"`
+	Environment         string  `json:"environment,omitempty"`
+	EnvironmentRevision string  `json:"environment_revision,omitempty"`
+	EvidenceMessageID   string  `json:"evidence_message_id"`
+	Tag                 string  `json:"tag,omitempty"`
+	Workflow            string  `json:"workflow,omitempty"`
+	RequestID           string  `json:"request_id"`
 }
 type Handoff struct {
 	ID        string       `json:"id"`
@@ -52,6 +55,10 @@ func ValidateHandoff(in HandoffInput) error {
 		return ErrInvalid
 	}
 	switch in.Kind {
+	case "first-postmerge-qa":
+		if in.ReviewID != "" || in.Tag != "" || in.Workflow != "" || strings.TrimSpace(in.Environment) == "" || strings.TrimSpace(in.EnvironmentRevision) == "" || len(in.EnvironmentRevision) > 256 || strings.ContainsAny(in.EnvironmentRevision, "\x00\r\n") {
+			return ErrInvalid
+		}
 	case "reassess-qa":
 		if !handoffID.MatchString(in.ReviewID) || in.Tag != "" || in.Workflow != "" {
 			return ErrInvalid

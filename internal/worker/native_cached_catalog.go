@@ -141,6 +141,9 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			}
 		}
 	}
+	if err := loadCatalogHandoffs(ctx, m, &out); err != nil {
+		return out, err
+	}
 	tasks := map[string]NativeTask{}
 	registered := map[string]bool{}
 	unknown := map[string]bool{}
@@ -225,7 +228,13 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		if !ok {
 			continue
 		}
-		if task.Task.Closed {
+		followup := false
+		for _, h := range out.Handoffs {
+			if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == task.Binding.Goal && h.Input.TaskURL == task.Task.URL && h.Input.AssignmentSHA == NativeAssignmentSHA(task.Binding) && h.Input.PRURL == v.Object.URL {
+				followup = true
+			}
+		}
+		if task.Task.Closed && !followup {
 			continue
 		}
 		if task.Binding.Goal == v.Object.Goal && (NativeAssignmentSHA(task.Binding) != v.Object.AssignmentSHA || task.Binding.ApprovalSequence < authorities[v.Object.Goal].ApprovalSequence) {
@@ -242,6 +251,19 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			unknown[task.Task.URL] = true
 			out.Cache.Reasons[task.Task.URL] = "cache_pr_unknown"
 			continue
+		}
+		if p.Merged && firstPostMergeQAHandoff(out, task, authorities[v.Object.Goal], p) != nil {
+			live := nativeActionClient(r.live)
+			if live == nil {
+				e = c.ErrUnsupported
+			} else {
+				p, e = live.ReadNativeReleasePR(ctx, cfg, task, authorities[v.Object.Goal], p.URL)
+			}
+			if e != nil {
+				unknown[task.Task.URL] = true
+				out.Cache.Reasons[task.Task.URL] = "cache_postmerge_artifact_unknown"
+				continue
+			}
 		}
 		task.PRs = append(task.PRs, p)
 		tasks[task.Task.URL] = task
@@ -275,9 +297,6 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	out.ReadAt = r.clock.Now()
-	if err := loadCatalogHandoffs(ctx, m, &out); err != nil {
-		return out, err
-	}
 	out.Complete = true
 	return out, nil
 }

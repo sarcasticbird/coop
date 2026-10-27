@@ -235,7 +235,24 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			continue
 		}
 		a, ok := goals[t.Binding.Goal]
-		if !ok || t.Binding.ApprovalSequence != a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA || t.Task.Closed || t.Task.Completed {
+		if !ok || t.Binding.ApprovalSequence != a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA {
+			continue
+		}
+		// This is the sole follow-up lane allowed to retain a completed task.
+		// Never reopen it or let ordinary stages pass the closed-task guard.
+		for _, p := range t.PRs {
+			if p.TaskURL != t.Task.URL || p.AssignmentSHA != NativeAssignmentSHA(t.Binding) || p.MasterGoal == nil || *p.MasterGoal != t.Binding.Goal || p.Author.ID != t.Binding.AuthorID || p.BaseBranch != t.Binding.BaseBranch {
+				continue
+			}
+			if handoff := nativePostMergeQAHandoff(cfg, catalog, t, a, p); handoff != nil {
+				before := len(out)
+				add("qa", a, &t, &p, nativePostMergeQAPrefix+p.ScopeRevision+":"+p.QAArtifact.SHA256+":"+NativeAcceptanceSHA(a)+":"+handoff.ID)
+				if len(out) > before {
+					out[len(out)-1].Handoff = handoff
+				}
+			}
+		}
+		if t.Task.Closed || t.Task.Completed {
 			continue
 		}
 		deps := true

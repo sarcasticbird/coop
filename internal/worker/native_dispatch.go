@@ -366,6 +366,16 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 		}
 		for _, v := range candidates {
 			if v.Job.ID == j.ID {
+				if nativeIsPostMergeQA(j) {
+					release, err := lockNativeProducer(d.config)
+					if err != nil {
+						return false, err
+					}
+					defer release()
+					if err := releaseSourceSettled(d.config, j.TaskURL); err != nil {
+						return false, err
+					}
+				}
 				x := NativeExecution{Version: 3, MasterID: d.config.Master.MasterID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation, Goal: v.Goal.Revision.Ref, Job: j, Phase: "selected", SelectedAt: d.clock.Now()}
 				if v.Task != nil {
 					b := v.Task.Binding
@@ -468,6 +478,17 @@ func nativeCurrentGoal(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	return a, nil
 }
 func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution) (NativeCandidate, error) {
+	if nativeIsPostMergeQA(x.Job) {
+		release, err := lockNativeProducer(d.config)
+		if err != nil {
+			return NativeCandidate{}, err
+		}
+		err = nativePostMergeQASourceSettled(d.config, x.Job)
+		release()
+		if err != nil {
+			return NativeCandidate{}, err
+		}
+	}
 	authority, err := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
 	if err != nil {
 		// A resolved exact revision can conclusively lose approval. Placement,
@@ -543,7 +564,8 @@ func nativeScopeChanged(x NativeExecution, catalog NativeCatalog) bool {
 		if task.Task.URL != x.Job.TaskURL {
 			continue
 		}
-		if NativeAssignmentSHA(task.Binding) != NativeAssignmentSHA(*x.Binding) || task.Task.BodySHA != x.Job.ScopeSHA || task.Task.Closed || task.Task.Completed {
+		postmerge := nativeIsPostMergeQA(x.Job)
+		if NativeAssignmentSHA(task.Binding) != NativeAssignmentSHA(*x.Binding) || task.Task.BodySHA != x.Job.ScopeSHA || !postmerge && (task.Task.Closed || task.Task.Completed) {
 			return true
 		}
 		if x.Job.PRURL == "" {
@@ -556,7 +578,21 @@ func nativeScopeChanged(x NativeExecution, catalog NativeCatalog) bool {
 		}
 		for _, pr := range task.PRs {
 			if pr.URL == x.Job.PRURL {
-				return pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision || pr.AssignmentSHA != x.Job.Master.AssignmentSHA || pr.Closed || pr.Merged
+				if postmerge {
+					matched := false
+					for _, a := range catalog.Goals {
+						if a.Revision.Ref != task.Binding.Goal || pr.QAArtifact == nil {
+							continue
+						}
+						if h := firstPostMergeQAHandoff(catalog, task, a, pr); h != nil {
+							matched = x.Job.InputRevision == nativePostMergeQAPrefix+pr.ScopeRevision+":"+pr.QAArtifact.SHA256+":"+NativeAcceptanceSHA(a)+":"+h.ID
+						}
+					}
+					if !matched {
+						return true
+					}
+				}
+				return pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision || pr.AssignmentSHA != x.Job.Master.AssignmentSHA || !postmerge && (pr.Closed || pr.Merged) || postmerge && (!pr.Merged || !qaArtifactEqual(pr.QAArtifact, x.Job.QAArtifact))
 			}
 		}
 		return true
@@ -830,6 +866,9 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	}
 	if v.Handoff != nil && v.Handoff.Input.Kind == "reassess-qa" {
 		prompt += "\nThis is a new bounded QA reassessment, not a replay or clearance. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + " and reconcile it with previous QA review " + v.Handoff.Input.ReviewID + ". Preserve previous evidence and limitations. Independently reassess the same exact artifact and submit a new supported QA verdict. Do not change source or invent device results."
+	}
+	if nativeIsPostMergeQA(v.Job) && v.Handoff != nil {
+		prompt += "\nThis is the first postmerge QA assessment of the exact merged artifact, not a premerge clearance, reassessment, release authorization or release/install verification. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + ". Preserve the completed task state and historical lack of premerge QA. Independently assess the bound artifact in environment " + v.Handoff.Input.Environment + " at revision " + v.Handoff.Input.EnvironmentRevision + ". Report supported findings and limitations through the normal QA action. Do not change source, reopen the task, merge, publish or invent device results."
 	}
 	if v.Handoff != nil && v.Handoff.Input.Kind == "release" {
 		prompt += "\nOwner-approved delivery extension " + v.Handoff.ID + " authorizes merging this exact reviewed PR after all existing gates and publishing tag " + v.Handoff.Input.Tag + " through " + v.Handoff.Input.Workflow + ". Original task, source acceptance and independent peer/QA bindings remain unchanged. Use the normal deliver action first. After confirmed merge, the assigned author can invoke /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal " + v.Handoff.Input.Goal.GoalID + " --revision " + v.Handoff.Input.Goal.RevisionSHA256 + " --handoff " + v.Handoff.ID + ". This guarded command returns waiting until release CI/publication succeeds; checking the same handoff never republishes the tag. A published receipt is not released-artifact QA or a Homebrew install pass."

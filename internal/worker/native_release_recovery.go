@@ -13,6 +13,10 @@ import (
 // Caller owns the producer lock. Remote merged status cannot substitute for
 // the source producer's durable action/result and recovery state.
 func releaseSourceSettled(cfg Config, task string) error {
+	return nativeSourceTaskSettled(cfg, task, "")
+}
+
+func nativeSourceTaskSettled(cfg Config, task, ownJob string) error {
 	dir := filepath.Join(masterDir(cfg), "engineering")
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -29,7 +33,7 @@ func releaseSourceSettled(cfg Config, task string) error {
 		if err != nil {
 			return err
 		}
-		if x.Job.TaskURL != task {
+		if x.Job.TaskURL != task || ownJob != "" && x.Job.ID == ownJob {
 			continue
 		}
 		if x.PendingContinuation != nil {

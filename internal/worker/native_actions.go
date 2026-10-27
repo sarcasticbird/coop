@@ -238,6 +238,8 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	}
 	var task NativeTask
 	var pr PR
+	postmerge := nativeIsPostMergeQA(x.Job)
+	var postmergeHandoff *c.Handoff
 	guard := func() error {
 		if kataTaskSource(cfg) {
 			if _, err := TaskProviderClient(ctx, cfg); err != nil {
@@ -267,7 +269,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			if e != nil {
 				return e
 			}
-			if NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA || task.Task.Closed || task.Task.Completed {
+			if NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA || !postmerge && (task.Task.Closed || task.Task.Completed) {
 				return c.ErrForbidden
 			}
 			a, e = ValidateNativeAuthority(ctx, MasterGoalAuthority{Client: m}, task.Binding)
@@ -308,7 +310,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 						return err
 					}
 				} else {
-					pr, e = reader.ReadNativePR(ctx, cfg, task, a, x.Job.PRURL)
+					if postmerge {
+						pr, e = reader.ReadNativeReleasePR(ctx, cfg, task, a, x.Job.PRURL)
+					} else {
+						pr, e = reader.ReadNativePR(ctx, cfg, task, a, x.Job.PRURL)
+					}
 					if e != nil {
 						return e
 					}
@@ -331,6 +337,55 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				}
 			}
 		}
+		if postmerge {
+			if in.Operation != "qa" || nativePostMergeQASourceSettled(cfg, x.Job) != nil {
+				return c.ErrForbidden
+			}
+			catalog, err := nativeValidationSnapshot(ctx, cfg, m, reader, x.Job)
+			if err != nil {
+				return err
+			}
+			// Acknowledged publication may be observed again after a read failure.
+			// Remove only this journal's verifiable result for admission validation.
+			if record.Step == "review-published" {
+				for i := range catalog.Tasks {
+					for j := range catalog.Tasks[i].PRs {
+						p := &catalog.Tasks[i].PRs[j]
+						if p.URL != x.Job.PRURL {
+							continue
+						}
+						r := nativeLatestReview(*p, cfg.Self.ID)
+						var qa NativeQAResult
+						if nativeMetadata(r.Body, "qa", &qa) != nil || qa.EvidenceMessageID != record.Result.EvidenceMessageID || qa.EvidenceBodySHA != record.Result.EvidenceBodySHA || qa.Verdict != in.Verdict {
+							return c.ErrConflict
+						}
+						h := firstPostMergeQAHandoff(catalog, task, a, *p)
+						report, err := m.Message(ctx, qa.EvidenceMessageID)
+						if err != nil {
+							return err
+						}
+						if h == nil || ValidateNativePostMergeQA(task.Binding, a, r, report, qa, *h) != nil {
+							return c.ErrConflict
+						}
+						for k := range p.Reviews {
+							if p.Reviews[k].ID == r.ID {
+								p.Reviews = append(p.Reviews[:k], p.Reviews[k+1:]...)
+								break
+							}
+						}
+					}
+				}
+			}
+			postmergeHandoff = nil
+			for _, candidate := range NativeCandidates(cfg, catalog, nil, time.Now().UTC()) {
+				if candidate.Job.ID == x.Job.ID && qaArtifactEqual(candidate.Job.QAArtifact, x.Job.QAArtifact) {
+					postmergeHandoff = candidate.Handoff
+				}
+			}
+			if postmergeHandoff == nil {
+				return c.ErrForbidden
+			}
+		}
 		return nil
 	}
 	// Mark uncertainty before invoking a remote mutation. A lost write response
@@ -341,7 +396,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		}
 		if step == "merge" || step == "review-published" && in.Operation == "qa" {
 			_, peer := nativePeerCleared(task.Binding, pr)
-			if !peer || pr.Merged || pr.Closed || pr.ChecksState != "success" && pr.ChecksState != "none" {
+			if !peer || !postmerge && (pr.Merged || pr.Closed) || postmerge && !pr.Merged || pr.ChecksState != "success" && pr.ChecksState != "none" {
 				return c.ErrForbidden
 			}
 			if in.Operation == "qa" && (!qaArtifactEqual(pr.QAArtifact, x.Job.QAArtifact) || pr.QAArtifact == nil) {
@@ -731,7 +786,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			return empty, err
 		}
 	case "review", "qa":
-		if x.Binding == nil || x.Job.PRURL == "" || pr.Merged || pr.Closed || !pr.ReviewsComplete || !pr.ContributorsComplete || nativeContributor(pr, cfg.Self.ID) || cfg.Self.ID == task.Binding.AuthorID || (in.Verdict != "approved" && in.Verdict != "changes-needed") {
+		if x.Binding == nil || x.Job.PRURL == "" || !postmerge && (pr.Merged || pr.Closed) || !pr.ReviewsComplete || !pr.ContributorsComplete || nativeContributor(pr, cfg.Self.ID) || cfg.Self.ID == task.Binding.AuthorID || (in.Verdict != "approved" && in.Verdict != "changes-needed") {
 			return empty, c.ErrForbidden
 		}
 		if in.Operation != x.Job.Kind {
@@ -782,6 +837,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			}
 			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: a.Revision.Proposal.QA.Environment, EnvironmentRevision: a.Revision.Proposal.QA.EnvironmentRevision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
 			public = "Independent customer QA " + in.Verdict + " for this exact head. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
+			if postmerge {
+				qa.Assessment, qa.HandoffID = "first-postmerge", postmergeHandoff.ID
+				event = "COMMENT"
+				public = "Independent first post-merge QA assessment: " + in.Verdict + ". This assesses the exact merged artifact, not retroactive pre-merge clearance. No merge, release, rebind or restart is authorized. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
+			}
 		}
 		if record.Step != "review-published" {
 			if err = effect("review-published", func() error {
@@ -801,6 +861,9 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		expectedState := "APPROVED"
 		if event == "REQUEST_CHANGES" {
 			expectedState = "CHANGES_REQUESTED"
+		}
+		if event == "COMMENT" {
+			expectedState = "COMMENTED"
 		}
 		if actual.ID == "" || actual.HeadSHA != x.Job.HeadSHA || actual.State != expectedState || actual.Body != public {
 			return empty, c.ErrConflict

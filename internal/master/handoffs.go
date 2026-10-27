@@ -31,7 +31,10 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if !planner(p) || in.Kind == "release" && p.Kind != "owner" {
 		return out, c.ErrForbidden
 	}
-	if in.Kind == "reassess-qa" && !a.Revision.Proposal.QA.Required {
+	if (in.Kind == "reassess-qa" || in.Kind == "first-postmerge-qa") && !a.Revision.Proposal.QA.Required {
+		return out, c.ErrForbidden
+	}
+	if in.Kind == "first-postmerge-qa" && (in.Environment != a.Revision.Proposal.QA.Environment || in.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision) {
 		return out, c.ErrForbidden
 	}
 	taskRepo, err := svc.artifactRepository(in.TaskURL, "issues")

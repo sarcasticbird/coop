@@ -2,8 +2,54 @@ package worker
 
 import (
 	"context"
+	"strings"
+
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
+
+const nativePostMergeQAPrefix = "first-postmerge-qa:"
+
+func nativeIsPostMergeQA(j Job) bool {
+	return j.Kind == "qa" && strings.HasPrefix(j.InputRevision, nativePostMergeQAPrefix)
+}
+
+// Before selection use releaseSourceSettled. Once our own QA intent exists,
+// exclude only that intent, not an uncertain source producer or action journal.
+// Caller owns the producer lock.
+func nativePostMergeQASourceSettled(cfg Config, job Job) error {
+	return nativeSourceTaskSettled(cfg, job.TaskURL, job.ID)
+}
+
+// A nil artifact is allowed only while deciding whether to hydrate a merged
+// artifact. Admission below requires the validated artifact and exact digest.
+func firstPostMergeQAHandoff(cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR) *c.Handoff {
+	var chosen *c.Handoff
+	for i := range cat.Handoffs {
+		h := &cat.Handoffs[i]
+		in := h.Input
+		if h.ID == "" || in.Kind != "first-postmerge-qa" || in.Goal != t.Binding.Goal || in.TaskURL != t.Task.URL || in.AssignmentSHA != NativeAssignmentSHA(t.Binding) || in.PRURL != p.URL || in.HeadSHA != p.HeadSHA || in.Environment != a.Revision.Proposal.QA.Environment || in.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision || in.ReviewID != "" || p.QAArtifact != nil && in.ArtifactSHA != p.QAArtifact.SHA256 {
+			continue
+		}
+		if chosen == nil || h.CreatedAt.Before(chosen.CreatedAt) || h.CreatedAt.Equal(chosen.CreatedAt) && h.ID < chosen.ID {
+			chosen = h
+		}
+	}
+	return chosen
+}
+
+// Shared with action validation: a handoff cannot turn an existing assessment
+// into a first assessment, or substitute for the original independent QA actor.
+func nativePostMergeQAHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR) *c.Handoff {
+	if cfg.Team == nil || cfg.Master == nil {
+		return nil
+	}
+	self, ok := TeamMemberForActor(*cfg.Team, cfg.Self)
+	_, peer := nativePeerCleared(t.Binding, p)
+	if !ok || !a.Revision.Proposal.QA.Required || cfg.Self.ID != t.Binding.QAID || cfg.Self.ID != a.Actors.QA.GitHubBotID || cfg.Master.AgentID != a.Actors.QA.PrincipalID || !memberCapability(self, "customer-qa") || cfg.Self.ID == t.Binding.AuthorID || cfg.Self.ID == t.Binding.PeerID || !p.Merged || !p.ReviewsComplete || !p.ContributorsComplete || nativeContributor(p, cfg.Self.ID) || nativeLatestReview(p, t.Binding.QAID).ID != "" || !peer || p.ChecksState != "success" && p.ChecksState != "none" || p.QAArtifact == nil || p.QAArtifact.HeadSHA != p.HeadSHA {
+		return nil
+	}
+	return firstPostMergeQAHandoff(cat, t, a, p)
+}
 
 type handoffSource interface {
 	Handoffs(context.Context, c.HandoffQuery) (c.HandoffPage, error)

@@ -107,6 +107,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `task create` | CLI/runbook | Plan within an existing approved goal using a stable request ID |
 | `task adopt` | CLI/runbook | Adopt an existing Kata UID with current provider revision and exact approved goal |
 | `task reassess-qa` | CLI/runbook | Request an exact-artifact QA reassessment with new private evidence |
+| `task first-postmerge-qa` | CLI/runbook | Owner/planner records exact-artifact first postmerge QA authority; requires matching approved QA environment, no review/tag/workflow |
 | `task request-release` | CLI/runbook | Owner records exact-source release authority |
 | `task handoffs` | CLI/runbook | Read bounded, scoped QA/release requests |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
