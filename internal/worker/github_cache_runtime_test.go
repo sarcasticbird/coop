@@ -44,6 +44,32 @@ type objectFailureCache struct {
 	claimed chan struct{}
 }
 
+type claimFailureCache struct{ *fakeCacheClient }
+
+func (claimFailureCache) ClaimGitHubRefresh(context.Context, c.GitHubClaim) (c.GitHubLease, error) {
+	return c.GitHubLease{}, c.ErrForbidden
+}
+
+func TestGitHubCollectorFailureStagePreservesRetryClassification(t *testing.T) {
+	cfg, _, _, _ := dispatchFixture(t)
+	for _, tc := range []struct {
+		name, stage string
+		client      GitHubCacheClient
+		want        error
+	}{
+		{"capabilities", "capabilities", &fakeCacheClient{err: c.ErrUnavailable}, c.ErrUnavailable},
+		{"claim", "claim", claimFailureCache{&fakeCacheClient{}}, c.ErrForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := NewGitHubCollector(cfg, tc.client, nil, RealClock{}).round(t.Context(), "route")
+			var staged *cacheRefreshError
+			if !errors.As(err, &staged) || staged.stage != tc.stage || !errors.Is(err, tc.want) || !cacheRouteFailure(err) {
+				t.Fatalf("stage or retry classification lost: stage=%+v err=%v", staged, err)
+			}
+		})
+	}
+}
+
 func (f objectFailureCache) ClaimGitHubRefresh(context.Context, c.GitHubClaim) (c.GitHubLease, error) {
 	f.claimed <- struct{}{}
 	return c.GitHubLease{}, nil
