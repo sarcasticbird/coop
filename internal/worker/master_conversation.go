@@ -375,6 +375,16 @@ func (m *MasterComms) Advance(ctx context.Context, turn *MasterTurn) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	// A terminal native error without a committed reply is a failed execution,
+	// not evidence that a successful turn forgot to publish its answer. Keep the
+	// exact saved intent blocked rather than replaying the model request.
+	if observed.ErrorCategory != "" {
+		turn.Phase, turn.Reason = "blocked", "native_execution_failed"
+		if err = saveMasterTurn(m.Config, turn); err != nil {
+			return err
+		}
+		return m.blockDelivery(ctx, turn)
+	}
 	turn.Phase, turn.Reason = "blocked", "native_completed_without_reply"
 	if err = saveMasterTurn(m.Config, turn); err != nil {
 		return err
