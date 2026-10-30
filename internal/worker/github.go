@@ -97,6 +97,15 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if _, collecting := g.runner.(*observationRunner); !collecting {
+		query := ""
+		if request, ok := body.(map[string]any); ok {
+			query, _ = request["query"].(string)
+		}
+		if totals, ok := ctx.Value(trafficKey{}).(*trafficTotals); ok {
+			totals.record(trafficStage(ctx, endpoint, query), true)
+		}
+	}
 	result, runErr := g.runner.Run(ctx, argv, nil, input)
 	if errors.Is(runErr, c.ErrCapacity) || errors.Is(runErr, c.ErrSize) {
 		return nil, nil, runErr

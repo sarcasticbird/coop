@@ -267,6 +267,46 @@ func TestMasterTerminalWithoutReplyBlocksDelivery(t *testing.T) {
 	}
 }
 
+type failedMasterTurn struct{ OpenCode }
+
+func (f failedMasterTurn) Observe(ctx context.Context, j Job) (Turn, error) {
+	return Turn{Accepted: true, State: "interrupted", Terminal: true, SessionID: j.SessionID, MessageID: j.MessageID, ErrorCategory: "execution"}, nil
+}
+
+func TestMasterTerminalExecutionErrorIsNotMissingReply(t *testing.T) {
+	cfg, m, s, o, b, th, code := commsFixture(t)
+	ctx := context.Background()
+	r, err := s.Send(ctx, o, c.SendMessage{ThreadID: th.ID, Recipients: []string{b.ID}, Body: "answer me", RequestID: "failed-native-turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := m.Next(ctx)
+	if err != nil || turn == nil {
+		t.Fatal("no native turn", err)
+	}
+	if err = m.Advance(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	m.Code = failedMasterTurn{OpenCode: code}
+	if err = m.Advance(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.MessageStatus(ctx, o, r.MessageID)
+	if err != nil || len(status.Deliveries) != 1 || status.Deliveries[0].State != "blocked" || status.Deliveries[0].Reason != "native_execution_failed" {
+		t.Fatalf("terminal execution failure misclassified: %+v %v", status, err)
+	}
+	if status.Deliveries[0].Intent == nil || status.Deliveries[0].Intent.SessionID != turn.Job.SessionID || status.Deliveries[0].Intent.MessageID != turn.Job.MessageID {
+		t.Fatal("failed turn lost its exact native intent")
+	}
+	saved, err := loadMasterTurn(cfg, turn.Delivery.ID)
+	if err != nil || saved.Reason != "native_execution_failed" || code.calls != 1 {
+		t.Fatalf("failed turn replayed or lost: %+v %v, submissions=%d", saved, err, code.calls)
+	}
+}
+
 func TestMasterConversationRecoveryRequiresTerminalAndExactIntent(t *testing.T) {
 	cfg, m, s, o, b, th, code := commsFixture(t)
 	ctx := context.Background()

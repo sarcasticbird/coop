@@ -191,6 +191,25 @@ func (svc *Service) cacheManifest(ctx context.Context, q queryer, actor c.Princi
 			if l.Kind == "pull_request" {
 				kind = "pull"
 			}
+			// The GitHub cache observes GitHub issues and PRs only. Kata task
+			// identities (including PRs bound to them) have no GitHub issue
+			// endpoint, and the Kata reader deliberately bypasses this cache.
+			// Do not put an unobservable object into a collector lease.
+			if strings.HasPrefix(l.URL, "kata:") || strings.HasPrefix(l.TaskURL, "kata:") {
+				ref := l.TaskURL
+				if l.Kind == "task" {
+					ref = l.URL
+				}
+				if _, _, _, e := c.ParseKataTaskReference(ref); e != nil {
+					return cfg, out, e
+				}
+				if l.Kind == "pull_request" {
+					if _, e := artifactRepo(l.URL, "pull"); e != nil {
+						return cfg, out, e
+					}
+				}
+				continue
+			}
 			repo, e := artifactRepo(l.URL, kind)
 			if e != nil {
 				return cfg, out, e

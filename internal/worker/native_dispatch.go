@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -260,7 +261,11 @@ func (d *NativeDispatcher) poll() {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), NativeCatalogTimeout)
 			defer cancel()
+			ctx, traffic := withGitHubTraffic(ctx)
+			started := time.Now()
 			catalog, err := d.github.NativeSnapshot(ctx, d.config, d.master)
+			wire, stages, reused := traffic.snapshot()
+			slog.Info("GitHub discovery traffic", "complete", err == nil && catalog.Complete, "duration_ms", time.Since(started).Milliseconds(), "wire_requests", wire, "wire_by_stage", stages, "reused_by_stage", reused)
 			ch <- nativeRefresh{catalog, err}
 		}()
 	}

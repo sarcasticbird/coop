@@ -120,6 +120,19 @@ directories. Existing `install-before/` material is not removed. Do not delete
 the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
+If the only independent change is a deliberate worker config edit, first
+inspect that change and take a verified cold backup. With services stopped,
+the normal installer can explicitly retain the live config while replacing the
+worker using `--accept-config-drift LIVE_CONFIG_SHA256 OLD_MANIFEST_SHA256`.
+The candidate config must be byte-for-byte identical to the live config;
+the old manifest must have the exact pinned digest and complete canonical
+inventory, with every other managed artifact unchanged. The transaction
+retains the old manifest, live before-files and a config-drift receipt in its
+private install history. This is not a general drift override: any other
+change still refuses. If publication is interrupted, retry with the same
+package in normal mode to recover the saved transaction before restarting
+services; never edit the manifest directly.
+
 For a first v2 worker in an existing manual OpenCode Coop, use
 `scripts/install-agent-worker.sh --adopt-matching-launchers NAME BINARY CONFIG`
 only after a verified cold backup and with services/producers fenced. This mode

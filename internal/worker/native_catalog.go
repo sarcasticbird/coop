@@ -139,6 +139,23 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		if !ok || task.Binding.Goal != link.Goal || NativeAssignmentSHA(task.Binding) != link.AssignmentSHA {
 			return out, ghError("native_PR_link_changed")
 		}
+		// Closed tasks cannot enter ordinary PR stages. Keep their registered
+		// links for targeted validation, but do not repeatedly hydrate historical
+		// reviews and commits during discovery unless a postmerge QA handoff may
+		// still need the exact PR. This matches the cached catalog's closed-task
+		// treatment without letting its GitHub-only projection replace Kata.
+		if !selectedOnly && task.Task.Closed {
+			followup := false
+			for _, h := range out.Handoffs {
+				if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == task.Binding.Goal && h.Input.TaskURL == task.Task.URL && h.Input.AssignmentSHA == NativeAssignmentSHA(task.Binding) && h.Input.PRURL == link.URL {
+					followup = true
+					break
+				}
+			}
+			if !followup {
+				continue
+			}
+		}
 		pr, err := reader.ReadNativePR(ctx, cfg, task, byGoal[link.Goal], link.URL)
 		if err != nil {
 			return out, err
@@ -160,24 +177,41 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 			if isKataTask(ref) {
 				continue
 			}
+			// A closed task without a postmerge QA handoff cannot enter a
+			// discovery stage. Its Project position and status cannot change
+			// admission; avoid scanning whole boards for historical tasks.
+			// Exact saved-work validation still reads Project membership.
+			if !selectedOnly && t.Task.Closed {
+				followup := false
+				for _, h := range out.Handoffs {
+					if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == t.Binding.Goal && h.Input.TaskURL == ref && h.Input.AssignmentSHA == NativeAssignmentSHA(t.Binding) {
+						followup = true
+						break
+					}
+				}
+				if !followup {
+					continue
+				}
+			}
 			t.Task.Ready = false
 			projectTasks[ref] = t.Task
 		}
-		refs, err := reader.projectRefs(ctx)
-		if err != nil {
-			return out, err
-		}
-		var tracking Snapshot
-		_, selectedOnly := master.(*taskSnapshotMaster)
-		for _, p := range refs {
-			if err = reader.readProjectView(ctx, p, projectTasks, &tracking, true, selectedOnly); err != nil {
+		if len(projectTasks) > 0 {
+			refs, err := reader.projectRefs(ctx)
+			if err != nil {
 				return out, err
 			}
-		}
-		for _, t := range projectTasks {
-			if native, ok := tasks[t.URL]; ok {
-				native.Task = t
-				tasks[t.URL] = native
+			var tracking Snapshot
+			for _, p := range refs {
+				if err = reader.readProjectView(ctx, p, projectTasks, &tracking, true, selectedOnly); err != nil {
+					return out, err
+				}
+			}
+			for _, t := range projectTasks {
+				if native, ok := tasks[t.URL]; ok {
+					native.Task = t
+					tasks[t.URL] = native
+				}
 			}
 		}
 	}

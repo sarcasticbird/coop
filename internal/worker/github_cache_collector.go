@@ -18,6 +18,18 @@ type GitHubCacheClient interface {
 	FailGitHubRefresh(context.Context, c.GitHubFailure) error
 	DirtyGitHubObject(context.Context, c.GitHubDirty) error
 }
+
+// Keep the failed stage separate from the underlying error so retry and
+// authorization handling can still inspect the original error with errors.Is/As.
+type cacheRefreshError struct {
+	stage      string
+	durationMS int64
+	err        error
+}
+
+func (e *cacheRefreshError) Error() string { return "GitHub cache refresh failed" }
+func (e *cacheRefreshError) Unwrap() error { return e.err }
+
 type GitHubCacheWorkerConfig struct {
 	Enabled       bool     `json:"enabled"`
 	CollectRoutes []string `json:"collect_routes,omitempty"`
@@ -83,7 +95,16 @@ func (g *GitHubCollector) Tick(ctx context.Context) {
 				if cacheRouteFailure(err) {
 					g.retry[g.currentRoute] = retry
 				}
-				slog.Warn("GitHub cache refresh waiting", "category", errorCategory(err))
+				var refresh *cacheRefreshError
+				if errors.As(err, &refresh) {
+					category := errorCategory(err)
+					if refresh.stage == "claim" {
+						category = cacheClaimCategory(err)
+					}
+					slog.Warn("GitHub cache refresh waiting", "category", category, "stage", refresh.stage, "stage_duration_ms", refresh.durationMS)
+				} else {
+					slog.Warn("GitHub cache refresh waiting", "category", errorCategory(err))
+				}
 			}
 		default:
 			return
@@ -110,6 +131,25 @@ func (g *GitHubCollector) Tick(ctx context.Context) {
 	g.step = make(chan error, 1)
 	step := g.step
 	go func() { step <- g.round(runCtx, route) }()
+}
+
+// Only allowlisted categories leave the worker; master errors and arbitrary
+// transport details must not be printed in logs.
+func cacheClaimCategory(err error) string {
+	switch {
+	case errors.Is(err, c.ErrForbidden):
+		return "authorization_denied"
+	case errors.Is(err, c.ErrConflict), errors.Is(err, c.ErrEpoch):
+		return "claim_conflict"
+	case errors.Is(err, c.ErrUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return "master_unavailable"
+	case errors.Is(err, c.ErrCapacity), errors.Is(err, c.ErrSize):
+		return "capacity_exceeded"
+	case errors.Is(err, c.ErrInvalid), errors.Is(err, c.ErrUnsupported):
+		return "invalid_claim"
+	default:
+		return "claim_failed"
+	}
 }
 
 func cacheRouteFailure(err error) bool {
@@ -161,7 +201,14 @@ func readGitHubDataset(ctx context.Context, client GitHubCacheClient, ref c.GitH
 	}
 	return raw, nil
 }
-func (g *GitHubCollector) round(ctx context.Context, route string) error {
+func (g *GitHubCollector) round(ctx context.Context, route string) (result error) {
+	stage := "capabilities"
+	stageStarted := time.Now()
+	defer func() {
+		if result != nil {
+			result = &cacheRefreshError{stage: stage, durationMS: time.Since(stageStarted).Milliseconds(), err: result}
+		}
+	}()
 	cap, err := g.client.GitHubCacheCapabilities(ctx, g.config.Master.Engagement)
 	if err != nil {
 		return err
@@ -172,6 +219,8 @@ func (g *GitHubCollector) round(ctx context.Context, route string) error {
 	if cap.Version != 1 {
 		return c.ErrUnsupported
 	}
+	stage = "claim"
+	stageStarted = time.Now()
 	lease, err := g.client.ClaimGitHubRefresh(ctx, c.GitHubClaim{RouteID: route, RequestID: "refresh_" + randomID()})
 	if err != nil || lease.ID == "" {
 		return err
@@ -201,6 +250,8 @@ func (g *GitHubCollector) round(ctx context.Context, route string) error {
 		return problem
 	}
 	var prior []c.GitHubDatasetChunk
+	stage = "retained_dataset"
+	stageStarted = time.Now()
 	for _, ref := range lease.Retained {
 		raw, e := readGitHubDataset(ctx, g.client, ref, lease.Manifest)
 		if e != nil {
@@ -211,14 +262,24 @@ func (g *GitHubCollector) round(ctx context.Context, route string) error {
 	// Leave time inside the server's five-minute lease to publish/fail safely.
 	readDeadline := lease.ExpiresAt.Add(-15 * time.Second)
 	readCtx, cancel := context.WithDeadline(ctx, readDeadline)
+	readCtx, traffic := withGitHubTraffic(readCtx)
+	started := time.Now()
+	stage = "observe"
+	stageStarted = time.Now()
 	observation, err := g.source.Observe(readCtx, g.config, lease, prior)
 	cancel()
+	wire, stages, reused := traffic.snapshot()
+	slog.Info("GitHub cache collection traffic", "kind", lease.Object.Kind, "complete", err == nil, "duration_ms", time.Since(started).Milliseconds(), "wire_requests", wire, "wire_by_stage", stages, "reused_by_stage", reused)
 	if err != nil {
 		return fail(err)
 	}
+	stage = "budget"
+	stageStarted = time.Now()
 	if observation.ProviderRequests > 256 || observation.Commit.LeaseID != lease.ID {
 		return fail(c.ErrCapacity)
 	}
+	stage = "upload"
+	stageStarted = time.Now()
 	total := 0
 	for kind, raw := range observation.Payloads {
 		total += len(raw)
@@ -234,6 +295,8 @@ func (g *GitHubCollector) round(ctx context.Context, route string) error {
 			}
 		}
 	}
+	stage = "commit"
+	stageStarted = time.Now()
 	if err = g.client.CommitGitHubRefresh(ctx, observation.Commit); err != nil {
 		return fail(err)
 	}
