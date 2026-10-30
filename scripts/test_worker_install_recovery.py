@@ -521,7 +521,8 @@ class Recovery(unittest.TestCase):
                          f'accepted-config={drift[0]}\nold-manifest={drift[1]}\n')
 
     def test_config_rebaseline_rejects_other_drift_and_recovers_interruption(self):
-        for corruption in ('binary', 'manifest-extra', 'mode', 'symlink', None):
+        for corruption in ('binary', 'manifest-extra', 'manifest-extra-unterminated',
+                           'mode', 'symlink', None):
             with self.subTest(corruption=corruption), self.fresh_fixture():
                 self.assertEqual(self.run_install('old').returncode, 0)
                 config = self.state / 'config.json'
@@ -530,8 +531,19 @@ class Recovery(unittest.TestCase):
                 drift = (hashlib.sha256(changed).hexdigest(),
                          hashlib.sha256((self.state / 'install.sha256').read_bytes()).hexdigest())
                 if corruption == 'binary': (self.libexec / 'coop-worker').write_bytes(b'bad')
-                if corruption == 'manifest-extra':
-                    with (self.state / 'install.sha256').open('ab') as out: out.write(b'extra\n')
+                if corruption in ('manifest-extra', 'manifest-extra-unterminated'):
+                    # Six rows with a final newline were already refused. The
+                    # unterminated sixth row still has wc -l == 5 and must be
+                    # refused even with a valid checksum row and its actual
+                    # manifest hash pinned.
+                    outside = self.root / 'outside'
+                    outside.write_bytes(b'not a managed artifact')
+                    extra = (hashlib.sha256(outside.read_bytes()).hexdigest()
+                             + '  ' + str(outside)).encode()
+                    if corruption == 'manifest-extra': extra += b'\n'
+                    with (self.state / 'install.sha256').open('ab') as out: out.write(extra)
+                    if corruption == 'manifest-extra-unterminated':
+                        self.assertEqual((self.state / 'install.sha256').read_bytes().count(b'\n'), 5)
                     drift = (drift[0], hashlib.sha256((self.state / 'install.sha256').read_bytes()).hexdigest())
                 if corruption == 'mode': config.chmod(0o644)
                 if corruption == 'symlink':
@@ -539,8 +551,11 @@ class Recovery(unittest.TestCase):
                     config.symlink_to(self.root / 'missing')
                 if corruption is not None:
                     before = self.saved_bytes(self.libexec)
+                    manifest_before = (self.state / 'install.sha256').read_bytes()
                     self.assertNotEqual(self.run_install(config_bytes=changed, drift=drift).returncode, 0)
                     self.assertEqual(before, self.saved_bytes(self.libexec))
+                    if corruption != 'symlink': self.assertEqual(config.read_bytes(), changed)
+                    self.assertEqual((self.state / 'install.sha256').read_bytes(), manifest_before)
                     self.assertFalse((self.state / 'install-pending').exists())
                     continue
                 failed = self.run_install(config_bytes=changed, drift=drift,

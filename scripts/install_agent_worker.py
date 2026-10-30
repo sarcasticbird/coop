@@ -265,7 +265,9 @@ if test -e "$manifest" || test -L "$manifest"; then
     test "$(stat -c %u:%g /var/lib/coop/worker/config.json)" = "$owner" || exit 1
     test "$(sha256sum < /var/lib/coop/worker/config.json | cut -d ' ' -f 1)" = "$accepted_config" || exit 1
     test "$(sha256sum < "$stage/config.json" | cut -d ' ' -f 1)" = "$accepted_config" || exit 1
-    test "$(wc -l < "$manifest")" = 5 || exit 1
+    # Validate the entire pinned manifest, including trailing bytes that wc -l
+    # and line-by-line reads would miss (e.g. an unterminated sixth row).
+    : > "$stage/expected-old.manifest"
     index=0
     for file in $files; do
       index=$((index + 1))
@@ -275,11 +277,14 @@ if test -e "$manifest" || test -L "$manifest"; then
       test "${#old_digest}" = 64 || exit 1
       case "$old_digest" in *[!0-9a-f]*) exit 1 ;; esac
       test "$row" = "$old_digest  $destination" || exit 1
+      printf '%s  %s\n' "$old_digest" "$destination" >> "$stage/expected-old.manifest"
       if test "$file" != config.json; then
         test ! -L "$destination" && test -f "$destination" || exit 1
         test "$(sha256sum < "$destination" | cut -d ' ' -f 1)" = "$old_digest" || exit 1
       fi
     done
+    cmp -s "$manifest" "$stage/expected-old.manifest" || exit 1
+    rm "$stage/expected-old.manifest"
     printf 'accepted-config=%s\nold-manifest=%s\n' "$accepted_config" "$accepted_manifest" > "$stage/config-drift"
   else
     sha256sum -c "$manifest" >/dev/null || { echo 'independent guest changes; refusing replacement' >&2; exit 1; }
