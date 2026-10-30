@@ -80,6 +80,28 @@ func TestNativeTaskSnapshotIgnoresUnrelatedWork(t *testing.T) {
 	t.Logf("full catalog GitHub requests for the same 101 tasks: %d", *calls)
 }
 
+func TestKataDiscoveryOmitsUnretainedGitHubTaskButSavedValidationReadsIt(t *testing.T) {
+	cfg, master, runner, job, calls := taskSnapshotFixture(t)
+	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
+	installTaskProviderHTTP(t, &cfg, func(path string) any {
+		if path != "/api/v1/tasks/capabilities" {
+			t.Fatalf("unexpected Kata request %s", path)
+		}
+		sha, _ := TeamPolicySHA(*cfg.Team)
+		return c.TaskCapabilities{Provider: "kata", ProjectUID: providerProject, PolicySHA: sha}
+	})
+	reader := NewGitHubClient(runner)
+	catalog, err := reader.NativeSnapshot(t.Context(), cfg, master)
+	if err != nil || !catalog.Complete || len(catalog.Tasks) != 0 || *calls != 1 {
+		t.Fatalf("unretained GitHub task reached discovery: tasks=%d calls=%d err=%v", len(catalog.Tasks), *calls, err)
+	}
+	*calls = 0
+	selected, err := reader.NativeTaskSnapshot(t.Context(), cfg, master, job)
+	if err != nil || !selected.Complete || selected.TaskScope != job.TaskURL || len(selected.Tasks) != 1 || selected.Tasks[0].Task.URL != job.TaskURL || *calls <= 1 {
+		t.Fatalf("saved GitHub task lost exact validation: tasks=%d calls=%d err=%v", len(selected.Tasks), *calls, err)
+	}
+}
+
 func TestNativeTaskSnapshotRejectsChangedAuthority(t *testing.T) {
 	cfg, m, runner, job, _ := taskSnapshotFixture(t)
 	m.links[0].AssignmentSHA = BodyHash("changed")
