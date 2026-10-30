@@ -40,9 +40,18 @@ func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
 				artifact.Kind, artifact.URL, artifact.Revision = "workflow", "https://api.github.com/repos/code/repo/actions/artifacts/1", "1"
 				transport.prBody = NativePRBody(NativePRMetadata{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), Artifact: &artifact})
 				artifactReads := 0
+				prReads := 0
+				apiReads := 0
 				transport.commands = &fakeCommands{respond: func(owner, path, method string, body []byte) (CommandResult, error) {
+					apiReads++
 					if path == "repos/code/repo/actions/artifacts/1" {
 						artifactReads++
+					}
+					if path == "graphql" {
+						var request struct{ Query string }
+						if json.Unmarshal(body, &request) == nil && strings.Contains(request.Query, "WorkerNativePR") {
+							prReads++
+						}
 					}
 					return transport.response(owner, path, method, body)
 				}}
@@ -64,6 +73,7 @@ func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				discoveryReads := apiReads
 				if mode == "matching" {
 					if len(out.Tasks) != 1 || !out.Tasks[0].Task.Completed || !out.Tasks[0].Task.Closed || out.Tasks[0].PRs[0].QAArtifact == nil || artifactReads == 0 {
 						t.Fatal("completed task artifact not hydrated", out, artifactReads)
@@ -75,6 +85,21 @@ func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
 					}
 				} else if artifactReads != 0 {
 					t.Fatal("unmatched handoff hydrated artifact", artifactReads)
+				}
+				if mode == "no-handoff" {
+					if prReads != 0 || len(out.Tasks[0].PRs) != 0 {
+						t.Fatal("closed task reread historical PR during discovery", prReads, out.Tasks[0].PRs)
+					}
+					job := Job{Kind: "qa", TaskURL: task.Task.URL, Master: &MasterJobBinding{Goal: &task.Binding.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding)}}
+					selected, err := g.NativeTaskSnapshot(t.Context(), cfg, m, job)
+					if err != nil || len(selected.Tasks) != 1 || len(selected.Tasks[0].PRs) != 1 || prReads == 0 {
+						t.Fatal("selected validation lost completed PR", err, prReads)
+					}
+					if source == "github" {
+						t.Logf("completed task without handoff: discovery=%d GitHub requests, targeted validation=%d", discoveryReads, apiReads-discoveryReads)
+					}
+				} else if prReads == 0 {
+					t.Fatal("postmerge handoff skipped PR validation")
 				}
 				if len(transport.writes) != 0 {
 					t.Fatal("discovery wrote remotely", transport.writes)

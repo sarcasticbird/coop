@@ -121,3 +121,64 @@ func TestNativeCatalogPreservesProjectStatus(t *testing.T) {
 	}
 
 }
+
+func TestNativeCatalogSkipsProjectsForClosedTasksWithoutFollowups(t *testing.T) {
+	for _, source := range []string{"github", "kata"} {
+		t.Run(source, func(t *testing.T) {
+			cfg, m, runner, job, _ := taskSnapshotFixture(t)
+			cfg.Projects = Defaults(Config{Projects: []ProjectRef{{Owner: "code", Number: 1}, {Owner: "code", Number: 2}}}).Projects
+			if source == "kata" {
+				cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject, RetainGitHubTasks: []string{job.TaskURL}}
+				installTaskProviderHTTP(t, &cfg, func(path string) any {
+					if path != "/api/v1/tasks/capabilities" {
+						t.Fatalf("unexpected Kata request %s", path)
+					}
+					sha, _ := TeamPolicySHA(*cfg.Team)
+					return c.TaskCapabilities{Provider: "kata", ProjectUID: providerProject, PolicySHA: sha}
+				})
+			}
+			original := runner.respond
+			now := time.Now().UTC()
+			projects := 0
+			runner.respond = func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+				if endpoint == "repos/code/repo/issues/1" {
+					return jsonResponse(map[string]any{"html_url": job.TaskURL, "number": 1, "title": "Task", "body": "scope", "state": "closed", "state_reason": "completed", "updated_at": now}), nil
+				}
+				if endpoint == "graphql" && strings.Contains(string(body), "WorkerProject") {
+					projects++
+					return CommandResult{}, errors.New("project read during discovery")
+				}
+				return original(owner, endpoint, method, body)
+			}
+			g := NewGitHubClient(runner)
+			full, err := g.NativeSnapshot(t.Context(), cfg, m)
+			if err != nil || !full.Complete || len(full.Tasks) != 1 || !full.Tasks[0].Task.Completed || projects != 0 {
+				t.Fatalf("closed task caused Project scan: tasks=%d projects=%d err=%v", len(full.Tasks), projects, err)
+			}
+			_, err = g.NativeTaskSnapshot(t.Context(), cfg, m, job)
+			if err == nil || projects == 0 {
+				t.Fatalf("saved task validation skipped Project read: projects=%d err=%v", projects, err)
+			}
+		})
+	}
+}
+
+func TestNativeCatalogKeepsProjectViewForClosedPostmergeQA(t *testing.T) {
+	cfg, catalog := postMergeQAFixture(t)
+	cfg.Projects = Defaults(Config{Projects: []ProjectRef{{Owner: "code", Number: 1}}}).Projects
+	task := catalog.Tasks[0]
+	transport := &nativeDeliveryTransport{t: t, cfg: cfg, closed: true, taskTitle: task.Task.Title, taskBody: task.Task.Body, metadata: NativeTaskMetadata(task.Binding)}
+	projects := 0
+	transport.commands = &fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+		if endpoint == "graphql" && strings.Contains(string(body), "WorkerProject") {
+			projects++
+			return CommandResult{}, errors.New("project view required for postmerge QA")
+		}
+		return transport.response(owner, endpoint, method, body)
+	}}
+	master := &releaseMasterFixture{dispatchMaster: &dispatchMaster{nativeMasterFixture: nativeMasterFixture{authority: catalog.Goals[0], links: []c.ArtifactLink{{Kind: "task", Goal: task.Binding.Goal, URL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding)}}}}, handoff: catalog.Handoffs[0]}
+	_, err := NewGitHubClient(transport).NativeSnapshot(t.Context(), cfg, master)
+	if err == nil || projects == 0 {
+		t.Fatalf("closed postmerge QA lost Project tracking: projects=%d err=%v", projects, err)
+	}
+}

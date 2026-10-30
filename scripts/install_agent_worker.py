@@ -20,7 +20,14 @@ umask 077
 expected=$1
 agent=$2
 install_mode=${3:-normal}
+accepted_config=${4:-}
+accepted_manifest=${5:-}
 case "$install_mode" in normal|adopt) ;; *) exit 1 ;; esac
+if test -n "$accepted_config" || test -n "$accepted_manifest"; then
+  test "$install_mode" = normal || exit 1
+  test "${#accepted_config}" = 64 && test "${#accepted_manifest}" = 64 || exit 1
+  case "$accepted_config$accepted_manifest" in *[!0-9a-f]*) exit 1 ;; esac
+fi
 owner=$(id -u):$(id -g)
 no_symlink_parents() {
   parent=$1
@@ -220,6 +227,7 @@ write_evidence() {
   (cd "$1" && {
     sha256sum identity old.manifest new.manifest
     if test -f adoption; then sha256sum adoption; fi
+    if test -f config-drift; then sha256sum config-drift; fi
     for file in $files; do sha256sum "after/$file"; done
     for file in $files; do if test -f "before/$file"; then sha256sum "before/$file"; fi; done
   })
@@ -248,7 +256,41 @@ fi
 if test -e "$manifest" || test -L "$manifest"; then
   test ! -L "$manifest" && test "$(stat -c %a "$manifest")" = 600 || exit 1
   test "$(stat -c %u:%g "$manifest")" = "$owner" || exit 1
-  sha256sum -c "$manifest" >/dev/null || { echo 'independent guest changes; refusing replacement' >&2; exit 1; }
+  if test -n "$accepted_config"; then
+    # Rebaseline only the exact pinned live config, preserving both generations.
+    # Every other managed file must still match the complete old manifest.
+    test "$(sha256sum < "$manifest" | cut -d ' ' -f 1)" = "$accepted_manifest" || exit 1
+    test ! -L /var/lib/coop/worker/config.json && test -f /var/lib/coop/worker/config.json || exit 1
+    test "$(stat -c %a /var/lib/coop/worker/config.json)" = 600 || exit 1
+    test "$(stat -c %u:%g /var/lib/coop/worker/config.json)" = "$owner" || exit 1
+    test "$(sha256sum < /var/lib/coop/worker/config.json | cut -d ' ' -f 1)" = "$accepted_config" || exit 1
+    test "$(sha256sum < "$stage/config.json" | cut -d ' ' -f 1)" = "$accepted_config" || exit 1
+    # Validate the entire pinned manifest, including trailing bytes that wc -l
+    # and line-by-line reads would miss (e.g. an unterminated sixth row).
+    : > "$stage/expected-old.manifest"
+    index=0
+    for file in $files; do
+      index=$((index + 1))
+      destination_for
+      row=$(sed -n "${index}p" "$manifest")
+      old_digest=${row%%  *}
+      test "${#old_digest}" = 64 || exit 1
+      case "$old_digest" in *[!0-9a-f]*) exit 1 ;; esac
+      test "$row" = "$old_digest  $destination" || exit 1
+      printf '%s  %s\n' "$old_digest" "$destination" >> "$stage/expected-old.manifest"
+      if test "$file" != config.json; then
+        test ! -L "$destination" && test -f "$destination" || exit 1
+        test "$(sha256sum < "$destination" | cut -d ' ' -f 1)" = "$old_digest" || exit 1
+      fi
+    done
+    cmp -s "$manifest" "$stage/expected-old.manifest" || exit 1
+    rm "$stage/expected-old.manifest"
+    printf 'accepted-config=%s\nold-manifest=%s\n' "$accepted_config" "$accepted_manifest" > "$stage/config-drift"
+  else
+    sha256sum -c "$manifest" >/dev/null || { echo 'independent guest changes; refusing replacement' >&2; exit 1; }
+  fi
+elif test -n "$accepted_config"; then
+  echo 'config rebaseline requires a managed manifest' >&2; exit 1
 fi
 mkdir "$stage/before" "$stage/after"
 : > "$stage/old.manifest"
@@ -275,7 +317,16 @@ for file in $files; do
   digest=$(sha256sum < "$stage/$file"); digest=${digest%% *}
   printf '%s  %s\n' "$digest" "$destination" >> "$stage/new.manifest"
 done
-if test -e "$manifest"; then cmp -s "$manifest" "$stage/current.manifest" || exit 1; fi
+if test -e "$manifest"; then
+  if test -n "$accepted_config"; then
+    head -n 4 "$manifest" > "$stage/expected-current.manifest"
+    printf '%s  /var/lib/coop/worker/config.json\n' "$accepted_config" >> "$stage/expected-current.manifest"
+    cmp -s "$stage/expected-current.manifest" "$stage/current.manifest" || exit 1
+    rm "$stage/expected-current.manifest"
+  else
+    cmp -s "$manifest" "$stage/current.manifest" || exit 1
+  fi
+fi
 if test "$install_mode" = adopt; then
   adoption_state_absent
   no_symlink_parents /var/lib/coop/worker
@@ -340,13 +391,17 @@ def adoption_state_path(state_dir):
     return state_dir
 
 
-def install(agent, binary, config, adopt_matching_launchers=False):
+def install(agent, binary, config, adopt_matching_launchers=False, accept_config_drift=None):
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", agent) or "--" in agent:
         raise ValueError("invalid agent identity")
     executable = regular(binary)
     if len(executable) < 64 or executable[:6] != b"\x7fELF\x02\x01" or executable[18:20] != b"\xb7\x00":
         raise ValueError("worker must be Linux arm64 ELF")
     private = regular(config, private=True)
+    if accept_config_drift is not None:
+        if adopt_matching_launchers or len(accept_config_drift) != 2 or any(
+                not re.fullmatch(r"[a-f0-9]{64}", digest) for digest in accept_config_drift):
+            raise ValueError("config rebaseline requires exact config and manifest SHA256 digests")
     candidate = json.loads(private)
     if len(private) > 1 << 20 or candidate.get("name") != agent:
         raise ValueError("worker config identity mismatch")
@@ -378,7 +433,7 @@ def install(agent, binary, config, adopt_matching_launchers=False):
     data = payload.getvalue()
     runtime = os.environ.get("COOP_CONTAINER_BIN", "container")
     child = running_child(runtime, agent)
-    invoke([runtime, "exec", "--user", "root", "-i", child, "sh", "-c", GUEST_INSTALL, "coop-install-worker", hashlib.sha256(data).hexdigest(), agent, "adopt" if adopt_matching_launchers else "normal"], data)
+    invoke([runtime, "exec", "--user", "root", "-i", child, "sh", "-c", GUEST_INSTALL, "coop-install-worker", hashlib.sha256(data).hexdigest(), agent, "adopt" if adopt_matching_launchers else "normal", *(accept_config_drift or ())], data)
     LOG.info("worker artifacts staged", extra={"agent": agent, "activated": False})
 
 
@@ -387,11 +442,14 @@ if __name__ == "__main__":
     try:
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument("--adopt-matching-launchers", action="store_true")
+        parser.add_argument("--accept-config-drift", nargs=2, metavar=("LIVE_CONFIG_SHA256", "OLD_MANIFEST_SHA256"),
+                            help="pin the exact live config and old manifest for a one-file rebaseline")
         parser.add_argument("agent")
         parser.add_argument("binary", type=Path)
         parser.add_argument("config", type=Path)
         args = parser.parse_args()
-        install(args.agent, args.binary, args.config, adopt_matching_launchers=args.adopt_matching_launchers)
+        install(args.agent, args.binary, args.config, adopt_matching_launchers=args.adopt_matching_launchers,
+                accept_config_drift=args.accept_config_drift)
     except (ValueError, OSError, json.JSONDecodeError):
         LOG.error("worker staging failed; verify identity, artifacts, private config and guest ownership")
         sys.exit(1)
