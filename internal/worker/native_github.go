@@ -146,7 +146,7 @@ func (g *GitHubClient) ReadNativePR(ctx context.Context, cfg Config, t NativeTas
 // ReadNativeReleasePR also validates the immutable source artifact after merge.
 // Normal discovery skips that expensive read for completed PRs.
 func (g *GitHubClient) ReadNativeReleasePR(ctx context.Context, cfg Config, t NativeTask, authority c.GoalAuthority, ref string) (PR, error) {
-	return g.readNativePR(ctx, cfg, t, authority, ref, true)
+	return g.readNativePR(withGitHubTrafficStage(ctx, "postmerge_qa"), cfg, t, authority, ref, true)
 }
 
 func (g *GitHubClient) readNativePR(ctx context.Context, cfg Config, t NativeTask, authority c.GoalAuthority, ref string, release bool) (PR, error) {

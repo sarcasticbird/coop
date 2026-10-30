@@ -90,6 +90,15 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 		}
 	}
 	endpoint := argv[6]
+	query := ""
+	if endpoint == "graphql" {
+		var request struct{ Query string }
+		if json.Unmarshal(body, &request) == nil {
+			query = request.Query
+		}
+	}
+	stage := trafficStage(ctx, endpoint, query)
+	totals, _ := ctx.Value(trafficKey{}).(*trafficTotals)
 	method := "GET"
 	for i, a := range argv {
 		if a == "--method" && i+1 < len(argv) {
@@ -116,6 +125,7 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 	}
 	if !r.force && !verification && valid && old.FetchedAt.Add(ttl).After(r.now) {
 		r.reused[key] = old.FetchedAt
+		totals.record(stage, false)
 		return CommandResult{Stdout: observationWire(old.Body, old.ETag)}, nil
 	}
 	if r.requests >= 256 {
@@ -133,6 +143,7 @@ func (r *observationRunner) Run(ctx context.Context, argv, env []string, in io.R
 		args = append(args, "--header", "If-None-Match: "+old.ETag)
 	}
 	r.requests++
+	totals.record(stage, true)
 	result, err := r.base.Run(ctx, args, env, bytes.NewReader(body))
 	responseLimit := githubResponseLimit(method, endpoint)
 	if len(result.Stdout) > responseLimit+(64<<10) {

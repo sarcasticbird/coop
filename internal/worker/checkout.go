@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,7 +56,16 @@ func BindingKey(c Config, j Job) string {
 	}
 	return BodyHash(c.Role + ":task:" + j.TaskURL)
 }
-func (c *TaskCheckouts) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+func (c *TaskCheckouts) run(ctx context.Context, dir string, args ...string) (output []byte, runError error) {
+	// Network git operations are not GitHub API requests. Count actual
+	// invocations separately without recording remotes, paths or command output.
+	network := len(args) > 1 && (args[0] == "git" && (args[1] == "fetch" || args[1] == "clone") || args[0] == "wt" && args[1] == "clone")
+	if network {
+		started := time.Now()
+		defer func() {
+			slog.Info("Git checkout network traffic", "operation", args[1], "tool", args[0], "success", runError == nil, "duration_ms", time.Since(started).Milliseconds())
+		}()
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var result CommandResult
