@@ -99,6 +99,41 @@ func TestGitHubCacheCatalogLoadsOnlyRequestedCoverage(t *testing.T) {
 	}
 }
 
+func TestGitHubCacheClaimWithKataTaskLink(t *testing.T) {
+	s, o, b, in, _ := taskFixture(t)
+	task, err := s.TaskCreate(t.Context(), o, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.RegisterArtifact(t.Context(), b, c.ArtifactLink{Goal: in.Goal, Kind: "pull_request", TaskURL: task.Reference, URL: "https://github.com/example/coop/pull/3", AssignmentSHA: digest(*task.Binding), RequestID: "kata-pr-cache"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.ResolveGoal(t.Context(), o, in.Goal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Store.ConfigureGitHubCache(t.Context(), GitHubCacheConfig{
+		Modes:  map[string]string{"coop": "on"},
+		Routes: []GitHubCacheRoute{{ID: "route", Engagement: "coop", Collector: b.ID, Host: "github.com", AppID: 1, InstallationID: 2, Repositories: []string{"example/coop"}, Threads: []string{a.Revision.Proposal.ThreadID}, Readers: []string{o.ID, b.ID}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, page, e := s.cacheManifest(t.Context(), s.Store.db, b, "coop"); e != nil || len(page.Objects) != 0 {
+		t.Fatalf("Kata objects entered GitHub cache manifest: task=%s err=%v objects=%d", task.Reference, e, len(page.Objects))
+	}
+	lease, err := s.ClaimGitHubRefresh(t.Context(), b, c.GitHubClaim{RouteID: "route", RequestID: "kata-task-claim"})
+	if err != nil || lease.ID != "" {
+		t.Fatalf("Kata task was offered as a GitHub cache lease: lease=%+v err=%v", lease, err)
+	}
+	if _, err = s.RegisterArtifact(t.Context(), o, c.ArtifactLink{Goal: in.Goal, Kind: "task", URL: "https://github.com/example/coop/issues/2", AssignmentSHA: strings.Repeat("a", 64), RequestID: "github-task-cache"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, err = s.ClaimGitHubRefresh(t.Context(), b, c.GitHubClaim{RouteID: "route", RequestID: "github-task-claim"})
+	if err != nil || lease.Object.URL != "https://github.com/example/coop/issues/2" {
+		t.Fatalf("Kata task prevented a separate GitHub task lease: lease=%+v err=%v", lease, err)
+	}
+}
+
 func cacheFixture(t *testing.T) (*Service, c.Principal, c.Principal, c.GitHubObjectRef) {
 	t.Helper()
 	svc, o, b, in := goalFixture(t)
