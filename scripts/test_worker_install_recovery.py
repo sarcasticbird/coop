@@ -34,8 +34,10 @@ class Recovery(unittest.TestCase):
         # current-UID/GID checks, while allowing these isolated paths as nonroot.
         self.script = self.script.replace('test "$(id -u)" = 0 || exit 1', 'test fixture = fixture')
 
-    def package(self, version, adopt=False):
+    def package(self, version, adopt=False, config_bytes=None):
         files = {name: (f'#!/bin/sh\n# {version}\nexit 0\n').encode() for name in FILES}
+        if config_bytes is not None:
+            files['config.json'] = config_bytes
         if self.check_install_contract:
             # CheckInstall calls FileStore.Lock when state exists. Reproduce
             # its O_CREAT side effect so refusal tests cannot hide that write.
@@ -58,12 +60,12 @@ class Recovery(unittest.TestCase):
                 archive.addfile(entry, io.BytesIO(data))
         return payload.getvalue()
 
-    def run_install(self, version='new', script=None, adopt=False):
-        payload = self.package(version, adopt=adopt)
+    def run_install(self, version='new', script=None, adopt=False, config_bytes=None, drift=None):
+        payload = self.package(version, adopt=adopt, config_bytes=config_bytes)
         return subprocess.run(['sh', '-c', script or self.script, 'test-installer',
-                               hashlib.sha256(payload).hexdigest(), 'robin',
-                               'adopt' if adopt else 'normal'],
-                              input=payload, capture_output=True, timeout=20)
+                                hashlib.sha256(payload).hexdigest(), 'robin',
+                                'adopt' if adopt else 'normal', *(drift or ())],
+                               input=payload, capture_output=True, timeout=20)
 
     def launchers_only(self):
         self.libexec.mkdir(mode=0o700)
@@ -494,6 +496,60 @@ class Recovery(unittest.TestCase):
         manifest.write_text(''.join(manifest.read_text().splitlines(keepends=True)[1:]))
         self.assertNotEqual(self.run_install().returncode, 0)
         self.assertIn('# old\n', (self.libexec / 'coop-worker').read_text())
+
+    def test_explicit_config_rebaseline_pins_live_and_manifest_and_preserves_before(self):
+        self.assertEqual(self.run_install('old').returncode, 0)
+        config = self.state / 'config.json'
+        changed = b'#!/bin/sh\n# new\nexit 0\n'
+        config.write_bytes(changed)
+        old_manifest = (self.state / 'install.sha256').read_bytes()
+        drift = (hashlib.sha256(changed).hexdigest(), hashlib.sha256(old_manifest).hexdigest())
+        self.assertNotEqual(self.run_install(config_bytes=changed).returncode, 0)
+        for incorrect in (("0" * 64, drift[1]), (drift[0], "0" * 64)):
+            with self.subTest(incorrect=incorrect):
+                self.assertNotEqual(self.run_install(config_bytes=changed, drift=incorrect).returncode, 0)
+                self.assertEqual((self.state / 'install.sha256').read_bytes(), old_manifest)
+        self.assertNotEqual(self.run_install(version='later', drift=drift).returncode, 0)
+        result = self.run_install(config_bytes=changed, drift=drift)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_generation('new')
+        generations = list(self.state.glob('install-history.*/generation'))
+        saved = next(g for g in generations if (g / 'config-drift').exists())
+        self.assertEqual((saved / 'old.manifest').read_bytes(), old_manifest)
+        self.assertEqual((saved / 'before/config.json').read_bytes(), changed)
+        self.assertEqual((saved / 'config-drift').read_text(),
+                         f'accepted-config={drift[0]}\nold-manifest={drift[1]}\n')
+
+    def test_config_rebaseline_rejects_other_drift_and_recovers_interruption(self):
+        for corruption in ('binary', 'manifest-extra', 'mode', 'symlink', None):
+            with self.subTest(corruption=corruption), self.fresh_fixture():
+                self.assertEqual(self.run_install('old').returncode, 0)
+                config = self.state / 'config.json'
+                changed = b'#!/bin/sh\n# new\nexit 0\n'
+                config.write_bytes(changed)
+                drift = (hashlib.sha256(changed).hexdigest(),
+                         hashlib.sha256((self.state / 'install.sha256').read_bytes()).hexdigest())
+                if corruption == 'binary': (self.libexec / 'coop-worker').write_bytes(b'bad')
+                if corruption == 'manifest-extra':
+                    with (self.state / 'install.sha256').open('ab') as out: out.write(b'extra\n')
+                    drift = (drift[0], hashlib.sha256((self.state / 'install.sha256').read_bytes()).hexdigest())
+                if corruption == 'mode': config.chmod(0o644)
+                if corruption == 'symlink':
+                    config.unlink()
+                    config.symlink_to(self.root / 'missing')
+                if corruption is not None:
+                    before = self.saved_bytes(self.libexec)
+                    self.assertNotEqual(self.run_install(config_bytes=changed, drift=drift).returncode, 0)
+                    self.assertEqual(before, self.saved_bytes(self.libexec))
+                    self.assertFalse((self.state / 'install-pending').exists())
+                    continue
+                failed = self.run_install(config_bytes=changed, drift=drift,
+                                          script=self.fault('mv -f "$next" "$destination"', 2, 'exit 73'))
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertTrue((self.state / 'install-pending').is_dir())
+                retry = self.run_install(config_bytes=changed)
+                self.assertEqual(retry.returncode, 0, retry.stderr)
+                self.assert_generation('new')
 
     def test_manifest_must_cover_exactly_the_complete_canonical_generation(self):
         for edit in (*FILES, 'duplicate-row', 'extra-row'):
