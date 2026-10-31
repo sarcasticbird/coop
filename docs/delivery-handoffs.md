@@ -75,8 +75,8 @@ coop task reassess-qa --file /private/path/reassess.json
 The private JSON contains the existing `goal` reference, canonical `task_url`,
 `pr_url`, `assignment_sha256`, `head_sha`, `artifact_sha256`, the latest native
 QA `review_id`, a new `evidence_message_id`, and a stable `request_id`.
-Use the review identity from Coop's native PR evidence, not a shortened display
-label. The evidence must be an owner or assigned-QA message in the approved goal
+Use the numeric GitHub review ID from Coop's native PR evidence, not the GraphQL
+node ID or a shortened display label. The evidence must be an owner or assigned-QA message in the approved goal
 thread or its configured private QA evidence destination. An author message
 cannot grant reassessment authority.
 
@@ -86,6 +86,23 @@ a different review does not admit a job. Further requests for the same unchanged
 review cannot produce a stream of retries. Wren must independently reconcile the
 new evidence and publish a fresh verdict through the guarded QA action. Neither
 the request nor owner UAT replaces her verdict or clears a merge gate.
+
+An **owner** may include both `environment` and `environment_revision` in that
+same exact-artifact handoff, backed by an owner-authored evidence message. This
+records a bounded environment decision without changing the source, goal/task
+binding or peer review. Coordinators may request evidence-only reassessments but
+cannot change the environment. The master stamps the creator's authority; older
+handoffs lacking that provenance cannot supply an environment override.
+
+One resolver supplies the effective environment to the QA prompt, the published
+`coop-qa:v3` result and the delivery/release clearance checks. Reassessment results
+record `assessment: "reassessment"` and `handoff_id` alongside the actual evaluated
+environment. Evidence-only followups inherit the prior resolved environment.
+Validation requires the authenticated handoff and exact prior assessment; prose
+alone cannot change a machine-readable verdict. Original goal defaults and prior
+failure reports remain intact. Deploy the matching master and workers before
+requesting an environment-changing reassessment; old workers do not understand
+this clearance provenance.
 
 This handles new device/UAT evidence or a resolved environment prerequisite.
 An actual source defect still goes to the assigned developer. Do not make an

@@ -108,6 +108,45 @@ func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
 	}
 }
 
+func TestQAEnvironmentDecisionRequiresOwner(t *testing.T) {
+	s, owner, planner, qa, in := qaHandoffFixture(t)
+	in.Environment, in.EnvironmentRevision = "repaired runtime", "repair-v2"
+	if _, err := s.CreateHandoff(t.Context(), planner, in); !errors.Is(err, c.ErrForbidden) {
+		t.Fatalf("planner changed QA environment: %v", err)
+	}
+	h, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil || h.ActorKind != "owner" || h.Input.Environment != in.Environment {
+		t.Fatalf("owner decision missing provenance: %+v %v", h, err)
+	}
+	again, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil || again.ID != h.ID || again.ActorKind != "owner" {
+		t.Fatal("owner retry changed authority", err)
+	}
+	in.RequestID = "missing-revision"
+	in.EnvironmentRevision = ""
+	if _, err := s.CreateHandoff(t.Context(), owner, in); !errors.Is(err, c.ErrInvalid) {
+		t.Fatal("partial environment accepted", err)
+	}
+	in.EnvironmentRevision = "repair-v2"
+	evidence, err := s.Store.Send(t.Context(), qa, c.SendMessage{ThreadID: s.mustHandoffEvidenceThread(t, owner, in.EvidenceMessageID), Body: "agent claim", RequestID: "agent-env-claim"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.EvidenceMessageID, in.RequestID = evidence.MessageID, "agent-evidence"
+	if _, err := s.CreateHandoff(t.Context(), owner, in); !errors.Is(err, c.ErrForbidden) {
+		t.Fatal("agent evidence changed environment", err)
+	}
+}
+
+func (s *Service) mustHandoffEvidenceThread(t *testing.T, owner c.Principal, id string) string {
+	t.Helper()
+	m, err := s.Store.Message(t.Context(), owner, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m.ThreadID
+}
+
 func TestFirstPostmergeQAAuthorityAndRetry(t *testing.T) {
 	for _, actor := range []string{"owner", "planner"} {
 		for _, evidenceAuthor := range []string{"owner", "qa"} {
