@@ -3,3 +3,4 @@
 /dist/
 /.coop.toml
 /.agents/wip/
+__pycache__/
