@@ -39,11 +39,16 @@ func loadMasterTurn(cfg Config, id string) (MasterTurn, error) {
 	if err != nil {
 		return out, err
 	}
+	return decodeMasterTurn(cfg, id, raw, &masterRecoveryView{cfg: cfg})
+}
+
+func decodeMasterTurn(cfg Config, id string, raw []byte, recovery *masterRecoveryView) (MasterTurn, error) {
+	var out MasterTurn
 	if strictTeamJSON(raw, &out) != nil || out.Version != 1 || out.MasterID != cfg.Master.MasterID || out.Delivery.ID != id || out.Message.ID != out.Delivery.MessageID || out.BodySHA != BodyHash(out.Message.Body) {
 		return out, errors.New("master inbox ownership mismatch")
 	}
 	if out.InstanceID != cfg.Master.InstanceID || out.Generation != cfg.Master.Generation {
-		if _, ok, e := adoptedRecoveryRecord(cfg, "inbox", filepath.Base(masterRecordPath(cfg, id)), raw); e != nil || !ok {
+		if _, ok, e := recovery.adoptedRecord("inbox", filepath.Base(masterRecordPath(cfg, id)), raw); e != nil || !ok {
 			if e != nil {
 				return out, e
 			}
@@ -74,6 +79,7 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		return nil, c.ErrCapacity
 	}
 	out := []MasterTurn{}
+	recovery := masterRecoveryView{cfg: cfg}
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			return nil, errors.New("unknown master inbox record")
@@ -86,7 +92,7 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		if strictTeamJSON(raw, &item) != nil || e.Name() != BodyHash(item.Delivery.ID)+".json" {
 			return nil, errors.New("invalid master inbox identity")
 		}
-		item, err = loadMasterTurn(cfg, item.Delivery.ID)
+		item, err = decodeMasterTurn(cfg, item.Delivery.ID, raw, &recovery)
 		if err != nil {
 			return nil, err
 		}

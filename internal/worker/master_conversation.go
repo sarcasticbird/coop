@@ -162,11 +162,12 @@ func (m *MasterComms) Active() (*MasterTurn, error) {
 		return nil, err
 	}
 	var active *MasterTurn
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, v := range records {
 		if v.Message.Continuation != nil {
 			continue
 		}
-		retired, e := retiredTurn(m.Config, v)
+		retired, e := recovery.retiredTurn(v)
 		if e != nil {
 			return nil, e
 		}
@@ -194,8 +195,9 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 	if err != nil {
 		return nil, err
 	}
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, turn := range records {
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return nil, e
 		}
@@ -208,7 +210,7 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 		}
 	}
 	for _, turn := range records {
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return nil, e
 		}

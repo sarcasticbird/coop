@@ -92,7 +92,10 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 		if parent.ThreadID != in.ThreadID {
 			return out, c.ErrForbidden
 		}
-		if in.Recipients == nil {
+		// Human replies address the parent author. Agent/service replies are
+		// quiet by default: publishing a result must not create another model
+		// turn. A new handoff explicitly names its recipients.
+		if in.Recipients == nil && p.Kind == "owner" {
 			in.Recipients = []string{parent.AuthorID}
 		}
 		if p.Kind != "owner" {
@@ -132,17 +135,15 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 			continue
 		}
 		d := c.Delivery{ID: newID("d"), MessageID: m.ID, AgentID: id, State: "queued"}
-		if m.Hop > 2 {
-			d.State = "suppressed"
-			d.Reason = "peer_hop_limit"
-		} else {
-			var pending int
-			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('publishing','queued','received','running','admitted')", id).Scan(&pending); err != nil {
-				return out, err
-			}
-			if pending >= c.MaxPending {
-				return out, c.ErrCapacity
-			}
+		// Explicit requests are not suppressed because of conversation depth.
+		// Quiet replies prevent reflexive reply loops; the pending limit bounds
+		// addressed work. Hop remains historical provenance, not admission.
+		var pending int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('publishing','queued','received','running','admitted')", id).Scan(&pending); err != nil {
+			return out, err
+		}
+		if pending >= c.MaxPending {
+			return out, c.ErrCapacity
 		}
 		out.Deliveries = append(out.Deliveries, d)
 	}

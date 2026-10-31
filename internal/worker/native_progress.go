@@ -205,8 +205,9 @@ func (m *MasterComms) pendingStall(now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, turn := range records {
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return "", e
 		}

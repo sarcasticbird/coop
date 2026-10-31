@@ -139,8 +139,9 @@ member IDs. Compose a root message with explicit recipients, or reply with the
 selected parent ID. With no explicit recipients a reply addresses its parent
 author excluding the sender; a root message with no recipients is a note and
 wakes nobody. Preview thread, recipients, parent, body and request ID before
-submission. Automatic peer replies have a two-hop budget; owner messages start
-a new chain. Do not interpret suppression as a transport error.
+submission. Agent replies are quiet unless explicitly addressed; explicit
+handoffs have no hop limit. Older suppressed receipts remain historical and
+must not be interpreted as transport errors.
 
 Membership replacement requires the complete observed old member set and the
 complete desired set. A conflict requires a fresh read and a newly reviewed

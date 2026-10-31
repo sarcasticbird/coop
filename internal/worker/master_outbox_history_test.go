@@ -15,6 +15,42 @@ import (
 )
 
 // Synthetic retained records only: no captured journals or credentials.
+func TestInboxRetirementViewIsOperationLocal(t *testing.T) {
+	cfg, _, _, _, _, _, _ := commsFixture(t)
+	turn := MasterTurn{Version: 1, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Delivery: c.Delivery{ID: "retained"}, Phase: "completed"}
+	raw, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalRecoveryRaw(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := masterRecoverySnapshot{Version: 1, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Epoch: 1, Records: []c.RecoveryEvidence{{Kind: "inbox", RecordKey: "inbox/" + BodyHash(turn.Delivery.ID) + ".json", Data: canonical}}}
+	raw, err = json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(masterDir(cfg), "recovery", "accepted.json")
+	if err := atomicPrivate(path, raw); err != nil {
+		t.Fatal(err)
+	}
+	view := masterRecoveryView{cfg: cfg}
+	if retired, err := view.retiredTurn(turn); err != nil || !retired {
+		t.Fatalf("retirement missing: %v %v", retired, err)
+	}
+	// Detect repeated decoding without a timing-dependent performance test.
+	if err := atomicPrivate(path, []byte(`{"Version":99}`)); err != nil {
+		t.Fatal(err)
+	}
+	if retired, err := view.retiredTurn(turn); err != nil || !retired {
+		t.Fatalf("operation reread its recovery evidence: %v %v", retired, err)
+	}
+	if _, err := retiredTurn(cfg, turn); !errors.Is(err, c.ErrConflict) {
+		t.Fatalf("next operation reused stale evidence: %v", err)
+	}
+}
+
 func retainedOutboxHistory(t *testing.T, cfg Config, count int) int {
 	t.Helper()
 	snapshot := masterRecoverySnapshot{Version: 1, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Epoch: 1}

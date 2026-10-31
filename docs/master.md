@@ -86,10 +86,13 @@ read-only guarantees and the fixture/operator UAT checklist.
 replies through the thread and can follow it from the CLI or MCP.
 
 Use the same request ID and input when retrying a send. Changed input with an old
-request ID conflicts. A reply uses `--reply-to MESSAGE_ID`; without explicit
-recipients it addresses the parent author, excluding the sender. An empty
-recipient list on a new root message records a note without waking watchers.
-Automatic peer replies have a two-hop budget. Owner messages start a new chain.
+request ID conflicts. A reply uses `--reply-to MESSAGE_ID`. Owner replies without
+explicit recipients address the parent author, excluding the sender. Agent and
+service replies are quiet by default: publishing a result does not wake another
+model. For a handoff that needs action, explicitly name the recipient with `--to`.
+Empty recipients record a note without waking watchers. Explicit handoffs have no
+hop limit; idempotent requests and bounded pending queues remain enforced.
+Historical suppressed receipts retain their original meaning and are not replayed.
 
 `coop --agent NAME ping --prompt "Your question"` uses the master only when that
 private agent profile explicitly selects `communication.backend = "master"`
@@ -117,7 +120,7 @@ that the model process stopped.
 | `replied` | The master committed a linked substantive reply. |
 | `blocked` | A recorded condition needs attention. |
 | `cancelled` | The delivery was explicitly cancelled. |
-| `suppressed` | The automatic peer reply budget was exhausted. |
+| `suppressed` | Historical receipt: the former automatic peer reply budget was exhausted. |
 
 Presence is separate. Heartbeats run every 15 seconds and become stale after
 45 seconds. An idle connected guest should persist an addressed message within
@@ -544,10 +547,11 @@ diagnostics from an unavailable report and never invent a healthy result.
 
 Workers also post `[COOP BLOCKED]` notices in the affected work thread, with the
 task, last recorded action, blocker and required next step. Set
-`master.blocker_recipient` to the owner's master principal ID for an addressed
-notice and `@` mention. This must identify the owner; known agent recipients are
-rejected. Without it, notices are unaddressed thread messages.
-No peer or model turn is created. Engineering and conversation recovery holds,
+`master.blocker_recipient` to the owner's or coordinator's master principal ID
+or alias for an addressed notice and `@` mention. The sender cannot address
+itself. An addressed coordinator receives a work delivery; an owner receives
+the published notice. Without it, notices are quiet thread messages.
+Engineering and conversation recovery holds,
 stalled admissions, overdue turns and exhausted branch refreshes are reported;
 catalog failures get a five-minute grace period. Dependency waits name their
 prerequisites and say when continuation is automatic.
