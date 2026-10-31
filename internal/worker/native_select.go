@@ -176,6 +176,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	out := []NativeCandidate{}
 	add := func(kind string, a c.GoalAuthority, t *NativeTask, p *PR, revision string) {
+		if kind == "deliver" && cfg.DeliveryHold {
+			return
+		}
 		ref := a.Revision.Ref
 		policy, _ := TeamPolicySHA(*cfg.Team)
 		role := "planner"

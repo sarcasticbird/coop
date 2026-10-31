@@ -24,6 +24,7 @@ type Status struct {
 	State                   string           `json:"state"`
 	Paused                  bool             `json:"paused"`
 	AdmissionPauseSupported bool             `json:"admission_pause_supported,omitempty"`
+	DeliveryHold            bool             `json:"delivery_hold,omitempty"`
 	AdmissionPaused         bool             `json:"admission_paused,omitempty"`
 	ServerHealthy           bool             `json:"server_healthy"`
 	ServerVersion           string           `json:"server_version,omitempty"`

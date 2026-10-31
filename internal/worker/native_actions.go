@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,6 +246,9 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	var qaEnvironment nativeQAEnvironment
 	var qaHandoff *c.Handoff
 	guard := func() error {
+		if in.Operation == "deliver" && cfg.DeliveryHold {
+			return errors.New("delivery held by worker configuration; implementation, review and QA remain enabled")
+		}
 		if kataTaskSource(cfg) {
 			if _, err := TaskProviderClient(ctx, cfg); err != nil {
 				return err
@@ -307,8 +311,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 							}
 						}
 					}
-					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot" || current.Head.SHA != record.PublishedHeadSHA || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
-						return c.ErrForbidden
+					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot" || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
+						return fmt.Errorf("post-push PR identity or branch changed: %w", c.ErrForbidden)
+					}
+					if err := validatePublishedHead(current.Head.SHA, x.Job.HeadSHA, record.PublishedHeadSHA); err != nil {
+						return err
 					}
 					if _, err = ParseNativePRMetadata(current.Body, task.Task.Repo, task.Task.URL, x.Goal, NativeAssignmentSHA(task.Binding)); err != nil {
 						return err

@@ -107,7 +107,7 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 			if m.Paused {
 				state = "paused"
 			}
-			status := Status{Name: e.Config.Name, Enabled: true, Actor: e.Config.Self, State: state, WakeEnabled: true, Heartbeat: m.Clock.Now(), Paused: m.Paused, AdmissionPauseSupported: true, AdmissionPaused: admission}
+			status := Status{Name: e.Config.Name, Enabled: true, Actor: e.Config.Self, State: state, WakeEnabled: true, Heartbeat: m.Clock.Now(), Paused: m.Paused, AdmissionPauseSupported: true, AdmissionPaused: admission, DeliveryHold: e.Config.DeliveryHold}
 			if progress, ok := r.Engineering.(interface{ Progress() NativeProgress }); ok {
 				p := progress.Progress()
 				status.Native = &p

@@ -3,12 +3,15 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
 // The transport models GitHub's task, PR, contributor/review connections,
@@ -31,6 +34,7 @@ type nativeDeliveryTransport struct {
 	advanceBaseAfterAncestry                                       bool
 	checksAfterCheckout                                            string
 	failSourceAfterPush                                            bool
+	stalePRHead                                                    string
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -250,7 +254,11 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		if s.restBaseSHA != "" {
 			baseSHA = s.restBaseSHA
 		}
-		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": s.head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
+		head := s.head
+		if s.stalePRHead != "" {
+			head = s.stalePRHead
+		}
+		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
 	}
 	if endpoint == "user/12" {
 		return jsonResponse(map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}), nil
@@ -271,6 +279,7 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 
 func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	cfg, m, _, _ := dispatchFixture(t)
+	cfg.DeliveryHold = true
 	cfg.Projects = Defaults(Config{Projects: []ProjectRef{{Owner: "code", Number: 1}}}).Projects
 	cfg.ProjectOwners = nil
 	transport := &nativeDeliveryTransport{t: t, head: strings.Repeat("a", 40)}
@@ -424,11 +433,39 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	fix := stage(1, "author", "fix")
 	transport.localHead = strings.Repeat("b", 40)
 	artifact.HeadSHA = transport.localHead
-	if _, err := RunNativeAction(ctx, cfg, m, g, fix.Job.ID, NativeAction{Operation: "publish-pr", RequestID: "fix-pr", Title: "Fixed implementation", Body: "Public fix summary", Artifact: artifact}); err != nil {
-		t.Fatal("fix publication", err)
+	transport.stalePRHead = transport.head
+	fixAction := NativeAction{Operation: "publish-pr", RequestID: "fix-pr", Title: "Fixed implementation", Body: "Public fix summary", Artifact: artifact}
+	if _, err := RunNativeAction(ctx, cfg, m, g, fix.Job.ID, fixAction); !errors.Is(err, c.ErrUnavailable) {
+		t.Fatal("post-push stale head must be retryable", err)
+	}
+	models[fix.Job.ID].running = false
+	if _, err := runs[fix.Job.ID].advance(ctx, &fix); err != nil || !nativeTerminalCheckpoint(fix) {
+		t.Fatal("missing recoverable publication checkpoint", err)
+	}
+	// Restart the dispatcher with a delivery hold, not an admission pause. The
+	// original intent must finish without another push or another model turn.
+	recovery, err := NewNativeDispatcher(cfg, m, g, models[fix.Job.ID], NewCheckouts(cfg, transport), RealClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRecovery := len(transport.writes)
+	transport.stalePRHead = strings.Repeat("f", 40)
+	if _, err = recovery.reconcileNativeAction(ctx, &fix); !errors.Is(err, c.ErrConflict) || len(transport.writes) != beforeRecovery {
+		t.Fatal("foreign post-push head was not refused", err)
+	}
+	transport.stalePRHead = ""
+	if _, err = recovery.reconcileNativeAction(ctx, &fix); err != nil {
+		t.Fatal("automatic publication recovery", err)
+	}
+	if done, err := recovery.reconcileNativeAction(ctx, &fix); err != nil || !done || models[fix.Job.ID].calls != 1 {
+		t.Fatal("publication recovery did not complete original turn", err)
+	}
+	for _, write := range transport.writes[beforeRecovery:] {
+		if write == "push" || strings.Contains(write, "/merge") {
+			t.Fatal("recovery repeated push or merged under delivery hold")
+		}
 	}
 	transport.localHead = ""
-	finish(fix)
 	// A base update is ordinary author work even without a review request.
 	// Publication must prove it actually includes the pinned base commit.
 	transport.baseSHA, transport.mergeState = strings.Repeat("d", 40), "BEHIND"
@@ -512,7 +549,24 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 			t.Fatal("private evidence leaked to public GitHub")
 		}
 	}
+	// All preceding stages ran with the delivery hold. Even a fully cleared PR
+	// cannot be selected for delivery until the operator removes that hold.
+	catalog, err := g.NativeSnapshot(ctx, cfg, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Name, cfg.Self = cfg.Team.Members[1].Name, cfg.Team.Members[1].Actor
+	if candidates := NativeCandidates(cfg, catalog, nil, time.Now()); len(candidates) != 0 {
+		t.Fatal("delivery admitted while held", candidates)
+	}
+	cfg.DeliveryHold = false
 	delivery := stage(1, "author", "deliver")
+	cfg.DeliveryHold = true
+	beforeHeld := len(transport.writes)
+	if _, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err == nil || len(transport.writes) != beforeHeld {
+		t.Fatal("direct delivery bypassed hold", err)
+	}
+	cfg.DeliveryHold = false
 	transport.autoCloseIssue = true
 	// Reproduce a pre-effect helper failure followed by a terminal model turn.
 	action := NativeAction{Operation: "deliver", RequestID: "delivery"}

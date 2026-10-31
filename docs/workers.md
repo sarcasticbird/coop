@@ -527,6 +527,16 @@ Manual replies and compaction summaries do not establish the worker's executed
 identity. Native metadata is not independent verification of the upstream
 provider's effective reasoning effort or billing behavior.
 
+## Autonomous work before merge
+
+For autonomous work that must stop before merge, set `"delivery_hold": true`
+in the v3 worker configuration and restart the worker service. This excludes
+delivery jobs and refuses delivery actions while allowing implementation,
+fixes, publication recovery, peer review and QA. Worker status reports the hold.
+Use the general admission pause only when all new work and recovery should
+wait; it is not a stop-before-merge switch. Remove the delivery hold explicitly
+when delivery is authorized.
+
 ## Container tool environment
 
 Worker commands use the core tools materialized at image build time, followed

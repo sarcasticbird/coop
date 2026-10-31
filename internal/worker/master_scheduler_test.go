@@ -62,6 +62,7 @@ func TestMasterConversationFairness(t *testing.T) {
 
 func TestMasterStatusReportsAdmissionHold(t *testing.T) {
 	cfg, m, _, _, _, _, code := commsFixture(t)
+	cfg.DeliveryHold = true
 	store := NewVersionedFileStore(cfg.StateDir, 3)
 	e := &Engine{Config: cfg, Store: store, OpenCode: code, MasterRuntime: &MasterRuntime{Comms: m, Engineering: &admittedEngineering{}}}
 	for _, hold := range []struct{ hard, admission bool }{{false, true}, {true, false}, {true, true}, {false, false}} {
@@ -79,7 +80,7 @@ func TestMasterStatusReportsAdmissionHold(t *testing.T) {
 			t.Fatal(err)
 		}
 		paused := hold.hard || hold.admission
-		if !status.AdmissionPauseSupported || status.AdmissionPaused != hold.admission || status.Paused != paused || (status.State == "paused") != paused {
+		if !status.DeliveryHold || !status.AdmissionPauseSupported || status.AdmissionPaused != hold.admission || status.Paused != paused || (status.State == "paused") != paused {
 			t.Fatalf("hold %+v reported inconsistently: %+v", hold, status)
 		}
 	}
