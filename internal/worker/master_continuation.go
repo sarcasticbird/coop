@@ -77,7 +77,7 @@ func (r *MasterRuntime) tickContinuation(ctx context.Context) (bool, error) {
 			return true, nil
 		}
 	}
-	turns, err := masterTurns(m.Config)
+	turns, err := m.pendingTurns()
 	if err != nil {
 		return false, err
 	}

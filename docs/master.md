@@ -94,6 +94,17 @@ Empty recipients record a note without waking watchers. Explicit handoffs have n
 hop limit; idempotent requests and bounded pending queues remain enforced.
 Historical suppressed receipts retain their original meaning and are not replayed.
 
+Workers keep rebuildable pending inbox/outbox indexes under `master/v1/indexes`.
+They validate canonical history and reconstruct the indexes on startup. New work
+is indexed before its canonical record is committed; settled work is removed
+only after its terminal record or publication receipt is durable. A stale hint
+cannot reopen terminal work. Canonical inbox, outbox and recovery records remain
+available for idempotency, explicit recovery and rollback; idle ticks do not
+reread settled history. Offline recovery requires the worker to be stopped, so
+the next startup rebuilds against the accepted evidence. Native actions wait up
+to five seconds for a busy producer lock before returning a contention error;
+they recheck authority after acquiring it and honor caller cancellation.
+
 `coop --agent NAME ping --prompt "Your question"` uses the master only when that
 private agent profile explicitly selects `communication.backend = "master"`
 with its client configuration, stable agent ID and engagement. It queues while a

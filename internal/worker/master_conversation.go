@@ -30,6 +30,7 @@ type MasterComms struct {
 	Clock                               Clock
 	connection                          masterConnectionState
 	lastHeartbeat                       time.Time
+	inboxIndexed, outboxIndexed         bool
 	Busy, Paused, Recovery              bool
 	EngineeringState, EngineeringReason string
 }
@@ -157,7 +158,7 @@ func (m *MasterComms) Tick(ctx context.Context) error {
 	return m.FlushOutbox(ctx)
 }
 func (m *MasterComms) Active() (*MasterTurn, error) {
-	records, err := masterTurns(m.Config)
+	records, err := m.pendingTurns()
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +192,7 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 	if active, err := m.Active(); err != nil || active != nil {
 		return active, err
 	}
-	records, err := masterTurns(m.Config)
+	records, err := m.pendingTurns()
 	if err != nil {
 		return nil, err
 	}

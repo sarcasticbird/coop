@@ -94,6 +94,13 @@ func TestFlushOutboxRetainedHistoryCost(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("retained=220 accepted_bytes=%d flush_producer_hold=%s", size, time.Since(started))
+	started = time.Now()
+	for range 100 {
+		if err := m.FlushOutbox(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("indexed_idle_flush_mean=%s", time.Since(started)/100)
 }
 
 type gatedHistoryReply struct {
@@ -133,6 +140,8 @@ func TestQueueMasterReplyDuringFlushWithRetainedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := retainedOutboxHistory(t, cfg, 220)
+	// Seeded historical files represent a cold start, not live producer writes.
+	comms.outboxIndexed = false
 	// This synthetic pending record sorts first. Its transport barrier ensures
 	// the reply is queued while flushing owns the producer, before history work.
 	id := strings.Repeat("0", 64)
@@ -178,11 +187,12 @@ func TestQueueMasterReplyDuringFlushWithRetainedHistory(t *testing.T) {
 	if err = QueueMasterReply(cfg, turn.Delivery.ID, "Conflicting answer."); !errors.Is(err, c.ErrConflict) {
 		t.Fatalf("immutable reply changed: %v", err)
 	}
-	// A later flush must re-read evidence, not reuse a process-wide cache.
+	// Restart rebuilds the derived pending index from fresh recovery evidence.
 	if err = atomicPrivate(filepath.Join(masterDir(cfg), "recovery", "accepted.json"), []byte(`{"Version":99}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err = comms.FlushOutbox(ctx); !errors.Is(err, c.ErrConflict) {
+	restarted := &MasterComms{Config: cfg, Client: comms.Client, connection: comms.connection}
+	if err = restarted.FlushOutbox(ctx); !errors.Is(err, c.ErrConflict) {
 		t.Fatalf("changed recovery evidence ignored: %v", err)
 	}
 }

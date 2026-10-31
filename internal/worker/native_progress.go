@@ -201,7 +201,7 @@ func (m *MasterComms) pendingStall(now time.Time) (string, error) {
 	if m.Busy || m.Paused || m.Recovery {
 		return "", nil
 	}
-	records, err := masterTurns(m.Config)
+	records, err := m.pendingTurns()
 	if err != nil {
 		return "", err
 	}

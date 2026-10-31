@@ -65,7 +65,21 @@ func saveMasterTurn(cfg Config, in *MasterTurn) error {
 	if err != nil || len(raw) > 256<<10 {
 		return errors.New("master inbox record too large")
 	}
-	return atomicPrivate(masterRecordPath(cfg, in.Delivery.ID), raw)
+	key := BodyHash(in.Delivery.ID) + ".json"
+	// Publish the hint first so a crash cannot hide a newly admitted turn.
+	// Scheduling prunes an orphan hint if the initial canonical write failed.
+	if !terminalMasterTurn(*in) {
+		if err := markMasterPending(cfg, "inbox", key, in.Delivery.ID); err != nil {
+			return err
+		}
+	}
+	if err := atomicPrivate(masterRecordPath(cfg, in.Delivery.ID), raw); err != nil {
+		return err
+	}
+	if terminalMasterTurn(*in) {
+		return unmarkMasterPending(cfg, "inbox", key)
+	}
+	return nil
 }
 func masterTurns(cfg Config) ([]MasterTurn, error) {
 	entries, err := os.ReadDir(filepath.Join(masterDir(cfg), "inbox"))
@@ -98,6 +112,11 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		}
 		out = append(out, item)
 	}
+	sortMasterTurns(out)
+	return out, nil
+}
+
+func sortMasterTurns(out []MasterTurn) {
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if (a.Message.AuthorKind == "owner") != (b.Message.AuthorKind == "owner") {
@@ -105,5 +124,4 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		}
 		return a.Message.Sequence < b.Message.Sequence
 	})
-	return out, nil
 }

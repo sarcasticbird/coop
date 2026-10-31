@@ -41,9 +41,10 @@ The following is the target policy; automatic compaction is not yet implemented.
 
 - Keep task outcomes, decisions and useful evidence in Kata. Close completed
   tasks; do not create additional recap threads or a parallel commitment ledger.
-- Schedule from an active-work index. Completed history must not be scanned on
-  each heartbeat. Recovery evidence may be loaded once per locked operation,
-  never once for each historical inbox record.
+- Inbox scheduling and outbox flushing use rebuildable pending-work indexes.
+  Startup validates canonical history once; steady-state scans read pending work.
+  Recovery evidence is loaded once per locked operation, never once for each
+  historical inbox record.
 - After terminal delivery acknowledgement and settled external mutations,
   compact execution bodies out of the active store. Preserve a small durable
   identity/tombstone record so retries cannot replay a completed action.
@@ -59,9 +60,12 @@ The following is the target policy; automatic compaction is not yet implemented.
 
 ## Current implementation boundary
 
-The staged messaging changes make agent replies quiet and remove hop suppression
+The messaging changes make agent replies quiet and remove hop suppression
 from explicit handoffs. Blocker notices can address another agent. Recovery
 views are reused within an operation to avoid repeated manifest decoding.
-The worker still scans historical inbox records: this optimization is not active
-indexing or automatic retention. Fleet reset, staffing changes and deployment
-remain cutover work until verified on the running system.
+Pending inbox/outbox indexes remove settled history from steady-state scheduling
+and flushing. Canonical records remain available for idempotency and full recovery
+inventory; automatic archival/expiry is not implemented. Native actions wait up
+to five seconds for transient producer contention, honoring cancellation and
+revalidating authority after obtaining the lock. These runtime fixes require
+live idle-CPU and publication acceptance before full-fleet operation.
