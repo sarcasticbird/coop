@@ -309,6 +309,7 @@ func TestMasterMigrationRetriesBeforeBackupPublication(t *testing.T) {
 
 func TestInitializeMasterStateUsesPinnedInstance(t *testing.T) {
 	cfg, _, _ := masterMigrationFixture(t)
+	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
 	cfg.StateDir = filepath.Join(t.TempDir(), "fresh")
 	id, err := InitializeTeamState(cfg)
 	if err != nil {
@@ -316,6 +317,9 @@ func TestInitializeMasterStateUsesPinnedInstance(t *testing.T) {
 	}
 	if id != cfg.Master.InstanceID {
 		t.Fatal("initialization replaced pinned instance")
+	}
+	if cfg.TaskSource == nil || cfg.TaskSource.ProjectUID != providerProject {
+		t.Fatal("initialization changed task source")
 	}
 	if _, err = NewVersionedFileStore(cfg.StateDir, 3).Load(); err != nil {
 		t.Fatal(err)

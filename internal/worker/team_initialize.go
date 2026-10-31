@@ -41,6 +41,7 @@ func InitializeTeamState(c Config) (string, error) {
 		legacy := c
 		legacy.Version = 2
 		legacy.Master = nil
+		legacy.TaskSource = nil
 		id, err := initializeTeamState(legacy, c.Master.InstanceID)
 		if err != nil {
 			return "", err

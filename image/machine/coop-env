@@ -16,4 +16,6 @@ if [[ -L "$root/current-credentials" ]]; then
     export "$name=$value"
   done < "$lease/env.list"
 fi
-exec flox activate --dir /opt/coop-core -- /usr/local/bin/coop-user-env -- "$@"
+# Core tools are materialized when the image is built. Starting a command must
+# not resolve or activate an environment (or require catalog authentication).
+exec /usr/local/bin/coop-user-env -- "$@"
