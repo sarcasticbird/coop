@@ -91,6 +91,7 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 	}
 	r := e.MasterRuntime
 	m := r.Comms
+	var admission bool
 	if r.diagnostics == nil {
 		r.diagnostics = newDiagnosticBuilder(m.Clock.Now())
 	}
@@ -106,7 +107,7 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 			if m.Paused {
 				state = "paused"
 			}
-			status := Status{Name: e.Config.Name, Enabled: true, Actor: e.Config.Self, State: state, WakeEnabled: true, Heartbeat: m.Clock.Now()}
+			status := Status{Name: e.Config.Name, Enabled: true, Actor: e.Config.Self, State: state, WakeEnabled: true, Heartbeat: m.Clock.Now(), Paused: m.Paused, AdmissionPauseSupported: true, AdmissionPaused: admission}
 			if progress, ok := r.Engineering.(interface{ Progress() NativeProgress }); ok {
 				p := progress.Progress()
 				status.Native = &p
@@ -158,7 +159,7 @@ func (e *Engine) tickMaster(ctx context.Context) (result error) {
 	if err != nil {
 		return err
 	}
-	admission, err := e.admissionPaused()
+	admission, err = e.admissionPaused()
 	if err != nil {
 		return err
 	}

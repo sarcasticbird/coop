@@ -527,27 +527,18 @@ Manual replies and compaction summaries do not establish the worker's executed
 identity. Native metadata is not independent verification of the upstream
 provider's effective reasoning effort or billing behavior.
 
-## Existing guest Flox migration
+## Container tool environment
 
-Existing VMs can retain an older Flox that cannot parse current project manifests.
-`scripts/upgrade-agent-flox.sh NAME stage|apply|rollback` stages pinned Flox 1.18.1
-in `/opt/coop-flox-upgrade` using its official immutable Nix flake. Stage checks
-core tools in a separate environment copy and runs the real `to` test/build
-commands in an isolated validation checkout. The pinned source reports version
-`1.18.1-gf264cf2`. These root guest images use single-user Nix without a `nixbld`
-group; the migration scopes that setting to its invocations and guest bootstrap.
-Apply preserves the verified guest bootstrap, prepends the candidate
-to its PATH, verifies effective resolution and restores the prior bootstrap on
-failure. Rollback restores the before-copy after checking both revisions.
-Apply requires a maintenance window with the old core activations stopped;
-Flox refuses mixed-version activation of the same environment. Stage leaves
-those activations running and never applies the new bootstrap implicitly.
+Worker commands use the core tools materialized at image build time, followed
+by configured tools and system fallbacks. The guest launcher does not activate
+Flox or contact its catalog. Flox is optional inside a Coop: missing project
+Flox metadata or catalog authentication is not itself a work blocker.
 
-The script leaves the default Nix profile, Nix daemon and repository image assets
-unchanged. It requires explicit operation on a running named VM. Keep the staged
-closure, checksum/version evidence and cold backup until live acceptance passes.
-For future VMs, perform this onboarding before enabling worker services; this
-delivery deliberately preserves the existing image fingerprint.
+Use supported project tool versions and record the actual commands, versions,
+source revision and test results. Add a project environment only when the
+project needs it, not to satisfy a Coop requirement. Local host development can
+continue to use Flox. Image construction still resolves the pinned core tools
+through Flox; this is separate from starting worker commands.
 
 ## Prompt size failures
 

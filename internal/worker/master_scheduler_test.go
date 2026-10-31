@@ -59,3 +59,28 @@ func TestMasterConversationFairness(t *testing.T) {
 		t.Fatal("conversation did not resume after engineering service")
 	}
 }
+
+func TestMasterStatusReportsAdmissionHold(t *testing.T) {
+	cfg, m, _, _, _, _, code := commsFixture(t)
+	store := NewVersionedFileStore(cfg.StateDir, 3)
+	e := &Engine{Config: cfg, Store: store, OpenCode: code, MasterRuntime: &MasterRuntime{Comms: m, Engineering: &admittedEngineering{}}}
+	for _, hold := range []struct{ hard, admission bool }{{false, true}, {true, false}, {true, true}, {false, false}} {
+		if err := store.SetPaused(hold.hard); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SetAdmissionPaused(hold.admission); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		status, err := ReadStatus(cfg.StateDir, m.Clock.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		paused := hold.hard || hold.admission
+		if !status.AdmissionPauseSupported || status.AdmissionPaused != hold.admission || status.Paused != paused || (status.State == "paused") != paused {
+			t.Fatalf("hold %+v reported inconsistently: %+v", hold, status)
+		}
+	}
+}
