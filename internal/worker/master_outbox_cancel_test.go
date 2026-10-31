@@ -71,6 +71,12 @@ func TestCanceledDurableReplyDoesNotBlockLaterConversation(t *testing.T) {
 	}
 
 	original := comms.Client
+	// Settled cancellation leaves the hot index. A restarted worker must still
+	// validate the preserved canonical reply against fresh cancellation proof.
+	coldFlush := func(client MasterTransport) error {
+		restarted := &MasterComms{Config: cfg, Client: client, connection: comms.connection}
+		return restarted.FlushOutbox(ctx)
+	}
 	for _, test := range []struct {
 		name   string
 		change func(*c.MessageReceipt)
@@ -87,14 +93,13 @@ func TestCanceledDurableReplyDoesNotBlockLaterConversation(t *testing.T) {
 		{name: "unavailable", err: c.ErrUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			comms.Client = cancellationProofTransport{MasterTransport: original, change: test.change, err: test.err}
-			if err := comms.FlushOutbox(ctx); !errors.Is(err, c.ErrConflict) {
+			client := cancellationProofTransport{MasterTransport: original, change: test.change, err: test.err}
+			if err := coldFlush(client); !errors.Is(err, c.ErrConflict) {
 				t.Fatalf("unverified cancellation bypassed publication failure: %v", err)
 			}
 		})
 	}
-	comms.Client = cancellationProofTransport{MasterTransport: original, publishErr: c.ErrUnavailable}
-	if err = comms.FlushOutbox(ctx); !errors.Is(err, c.ErrUnavailable) {
+	if err = coldFlush(cancellationProofTransport{MasterTransport: original, publishErr: c.ErrUnavailable}); !errors.Is(err, c.ErrUnavailable) {
 		t.Fatal("transport failure was mistaken for cancellation", err)
 	}
 	comms.Client = original
@@ -102,7 +107,7 @@ func TestCanceledDurableReplyDoesNotBlockLaterConversation(t *testing.T) {
 	if err = saveMasterTurn(cfg, &resolved); err != nil {
 		t.Fatal(err)
 	}
-	if err = comms.FlushOutbox(ctx); !errors.Is(err, c.ErrConflict) {
+	if err = coldFlush(original); !errors.Is(err, c.ErrConflict) {
 		t.Fatal("master cancellation bypassed incomplete local recovery", err)
 	}
 	resolved.Phase = "cancelled"

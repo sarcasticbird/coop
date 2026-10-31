@@ -77,15 +77,16 @@ func (r *MasterRuntime) tickContinuation(ctx context.Context) (bool, error) {
 			return true, nil
 		}
 	}
-	turns, err := masterTurns(m.Config)
+	turns, err := m.pendingTurns()
 	if err != nil {
 		return false, err
 	}
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, turn := range turns {
 		if turn.Message.Continuation == nil || turn.Phase == "completed" || turn.Phase == "cancelled" {
 			continue
 		}
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return false, e
 		}

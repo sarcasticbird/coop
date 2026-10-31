@@ -154,7 +154,11 @@ func nativeReleaseTarget(ctx context.Context, cfg Config, m NativeEngineeringMas
 		if e != nil {
 			return empty, e
 		}
-		if _, clear := nativeQAState(t.Binding, a, p, map[string]c.Message{report.ID: report}); !clear {
+		handoffs, e := nativeQAHandoffs(ctx, m, a)
+		if e != nil {
+			return empty, e
+		}
+		if _, clear := nativeQAState(t.Binding, a, p, map[string]c.Message{report.ID: report}, handoffs...); !clear {
 			return empty, c.ErrForbidden
 		}
 	}

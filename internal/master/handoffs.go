@@ -31,6 +31,10 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if !planner(p) || in.Kind == "release" && p.Kind != "owner" {
 		return out, c.ErrForbidden
 	}
+	environmentDecision := in.Kind == "reassess-qa" && in.Environment != ""
+	if environmentDecision && p.Kind != "owner" {
+		return out, c.ErrForbidden
+	}
 	if (in.Kind == "reassess-qa" || in.Kind == "first-postmerge-qa") && !a.Revision.Proposal.QA.Required {
 		return out, c.ErrForbidden
 	}
@@ -76,12 +80,15 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if evidence.ThreadID != a.Revision.Proposal.ThreadID && evidence.ThreadID != a.Revision.Proposal.QA.EvidenceDestination.ThreadID || evidence.AuthorKind != "owner" && evidence.AuthorID != a.Actors.QA.PrincipalID {
 		return out, c.ErrForbidden
 	}
+	if environmentDecision && evidence.AuthorKind != "owner" {
+		return out, c.ErrForbidden
+	}
 	tx, err := svc.Store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return out, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if in.Kind == "release" {
+	if in.Kind == "release" || environmentDecision {
 		current, e := authorize(ctx, tx, p, "decide")
 		if e != nil || current.Kind != "owner" {
 			return out, c.ErrForbidden
@@ -125,7 +132,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 			return out, c.ErrConflict
 		}
 	}
-	out = c.Handoff{ID: newID("ho"), Input: in, ActorID: p.ID, CreatedAt: svc.Store.now().UTC()}
+	out = c.Handoff{ID: newID("ho"), Input: in, ActorID: p.ID, ActorKind: p.Kind, CreatedAt: svc.Store.now().UTC()}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO handoffs(id,goal_id,revision,release_key,body) VALUES(?,?,?,?,?)", out.ID, in.Goal.GoalID, in.Goal.RevisionSHA256, releaseKey, encode(out)); err != nil {
 		return out, err
 	}

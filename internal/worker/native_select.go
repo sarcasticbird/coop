@@ -36,12 +36,13 @@ type NativeExecution struct {
 	PausedDecisionSequence      int64
 }
 type NativeCandidate struct {
-	Handoff     *c.Handoff
-	Job         Job
-	Goal        c.GoalAuthority
-	Task        *NativeTask
-	PR          *PR
-	RebindTasks []string
+	QAEnvironment *nativeQAEnvironment
+	Handoff       *c.Handoff
+	Job           Job
+	Goal          c.GoalAuthority
+	Task          *NativeTask
+	PR            *PR
+	RebindTasks   []string
 }
 
 const nativeBranchRefreshPrefix = "branch-refresh:"
@@ -104,7 +105,7 @@ func nativePeerCleared(b NativeTaskBinding, p PR) (Review, bool) {
 	valid := p.ReviewsComplete && !nativeContributor(p, b.PeerID) && r.ID != "" && r.Author.Kind == "Bot" && r.HeadSHA == p.HeadSHA && r.SubmittedAt.After(p.ScopeUpdatedAt) && nativeMetadata(r.Body, "review", &meta) == nil && meta.Version == 3 && meta.Goal == b.Goal && meta.TaskURL == b.TaskURL && meta.AssignmentSHA == NativeAssignmentSHA(b) && meta.HeadSHA == p.HeadSHA && meta.PRScopeRevision == p.ScopeRevision
 	return r, valid && r.State == "APPROVED" && meta.Verdict == "approved"
 }
-func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, reports map[string]c.Message) (Review, bool) {
+func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, reports map[string]c.Message, handoffs ...c.Handoff) (Review, bool) {
 	r := nativeLatestReview(p, b.QAID)
 	if p.QAArtifact == nil || !p.ReviewsComplete || nativeContributor(p, b.QAID) || !r.SubmittedAt.After(p.ScopeUpdatedAt) {
 		return r, false
@@ -120,10 +121,22 @@ func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, reports map[str
 	if qa.PRScopeRevision != p.ScopeRevision || qa.HeadSHA != p.HeadSHA || qa.ArtifactSHA != p.QAArtifact.SHA256 || qa.AcceptanceSHA != NativeAcceptanceSHA(a) || qa.Verdict != "approved" {
 		return r, false
 	}
-	return r, ValidateNativeQA(b, a, r, report, qa) == nil
+	resolved, err := nativeQAResultAuthority(b, a, p, qa, handoffs)
+	if err != nil {
+		return r, false
+	}
+	if h := nativeQAEnvironmentHandoff(qa, handoffs); h != nil && !r.SubmittedAt.After(h.CreatedAt) {
+		return r, false
+	}
+	// The actual metadata was parsed above. Reuse the independent actor and
+	// evidence checks with the resolved authority, not the historical default.
+	qa.Assessment, qa.HandoffID = "", ""
+	validated := r
+	validated.Body = NativeQAMetadata(qa)
+	return r, ValidateNativeQA(b, resolved, validated, report, qa) == nil
 }
 
-func nativeChangesRequested(kind string, b NativeTaskBinding, a c.GoalAuthority, p PR, r Review) bool {
+func nativeChangesRequested(kind string, b NativeTaskBinding, a c.GoalAuthority, p PR, r Review, handoffs ...c.Handoff) bool {
 	if r.State != "CHANGES_REQUESTED" || r.HeadSHA != p.HeadSHA || !r.SubmittedAt.After(p.ScopeUpdatedAt) {
 		return false
 	}
@@ -132,7 +145,14 @@ func nativeChangesRequested(kind string, b NativeTaskBinding, a c.GoalAuthority,
 		return nativeMetadata(r.Body, "review", &meta) == nil && meta.Version == 3 && meta.Goal == b.Goal && meta.TaskURL == b.TaskURL && meta.AssignmentSHA == NativeAssignmentSHA(b) && meta.HeadSHA == p.HeadSHA && meta.PRScopeRevision == p.ScopeRevision && meta.Verdict == "changes-needed"
 	}
 	var meta NativeQAResult
-	return p.QAArtifact != nil && nativeMetadata(r.Body, "qa", &meta) == nil && meta.Version == 3 && meta.Goal == b.Goal && meta.TaskURL == b.TaskURL && meta.AssignmentSHA == NativeAssignmentSHA(b) && meta.HeadSHA == p.HeadSHA && meta.PRScopeRevision == p.ScopeRevision && meta.ArtifactSHA == p.QAArtifact.SHA256 && meta.AcceptanceSHA == NativeAcceptanceSHA(a) && meta.Environment == a.Revision.Proposal.QA.Environment && meta.EnvironmentRevision == a.Revision.Proposal.QA.EnvironmentRevision && meta.Verdict == "changes-needed"
+	if nativeMetadata(r.Body, "qa", &meta) != nil || !nativeQAScope(b, a, p, meta) || meta.Verdict != "changes-needed" {
+		return false
+	}
+	resolved, err := nativeQAResultAuthority(b, a, p, meta, handoffs)
+	if h := nativeQAEnvironmentHandoff(meta, handoffs); h != nil && !r.SubmittedAt.After(h.CreatedAt) {
+		return false
+	}
+	return err == nil && meta.Environment == resolved.Revision.Proposal.QA.Environment && meta.EnvironmentRevision == resolved.Revision.Proposal.QA.EnvironmentRevision
 }
 
 // NativeCandidates consumes only a complete catalog of v3 artifacts. It never
@@ -290,7 +310,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		peer, cleared := nativePeerCleared(t.Binding, p)
 		qa, qaCleared := Review{}, !a.Revision.Proposal.QA.Required
 		if a.Revision.Proposal.QA.Required {
-			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Reports)
+			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Reports, catalog.Handoffs...)
 		}
 		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
 			if nativeChangesRequested("review", t.Binding, a, p, peer) {
@@ -336,7 +356,11 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		}
 		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
 			handoff := qaReassessment(catalog, t, a, p, qa)
-			if nativeChangesRequested("qa", t.Binding, a, p, qa) && handoff == nil {
+			if nativeChangesRequested("qa", t.Binding, a, p, qa, catalog.Handoffs...) && handoff == nil {
+				continue
+			}
+			env, err := resolveNativeQAEnvironment(t.Binding, a, p, handoff, catalog.Handoffs)
+			if err != nil {
 				continue
 			}
 			revision := p.ScopeRevision + ":" + p.QAArtifact.SHA256 + ":" + NativeAcceptanceSHA(a)
@@ -350,6 +374,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			add("qa", a, &t, &p, revision)
 			if len(out) > before {
 				out[len(out)-1].Handoff = handoff
+				out[len(out)-1].QAEnvironment = &env
 			}
 		}
 	}

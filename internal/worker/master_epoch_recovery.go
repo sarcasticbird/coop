@@ -31,9 +31,9 @@ func recoverySnapshotPath(cfg Config, epoch int64) string {
 }
 func jsonNumberEpoch(epoch int64) string { b, _ := json.Marshal(epoch); return string(b) }
 
-// A view is local to one producer-locked operation. Recovery and placement
-// writers own that same lock, so evidence cannot change during its lifetime.
-// Never retain a view across lock releases or worker ticks.
+// A view is local to one operation. The caller holds the worker or producer
+// lock; recovery and placement writers require both, so evidence cannot change
+// during that operation. Never retain a view across lock releases or ticks.
 type masterRecoveryView struct {
 	cfg            Config
 	adoption       masterPlacementAdoption
@@ -95,11 +95,15 @@ func (view *masterRecoveryView) retired(kind, key string, raw []byte) (bool, err
 	return false, nil
 }
 func retiredTurn(cfg Config, turn MasterTurn) (bool, error) {
+	return (&masterRecoveryView{cfg: cfg}).retiredTurn(turn)
+}
+
+func (view *masterRecoveryView) retiredTurn(turn MasterTurn) (bool, error) {
 	b, e := json.Marshal(turn)
 	if e != nil {
 		return false, e
 	}
-	return recoveryRetired(cfg, "inbox", BodyHash(turn.Delivery.ID)+".json", b)
+	return view.retired("inbox", BodyHash(turn.Delivery.ID)+".json", b)
 }
 func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.RecoveryEvidence, string, error) {
 	out := []c.RecoveryEvidence{}

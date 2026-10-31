@@ -871,6 +871,10 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	}
 	if v.Handoff != nil && v.Handoff.Input.Kind == "reassess-qa" {
 		prompt += "\nThis is a new bounded QA reassessment, not a replay or clearance. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + " and reconcile it with previous QA review " + v.Handoff.Input.ReviewID + ". Preserve previous evidence and limitations. Independently reassess the same exact artifact and submit a new supported QA verdict. Do not change source or invent device results."
+		if v.QAEnvironment == nil {
+			return "", c.ErrForbidden
+		}
+		prompt += "\nResolved QA environment: " + v.QAEnvironment.Name + "\nResolved environment revision: " + v.QAEnvironment.Revision + "\nEnvironment authority is this exact-artifact handoff (including inherited prior reassessment authority). The helper records this resolved environment and handoff ID; the original goal and prior results remain historical evidence."
 	}
 	if nativeIsPostMergeQA(v.Job) && v.Handoff != nil {
 		prompt += "\nThis is the first postmerge QA assessment of the exact merged artifact, not a premerge clearance, reassessment, release authorization or release/install verification. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + ". Preserve the completed task state and historical lack of premerge QA. Independently assess the bound artifact in environment " + v.Handoff.Input.Environment + " at revision " + v.Handoff.Input.EnvironmentRevision + ". Report supported findings and limitations through the normal QA action. Do not change source, reopen the task, merge, publish or invent device results."

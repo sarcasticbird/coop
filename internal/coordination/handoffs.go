@@ -27,6 +27,7 @@ type Handoff struct {
 	ID        string       `json:"id"`
 	Input     HandoffInput `json:"input"`
 	ActorID   string       `json:"actor_id"`
+	ActorKind string       `json:"actor_kind,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
 }
 type HandoffQuery struct {
@@ -62,6 +63,11 @@ func ValidateHandoff(in HandoffInput) error {
 	case "reassess-qa":
 		if !handoffID.MatchString(in.ReviewID) || in.Tag != "" || in.Workflow != "" {
 			return ErrInvalid
+		}
+		if in.Environment != "" || in.EnvironmentRevision != "" {
+			if strings.TrimSpace(in.Environment) == "" || len(in.Environment) > MaxText || strings.TrimSpace(in.EnvironmentRevision) == "" || len(in.EnvironmentRevision) > 256 || strings.ContainsAny(in.EnvironmentRevision, "\x00\r\n") {
+				return ErrInvalid
+			}
 		}
 	case "release":
 		if in.ReviewID != "" || !releaseTag.MatchString(in.Tag) || !releaseWorkflow.MatchString(in.Workflow) {

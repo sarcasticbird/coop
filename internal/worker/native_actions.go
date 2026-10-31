@@ -150,7 +150,9 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	if cfg.Version != 3 || cfg.Master == nil || cfg.Team == nil || in.RequestID == "" || len(in.RequestID) > 128 || len(in.Body) > c.MaxText || len(in.ReportBody) > c.MaxText {
 		return empty, c.ErrInvalid
 	}
-	release, err := lockNativeProducer(cfg)
+	// A periodic receipt flush may briefly own the shared producer. Wait before
+	// reading authority or preparing any effect; worker-side probes stay nonblocking.
+	release, err := waitMasterProducer(ctx, cfg)
 	if err != nil {
 		return empty, err
 	}
@@ -240,6 +242,8 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	var pr PR
 	postmerge := nativeIsPostMergeQA(x.Job)
 	var postmergeHandoff *c.Handoff
+	var qaEnvironment nativeQAEnvironment
+	var qaHandoff *c.Handoff
 	guard := func() error {
 		if kataTaskSource(cfg) {
 			if _, err := TaskProviderClient(ctx, cfg); err != nil {
@@ -337,6 +341,19 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				}
 			}
 		}
+		if in.Operation == "qa" {
+			if x.Binding == nil || x.Job.Kind != "qa" {
+				return c.ErrForbidden
+			}
+			if postmerge {
+				qaEnvironment, e = resolveNativeQAEnvironment(*x.Binding, a, pr, nil, nil)
+			} else {
+				qaEnvironment, qaHandoff, e = nativeJobQAEnvironment(ctx, m, x, a, pr)
+			}
+			if e != nil {
+				return e
+			}
+		}
 		if postmerge {
 			if in.Operation != "qa" || nativePostMergeQASourceSettled(cfg, x.Job) != nil {
 				return c.ErrForbidden
@@ -418,7 +435,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 						return err
 					}
 					reports[report.ID] = report
-					if _, ok := nativeQAState(task.Binding, a, pr, reports); !ok {
+					handoffs, err := nativeQAHandoffs(ctx, m, a)
+					if err != nil {
+						return err
+					}
+					if _, ok := nativeQAState(task.Binding, a, pr, reports, handoffs...); !ok {
 						return c.ErrForbidden
 					}
 				}
@@ -835,7 +856,10 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			if report.Imported || report.ID != record.Result.EvidenceMessageID || report.AuthorID != cfg.Master.AgentID || report.AuthorKind != "agent" || report.ThreadID != dest.ThreadID || BodyHash(report.Body) != record.Result.EvidenceBodySHA {
 				return empty, c.ErrForbidden
 			}
-			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: a.Revision.Proposal.QA.Environment, EnvironmentRevision: a.Revision.Proposal.QA.EnvironmentRevision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			if qaHandoff != nil {
+				qa.Assessment, qa.HandoffID = "reassessment", qaHandoff.ID
+			}
 			public = "Independent customer QA " + in.Verdict + " for this exact head. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
 			if postmerge {
 				qa.Assessment, qa.HandoffID = "first-postmerge", postmergeHandoff.ID

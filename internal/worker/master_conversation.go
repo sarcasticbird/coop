@@ -30,6 +30,7 @@ type MasterComms struct {
 	Clock                               Clock
 	connection                          masterConnectionState
 	lastHeartbeat                       time.Time
+	inboxIndexed, outboxIndexed         bool
 	Busy, Paused, Recovery              bool
 	EngineeringState, EngineeringReason string
 }
@@ -157,16 +158,17 @@ func (m *MasterComms) Tick(ctx context.Context) error {
 	return m.FlushOutbox(ctx)
 }
 func (m *MasterComms) Active() (*MasterTurn, error) {
-	records, err := masterTurns(m.Config)
+	records, err := m.pendingTurns()
 	if err != nil {
 		return nil, err
 	}
 	var active *MasterTurn
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, v := range records {
 		if v.Message.Continuation != nil {
 			continue
 		}
-		retired, e := retiredTurn(m.Config, v)
+		retired, e := recovery.retiredTurn(v)
 		if e != nil {
 			return nil, e
 		}
@@ -190,12 +192,13 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 	if active, err := m.Active(); err != nil || active != nil {
 		return active, err
 	}
-	records, err := masterTurns(m.Config)
+	records, err := m.pendingTurns()
 	if err != nil {
 		return nil, err
 	}
+	recovery := masterRecoveryView{cfg: m.Config}
 	for _, turn := range records {
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return nil, e
 		}
@@ -208,7 +211,7 @@ func (m *MasterComms) Next(ctx context.Context) (*MasterTurn, error) {
 		}
 	}
 	for _, turn := range records {
-		retired, e := retiredTurn(m.Config, turn)
+		retired, e := recovery.retiredTurn(turn)
 		if e != nil {
 			return nil, e
 		}
