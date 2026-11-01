@@ -190,6 +190,8 @@ forwarding SSH, mounting more host directories, or seeding sensitive data.
   review handoffs, controls and recovery
 - [Coop master](docs/master.md): private conversations, addressed messages and
   native owner goal decisions across hosts
+- [Retained delivery](docs/retained-delivery-activation.md): operator-only build,
+  exact authority, activation, recovery and rollback packet
 - [Security model](docs/security-model.md): trust boundaries and non-promises
 - [Release process](docs/release.md): contributor-only release procedure
 

@@ -105,6 +105,12 @@ func (c *TaskCheckouts) nativeFixHead(ctx context.Context, dir string, j Job, re
 
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	if c.config.Version == 3 {
+		if j.Kind == "tag-only" && !nativeTagOnlyJob(c.config, j) {
+			return j, errors.New("native tag-only requires exact Rook executor, delivery role and handoff")
+		}
+		if nativeRetainedGate(j.Kind) && !nativeRetainedGateJob(c.config, j) {
+			return j, errors.New("retained gate requires exact independent executor and handoff")
+		}
 		if j.Kind == "deliver" && !nativeDeliveryJob(c.config, j) {
 			return j, errors.New("native delivery requires exact Rook executor and delivery role")
 		}
@@ -294,7 +300,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if err != nil || strings.TrimSpace(string(branch)) != owner.Branch {
 			return j, errors.New("checkout branch changed")
 		}
-		if j.Kind == "qa" {
+		if j.Kind == "qa" || nativeRetainedGate(j.Kind) {
 			// This is a local guardrail; the QA App must also lack contents write.
 			const disabledPushURL = "/dev/null/coop-qa-push-disabled"
 			if created {
@@ -311,7 +317,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 				return j, errors.New("QA checkout effective push URL changed")
 			}
 		}
-		if j.Kind == "review" || j.Kind == "qa" {
+		if j.Kind == "review" || j.Kind == "qa" || nativeRetainedGate(j.Kind) {
 			repo, n, err := parseRef(j.PRURL)
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")

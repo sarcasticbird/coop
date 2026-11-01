@@ -99,7 +99,10 @@ func nativeJobHasResult(cfg Config, x NativeExecution) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	want := map[string]string{"plan": "complete-plan", "implement": "publish-pr", "fix": "publish-pr", "review": "review", "qa": "qa", "deliver": "deliver"}[x.Job.Kind]
+	want := map[string]string{"plan": "complete-plan", "implement": "publish-pr", "fix": "publish-pr", "review": "review", "qa": "qa", "deliver": "deliver", "tag-only": "tag-only"}[x.Job.Kind]
+	if nativeRetainedGate(x.Job.Kind) {
+		want = "delivery-readiness"
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -168,6 +171,9 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 // Caller owns the native producer lock. Automatic recovery runs in the worker;
 // offline recovery also owns the stopped worker lock.
 func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringMaster, g *GitHubClient, jobID string, in NativeAction) (NativeActionResult, error) {
+	if in.Operation == "tag-only" {
+		return runNativeTagOnlyActionLocked(ctx, cfg, m, g, jobID, in)
+	}
 	var empty NativeActionResult
 	x, err := loadNativeExecution(cfg, jobID)
 	if err != nil {
@@ -207,6 +213,12 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, errors.New("native job has an uncertain action; inspect remote evidence before explicit recovery")
 	}
 	if x.Phase != "active" {
+		return empty, c.ErrForbidden
+	}
+	if nativeRetainedGate(x.Job.Kind) && in.Operation != "delivery-readiness" {
+		return empty, c.ErrForbidden
+	}
+	if nativeRetainedGate(x.Job.Kind) && !nativeRetainedGateJob(cfg, x.Job) {
 		return empty, c.ErrForbidden
 	}
 	reader := NewGitHubClient(g.runner)
@@ -278,6 +290,24 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			return e
 		}
 		if x.Binding != nil {
+			if strings.HasPrefix(x.Job.InputRevision, "retained:") {
+				catalog, err := nativeValidationSnapshot(ctx, cfg, m, reader, x.Job)
+				if err != nil {
+					return err
+				}
+				ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &catalog)
+				if nativeRetainedGate(x.Job.Kind) {
+					matched := false
+					for _, candidate := range NativeCandidates(cfg, catalog, nil, time.Now().UTC()) {
+						if candidate.Job.ID == x.Job.ID && qaArtifactEqual(candidate.Job.QAArtifact, x.Job.QAArtifact) {
+							matched = true
+						}
+					}
+					if !matched {
+						return c.ErrForbidden
+					}
+				}
+			}
 			task, e = reader.ReadNativeTask(ctx, cfg, x.Job.TaskURL)
 			if e != nil {
 				return e
@@ -818,6 +848,46 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		if _, err = m.RegisterArtifact(ctx, c.ArtifactLink{Goal: x.Goal, Kind: "pull_request", URL: fresh.URL, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), RequestID: "native-pr-" + BodyHash(jobID+in.RequestID)}); err != nil {
 			return empty, err
 		}
+	case "delivery-readiness":
+		if !nativeRetainedGate(x.Job.Kind) || x.Binding == nil || (in.Verdict != "ready" && in.Verdict != "blocked") {
+			return empty, c.ErrForbidden
+		}
+		catalog, e := nativeValidationSnapshot(ctx, cfg, m, reader, x.Job)
+		if e != nil {
+			return empty, e
+		}
+		h := nativeRetainedHandoff(cfg, catalog, task, a, pr, "retained-gates")
+		if h == nil || h.ID != x.Job.Master.DeliveryHandoffID {
+			return empty, c.ErrForbidden
+		}
+		body, e := json.Marshal(c.RetainedGateReport{GateHandoffID: h.ID, AssignmentSHA: NativeAssignmentSHA(task.Binding), Binding: h.Input, Result: in.Verdict})
+		if e != nil {
+			return empty, e
+		}
+		if record.Result.EvidenceMessageID == "" {
+			if e = guard(); e != nil {
+				return empty, e
+			}
+			receipt, e := m.Send(ctx, c.SendMessage{ThreadID: a.Revision.Proposal.QA.EvidenceDestination.ThreadID, Body: string(body), RequestID: "native-retained-" + BodyHash(jobID+in.RequestID)})
+			if e != nil {
+				return empty, e
+			}
+			record.Result.EvidenceMessageID, record.Result.EvidenceBodySHA = receipt.MessageID, BodyHash(string(body))
+			if e = saveNativeAction(cfg, record); e != nil {
+				return empty, e
+			}
+		}
+		report, e := m.Message(ctx, record.Result.EvidenceMessageID)
+		if e != nil {
+			return empty, e
+		}
+		if report.ID != record.Result.EvidenceMessageID || report.Imported || report.AuthorKind != "agent" || report.AuthorID != cfg.Master.AgentID || report.ThreadID != a.Revision.Proposal.QA.EvidenceDestination.ThreadID || report.Body != string(body) || BodyHash(report.Body) != record.Result.EvidenceBodySHA {
+			return empty, c.ErrForbidden
+		}
+		if e = guard(); e != nil {
+			return empty, e
+		}
+		record.Result.URL = pr.URL
 	case "review", "qa":
 		if x.Binding == nil || x.Job.PRURL == "" || !postmerge && (pr.Merged || pr.Closed) || !pr.ReviewsComplete || !pr.ContributorsComplete || nativeContributor(pr, cfg.Self.ID) || cfg.Self.ID == task.Binding.AuthorID || (in.Verdict != "approved" && in.Verdict != "changes-needed") {
 			return empty, c.ErrForbidden
@@ -997,6 +1067,13 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 func nativeConfirmDelivery(ctx context.Context, cfg Config, m NativeMaster, g *GitHubClient, a c.GoalAuthority, x NativeExecution) error {
 	if err := nativeValidateDelivery(ctx, cfg, m, g, x); err != nil {
 		return err
+	}
+	if strings.HasPrefix(x.Job.InputRevision, "retained:") {
+		cat, err := nativeValidationSnapshot(ctx, cfg, m, g, x.Job)
+		if err != nil {
+			return err
+		}
+		ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &cat)
 	}
 	task, err := g.ReadNativeTask(ctx, cfg, x.Job.TaskURL)
 	if err != nil {

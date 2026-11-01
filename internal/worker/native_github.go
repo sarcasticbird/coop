@@ -93,7 +93,7 @@ func (g *GitHubClient) ReadNativeTask(ctx context.Context, cfg Config, ref strin
 	if b.TaskURL != ref || b.TaskScopeSHA != scope {
 		return out, ghError("native_task_scope_changed")
 	}
-	if err = validateNativeRoster(cfg, b); err != nil {
+	if err = nativeReadRoster(ctx, cfg, b); err != nil {
 		return out, err
 	}
 	if err = g.verifyTeamTaskSnapshot(ctx, repo, issue, originalComments); err != nil {
@@ -103,13 +103,23 @@ func (g *GitHubClient) ReadNativeTask(ctx context.Context, cfg Config, ref strin
 	out.Task = Task{URL: ref, Repo: repo, Title: issue.Title, Body: issue.Body, BodySHA: scope, MetadataScopeSHA: scope, MetadataAuthor: latest.Author, MetadataUpdatedAt: commentTime(*latest), Ready: issue.State == "open", Closed: issue.State == "closed", Completed: issue.State == "closed" && issue.StateReason == "completed", TrustedMetadataPresent: true, DependsOn: b.DependsOn}
 	return out, nil
 }
+
+var errNativeRosterPolicyChanged = errors.New("native roster policy changed")
+
 func validateNativeRoster(cfg Config, b NativeTaskBinding) error {
 	if cfg.Team == nil {
 		return errors.New("native team policy missing")
 	}
 	sha, err := TeamPolicySHA(*cfg.Team)
 	if err != nil || sha != b.PolicySHA {
-		return errors.New("native roster policy changed")
+		return errNativeRosterPolicyChanged
+	}
+	return validateNativeActorRoster(cfg, b)
+}
+
+func validateNativeActorRoster(cfg Config, b NativeTaskBinding) error {
+	if cfg.Team == nil {
+		return errors.New("native team policy missing")
 	}
 	var author, peer, qa TeamMember
 	for _, m := range cfg.Team.Members {

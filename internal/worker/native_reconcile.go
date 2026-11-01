@@ -90,7 +90,7 @@ func nativePreparedAction(r nativeActionRecord) bool {
 		return r.Step == "" || r.Step == "review-published"
 	case "deliver":
 		return r.Step == "" || r.Step == "merge" || r.Step == "task-completed"
-	case "complete-plan", "wait":
+	case "complete-plan", "wait", "delivery-readiness":
 		return r.Step == ""
 	}
 	return false

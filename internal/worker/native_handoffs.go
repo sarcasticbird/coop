@@ -123,6 +123,15 @@ func (m *taskSnapshotMaster) Handoffs(ctx context.Context, in c.HandoffQuery) (c
 	}
 	return c.HandoffPage{}, nil
 }
+
+func (m *taskSnapshotMaster) Thread(ctx context.Context, id string) (c.Thread, error) {
+	if source, ok := m.NativeMaster.(interface {
+		Thread(context.Context, string) (c.Thread, error)
+	}); ok {
+		return source.Thread(ctx, id)
+	}
+	return c.Thread{}, c.ErrUnsupported
+}
 func qaReassessment(cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR, r Review) *c.Handoff {
 	if !nativeChangesRequested("qa", t.Binding, a, p, r, cat.Handoffs...) {
 		return nil

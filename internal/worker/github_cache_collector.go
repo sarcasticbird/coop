@@ -262,6 +262,21 @@ func (g *GitHubCollector) round(ctx context.Context, route string) (result error
 	// Leave time inside the server's five-minute lease to publish/fail safely.
 	readDeadline := lease.ExpiresAt.Add(-15 * time.Second)
 	readCtx, cancel := context.WithDeadline(ctx, readDeadline)
+	if m, ok := g.client.(NativeMaster); ok {
+		authority, err := m.ResolveGoal(readCtx, lease.Object.Goal)
+		if err != nil {
+			cancel()
+			return fail(err)
+		}
+		cat := NativeCatalog{Goals: []c.GoalAuthority{authority}}
+		if err := loadCatalogHandoffs(readCtx, m, &cat); err != nil {
+			cancel()
+			return fail(err)
+		}
+		loadNativeRetainedEvidence(readCtx, g.config, m, &cat)
+		loadNativeTagOnlyBridgeEvidence(readCtx, g.config, m, &cat)
+		readCtx = context.WithValue(readCtx, nativeRetainedReadKey{}, &cat)
+	}
 	readCtx, traffic := withGitHubTraffic(readCtx)
 	started := time.Now()
 	stage = "observe"

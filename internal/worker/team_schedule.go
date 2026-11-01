@@ -16,7 +16,7 @@ type TeamScheduleState struct {
 }
 
 func handoffJob(j Job) bool {
-	return j.Kind == "review" || j.Kind == "fix" || j.Kind == "deliver" || j.Kind == "qa"
+	return j.Kind == "review" || j.Kind == "fix" || j.Kind == "deliver" || j.Kind == "tag-only" || j.Kind == "qa" || nativeRetainedGate(j.Kind)
 }
 
 func completedService(c ScheduleCounters, j Job) ScheduleCounters {

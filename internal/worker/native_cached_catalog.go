@@ -144,6 +144,9 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 	if err := loadCatalogHandoffs(ctx, m, &out); err != nil {
 		return out, err
 	}
+	loadNativeRetainedEvidence(ctx, cfg, m, &out)
+	loadNativeTagOnlyBridgeEvidence(ctx, cfg, m, &out)
+	ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &out)
 	tasks := map[string]NativeTask{}
 	registered := map[string]bool{}
 	unknown := map[string]bool{}
@@ -208,7 +211,7 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		e := decode(v, "task", &task)
 		if e == nil {
 			repo, _, err := parseRef(v.Object.URL)
-			if err != nil || task.Task.URL != v.Object.URL || task.Task.Repo != repo || task.Binding.Goal != v.Object.Goal || NativeAssignmentSHA(task.Binding) != v.Object.AssignmentSHA || task.Binding.TaskScopeSHA != task.Task.BodySHA || TaskScopeHash(task.Task.Title, task.Task.Body) != task.Task.BodySHA || validateNativeRoster(cfg, task.Binding) != nil || task.Task.Closed != (v.Header.State == "closed") || task.Task.Completed != v.Header.Completed {
+			if err != nil || task.Task.URL != v.Object.URL || task.Task.Repo != repo || task.Binding.Goal != v.Object.Goal || NativeAssignmentSHA(task.Binding) != v.Object.AssignmentSHA || task.Binding.TaskScopeSHA != task.Task.BodySHA || TaskScopeHash(task.Task.Title, task.Task.Body) != task.Task.BodySHA || nativeReadRoster(ctx, cfg, task.Binding) != nil || task.Task.Closed != (v.Header.State == "closed") || task.Task.Completed != v.Header.Completed {
 				e = c.ErrConflict
 			}
 		}
@@ -228,7 +231,7 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		if !ok {
 			continue
 		}
-		followup := false
+		followup := nativeTagOnlyFollowup(cfg, out, task, v.Object.URL)
 		for _, h := range out.Handoffs {
 			if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == task.Binding.Goal && h.Input.TaskURL == task.Task.URL && h.Input.AssignmentSHA == NativeAssignmentSHA(task.Binding) && h.Input.PRURL == v.Object.URL {
 				followup = true
@@ -252,7 +255,7 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			out.Cache.Reasons[task.Task.URL] = "cache_pr_unknown"
 			continue
 		}
-		if nativeDeliveryActor(cfg) || p.Merged && firstPostMergeQAHandoff(out, task, authorities[v.Object.Goal], p) != nil {
+		if nativeDeliveryActor(cfg) || validateNativeRoster(cfg, task.Binding) != nil || p.Merged && firstPostMergeQAHandoff(out, task, authorities[v.Object.Goal], p) != nil {
 			live := nativeActionClient(r.live)
 			if live == nil {
 				e = c.ErrUnsupported
@@ -273,7 +276,10 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			continue
 		}
 		for _, p := range t.PRs {
-			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil {
+			if validateNativeRoster(cfg, t.Binding) != nil {
+				continue
+			}
+			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil && nativeTagOnlyDecision(out, t, p) == nil {
 				continue
 			}
 			for _, review := range p.Reviews {
@@ -299,6 +305,10 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		}
 	}
 	loadNativeDeliveryEvidence(ctx, cfg, m, &out)
+	loadNativeTagOnlyEvidence(ctx, cfg, m, &out)
+	if live := nativeActionClient(r.live); live != nil {
+		loadNativeRetainedTrees(ctx, cfg, live, &out)
+	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	out.ReadAt = r.clock.Now()
 	out.Complete = true

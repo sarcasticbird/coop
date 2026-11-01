@@ -17,7 +17,8 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if err := c.ValidateHandoff(in); err != nil {
 		return out, err
 	}
-	if in.Kind == "deliver" && in.Revoked {
+	retained := in.Kind == "retained-gates" || in.Kind == "retained-deliver"
+	if (in.Kind == "deliver" || in.Kind == "tag-only" || retained) && in.Revoked {
 		return svc.revokeDelivery(ctx, actor, in)
 	}
 	p, err := authorize(ctx, svc.Store.db, actor, "read")
@@ -31,10 +32,10 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if err = admission(ctx, svc.Store.db); err != nil {
 		return out, err
 	}
-	if !a.Valid {
+	if !a.Valid && !retained && in.Kind != "tag-only" {
 		return out, c.ErrForbidden
 	}
-	if !planner(p) || (in.Kind == "release" || in.Kind == "deliver") && p.Kind != "owner" {
+	if !planner(p) || (in.Kind == "release" || in.Kind == "deliver" || in.Kind == "tag-only" || retained) && p.Kind != "owner" {
 		return out, c.ErrForbidden
 	}
 	environmentDecision := in.Kind == "reassess-qa" && in.Environment != ""
@@ -78,7 +79,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		if task.Goal != in.Goal || task.Repository != taskRepo || task.Binding == nil || digest(task.Binding) != in.AssignmentSHA || task.Binding.ApprovalSequence != a.ApprovalSequence {
 			return out, c.ErrConflict
 		}
-		if in.Kind == "deliver" && (task.Binding.TaskScopeSHA != in.TaskScopeSHA || task.Binding.BaseBranch != in.BaseBranch || task.Binding.TaskScopeSHA != digest(struct {
+		if (in.Kind == "deliver" || retained) && (task.Binding.TaskScopeSHA != in.TaskScopeSHA || task.Binding.BaseBranch != in.BaseBranch || task.Binding.TaskScopeSHA != digest(struct {
 			Title string `json:"title"`
 			Body  string `json:"body"`
 		}{task.Title, task.Body})) {
@@ -103,7 +104,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if in.Kind == "release" || in.Kind == "deliver" || environmentDecision {
+	if in.Kind == "release" || in.Kind == "deliver" || in.Kind == "tag-only" || retained || environmentDecision {
 		current, e := authorize(ctx, tx, p, "decide")
 		if e != nil || current.Kind != "owner" {
 			return out, c.ErrForbidden
@@ -117,11 +118,21 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if err != nil {
 		return out, err
 	}
-	if !fresh.Valid || fresh.ApprovalSequence != a.ApprovalSequence {
+	if (!fresh.Valid && !retained && in.Kind != "tag-only") || fresh.ApprovalSequence != a.ApprovalSequence {
 		return out, c.ErrConflict
 	}
 	if in.Kind == "deliver" {
 		if err = svc.deliveryAuthority(ctx, tx, p, fresh, in); err != nil {
+			return out, err
+		}
+	}
+	if retained {
+		if err = svc.retainedAuthority(ctx, tx, p, fresh, in); err != nil {
+			return out, err
+		}
+	}
+	if in.Kind == "tag-only" {
+		if err = svc.tagOnlyAuthority(ctx, tx, p, fresh, in); err != nil {
 			return out, err
 		}
 	}
@@ -143,7 +154,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, c.ErrCapacity
 	}
 	releaseKey := ""
-	if in.Kind == "release" {
+	if in.Kind == "release" || in.Kind == "tag-only" {
 		releaseKey = repo + ":" + in.Tag
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM handoffs WHERE release_key=?", releaseKey).Scan(&count); err != nil {
 			return out, err
@@ -153,7 +164,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		}
 	}
 	out = c.Handoff{ID: newID("ho"), Input: in, ActorID: p.ID, ActorKind: p.Kind, CreatedAt: svc.Store.now().UTC()}
-	if in.Kind == "deliver" {
+	if in.Kind == "deliver" || in.Kind == "tag-only" || retained {
 		if err = tx.QueryRowContext(ctx, "SELECT coalesce(max(rowid),0)+1 FROM handoffs").Scan(&out.Sequence); err != nil {
 			return c.Handoff{}, err
 		}
@@ -209,7 +220,7 @@ func (svc *Service) revokeDelivery(ctx context.Context, actor c.Principal, in c.
 		}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
-		AND json_extract(body,'$.input.kind')='deliver'`, in.Goal.GoalID, in.Goal.RevisionSHA256)
+		AND json_extract(body,'$.input.kind')=?`, in.Goal.GoalID, in.Goal.RevisionSHA256, in.Kind)
 	if err != nil {
 		return out, err
 	}
@@ -416,6 +427,13 @@ func (svc *Service) Handoffs(ctx context.Context, actor c.Principal, in c.Handof
 	return out, rows.Err()
 }
 func registerHandoffs(mux *http.ServeMux, svc *Service, wrap func(func(http.ResponseWriter, *http.Request, c.Principal) (any, error)) http.HandlerFunc) {
+	mux.HandleFunc("POST /api/v1/handoffs/tag-only/validate", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.TagOnlyValidation
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return svc.ValidateTagOnlyHandoff(r.Context(), p, in)
+	}))
 	mux.HandleFunc("POST /api/v1/handoffs", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		var in c.HandoffInput
 		if err := decode(w, r, &in); err != nil {

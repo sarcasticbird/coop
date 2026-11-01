@@ -110,6 +110,7 @@ against this inventory; a newly added command must receive an explicit row.
 | `task first-postmerge-qa` | CLI/runbook | Owner/planner records exact-artifact first postmerge QA authority; requires matching approved QA environment, no review/tag/workflow |
 | `task request-release` | CLI/runbook | Owner records exact-source release authority |
 | `task authorize-delivery` | CLI/runbook | Owner records or revokes exact-artifact Rook-only delivery authority; see [operator packet](rook-only-delivery.md) |
+| `task authorize-tag-only` | CLI/runbook | Owner records or revokes immutable Rook-only tag authority; no workflow or release assets |
 | `task handoffs` | CLI/runbook | Read bounded, scoped delivery/QA/release requests |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
 | `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |

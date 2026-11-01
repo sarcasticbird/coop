@@ -371,7 +371,7 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 		}
 		for _, v := range candidates {
 			if v.Job.ID == j.ID {
-				if nativeIsPostMergeQA(j) {
+				if nativeIsPostMergeQA(j) || j.Kind == "tag-only" {
 					release, err := lockNativeProducer(d.config)
 					if err != nil {
 						return false, err
@@ -483,15 +483,21 @@ func nativeCurrentGoal(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	return a, nil
 }
 func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution) (NativeCandidate, error) {
+	if x.Job.Kind == "tag-only" && !nativeTagOnlyJob(d.config, x.Job) {
+		return NativeCandidate{}, c.ErrForbidden
+	}
+	if nativeRetainedGate(x.Job.Kind) && !nativeRetainedGateJob(d.config, x.Job) {
+		return NativeCandidate{}, c.ErrForbidden
+	}
 	if x.Job.Kind == "deliver" && !nativeDeliveryJob(d.config, x.Job) {
 		return NativeCandidate{}, c.ErrForbidden
 	}
-	if nativeIsPostMergeQA(x.Job) {
+	if nativeIsPostMergeQA(x.Job) || x.Job.Kind == "tag-only" {
 		release, err := lockNativeProducer(d.config)
 		if err != nil {
 			return NativeCandidate{}, err
 		}
-		err = nativePostMergeQASourceSettled(d.config, x.Job)
+		err = nativeSourceTaskSettled(d.config, x.Job.TaskURL, x.Job.ID)
 		release()
 		if err != nil {
 			return NativeCandidate{}, err
@@ -525,6 +531,7 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 			return NativeCandidate{}, errNativeCandidateStale
 		}
 		selection.Tasks = nil
+		selection.RegisteredGoals = nil
 		for _, task := range catalog.Tasks {
 			if task.Binding.Goal == x.Goal && task.Binding.ApprovalSequence < authority.ApprovalSequence && !task.Task.Completed {
 				selection.Tasks = append(selection.Tasks, task)
@@ -534,7 +541,7 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	candidates := NativeCandidates(d.config, selection, nil, d.clock.Now())
 	for _, v := range candidates {
 		if v.Job.ID == x.Job.ID {
-			if x.Job.Kind == "deliver" && (v.Job.Master.DeliveryHandoffID != x.Job.Master.DeliveryHandoffID || !qaArtifactEqual(v.Job.QAArtifact, x.Job.QAArtifact)) {
+			if (x.Job.Kind == "deliver" || x.Job.Kind == "tag-only") && (v.Job.Master.DeliveryHandoffID != x.Job.Master.DeliveryHandoffID || !qaArtifactEqual(v.Job.QAArtifact, x.Job.QAArtifact)) {
 				return NativeCandidate{}, c.ErrForbidden
 			}
 			return v, nil
@@ -563,6 +570,9 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 // A complete read can establish a changed immutable binding or exact PR
 // scope. Pending checks/readiness alone do not retire a prepared identity.
 func nativeScopeChanged(x NativeExecution, catalog NativeCatalog) bool {
+	if x.Job.Kind == "tag-only" {
+		return nativeTagOnlyScopeChanged(x, catalog)
+	}
 	if x.Binding == nil {
 		for _, task := range catalog.Tasks {
 			if task.Binding.Goal == x.Goal {
@@ -891,6 +901,15 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	if x.Job.Kind == "deliver" && v.Handoff != nil && v.Handoff.Input.Kind == "deliver" {
 		prompt += "\nOwner delivery decision " + v.Handoff.ID + " authorizes only Rook to deliver this exact artifact after fresh authority, independent review/QA, checks and merge-state validation. Preserve the immutable source author and assignment. Use only the deliver action; this stage grants no implementation, review, QA, release, install, restart or configuration authority. Never lift a hold or use the old author-bound policy to bootstrap its replacement."
 	}
+	if v.Handoff != nil && (v.Handoff.Input.Kind == "retained-gates" || v.Handoff.Input.Kind == "retained-deliver") {
+		raw, _ := json.Marshal(v.Handoff)
+		prompt += "\nRetained delivery authority: " + string(raw) + "\nPreserve the original source assignment, policy, reviews, private report and historical QA environment without relabeling them. Read the original private report and owner evidence. This is not source implementation, a replacement engineering review, or a release/install/restart grant."
+		if nativeRetainedGate(x.Job.Kind) {
+			prompt += " Independently assess current delivery applicability of ALL original assertions for the exact unchanged tree, payload, head, acceptance and environment. Both gates must explicitly assess those original assertions. Use only delivery-readiness with verdict ready or blocked. The helper derives the private RetainedGateReport binding and exact gate handoff ID, never caller metadata. No GitHub review or source write is permitted. A ready result is not delivery authorization; Rook needs a separate current retained-deliver decision."
+		} else {
+			prompt += " Only assigned Rook may use deliver after fresh exact source, both renewed private gates, current authority, checks and merge-state validation. Complete the original task only; never rebind or replace it."
+		}
+	}
 	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
 	}
@@ -902,6 +921,12 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	}
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")
+	}
+	if x.Job.Kind == "tag-only" {
+		if !nativeTagOnlyJob(cfg, x.Job) || v.Handoff == nil || v.Handoff.Input.Kind != "tag-only" || v.Handoff.ID != x.Job.Master.DeliveryHandoffID {
+			return "", c.ErrForbidden
+		}
+		prompt += "\nThis assigned Rook-only tag-only stage authorizes only the exact owner tag " + v.Handoff.Input.Tag + ". Call the native action with only operation tag-only and a stable request_id. Never merge, reopen tasks, implement, review, clear QA, run a release workflow, publish assets, install, deploy or restart. A completed tag receipt is not a release or install receipt. Uncertain responses require read-only observe-tag-only recovery; never change request_id to retry a write."
 	}
 	if len(prompt) > 32<<10 {
 		return prompt, c.ErrSize

@@ -8,7 +8,7 @@ import (
 )
 
 func addTaskHandoffCommands(group *cobra.Command) {
-	for _, spec := range []struct{ name, kind string }{{"authorize-delivery", "deliver"}, {"first-postmerge-qa", "first-postmerge-qa"}, {"reassess-qa", "reassess-qa"}, {"request-release", "release"}} {
+	for _, spec := range []struct{ name, kind string }{{"authorize-delivery", "deliver"}, {"authorize-tag-only", "tag-only"}, {"first-postmerge-qa", "first-postmerge-qa"}, {"reassess-qa", "reassess-qa"}, {"request-release", "release"}} {
 		var file string
 		command := &cobra.Command{Use: spec.name, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			if file == "" {
@@ -30,10 +30,13 @@ func addTaskHandoffCommands(group *cobra.Command) {
 			if err = c.DecodeJSON(raw, &in); err != nil {
 				return err
 			}
-			if in.Kind != "" && in.Kind != spec.kind {
+			retained := spec.kind == "deliver" && (in.Kind == "retained-gates" || in.Kind == "retained-deliver")
+			if in.Kind != "" && in.Kind != spec.kind && !retained {
 				return c.ErrInvalid
 			}
-			in.Kind = spec.kind
+			if !retained {
+				in.Kind = spec.kind
+			}
 			if err = c.ValidateHandoff(in); err != nil {
 				return err
 			}

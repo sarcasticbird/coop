@@ -84,6 +84,7 @@ func TestFirstPostmergeQACLI(t *testing.T) {
 		if r.Method != "POST" || r.URL.Path != "/api/v1/handoffs" || r.Header.Get("Authorization") != "Bearer fixture-token" {
 			t.Error("wrong handoff endpoint or identity", r.Method, r.URL.Path)
 		}
+		received = c.HandoffInput{}
 		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 			t.Error(err)
 		}
@@ -101,9 +102,21 @@ func TestFirstPostmergeQACLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := c.HandoffInput{Goal: c.GoalRef{Source: "master", MasterID: "fixture-master", GoalID: "goal", RevisionSHA256: strings.Repeat("d", 64)}, TaskURL: "https://github.com/example/coop/issues/7", PRURL: "https://github.com/example/coop/pull/8", AssignmentSHA: strings.Repeat("a", 64), HeadSHA: strings.Repeat("b", 40), ArtifactSHA: strings.Repeat("c", 64), Environment: "test", EnvironmentRevision: "v1", EvidenceMessageID: "msg-evidence", RequestID: "first-qa"}
-	for _, test := range []string{"inferred-kind", "explicit-kind", "wrong-kind", "missing-environment", "review", "tag", "workflow", "unknown-field", "positional-argument"} {
+	for _, test := range []string{"inferred-kind", "explicit-kind", "wrong-kind", "missing-environment", "review", "tag", "workflow", "unknown-field", "positional-argument", "retained-gates", "retained-deliver", "retained-gates-revoke", "retained-deliver-revoke"} {
 		t.Run(test, func(t *testing.T) {
 			payload := in
+			retained := strings.HasPrefix(test, "retained-")
+			if retained {
+				payload.Kind = strings.TrimSuffix(test, "-revoke")
+				payload.Revoked = strings.HasSuffix(test, "-revoke")
+				sha := strings.Repeat("e", 64)
+				payload.ApprovalSequence, payload.TaskScopeSHA, payload.BaseBranch, payload.BaseSHA, payload.PRScopeRevision, payload.AcceptanceSHA = 1, sha, "main", strings.Repeat("f", 40), sha, sha
+				payload.PeerReviewID, payload.QAReviewID, payload.QAEvidenceMessageID, payload.QAEvidenceBodySHA = "peer", "qa", "source-report", sha
+				payload.Retained = c.RetainedDeliveryAuthority{SourcePolicySHA: sha, ExecutionPolicySHA: sha, SourceTreeSHA: payload.HeadSHA, PayloadSHA: sha, SourcePeerReviewID: "peer", SourcePeerBodySHA: sha, SourceQAReviewID: "qa", SourceQABodySHA: sha, SourceReportID: "source-report", SourceReportBodySHA: sha, SourceEnvironment: "old", SourceEnvironmentRevision: "v0", DeliveryAcceptanceSHA: sha, Override: c.RetainedDeliveryOverride}
+				if payload.Kind == "retained-deliver" {
+					payload.Retained.EngineeringReportID, payload.Retained.EngineeringReportBodySHA, payload.Retained.QAReportID, payload.Retained.QAReportBodySHA = "engineering", sha, "qa-report", sha
+				}
+			}
 			switch test {
 			case "explicit-kind":
 				payload.Kind = "first-postmerge-qa"
@@ -133,14 +146,19 @@ func TestFirstPostmergeQACLI(t *testing.T) {
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
 			args := []string{"--master-config", config, "task", "first-postmerge-qa", "--file", file}
+			if retained {
+				args[3] = "authorize-delivery"
+			}
 			if test == "positional-argument" {
 				args = append(args, "unexpected")
 			}
 			cmd.SetArgs(args)
 			before := calls
 			err = cmd.Execute()
-			if test == "inferred-kind" || test == "explicit-kind" {
-				payload.Kind = "first-postmerge-qa"
+			if test == "inferred-kind" || test == "explicit-kind" || retained {
+				if !retained {
+					payload.Kind = "first-postmerge-qa"
+				}
 				if err != nil || calls != before+1 || received != payload {
 					t.Fatalf("wrong handoff: %+v, calls=%d, err=%v", received, calls, err)
 				}

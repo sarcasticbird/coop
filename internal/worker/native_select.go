@@ -247,7 +247,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	if cfg.Name == cfg.Team.Planner && memberCapability(self, "plan") {
 		for ref, a := range goals {
-			exists, needsRebind := false, false
+			exists, needsRebind := catalog.RegisteredGoals[ref], false
 			if catalog.Cache != nil && catalog.Cache.Registered[ref] > 0 {
 				exists = true
 			}
@@ -361,7 +361,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				continue
 			}
 		}
-		if h := nativeDeliveryHandoff(cfg, catalog, t, a, p); h != nil {
+		if h := nativeDeliveryHandoff(cfg, catalog, t, a, p); h != nil && h.Input.Kind == "deliver" {
 			add("deliver", a, &t, &p, "delivery:"+h.ID)
 		}
 		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
@@ -388,6 +388,8 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			}
 		}
 	}
+	out = append(out, nativeRetainedCandidates(cfg, catalog, history, now)...)
+	out = append(out, NativeTagOnlyCandidates(cfg, catalog, history, now)...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Job.ID < out[j].Job.ID })
 	return out
 }

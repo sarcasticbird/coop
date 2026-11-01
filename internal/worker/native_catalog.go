@@ -24,8 +24,11 @@ type NativeMaster interface {
 const NativeCatalogTimeout = 5 * time.Minute
 
 type NativeCatalog struct {
-	Handoffs []c.Handoff
-	Cache    *NativeCacheCoverage
+	RegisteredGoals  map[c.GoalRef]bool
+	RetainedTrees    map[string]string
+	RetainedPayloads map[string]string
+	Handoffs         []c.Handoff
+	Cache            *NativeCacheCoverage
 	// TaskScope is nonempty for a validation-only view; never cache it as discovery.
 	TaskScope string
 	Goals     []c.GoalAuthority
@@ -36,7 +39,7 @@ type NativeCatalog struct {
 }
 
 func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master NativeMaster) (NativeCatalog, error) {
-	out := NativeCatalog{Reports: map[string]c.Message{}}
+	out := NativeCatalog{Reports: map[string]c.Message{}, RegisteredGoals: map[c.GoalRef]bool{}}
 	if cfg.Version != 3 || cfg.Master == nil {
 		return out, errors.New("native catalog requires v3 configuration")
 	}
@@ -104,7 +107,11 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	if err := loadCatalogHandoffs(ctx, master, &out); err != nil {
 		return out, err
 	}
+	loadNativeRetainedEvidence(ctx, cfg, master, &out)
+	loadNativeTagOnlyBridgeEvidence(ctx, cfg, master, &out)
+	ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &out)
 	tasks := map[string]NativeTask{}
+	deniedRetained := map[string]bool{}
 	for _, link := range links {
 		if link.Kind != "task" || !selectedOnly && !nativeDiscoveryTask(cfg, link.URL) {
 			continue
@@ -112,8 +119,13 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		if _, duplicate := tasks[link.URL]; duplicate {
 			return out, ghError("native_task_link_ambiguous")
 		}
+		out.RegisteredGoals[link.Goal] = true
 		t, err := reader.ReadNativeTask(ctx, cfg, link.URL)
 		if err != nil {
+			if errors.Is(err, errNativeRosterPolicyChanged) && nativeRetainedTask(out, cfg, link.Goal, link.URL) {
+				deniedRetained[link.URL] = true
+				continue
+			}
 			return out, err
 		}
 		if t.Binding.Goal != link.Goal || NativeAssignmentSHA(t.Binding) != link.AssignmentSHA {
@@ -132,6 +144,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		if link.Kind != "pull_request" || !selectedOnly && !nativeDiscoveryTask(cfg, link.TaskURL) {
 			continue
 		}
+		if deniedRetained[link.TaskURL] {
+			continue
+		}
 		task, ok := tasks[link.TaskURL]
 		if ok && task.Binding.Goal == link.Goal && (task.Binding.ApprovalSequence < byGoal[link.Goal].ApprovalSequence || NativeAssignmentSHA(task.Binding) != link.AssignmentSHA) {
 			continue
@@ -145,7 +160,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		// still need the exact PR. This matches the cached catalog's closed-task
 		// treatment without letting its GitHub-only projection replace Kata.
 		if !selectedOnly && task.Task.Closed {
-			followup := false
+			followup := nativeTagOnlyFollowup(cfg, out, task, link.URL)
 			for _, h := range out.Handoffs {
 				if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == task.Binding.Goal && h.Input.TaskURL == task.Task.URL && h.Input.AssignmentSHA == NativeAssignmentSHA(task.Binding) && h.Input.PRURL == link.URL {
 					followup = true
@@ -160,7 +175,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		if err != nil {
 			return out, err
 		}
-		if pr.Merged && firstPostMergeQAHandoff(out, task, byGoal[link.Goal], pr) != nil {
+		if pr.Merged && (firstPostMergeQAHandoff(out, task, byGoal[link.Goal], pr) != nil || nativeTagOnlyFollowup(cfg, out, task, pr.URL)) {
 			pr, err = reader.ReadNativeReleasePR(ctx, cfg, task, byGoal[link.Goal], link.URL)
 			if err != nil {
 				return out, err
@@ -182,7 +197,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 			// admission; avoid scanning whole boards for historical tasks.
 			// Exact saved-work validation still reads Project membership.
 			if !selectedOnly && t.Task.Closed {
-				followup := false
+				followup := nativeTagOnlyFollowup(cfg, out, t, "")
 				for _, h := range out.Handoffs {
 					if h.Input.Kind == "first-postmerge-qa" && h.Input.Goal == t.Binding.Goal && h.Input.TaskURL == ref && h.Input.AssignmentSHA == NativeAssignmentSHA(t.Binding) {
 						followup = true
@@ -217,7 +232,10 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	}
 	for _, t := range tasks {
 		for _, p := range t.PRs {
-			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil {
+			if validateNativeRoster(cfg, t.Binding) != nil {
+				continue
+			}
+			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil && nativeTagOnlyDecision(out, t, p) == nil {
 				continue
 			}
 			for _, r := range p.Reviews {
@@ -242,6 +260,8 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		out.Tasks = append(out.Tasks, t)
 	}
 	loadNativeDeliveryEvidence(ctx, cfg, master, &out)
+	loadNativeTagOnlyEvidence(ctx, cfg, master, &out)
+	loadNativeRetainedTrees(ctx, cfg, reader, &out)
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	sort.Slice(out.Goals, func(i, j int) bool { return out.Goals[i].Revision.Ref.GoalID < out.Goals[j].Revision.Ref.GoalID })
 	out.ReadAt = time.Now().UTC()

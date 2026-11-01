@@ -42,6 +42,13 @@ func nativeDeliveryDecision(cat NativeCatalog, t NativeTask, p PR) *c.Handoff {
 }
 
 func nativeDeliveryHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR) *c.Handoff {
+	if nativeDeliveryActor(cfg) && !cfg.DeliveryHold {
+		for _, h := range cat.Handoffs {
+			if h.Input.Kind == "retained-deliver" && h.Input.Goal == t.Binding.Goal && h.Input.TaskURL == t.Task.URL && h.Input.PRURL == p.URL {
+				return nativeRetainedHandoff(cfg, cat, t, a, p, "retained-deliver")
+			}
+		}
+	}
 	if !nativeDeliveryActor(cfg) || cfg.DeliveryHold || !cat.Complete || !a.Valid || a.State != "approved" || a.Revision.Ref != t.Binding.Goal || a.ActiveRevisionSHA256 != t.Binding.Goal.RevisionSHA256 || a.ApprovalSequence != t.Binding.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Task.BodySHA != t.Binding.TaskScopeSHA {
 		return nil
 	}

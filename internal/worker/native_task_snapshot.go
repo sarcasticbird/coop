@@ -51,6 +51,7 @@ func (g *GitHubClient) NativeTaskSnapshot(ctx context.Context, cfg Config, maste
 	reader := NewGitHubClient(g.runner)
 	reader.config, reader.observation = cfg, g.observation
 	allowed := map[c.GoalRef]bool{}
+	readAuthority := NativeCatalog{}
 	seen := map[string]bool{}
 	for after := ""; ; {
 		if seen[after] || len(seen) >= MaxConnection {
@@ -62,6 +63,7 @@ func (g *GitHubClient) NativeTaskSnapshot(ctx context.Context, cfg Config, maste
 			return empty, err
 		}
 		for _, a := range page.Goals {
+			readAuthority.Goals = append(readAuthority.Goals, a)
 			allowed[a.Revision.Ref] = true
 			if len(allowed) > MaxConnection {
 				return empty, c.ErrCapacity
@@ -72,6 +74,12 @@ func (g *GitHubClient) NativeTaskSnapshot(ctx context.Context, cfg Config, maste
 		}
 		after = page.Next
 	}
+	if err := loadCatalogHandoffs(ctx, master, &readAuthority); err != nil {
+		return empty, err
+	}
+	loadNativeRetainedEvidence(ctx, cfg, master, &readAuthority)
+	loadNativeTagOnlyBridgeEvidence(ctx, cfg, master, &readAuthority)
+	ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &readAuthority)
 	scoped := &taskSnapshotMaster{NativeMaster: master, tasks: map[string]bool{}}
 	goals := map[c.GoalRef]bool{}
 	visiting := map[string]bool{}
@@ -198,7 +206,9 @@ func nativeRegisteredBinding(ctx context.Context, master NativeMaster, binding N
 
 func nativeValidationSnapshot(ctx context.Context, cfg Config, master NativeMaster, reader NativeCatalogReader, job Job, extra ...string) (NativeCatalog, error) {
 	switch job.Kind {
-	case "implement", "fix", "review", "qa", "deliver":
+	case "tag-only":
+		return nativeTagOnlySnapshot(ctx, cfg, master, reader, job, extra...)
+	case "implement", "fix", "review", "qa", "deliver", "delivery-review", "delivery-qa":
 		return reader.NativeTaskSnapshot(ctx, cfg, master, job, extra...)
 	default:
 		if live, ok := reader.(interface {

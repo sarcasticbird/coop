@@ -112,7 +112,7 @@ func (g *GitHubClient) readKataTask(ctx context.Context, cfg Config, ref string)
 	if b.TaskURL != ref || b.Goal != task.Goal || b.Goal.MasterID != cfg.Master.MasterID || b.TaskScopeSHA != scope {
 		return out, c.ErrConflict
 	}
-	if err = validateNativeRoster(cfg, b); err != nil {
+	if err = nativeReadRoster(ctx, cfg, b); err != nil {
 		return out, err
 	}
 	switch task.State {

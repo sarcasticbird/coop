@@ -349,7 +349,7 @@ func (svc *Service) TaskBind(ctx context.Context, actor c.Principal, in c.TaskBi
 	return result, err
 }
 func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.TaskCompleteInput) (c.ProviderTask, error) {
-	p, a, err := svc.taskAuthority(ctx, actor, in.Goal, true)
+	p, a, err := svc.taskAuthority(ctx, actor, in.Goal, false)
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
@@ -364,13 +364,6 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 		return task, err
 	}
 	if task.Goal != in.Goal || task.Binding == nil || digest(task.Binding) != in.AssignmentSHA {
-		return c.ProviderTask{}, c.ErrConflict
-	}
-	expected, err := svc.taskBinding(ctx, p, a, task, task.Binding.BaseBranch, task.Binding.DependsOn)
-	if err != nil {
-		return c.ProviderTask{}, err
-	}
-	if !reflect.DeepEqual(expected, *task.Binding) {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	repo, err := artifactRepo(in.PullRequestURL, "pull")
@@ -396,14 +389,11 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
-	if err = svc.taskBindingAuthority(ctx, tx, p, *task.Binding); err != nil {
-		return c.ProviderTask{}, err
-	}
 	var grantRaw []byte
 	// Do not filter revoked or stale scope here: the latest decision supersedes
 	// every older grant for this task, assignment and PR.
 	if err = tx.QueryRowContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
-		AND json_extract(body,'$.input.kind')='deliver'
+		AND json_extract(body,'$.input.kind') IN ('deliver','retained-deliver')
 		AND json_extract(body,'$.input.task_url')=?
 		AND json_extract(body,'$.input.assignment_sha256')=?
 		AND json_extract(body,'$.input.pr_url')=? ORDER BY json_extract(body,'$.sequence') DESC LIMIT 1`, in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference, in.AssignmentSHA, in.PullRequestURL).Scan(&grantRaw); err != nil {
@@ -413,8 +403,28 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if json.Unmarshal(grantRaw, &grant) != nil || grant.Sequence < 1 || grant.ID != in.DeliveryHandoffID || grant.ActorKind != "owner" || grant.Input.Revoked || grant.Input.TaskScopeSHA != task.Binding.TaskScopeSHA || grant.Input.BaseBranch != task.Binding.BaseBranch {
 		return c.ProviderTask{}, c.ErrConflict
 	}
-	if err = svc.deliveryAuthority(ctx, tx, p, a, grant.Input); err != nil {
-		return c.ProviderTask{}, err
+	if grant.Input.Kind == "retained-deliver" {
+		owner, e := authorize(ctx, tx, c.Principal{ID: grant.ActorID}, "decide")
+		if e != nil || owner.Kind != "owner" || member(ctx, tx, owner, a.Revision.Proposal.ThreadID) != nil || member(ctx, tx, owner, a.Revision.Proposal.QA.EvidenceDestination.ThreadID) != nil {
+			return c.ProviderTask{}, c.ErrForbidden
+		}
+		if err = svc.retainedAuthority(ctx, tx, p, a, grant.Input); err != nil {
+			return c.ProviderTask{}, err
+		}
+	} else {
+		expected, e := svc.taskBinding(ctx, p, a, task, task.Binding.BaseBranch, task.Binding.DependsOn)
+		if e != nil {
+			return c.ProviderTask{}, e
+		}
+		if !reflect.DeepEqual(expected, *task.Binding) {
+			return c.ProviderTask{}, c.ErrConflict
+		}
+		if err = svc.taskBindingAuthority(ctx, tx, p, *task.Binding); err != nil {
+			return c.ProviderTask{}, err
+		}
+		if err = svc.deliveryAuthority(ctx, tx, p, a, grant.Input); err != nil {
+			return c.ProviderTask{}, err
+		}
 	}
 	var taskSHA string
 	if err = tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference).Scan(&taskSHA); err != nil || taskSHA != in.AssignmentSHA {
