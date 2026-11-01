@@ -34,6 +34,11 @@ func (m *tagOnlyProductionMaster) ValidateTagOnlyHandoff(_ context.Context, in c
 // helper. Only GitHub/master transports are mocked; source metadata is retained.
 func tagOnlyProductionFixture(t *testing.T, withVersion bool) (Config, *tagOnlyProductionMaster, *GitHubClient, *nativeDeliveryTransport, NativeExecution, *tagOnlyAPI) {
 	t.Helper()
+	return tagOnlyProductionEnvironmentFixture(t, withVersion, false)
+}
+
+func tagOnlyProductionEnvironmentFixture(t *testing.T, withVersion, renewedEnvironment bool) (Config, *tagOnlyProductionMaster, *GitHubClient, *nativeDeliveryTransport, NativeExecution, *tagOnlyAPI) {
+	t.Helper()
 	cfg, master, g, _, transport, binding := retainedProductionFixture(t)
 	sourceBundle, versionBundle := tagOnlyVersionBundles(t, "v1.2.3")
 	if withVersion {
@@ -63,6 +68,9 @@ func tagOnlyProductionFixture(t *testing.T, withVersion bool) (Config, *tagOnlyP
 		h.Input.PRScopeRevision, h.Input.ArtifactSHA = p.ScopeRevision, sha
 		h.Input.Retained.PayloadSHA, h.Input.Retained.SourcePeerBodySHA, h.Input.Retained.SourceQABodySHA = sha, BodyHash(NativePeerMetadata(peer)), BodyHash(NativeQAMetadata(qa))
 	}
+	if renewedEnvironment {
+		tagOnlyRenewDeliveryEnvironment(t, cfg, master, g, transport, binding)
+	}
 	source := retainedReports(t, &cfg, master, g, transport, binding)
 	x := retainedExecution(t, cfg, master, g, binding, "deliver")
 	if _, err := RunNativeAction(t.Context(), cfg, master, g, x.Job.ID, NativeAction{Operation: "deliver", RequestID: "source-complete"}); err != nil {
@@ -78,6 +86,9 @@ func tagOnlyProductionFixture(t *testing.T, withVersion bool) (Config, *tagOnlyP
 	r := source.Input.Retained
 	h.Input.Retained = c.RetainedDeliveryAuthority{}
 	h.Input.TagOnly = c.TagOnlyAuthority{ExecutionPolicySHA: r.ExecutionPolicySHA, SourcePolicySHA: r.SourcePolicySHA, SourceCommitSHA: h.Input.HeadSHA, SourceTreeSHA: r.SourceTreeSHA, IntegratedCommitSHA: strings.Repeat("9", 40), IntegratedTreeSHA: r.SourceTreeSHA, OwnerBodySHA: BodyHash(master.reports[h.Input.EvidenceMessageID].Body), PeerBodySHA: r.SourcePeerBodySHA, QABodySHA: r.SourceQABodySHA, SourceDeliveryHandoffID: source.ID, SourceDeliveryInputSHA: tagOnlyInputSHA(source.Input), SourceCompletionRequestID: "source-complete", TagAcceptanceSHA: BodyHash("tag acceptance"), TagEnvironment: "staging", TagEnvironmentRevision: "staging-v1"}
+	if renewedEnvironment {
+		h.Input.TagOnly.TagEnvironment, h.Input.TagOnly.TagEnvironmentRevision = "tag-device", "tag-device-v3"
+	}
 	cat := NativeCatalog{Goals: []c.GoalAuthority{master.authority}, Reports: master.reports, Handoffs: []c.Handoff{h}}
 	renewTagOnlyReports(t, &cat, &h)
 	master.handoffs = append(master.handoffs, h)
@@ -176,6 +187,7 @@ func tagOnlyProductionFixture(t *testing.T, withVersion bool) (Config, *tagOnlyP
 		v.Input.TaskURL, v.Input.PRURL, v.Input.AssignmentSHA, v.Input.TaskScopeSHA = b.TaskURL, p.URL, NativeAssignmentSHA(b), b.TaskScopeSHA
 		v.Input.BaseSHA, v.Input.HeadSHA, v.Input.PRScopeRevision, v.Input.ArtifactSHA = h.Input.TagOnly.VersionBaseSHA, p.HeadSHA, p.ScopeRevision, p.QAArtifact.SHA256
 		v.Input.PeerReviewID, v.Input.QAReviewID, v.Input.QAEvidenceMessageID, v.Input.QAEvidenceBodySHA = "10", "11", qa.EvidenceMessageID, qa.EvidenceBodySHA
+		v.Input.Environment, v.Input.EnvironmentRevision = qa.Environment, qa.EnvironmentRevision
 		h.Input.TagOnly.VersionDeliveryHandoffID, h.Input.TagOnly.VersionDeliveryInputSHA, h.Input.TagOnly.VersionCompletionRequestID = v.ID, tagOnlyInputSHA(v.Input), "version-complete"
 		renewTagOnlyReports(t, &cat, &h)
 		master.handoffs[len(master.handoffs)-1] = h
@@ -188,7 +200,7 @@ func tagOnlyProductionFixture(t *testing.T, withVersion bool) (Config, *tagOnlyP
 	}
 	jobs := NativeCandidates(cfg, cat, nil, time.Now())
 	if len(jobs) != 1 || jobs[0].Job.Kind != "tag-only" {
-		t.Fatalf("tag candidates: %+v catalog=%+v", jobs, cat)
+		t.Fatalf("expected one tag-only candidate, got %d (renewed environment: %t)", len(jobs), renewedEnvironment)
 	}
 	x = NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: binding.Goal, Binding: &binding, Job: jobs[0].Job, Phase: "active"}
 	x.Job.SessionID, x.Job.MessageID = "ses_tag", "msg_tag"

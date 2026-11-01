@@ -366,6 +366,16 @@ remain exact. Retained readiness reports are not interchangeable with these
 reports. There is no dedicated tag-readiness action in the current CLI: use only
 the separately authorized native private-message stage, not forged agent bodies.
 
+These are three independent environment identities. Historical source QA is
+checked against the original retained `source_environment` and revision, never
+against renewed delivery fields. The tag input's top-level environment must
+still equal the completed source delivery's current environment and retain its
+applicable exact-artifact reassessment authority at tag admission/action and
+confirmation. Tag-specific `tag_environment` and revision remain bound by the
+owner decision and both renewed tag reports. A valid transition may therefore
+retain staging/staging-v1 source QA, container/container-v2 delivery readiness,
+and tag-device/tag-device-v3 tag QA without relabeling any original assertion.
+
 ```sh
 coop --master-config /absolute/private/owner.toml task authorize-tag-only --file /absolute/private/tag-only.json
 ```
@@ -534,6 +544,7 @@ part of the offline acceptance run.
 | Fixed payload semantics including library/executable/mode/link drift | `worker`: `TestTagOnlyPayloadEquivalence`, `TestTagOnlyBinaryAndLibraryPayloadEquivalence` |
 | Cross-kind replacement/withdrawal, live owner revocation and renewed environment approval | `worker`: `TestRetainedProductionCrossKindDeliveryDecisions`, `TestRetainedProductionCurrentMasterValidationDeniesBeforeMerge`, `TestRetainedPR9OwnerDecideRevocationPrecedesEffects`, `TestRetainedProductionRenewedEnvironmentAuthority`; `master`: `TestRetainedValidationOwnerDecideRevocation`, `TestRetainedValidationExecutorAndLatestDecision`, `TestRetainedValidationAuthenticatedReadOnlyEndpoint`, `TestRetainedCurrentEnvironmentApproval` |
 | Production response parser retains definite rate-limit refusals; zero adoption/completion | `worker`: `TestTagOnlyRateLimitRefusalCannotAdoptForeignRef` |
+| Distinct historical, current-delivery and tag environments across retained merge and direct/version tag action/confirmation; zero-effect drift denials | `worker`: `TestTagOnlyProductionEnvironmentJourney`, `TestTagOnlyProductionEnvironmentDenials`, `TestTagOnlyRetainedEnvironmentBeforeMerge`; `master`: `TestMasterTagOnlyPreservesDistinctEnvironmentAuthority` |
 
 Offline targeted run, then full verification in the private isolated checkout:
 

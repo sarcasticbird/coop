@@ -83,6 +83,11 @@ func (svc *Service) tagOnlyAuthority(ctx context.Context, q queryer, actor c.Pri
 		if _, err := deliveryPrincipal(ctx, q, a); err != nil {
 			return err
 		}
+		if in.Environment != a.Revision.Proposal.QA.Environment || in.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision {
+			if err := deliveryQAEnvironment(ctx, q, actor, a, in); err != nil {
+				return err
+			}
+		}
 		for _, check := range []struct{ id, sha, author string }{{historical.SourceReportID, historical.SourceReportBodySHA, a.Revision.Proposal.QA.ActorID}, {historical.EngineeringReportID, historical.EngineeringReportBodySHA, "hawk"}, {historical.QAReportID, historical.QAReportBodySHA, "wren"}} {
 			m, e := loadMessage(ctx, q, check.id)
 			if e != nil {

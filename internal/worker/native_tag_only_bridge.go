@@ -106,7 +106,10 @@ func nativeTagOnlyRetainedSource(cfg Config, cat NativeCatalog, t NativeTask, a 
 	}
 	qa, clear := nativeQAState(t.Binding, a, p, cat.Reports, cat.Handoffs...)
 	var result NativeQAResult
-	if !clear || qa.ID != in.QAReviewID || nativeMetadata(qa.Body, "qa", &result) != nil || result.EvidenceMessageID != in.QAEvidenceMessageID || result.EvidenceBodySHA != in.QAEvidenceBodySHA || result.Environment != in.Environment || result.EnvironmentRevision != in.EnvironmentRevision {
+	if !clear || qa.ID != in.QAReviewID || nativeMetadata(qa.Body, "qa", &result) != nil || result.EvidenceMessageID != in.QAEvidenceMessageID || result.EvidenceBodySHA != in.QAEvidenceBodySHA || result.Environment != original.SourceEnvironment || result.EnvironmentRevision != original.SourceEnvironmentRevision {
+		return false
+	}
+	if !nativeRetainedCurrentEnvironment(t.Binding, a, p, in, cat.Handoffs) {
 		return false
 	}
 	for _, check := range []struct{ id, sha, author string }{{source.Input.EvidenceMessageID, "", ""}, {original.EngineeringReportID, original.EngineeringReportBodySHA, "hawk"}, {original.QAReportID, original.QAReportBodySHA, "wren"}} {

@@ -7,9 +7,19 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
-func masterTagOnlyFixture(t *testing.T) (*Service, c.Principal, c.Principal, c.HandoffInput, *retainedTasks) {
+func masterTagOnlyFixture(t *testing.T, currentEnvironment ...string) (*Service, c.Principal, c.Principal, c.HandoffInput, *retainedTasks) {
 	t.Helper()
 	s, owner, rook, in, tasks := retainedFixture(t)
+	if len(currentEnvironment) != 0 {
+		if len(currentEnvironment) != 2 {
+			t.Fatal("current environment requires name and revision")
+		}
+		in.Environment, in.EnvironmentRevision = currentEnvironment[0], currentEnvironment[1]
+		reassessment := c.HandoffInput{Kind: "reassess-qa", Goal: in.Goal, TaskURL: in.TaskURL, AssignmentSHA: in.AssignmentSHA, PRURL: in.PRURL, HeadSHA: in.HeadSHA, ArtifactSHA: in.ArtifactSHA, Environment: in.Environment, EnvironmentRevision: in.EnvironmentRevision, ReviewID: "previous-qa-review", EvidenceMessageID: in.EvidenceMessageID, RequestID: "approve-tag-delivery-environment"}
+		if _, err := s.CreateHandoff(t.Context(), owner, reassessment); err != nil {
+			t.Fatal(err)
+		}
+	}
 	gates, err := s.CreateHandoff(t.Context(), owner, in)
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +44,9 @@ func masterTagOnlyFixture(t *testing.T) (*Service, c.Principal, c.Principal, c.H
 	in.TagOnly.SourceTreeSHA, in.TagOnly.IntegratedTreeSHA = source.Input.Retained.SourceTreeSHA, source.Input.Retained.SourceTreeSHA
 	in.TagOnly.PeerBodySHA, in.TagOnly.QABodySHA = source.Input.Retained.SourcePeerBodySHA, source.Input.Retained.SourceQABodySHA
 	in.TagOnly.TagAcceptanceSHA, in.TagOnly.TagEnvironment, in.TagOnly.TagEnvironmentRevision = digest("exact tag verification"), "staging", "staging-v1"
+	if len(currentEnvironment) != 0 {
+		in.TagOnly.TagEnvironment, in.TagOnly.TagEnvironmentRevision = "tag-device", "tag-device-v3"
+	}
 	a, err := s.ResolveGoal(t.Context(), owner, in.Goal)
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +64,44 @@ func masterTagOnlyFixture(t *testing.T) (*Service, c.Principal, c.Principal, c.H
 		}
 	}
 	return s, owner, rook, in, tasks
+}
+
+func TestMasterTagOnlyPreservesDistinctEnvironmentAuthority(t *testing.T) {
+	s, owner, rook, in, tasks := masterTagOnlyFixture(t, "container", "container-v2")
+	source, err := s.tagOnlyDeliveryProof(t.Context(), s.Store.db, rook, in.Goal, in.TagOnly.SourceDeliveryHandoffID, in.TagOnly.SourceDeliveryInputSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical := source.Input.Retained
+	if source.Input.Environment != "container" || source.Input.EnvironmentRevision != "container-v2" || historical.SourceEnvironment == in.Environment || historical.SourceEnvironmentRevision == in.EnvironmentRevision || in.TagOnly.TagEnvironment != "tag-device" || in.TagOnly.TagEnvironmentRevision != "tag-device-v3" {
+		t.Fatal("fixture collapsed source, delivery or tag environment")
+	}
+	report, err := loadMessage(t.Context(), s.Store.db, historical.SourceReportID)
+	if err != nil || retainedBodySHA(report.Body) != historical.SourceReportBodySHA {
+		t.Fatal("original source report changed", err)
+	}
+	h, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil {
+		t.Fatal("valid separate environments rejected", err)
+	}
+	validation := c.TagOnlyValidation{Goal: in.Goal, HandoffID: h.ID}
+	if _, err := s.ValidateTagOnlyHandoff(t.Context(), rook, validation); err != nil {
+		t.Fatal(err)
+	}
+	// Keep all source proofs and renewed reports intact but remove the current
+	// environment decision from this disposable master.
+	if _, err := s.Store.db.ExecContext(t.Context(), "DELETE FROM handoffs WHERE json_extract(body,'$.input.kind')='reassess-qa'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ValidateTagOnlyHandoff(t.Context(), rook, validation); err == nil {
+		t.Fatal("tag confirmation ignored current delivery environment authority")
+	}
+	if _, err := s.CreateHandoff(t.Context(), owner, in); err == nil {
+		t.Fatal("tag admission ignored current delivery environment authority")
+	}
+	if tasks.closes != 1 {
+		t.Fatal("tag environment revalidation repeated original completion")
+	}
 }
 
 func TestMasterTagOnlyAuthorityAndWithdrawal(t *testing.T) {

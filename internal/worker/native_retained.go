@@ -217,27 +217,8 @@ func nativeRetainedSource(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalA
 	if !peerOK || !qaOK || nativeMetadata(qa.Body, "qa", &result) != nil || peer.ID != in.PeerReviewID || peer.ID != r.SourcePeerReviewID || BodyHash(peer.Body) != r.SourcePeerBodySHA || qa.ID != in.QAReviewID || qa.ID != r.SourceQAReviewID || BodyHash(qa.Body) != r.SourceQABodySHA || result.EvidenceMessageID != r.SourceReportID || result.EvidenceBodySHA != r.SourceReportBodySHA || in.QAEvidenceMessageID != r.SourceReportID || in.QAEvidenceBodySHA != r.SourceReportBodySHA || result.Environment != r.SourceEnvironment || result.EnvironmentRevision != r.SourceEnvironmentRevision || r.DeliveryAcceptanceSHA != NativeAcceptanceSHA(a) {
 		return false
 	}
-	// Renewed assertions use current environment authority, not the historical
-	// source assessment's environment. Resolve any exact-artifact override.
-	env, err := resolveNativeQAEnvironment(t.Binding, a, p, nil, cat.Handoffs)
-	if err != nil {
+	if !nativeRetainedCurrentEnvironment(t.Binding, a, p, in, cat.Handoffs) {
 		return false
-	}
-	if in.Environment != env.Name || in.EnvironmentRevision != env.Revision {
-		matched := false
-		for i := range cat.Handoffs {
-			h := &cat.Handoffs[i]
-			if h.Input.Kind != "reassess-qa" || h.ActorKind != "owner" || h.ActorID == "" || h.Input.Revoked || h.Input.Environment != in.Environment || h.Input.EnvironmentRevision != in.EnvironmentRevision {
-				continue
-			}
-			resolved, err := resolveNativeQAEnvironment(t.Binding, a, p, h, cat.Handoffs)
-			if err == nil && resolved.Name == in.Environment && resolved.Revision == in.EnvironmentRevision {
-				matched = true
-			}
-		}
-		if !matched {
-			return false
-		}
 	}
 	for _, name := range []string{"hawk", "wren", "rook"} {
 		found := false
@@ -252,6 +233,29 @@ func nativeRetainedSource(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalA
 		}
 	}
 	return true
+}
+
+// Delivery and later tag execution retain current environment authority without
+// substituting it for the environment of the immutable source QA assessment.
+func nativeRetainedCurrentEnvironment(b NativeTaskBinding, a c.GoalAuthority, p PR, in c.HandoffInput, handoffs []c.Handoff) bool {
+	env, err := resolveNativeQAEnvironment(b, a, p, nil, handoffs)
+	if err != nil {
+		return false
+	}
+	if in.Environment == env.Name && in.EnvironmentRevision == env.Revision {
+		return true
+	}
+	for i := range handoffs {
+		h := &handoffs[i]
+		if h.Input.Kind != "reassess-qa" || h.ActorKind != "owner" || h.ActorID == "" || h.Input.Revoked || h.Input.Environment != in.Environment || h.Input.EnvironmentRevision != in.EnvironmentRevision {
+			continue
+		}
+		resolved, err := resolveNativeQAEnvironment(b, a, p, h, handoffs)
+		if err == nil && resolved.Name == in.Environment && resolved.Revision == in.EnvironmentRevision {
+			return true
+		}
+	}
+	return false
 }
 
 func nativeRetainedHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR, kind string) *c.Handoff {
