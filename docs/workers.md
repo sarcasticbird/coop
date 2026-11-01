@@ -115,8 +115,13 @@ live file is an expected member of those two generations, then finishes that
 saved transaction before staging the requested package. It rejects independent
 content, mode, ownership or symlink changes rather than overwriting them.
 Failures leave the transaction and its prior-generation files intact; successful
-transactions are retained in private `worker/install-history.*/generation/`
-directories. Existing `install-before/` material is not removed. Do not delete
+transactions retain the current and immediately preceding generation in private
+`worker/install-history.*/generation/` directories. After successful publication,
+the installer removes older unmodified, checksum-verified generations under its
+lock. Manifest continuity selects the predecessor, not timestamps. Unknown,
+modified or symlink-containing history is preserved for inspection. Operational
+receipts, bird memories, sessions and checkouts are outside this retention rule.
+Existing `install-before/` material is not removed. Do not delete
 the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
