@@ -80,6 +80,9 @@ func validateMasterLegacyJobs(c Config, state State) error {
 
 func (s *FileStore) masterCompatible() error {
 	raw, err := readPrivate(filepath.Join(s.Dir, "master-migration.json"), 4096)
+	if os.IsNotExist(err) {
+		return s.nativeCompatible()
+	}
 	if err != nil {
 		return errors.New("v3 requires explicit verified master migration")
 	}

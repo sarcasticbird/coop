@@ -35,21 +35,7 @@ func (s *FileStore) checkTeamStartup(state State) error {
 // A failed/partial attempt is never overwritten or retried automatically.
 func InitializeTeamState(c Config) (string, error) {
 	if c.Version == 3 {
-		if err := ValidateConfig(c); err != nil {
-			return "", err
-		}
-		legacy := c
-		legacy.Version = 2
-		legacy.Master = nil
-		legacy.TaskSource = nil
-		id, err := initializeTeamState(legacy, c.Master.InstanceID)
-		if err != nil {
-			return "", err
-		}
-		if err = MigrateState(c, 2, 3, id); err != nil {
-			return "", err
-		}
-		return id, nil
+		return initializeNativeState(c)
 	}
 	return initializeTeamState(c, "")
 }

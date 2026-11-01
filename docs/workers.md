@@ -678,6 +678,13 @@ v1 state; a v2 configuration reads and writes only v2 state. Loading state never
 upgrades it. Runtime startup requires initialized, fenced storage. Conversion
 does not start a worker or authorize live activation.
 
+For a new v3 worker, `coop-worker init-state --config PATH` writes the configured
+native instance identity directly into unused private storage. It creates no
+legacy wake queue, migration journal or migration backup, and accepts the real
+Kata-enabled configuration. Existing migrated workers still validate their
+original migration evidence; missing or partial evidence cannot masquerade as
+fresh storage. Initialization never overwrites an existing worker.
+
 For a first v2 worker with unused storage, run the explicit offline command:
 
 ```sh
