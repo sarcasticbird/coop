@@ -395,12 +395,11 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err = tx.QueryRowContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
 		AND json_extract(body,'$.input.kind') IN ('deliver','retained-deliver')
 		AND json_extract(body,'$.input.task_url')=?
-		AND json_extract(body,'$.input.assignment_sha256')=?
-		AND json_extract(body,'$.input.pr_url')=? ORDER BY json_extract(body,'$.sequence') DESC LIMIT 1`, in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference, in.AssignmentSHA, in.PullRequestURL).Scan(&grantRaw); err != nil {
+		AND json_extract(body,'$.input.pr_url')=? ORDER BY json_extract(body,'$.sequence') DESC LIMIT 1`, in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference, in.PullRequestURL).Scan(&grantRaw); err != nil {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	var grant c.Handoff
-	if json.Unmarshal(grantRaw, &grant) != nil || grant.Sequence < 1 || grant.ID != in.DeliveryHandoffID || grant.ActorKind != "owner" || grant.Input.Revoked || grant.Input.TaskScopeSHA != task.Binding.TaskScopeSHA || grant.Input.BaseBranch != task.Binding.BaseBranch {
+	if json.Unmarshal(grantRaw, &grant) != nil || grant.Sequence < 1 || grant.ID != in.DeliveryHandoffID || grant.ActorKind != "owner" || grant.Input.Revoked || grant.Input.AssignmentSHA != in.AssignmentSHA || grant.Input.TaskScopeSHA != task.Binding.TaskScopeSHA || grant.Input.BaseBranch != task.Binding.BaseBranch {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	if grant.Input.Kind == "retained-deliver" {

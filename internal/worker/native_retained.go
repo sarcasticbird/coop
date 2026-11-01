@@ -11,6 +11,23 @@ import (
 
 type nativeRetainedReadKey struct{}
 
+func nativeValidateRetainedDecision(ctx context.Context, m NativeMaster, h c.Handoff) error {
+	validator, ok := m.(interface {
+		ValidateRetainedDeliveryHandoff(context.Context, c.RetainedDeliveryValidation) (c.Handoff, error)
+	})
+	if !ok {
+		return c.ErrUnsupported
+	}
+	current, err := validator.ValidateRetainedDeliveryHandoff(ctx, c.RetainedDeliveryValidation{Goal: h.Input.Goal, HandoffID: h.ID})
+	if err != nil {
+		return err
+	}
+	if current != h {
+		return c.ErrForbidden
+	}
+	return nil
+}
+
 // Recorded references may suppress an inaccessible retained candidate, never
 // grant it access. Registration still prevents replacement planning.
 func nativeRetainedTask(cat NativeCatalog, cfg Config, goal c.GoalRef, task string) bool {
@@ -35,10 +52,15 @@ func nativeRetainedGateJob(cfg Config, j Job) bool {
 // Order before validating, including assignment drift and revocation. Never
 // hydrate evidence from a superseded decision to rescue its replacement.
 func nativeRetainedDecision(cat NativeCatalog, goal c.GoalRef, task, pr, kind string) *c.Handoff {
+	// Delivery grants share one decision stream; retained gates do not.
+	matches := func(h c.Handoff) bool {
+		delivery := kind == "deliver" || kind == "retained-deliver"
+		return (h.Input.Kind == kind || delivery && (h.Input.Kind == "deliver" || h.Input.Kind == "retained-deliver")) && h.Input.Goal == goal && h.Input.TaskURL == task && h.Input.PRURL == pr
+	}
 	var chosen *c.Handoff
 	for i := range cat.Handoffs {
 		h := &cat.Handoffs[i]
-		if h.Input.Kind == kind && h.Input.Goal == goal && h.Input.TaskURL == task && h.Input.PRURL == pr && (chosen == nil || h.Sequence > chosen.Sequence) {
+		if matches(*h) && (chosen == nil || h.Sequence > chosen.Sequence) {
 			chosen = h
 		}
 	}
@@ -46,11 +68,11 @@ func nativeRetainedDecision(cat NativeCatalog, goal c.GoalRef, task, pr, kind st
 		return nil
 	}
 	for _, h := range cat.Handoffs {
-		if h.Input.Kind == kind && h.Input.Goal == goal && h.Input.TaskURL == task && h.Input.PRURL == pr && h.Sequence == chosen.Sequence && h.ID != chosen.ID {
+		if matches(h) && h.Sequence == chosen.Sequence && h != *chosen {
 			return nil
 		}
 	}
-	if chosen.ID == "" || chosen.Sequence < 1 || chosen.CreatedAt.IsZero() || chosen.ActorKind != "owner" || chosen.ActorID == "" || chosen.Input.Revoked || c.ValidateHandoff(chosen.Input) != nil {
+	if chosen.Input.Kind != kind || chosen.ID == "" || chosen.Sequence < 1 || chosen.CreatedAt.IsZero() || chosen.ActorKind != "owner" || chosen.ActorID == "" || chosen.Input.Revoked || c.ValidateHandoff(chosen.Input) != nil {
 		return nil
 	}
 	return chosen
@@ -109,6 +131,9 @@ func nativeReadRoster(ctx context.Context, cfg Config, b NativeTaskBinding) erro
 	}
 	for _, h := range cat.Handoffs {
 		if h.Input.TaskURL != b.TaskURL || h.Input.Goal != b.Goal {
+			continue
+		}
+		if nativeDeliveryActor(cfg) && h.Input.Kind == "retained-gates" {
 			continue
 		}
 		latest := nativeRetainedDecision(*cat, b.Goal, b.TaskURL, h.Input.PRURL, h.Input.Kind)
@@ -191,6 +216,28 @@ func nativeRetainedSource(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalA
 	var result NativeQAResult
 	if !peerOK || !qaOK || nativeMetadata(qa.Body, "qa", &result) != nil || peer.ID != in.PeerReviewID || peer.ID != r.SourcePeerReviewID || BodyHash(peer.Body) != r.SourcePeerBodySHA || qa.ID != in.QAReviewID || qa.ID != r.SourceQAReviewID || BodyHash(qa.Body) != r.SourceQABodySHA || result.EvidenceMessageID != r.SourceReportID || result.EvidenceBodySHA != r.SourceReportBodySHA || in.QAEvidenceMessageID != r.SourceReportID || in.QAEvidenceBodySHA != r.SourceReportBodySHA || result.Environment != r.SourceEnvironment || result.EnvironmentRevision != r.SourceEnvironmentRevision || r.DeliveryAcceptanceSHA != NativeAcceptanceSHA(a) {
 		return false
+	}
+	// Renewed assertions use current environment authority, not the historical
+	// source assessment's environment. Resolve any exact-artifact override.
+	env, err := resolveNativeQAEnvironment(t.Binding, a, p, nil, cat.Handoffs)
+	if err != nil {
+		return false
+	}
+	if in.Environment != env.Name || in.EnvironmentRevision != env.Revision {
+		matched := false
+		for i := range cat.Handoffs {
+			h := &cat.Handoffs[i]
+			if h.Input.Kind != "reassess-qa" || h.ActorKind != "owner" || h.ActorID == "" || h.Input.Revoked || h.Input.Environment != in.Environment || h.Input.EnvironmentRevision != in.EnvironmentRevision {
+				continue
+			}
+			resolved, err := resolveNativeQAEnvironment(t.Binding, a, p, h, cat.Handoffs)
+			if err == nil && resolved.Name == in.Environment && resolved.Revision == in.EnvironmentRevision {
+				matched = true
+			}
+		}
+		if !matched {
+			return false
+		}
 	}
 	for _, name := range []string{"hawk", "wren", "rook"} {
 		found := false

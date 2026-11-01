@@ -375,7 +375,7 @@ func deliveryQAEnvironment(ctx context.Context, q queryer, actor c.Principal, a 
 		if h.ID == "" || h.ActorKind != "owner" || h.ActorID == "" || h.CreatedAt.IsZero() || c.ValidateHandoff(x) != nil || x.Kind != "reassess-qa" || x.Goal != in.Goal || x.TaskURL != in.TaskURL || x.AssignmentSHA != in.AssignmentSHA || x.PRURL != in.PRURL || x.HeadSHA != in.HeadSHA || x.ArtifactSHA != in.ArtifactSHA || x.Environment != in.Environment || x.EnvironmentRevision != in.EnvironmentRevision || x.Environment == "" {
 			continue
 		}
-		owner, e := principal(ctx, q, h.ActorID)
+		owner, e := authorize(ctx, q, c.Principal{ID: h.ActorID}, "decide")
 		if e != nil || owner.ID != h.ActorID || owner.Kind != "owner" || member(ctx, q, owner, a.Revision.Proposal.ThreadID) != nil {
 			continue
 		}
@@ -383,7 +383,7 @@ func deliveryQAEnvironment(ctx context.Context, q queryer, actor c.Principal, a 
 		if e != nil || evidence.Imported || evidence.AuthorKind != "owner" || (evidence.ThreadID != a.Revision.Proposal.ThreadID && evidence.ThreadID != a.Revision.Proposal.QA.EvidenceDestination.ThreadID) {
 			continue
 		}
-		author, e := principal(ctx, q, evidence.AuthorID)
+		author, e := authorize(ctx, q, c.Principal{ID: evidence.AuthorID}, "decide")
 		if e != nil || author.ID != evidence.AuthorID || author.Kind != "owner" || member(ctx, q, author, evidence.ThreadID) != nil || member(ctx, q, owner, evidence.ThreadID) != nil || member(ctx, q, actor, evidence.ThreadID) != nil {
 			continue
 		}
@@ -427,6 +427,13 @@ func (svc *Service) Handoffs(ctx context.Context, actor c.Principal, in c.Handof
 	return out, rows.Err()
 }
 func registerHandoffs(mux *http.ServeMux, svc *Service, wrap func(func(http.ResponseWriter, *http.Request, c.Principal) (any, error)) http.HandlerFunc) {
+	mux.HandleFunc("POST /api/v1/handoffs/retained-delivery/validate", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.RetainedDeliveryValidation
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return svc.ValidateRetainedDeliveryHandoff(r.Context(), p, in)
+	}))
 	mux.HandleFunc("POST /api/v1/handoffs/tag-only/validate", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		var in c.TagOnlyValidation
 		if err := decode(w, r, &in); err != nil {

@@ -127,7 +127,7 @@ func (g *GitHubClient) api(ctx context.Context, owner, method, endpoint string, 
 		return nil, res.Header, ghError("response_too_large")
 	}
 	if res.StatusCode == 429 || res.StatusCode == 403 && (res.Header.Get("Retry-After") != "" || res.Header.Get("X-RateLimit-Remaining") == "0") || res.StatusCode == 200 && endpoint == "graphql" && graphqlQuota(raw) {
-		return nil, res.Header, &GitHubError{Category: "rate_limited", RetryAt: quotaRetry(res.Header, time.Now())}
+		return nil, res.Header, &GitHubError{Category: "rate_limited", StatusCode: res.StatusCode, RetryAt: quotaRetry(res.Header, time.Now())}
 	}
 	if runErr != nil || result.ExitCode != 0 || res.StatusCode < 200 || res.StatusCode >= 300 {
 		category := "request_failed"

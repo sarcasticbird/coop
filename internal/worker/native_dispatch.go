@@ -541,6 +541,11 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	candidates := NativeCandidates(d.config, selection, nil, d.clock.Now())
 	for _, v := range candidates {
 		if v.Job.ID == x.Job.ID {
+			if v.Handoff != nil && (v.Handoff.Input.Kind == "retained-gates" || v.Handoff.Input.Kind == "retained-deliver") {
+				if err := nativeValidateRetainedDecision(ctx, d.master, *v.Handoff); err != nil {
+					return NativeCandidate{}, err
+				}
+			}
 			if (x.Job.Kind == "deliver" || x.Job.Kind == "tag-only") && (v.Job.Master.DeliveryHandoffID != x.Job.Master.DeliveryHandoffID || !qaArtifactEqual(v.Job.QAArtifact, x.Job.QAArtifact)) {
 				return NativeCandidate{}, c.ErrForbidden
 			}

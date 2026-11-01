@@ -255,6 +255,29 @@ is `{"operation":"deliver","request_id":"stable-assigned-delivery"}` through
 scope, placement and authority are checked again before effects. A stored grant
 is not merge or completion evidence.
 
+Ordinary `deliver` and `retained-deliver` share one ordered decision stream per
+goal/task/PR. Select the latest decision before checking its kind, assignment,
+scope or withdrawal. A newer ordinary grant or withdrawal stops an older retained
+grant too; invalid newest scope never exposes an older grant. Retained-gates has
+its own ordered stream.
+
+The compatible worker calls the authenticated read-only endpoint
+`POST /api/v1/handoffs/retained-delivery/validate` with
+`{"goal": EXACT_SOURCE_GOAL_REF, "handoff_id": EXACT_SELECTED_HANDOFF_ID}`
+at retained dispatch revalidation and immediately before gate/delivery effects
+and completion recovery. It requires the returned handoff to equal its selected
+decision. The master freshly checks the grant and gate owners' and both owner
+evidence authors' `decide` capabilities, memberships, registrations, source
+authority, policy, environments and reports. Readable evidence and unchanged
+membership alone do not establish authority. Missing endpoint/client support
+fails closed, so activate compatible master and workers together while held.
+
+Renewed top-level `environment`/`environment_revision` and historical
+`retained.source_environment`/`source_environment_revision` are independently
+validated against the source QA scope or an applicable exact-artifact owner
+reassessment. Approval of the historical pair never approves a different current
+pair, and approving a new current pair does not relabel the original report.
+
 ## Tag-Only Follow-Up
 
 Tag-only is a separate owner decision after source native delivery and original
@@ -457,6 +480,9 @@ without another object/ref write.
 `ref-rejected` remains conflict. Wrong annotation/target/lightweight/foreign refs
 cannot become a successful receipt. Object-only uncertainty has no automated
 resume-to-ref operation; preserve it for operator disposition.
+HTTP 429 and rate-limited HTTP 403 retain their actual response status and retry
+metadata. A conclusive ref-create refusal is journaled as `ref-rejected`; a later
+foreign equal ref cannot be adopted as success by retrying the original request.
 
 For an acknowledged retained merge with missing terminal result, inspect first;
 the supported `native recover-delivery --config ... --job ... --session ...
@@ -506,6 +532,8 @@ part of the offline acceptance run.
 | Exact source target, canonical object, lost ack/read-only recovery | `worker`: `TestTagOnlyIntegratedSourceVerification`, `TestTagOnlyExpectedObjectMatchesGit`, `TestTagOnlyEffectsAndReadOnlyRecovery` |
 | Version provenance, final integrated target, historical bridge guard | `worker`: `TestTagOnlyVersionRequiresTrustedNativeChain`, `TestTagOnlyVersionProductionTarget`, `TestTagOnlyVersionEffectsBindFinalIntegratedCommit`, `TestTagOnlyProductionVersionJourney`, `TestTagOnlyHistoricalReadBridgePreservesOrdinaryGuards` |
 | Fixed payload semantics including library/executable/mode/link drift | `worker`: `TestTagOnlyPayloadEquivalence`, `TestTagOnlyBinaryAndLibraryPayloadEquivalence` |
+| Cross-kind replacement/withdrawal, live owner revocation and renewed environment approval | `worker`: `TestRetainedProductionCrossKindDeliveryDecisions`, `TestRetainedProductionCurrentMasterValidationDeniesBeforeMerge`, `TestRetainedPR9OwnerDecideRevocationPrecedesEffects`, `TestRetainedProductionRenewedEnvironmentAuthority`; `master`: `TestRetainedValidationOwnerDecideRevocation`, `TestRetainedValidationExecutorAndLatestDecision`, `TestRetainedValidationAuthenticatedReadOnlyEndpoint`, `TestRetainedCurrentEnvironmentApproval` |
+| Production response parser retains definite rate-limit refusals; zero adoption/completion | `worker`: `TestTagOnlyRateLimitRefusalCannotAdoptForeignRef` |
 
 Offline targeted run, then full verification in the private isolated checkout:
 

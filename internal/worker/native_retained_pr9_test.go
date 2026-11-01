@@ -550,7 +550,7 @@ func TestRetainedPR9ExactMasterWorkerCLIJourney(t *testing.T) {
 
 func TestRetainedPR9ExactAuthorityDenials(t *testing.T) {
 	requirePR9PrivateFixture(t)
-	for _, mode := range []string{"missing-bridge", "revoked-gates", "revoked-delivery", "execution-policy", "source-scope", "source-archive", "source-author-delivery"} {
+	for _, mode := range []string{"missing-bridge", "revoked-gates", "revoked-delivery", "ordinary-replacement", "ordinary-withdrawal", "execution-policy", "source-scope", "source-archive", "source-author-delivery"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newPR9Journey(t)
 			if mode == "missing-bridge" {
@@ -564,6 +564,14 @@ func TestRetainedPR9ExactAuthorityDenials(t *testing.T) {
 			grant := f.ready(gates, false)
 			cfg, m, x := f.selected("rook", "deliver")
 			switch mode {
+			case "ordinary-replacement", "ordinary-withdrawal":
+				in := grant.Input
+				in.Kind, in.RequestID, in.Retained = "deliver", "fixture-replace-retained", c.RetainedDeliveryAuthority{}
+				f.ownerHandoff(in, false)
+				if mode == "ordinary-withdrawal" {
+					in.Revoked, in.RequestID = true, "fixture-withdraw-ordinary"
+					f.ownerHandoff(in, false)
+				}
 			case "revoked-gates", "revoked-delivery":
 				in := gates.Input
 				if mode == "revoked-delivery" {

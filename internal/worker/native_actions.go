@@ -300,6 +300,12 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 					matched := false
 					for _, candidate := range NativeCandidates(cfg, catalog, nil, time.Now().UTC()) {
 						if candidate.Job.ID == x.Job.ID && qaArtifactEqual(candidate.Job.QAArtifact, x.Job.QAArtifact) {
+							if candidate.Handoff == nil {
+								return c.ErrUnsupported
+							}
+							if err := nativeValidateRetainedDecision(ctx, m, *candidate.Handoff); err != nil {
+								return err
+							}
 							matched = true
 						}
 					}

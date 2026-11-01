@@ -10,6 +10,18 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
+func (m *dispatchMaster) ValidateRetainedDeliveryHandoff(_ context.Context, in c.RetainedDeliveryValidation) (c.Handoff, error) {
+	for _, h := range m.handoffs {
+		if h.ID == in.HandoffID && h.Input.Goal == in.Goal {
+			latest := nativeRetainedDecision(NativeCatalog{Handoffs: m.handoffs}, in.Goal, h.Input.TaskURL, h.Input.PRURL, h.Input.Kind)
+			if latest != nil && latest.ID == h.ID {
+				return h, nil
+			}
+		}
+	}
+	return c.Handoff{}, c.ErrForbidden
+}
+
 // Start with the production delivery transport and its ORIGINAL registered
 // source binding/reviews, then change only the execution roster and owner grants.
 func retainedProductionFixture(t *testing.T) (Config, *dispatchMaster, *GitHubClient, *fakeOpenCode, *nativeDeliveryTransport, NativeTaskBinding) {
@@ -196,6 +208,93 @@ func TestRetainedProductionMergeJourney(t *testing.T) {
 	}
 }
 
+func TestRetainedProductionCrossKindDeliveryDecisions(t *testing.T) {
+	for _, mode := range []string{"ordinary-replacement", "ordinary-withdrawal", "ordinary-assignment-drift", "ordinary-older", "ambiguous", "retained-assignment-drift"} {
+		for _, order := range []string{"first", "last"} {
+			t.Run(mode+"/"+order, func(t *testing.T) {
+				cfg, m, g, _, transport, binding := retainedProductionFixture(t)
+				grant := retainedReports(t, &cfg, m, g, transport, binding)
+				x := retainedExecution(t, cfg, m, g, binding, "deliver")
+				replacement := grant
+				replacement.ID, replacement.Sequence = "replacement", grant.Sequence+1
+				replacement.Input.Kind, replacement.Input.RequestID = "deliver", "replacement"
+				replacement.Input.Retained = c.RetainedDeliveryAuthority{}
+				switch mode {
+				case "ordinary-withdrawal":
+					replacement.Input.Revoked = true
+				case "ordinary-assignment-drift":
+					replacement.Input.AssignmentSHA = BodyHash("replacement assignment")
+				case "ordinary-older":
+					replacement.Sequence = grant.Sequence - 1
+				case "ambiguous":
+					replacement.Sequence = grant.Sequence
+				case "retained-assignment-drift":
+					replacement.Input = grant.Input
+					replacement.Input.AssignmentSHA = BodyHash("replacement assignment")
+				}
+				if err := c.ValidateHandoff(replacement.Input); err != nil {
+					t.Fatal(err)
+				}
+				if order == "first" {
+					m.handoffs = append([]c.Handoff{replacement}, m.handoffs...)
+				} else {
+					m.handoffs = append(m.handoffs, replacement)
+				}
+				cat, err := g.NativeSnapshot(t.Context(), cfg, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				jobs := NativeCandidates(cfg, cat, nil, time.Now())
+				if mode == "ordinary-older" {
+					if len(jobs) != 1 || jobs[0].Handoff.ID != grant.ID {
+						t.Fatal("lost latest retained decision", jobs)
+					}
+				} else if len(jobs) != 0 {
+					t.Fatal("discovery fell back to old retained authority", jobs)
+				}
+				_, err = RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, NativeAction{Operation: "deliver", RequestID: "cross-kind"})
+				if mode == "ordinary-older" {
+					if err != nil || !transport.merged || !transport.closed {
+						t.Fatal("newest retained grant failed delivery", err, transport.writes)
+					}
+					return
+				}
+				if err == nil || len(transport.writes) != 0 || transport.merged || transport.closed {
+					t.Fatal("superseded retained grant caused merge/task writes", err, transport.writes)
+				}
+				if err := nativeConfirmDelivery(t.Context(), cfg, m, g, m.authority, x); err == nil {
+					t.Fatal("confirmation accepted superseded retained decision")
+				}
+			})
+		}
+	}
+}
+
+type retainedValidationMaster struct {
+	*dispatchMaster
+	err   error
+	calls int
+}
+
+func (m *retainedValidationMaster) ValidateRetainedDeliveryHandoff(ctx context.Context, in c.RetainedDeliveryValidation) (c.Handoff, error) {
+	m.calls++
+	if m.err != nil {
+		return c.Handoff{}, m.err
+	}
+	return m.dispatchMaster.ValidateRetainedDeliveryHandoff(ctx, in)
+}
+
+func TestRetainedProductionCurrentMasterValidationDeniesBeforeMerge(t *testing.T) {
+	cfg, m, g, _, transport, binding := retainedProductionFixture(t)
+	retainedReports(t, &cfg, m, g, transport, binding)
+	x := retainedExecution(t, cfg, m, g, binding, "deliver")
+	current := &retainedValidationMaster{dispatchMaster: m, err: c.ErrForbidden}
+	_, err := RunNativeAction(t.Context(), cfg, current, g, x.Job.ID, NativeAction{Operation: "deliver", RequestID: "current-authority-revoked"})
+	if err == nil || current.calls == 0 || len(transport.writes) != 0 || transport.merged || transport.closed {
+		t.Fatal("current authority denial did not protect effect", err, current.calls, transport.writes)
+	}
+}
+
 func TestRetainedProductionGateDispatch(t *testing.T) {
 	for _, name := range []string{"hawk", "wren"} {
 		t.Run(name, func(t *testing.T) {
@@ -324,7 +423,7 @@ func TestRetainedProductionFailsClosed(t *testing.T) {
 }
 
 func TestRetainedProductionRecovery(t *testing.T) {
-	for _, mode := range []string{"unstarted", "merged", "revoked", "uncertain"} {
+	for _, mode := range []string{"unstarted", "merged", "revoked", "uncertain", "ordinary-replacement", "ordinary-withdrawal", "ambiguous", "assignment-drift"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg, m, g, code, transport, binding := retainedProductionFixture(t)
 			retainedReports(t, &cfg, m, g, transport, binding)
@@ -345,6 +444,20 @@ func TestRetainedProductionRecovery(t *testing.T) {
 			if mode == "revoked" {
 				m.handoffs[1].Input.Revoked = true
 			}
+			if mode == "ordinary-replacement" || mode == "ordinary-withdrawal" || mode == "ambiguous" || mode == "assignment-drift" {
+				h := m.handoffs[1]
+				h.ID, h.Sequence, h.Input.Kind, h.Input.Retained = "ordinary-recovery", 3, "deliver", c.RetainedDeliveryAuthority{}
+				if mode == "ordinary-withdrawal" {
+					h.Input.Revoked = true
+				}
+				if mode == "ambiguous" {
+					h.Sequence = m.handoffs[1].Sequence
+				}
+				if mode == "assignment-drift" {
+					h.Input.AssignmentSHA = BodyHash("new assignment")
+				}
+				m.handoffs = append(m.handoffs, h)
+			}
 			if err := saveNativeExecution(cfg, x); err != nil {
 				t.Fatal(err)
 			}
@@ -352,7 +465,7 @@ func TestRetainedProductionRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := RecoverNativeDelivery(t.Context(), cfg, m, g, code, x.Job.ID, x.Job.SessionID, x.Job.MessageID, in)
-			if mode == "revoked" || mode == "uncertain" {
+			if mode != "unstarted" && mode != "merged" {
 				if err == nil || len(transport.writes) != 0 {
 					t.Fatal("unsafe recovery", err, transport.writes)
 				}
@@ -489,6 +602,48 @@ func TestRetainedHistoricalQAEnvironmentRequiresOriginalHandoff(t *testing.T) {
 			}
 			if bridge && (jobs[0].Handoff.Input.Retained.SourceEnvironment != "historical-device" || jobs[0].Goal.Revision.Proposal.QA.Environment != "staging") {
 				t.Fatal("rewrote historical environment")
+			}
+		})
+	}
+}
+
+func TestRetainedProductionRenewedEnvironmentAuthority(t *testing.T) {
+	for _, mode := range []string{"default", "unapproved", "reassessment", "wrong-artifact", "revoked", "invalid-prior"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg, m, g, _, transport, binding := retainedProductionFixture(t)
+			retainedAs(&cfg, m, transport, "wren")
+			x := retainedExecution(t, cfg, m, g, binding, "delivery-qa")
+			if mode != "default" {
+				var previous NativeQAResult
+				if err := nativeMetadata(transport.reviews[1]["body"].(string), "qa", &previous); err != nil {
+					t.Fatal(err)
+				}
+				previous.Verdict = "changes-needed"
+				if mode == "invalid-prior" {
+					previous.EnvironmentRevision = "unauthorized-prior"
+				}
+				transport.reviews = append(transport.reviews, map[string]any{"fullDatabaseId": 3, "state": "CHANGES_REQUESTED", "body": NativeQAMetadata(previous), "submittedAt": time.Now().Add(-30 * time.Minute).UTC(), "commit": map[string]any{"oid": transport.head}, "author": map[string]any{"__typename": "Bot", "databaseId": binding.QAID, "login": "qa[bot]"}})
+				gates := &m.handoffs[0]
+				gates.Input.Environment, gates.Input.EnvironmentRevision = "renewed-device", "renewed-v2"
+				if mode != "unapproved" {
+					h := c.Handoff{ID: "renewed-environment", ActorID: "owner", ActorKind: "owner", CreatedAt: time.Now().Add(-20 * time.Minute).UTC(), Input: c.HandoffInput{Kind: "reassess-qa", Goal: binding.Goal, TaskURL: binding.TaskURL, PRURL: gates.Input.PRURL, AssignmentSHA: NativeAssignmentSHA(binding), HeadSHA: previous.HeadSHA, ArtifactSHA: previous.ArtifactSHA, ReviewID: "3", Environment: gates.Input.Environment, EnvironmentRevision: gates.Input.EnvironmentRevision, EvidenceMessageID: "renewal-decision", RequestID: "renewal-decision"}}
+					if mode == "wrong-artifact" {
+						h.Input.ArtifactSHA = BodyHash("wrong artifact")
+					}
+					if mode == "revoked" {
+						h.Input.Revoked = true
+					}
+					m.handoffs = append(m.handoffs, h)
+				}
+			}
+			before := len(m.reports)
+			_, err := RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, NativeAction{Operation: "delivery-readiness", RequestID: "environment-readiness", Verdict: "ready"})
+			allowed := mode == "default" || mode == "reassessment"
+			if allowed != (err == nil) || len(transport.writes) != 0 || !allowed && len(m.reports) != before {
+				t.Fatal("renewed environment authority mismatch", err, transport.writes)
+			}
+			if m.handoffs[0].Input.Retained.SourceEnvironment != "staging" || m.handoffs[0].Input.Retained.SourceEnvironmentRevision != "staging-v1" {
+				t.Fatal("renewal relabeled historical source environment")
 			}
 		})
 	}

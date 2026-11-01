@@ -12,6 +12,13 @@ const DeliveryGitHubBotID int64 = 345406391
 
 const RetainedDeliveryOverride = "stop-before-merge:exact-retained-delivery"
 
+// RetainedDeliveryValidation rechecks an existing grant without creating authority.
+// Both retained-deliver (Rook) and retained-gates (Hawk/Wren) are supported.
+type RetainedDeliveryValidation struct {
+	Goal      GoalRef `json:"goal"`
+	HandoffID string  `json:"handoff_id"`
+}
+
 // RetainedDeliveryAuthority is a comparable value; it never replaces source metadata.
 type RetainedDeliveryAuthority struct {
 	SourcePolicySHA           string `json:"source_policy_sha256"`
