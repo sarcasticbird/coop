@@ -209,3 +209,76 @@ func TestNativeCachedBranchRefreshWaitDiagnostics(t *testing.T) {
 		t.Fatal("stale cache explained current wait")
 	}
 }
+
+func TestNativeCachedRookHydratesLiveArtifact(t *testing.T) {
+	for _, merged := range []bool{false, true} {
+		for _, mode := range []string{"current", "unavailable", "head-drift"} {
+			label := "open/" + mode
+			if merged {
+				label = "merged/" + mode
+			}
+			t.Run(label, func(t *testing.T) {
+				cfg, m, g, _, s, x := nativeDeliveryActionFixture(t)
+				m.authority.Revision.Proposal.QA.Required = false
+				binding := *x.Binding
+				binding.QAID = 0
+				s.metadata = NativeTaskMetadata(binding)
+				s.prBody = NativePRBody(NativePRMetadata{Version: 3, Goal: x.Goal, TaskURL: binding.TaskURL, AssignmentSHA: NativeAssignmentSHA(binding), Artifact: x.Job.QAArtifact})
+				s.reviews, m.handoffs = nil, nil
+				for i := range m.links {
+					m.links[i].AssignmentSHA = NativeAssignmentSHA(binding)
+				}
+				cat, err := g.NativeSnapshot(t.Context(), cfg, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				task, p := cat.Tasks[0], cat.Tasks[0].PRs[0]
+				p.Merged, s.merged = merged, merged
+				// Cache a plausible but wrong digest. Rook must obtain the live artifact.
+				artifact := *p.QAArtifact
+				artifact.SHA256 = strings.Repeat("f", 64)
+				p.QAArtifact = &artifact
+				f := &fakeCacheClient{data: map[string][]byte{}, page: c.GitHubCatalogPage{Version: 1, Mode: "on", MasterID: cfg.Master.MasterID, RestoreEpoch: 1, Manifest: BodyHash("manifest"), Goals: []c.GoalAuthority{m.authority}}}
+				addCachedTask(t, f, task)
+				ref := c.GitHubObjectRef{RouteID: "route", Goal: x.Goal, TaskURL: task.Task.URL, URL: p.URL, Kind: "pull_request", AssignmentSHA: NativeAssignmentSHA(task.Binding)}
+				raw, err := json.Marshal(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				hash := c.GitHubDigest(raw)
+				f.data[hash] = raw
+				f.page.Objects = append(f.page.Objects, c.GitHubCoverage{Object: ref, DueAt: time.Now().Add(time.Hour), Header: c.GitHubHeader{Revision: hash, HeadSHA: p.HeadSHA, BaseSHA: p.BaseSHA, ScopeRevision: p.ScopeRevision}, Datasets: []c.GitHubDatasetRef{{Object: ref, Kind: "pr", SHA256: hash, HeaderRevision: hash, Total: len(raw), Version: 1, DueAt: time.Now().Add(time.Hour)}}})
+				artifactReads := 0
+				s.commands.respond = func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+					if endpoint == "repos/code/repo/actions/artifacts/1" {
+						artifactReads++
+						if mode == "unavailable" {
+							return CommandResult{}, c.ErrUnavailable
+						}
+					}
+					return s.response(owner, endpoint, method, body)
+				}
+				if mode == "head-drift" {
+					s.head = strings.Repeat("b", 40)
+				}
+				out, err := NewCachedNativeReader(cfg, g, f, RealClock{}).NativeSnapshot(t.Context(), cfg, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode != "current" {
+					if len(out.Tasks) != 0 || out.Cache.Ready[task.Task.URL] || len(NativeCandidates(cfg, out, nil, time.Now())) != 0 {
+						t.Fatal("cache substituted for failed live artifact validation", out)
+					}
+					return
+				}
+				if len(out.Tasks) != 1 || len(out.Tasks[0].PRs) != 1 {
+					t.Fatal("live hydration lost task/PR", out)
+				}
+				fresh := out.Tasks[0].PRs[0]
+				if artifactReads == 0 || !qaArtifactEqual(fresh.QAArtifact, x.Job.QAArtifact) || fresh.Merged != merged || fresh.Author.ID != task.Binding.AuthorID {
+					t.Fatal("Rook trusted cached artifact instead of live source", fresh, artifactReads)
+				}
+			})
+		}
+	}
+}

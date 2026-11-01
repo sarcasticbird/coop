@@ -483,6 +483,9 @@ func nativeCurrentGoal(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	return a, nil
 }
 func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution) (NativeCandidate, error) {
+	if x.Job.Kind == "deliver" && !nativeDeliveryJob(d.config, x.Job) {
+		return NativeCandidate{}, c.ErrForbidden
+	}
 	if nativeIsPostMergeQA(x.Job) {
 		release, err := lockNativeProducer(d.config)
 		if err != nil {
@@ -531,6 +534,9 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	candidates := NativeCandidates(d.config, selection, nil, d.clock.Now())
 	for _, v := range candidates {
 		if v.Job.ID == x.Job.ID {
+			if x.Job.Kind == "deliver" && (v.Job.Master.DeliveryHandoffID != x.Job.Master.DeliveryHandoffID || !qaArtifactEqual(v.Job.QAArtifact, x.Job.QAArtifact)) {
+				return NativeCandidate{}, c.ErrForbidden
+			}
 			return v, nil
 		}
 	}
@@ -880,7 +886,10 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 		prompt += "\nThis is the first postmerge QA assessment of the exact merged artifact, not a premerge clearance, reassessment, release authorization or release/install verification. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + ". Preserve the completed task state and historical lack of premerge QA. Independently assess the bound artifact in environment " + v.Handoff.Input.Environment + " at revision " + v.Handoff.Input.EnvironmentRevision + ". Report supported findings and limitations through the normal QA action. Do not change source, reopen the task, merge, publish or invent device results."
 	}
 	if v.Handoff != nil && v.Handoff.Input.Kind == "release" {
-		prompt += "\nOwner-approved delivery extension " + v.Handoff.ID + " authorizes merging this exact reviewed PR after all existing gates and publishing tag " + v.Handoff.Input.Tag + " through " + v.Handoff.Input.Workflow + ". Original task, source acceptance and independent peer/QA bindings remain unchanged. Use the normal deliver action first. After confirmed merge, the assigned author can invoke /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal " + v.Handoff.Input.Goal.GoalID + " --revision " + v.Handoff.Input.Goal.RevisionSHA256 + " --handoff " + v.Handoff.ID + ". This guarded command returns waiting until release CI/publication succeeds; checking the same handoff never republishes the tag. A published receipt is not released-artifact QA or a Homebrew install pass."
+		prompt += "\nOwner-approved release extension " + v.Handoff.ID + " authorizes publishing tag " + v.Handoff.Input.Tag + " through " + v.Handoff.Input.Workflow + ", not merging. Source delivery requires a separate exact owner decision and assigned Rook delivery stage. Original task, source acceptance and independent peer/QA bindings remain unchanged. After confirmed merge, the separately assigned author can invoke /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal " + v.Handoff.Input.Goal.GoalID + " --revision " + v.Handoff.Input.Goal.RevisionSHA256 + " --handoff " + v.Handoff.ID + ". This guarded command returns waiting until release CI/publication succeeds; checking the same handoff never republishes the tag. A published receipt is not released-artifact QA or a Homebrew install pass."
+	}
+	if x.Job.Kind == "deliver" && v.Handoff != nil && v.Handoff.Input.Kind == "deliver" {
+		prompt += "\nOwner delivery decision " + v.Handoff.ID + " authorizes only Rook to deliver this exact artifact after fresh authority, independent review/QA, checks and merge-state validation. Preserve the immutable source author and assignment. Use only the deliver action; this stage grants no implementation, review, QA, release, install, restart or configuration authority. Never lift a hold or use the old author-bound policy to bootstrap its replacement."
 	}
 	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."

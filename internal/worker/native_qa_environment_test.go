@@ -139,20 +139,17 @@ func TestQAEnvironmentResolvedThroughPublicationAndClearance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorCfg := f.cfg
+	deliveryCfg := f.cfg
 	masterCfg := *f.cfg.Master
-	authorCfg.Master = &masterCfg
-	for _, member := range f.cfg.Team.Members {
-		if member.Actor.ID == task.Binding.AuthorID {
-			authorCfg.Name, authorCfg.Self, authorCfg.Master.AgentID = member.Name, member.Actor, f.master.authority.Actors.Author.PrincipalID
-		}
-	}
-	jobs := NativeCandidates(authorCfg, cat, nil, time.Now())
+	deliveryCfg.Master = &masterCfg
+	cat.Tasks[0].PRs[0].BaseSHA = strings.Repeat("d", 40)
+	nativeAuthorizeDelivery(t, &deliveryCfg, &cat)
+	jobs := NativeCandidates(deliveryCfg, cat, nil, time.Now())
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
 		t.Fatalf("resolved QA missing from delivery gate: %+v", jobs)
 	}
 	cat.Handoffs = nil
-	for _, job := range NativeCandidates(authorCfg, cat, nil, time.Now()) {
+	for _, job := range NativeCandidates(deliveryCfg, cat, nil, time.Now()) {
 		if job.Job.Kind == "deliver" {
 			t.Fatal("delivery accepted missing environment authority")
 		}

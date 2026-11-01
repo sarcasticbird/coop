@@ -353,10 +353,10 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
-	if p.Kind != "owner" && p.ID != a.Actors.Author.PrincipalID {
+	if p.ID != c.DeliveryPrincipalID || p.Kind != "agent" || p.GitHubBotID != c.DeliveryGitHubBotID {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
-	if !validID(in.RequestID) {
+	if !validID(in.RequestID) || !validID(in.DeliveryHandoffID) {
 		return c.ProviderTask{}, c.ErrInvalid
 	}
 	task, err := svc.Tasks.Read(ctx, in.Reference)
@@ -377,19 +377,68 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil || repo != task.Repository {
 		return c.ProviderTask{}, c.ErrInvalid
 	}
+	tx, err := svc.Store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return c.ProviderTask{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	p, err = authorize(ctx, tx, p, "read")
+	if err != nil {
+		return c.ProviderTask{}, err
+	}
+	if p.ID != c.DeliveryPrincipalID || p.Kind != "agent" || p.GitHubBotID != c.DeliveryGitHubBotID {
+		return c.ProviderTask{}, c.ErrForbidden
+	}
+	if err = admission(ctx, tx); err != nil {
+		return c.ProviderTask{}, err
+	}
+	a, err = svc.Store.resolveGoal(ctx, tx, p, in.Goal)
+	if err != nil {
+		return c.ProviderTask{}, err
+	}
+	if err = svc.taskBindingAuthority(ctx, tx, p, *task.Binding); err != nil {
+		return c.ProviderTask{}, err
+	}
+	var grantRaw []byte
+	// Do not filter revoked or stale scope here: the latest decision supersedes
+	// every older grant for this task, assignment and PR.
+	if err = tx.QueryRowContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
+		AND json_extract(body,'$.input.kind')='deliver'
+		AND json_extract(body,'$.input.task_url')=?
+		AND json_extract(body,'$.input.assignment_sha256')=?
+		AND json_extract(body,'$.input.pr_url')=? ORDER BY json_extract(body,'$.sequence') DESC LIMIT 1`, in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference, in.AssignmentSHA, in.PullRequestURL).Scan(&grantRaw); err != nil {
+		return c.ProviderTask{}, c.ErrConflict
+	}
+	var grant c.Handoff
+	if json.Unmarshal(grantRaw, &grant) != nil || grant.Sequence < 1 || grant.ID != in.DeliveryHandoffID || grant.ActorKind != "owner" || grant.Input.Revoked || grant.Input.TaskScopeSHA != task.Binding.TaskScopeSHA || grant.Input.BaseBranch != task.Binding.BaseBranch {
+		return c.ProviderTask{}, c.ErrConflict
+	}
+	if err = svc.deliveryAuthority(ctx, tx, p, a, grant.Input); err != nil {
+		return c.ProviderTask{}, err
+	}
 	var taskSHA string
-	if err = svc.Store.db.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference).Scan(&taskSHA); err != nil || taskSHA != in.AssignmentSHA {
+	if err = tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.Reference).Scan(&taskSHA); err != nil || taskSHA != in.AssignmentSHA {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	var raw []byte
-	if err = svc.Store.db.QueryRowContext(ctx, "SELECT body FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='pull_request'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.PullRequestURL).Scan(&raw); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT body FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='pull_request'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.PullRequestURL).Scan(&raw); err != nil {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	var link c.ArtifactLink
 	if json.Unmarshal(raw, &link) != nil || link.TaskURL != in.Reference || link.AssignmentSHA != in.AssignmentSHA {
 		return c.ProviderTask{}, c.ErrConflict
 	}
-	if err = svc.reserveTaskRequest(ctx, p.ID, in.RequestID, "task-complete", in); err != nil {
+	var accepted bool
+	found, err := request(ctx, tx, p.ID, in.RequestID, "task-complete", in, &accepted)
+	if err != nil {
+		return c.ProviderTask{}, err
+	}
+	if !found {
+		if err = saveRequest(ctx, tx, p.ID, in.RequestID, "task-complete", in, true); err != nil {
+			return c.ProviderTask{}, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
 		return c.ProviderTask{}, err
 	}
 	return svc.Tasks.Complete(ctx, in, p)
@@ -440,25 +489,4 @@ func registerTasks(mux *http.ServeMux, svc *Service, wrap func(func(http.Respons
 		}
 		return svc.TaskComplete(r.Context(), p, in)
 	}))
-}
-
-// Reserve immutable mutation input before an external effect. Successful or
-// ambiguous retries must retain exactly the original revision and payload.
-func (svc *Service) reserveTaskRequest(ctx context.Context, actor, id, kind string, input any) error {
-	tx, err := svc.Store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var accepted bool
-	found, err := request(ctx, tx, actor, id, kind, input, &accepted)
-	if err != nil {
-		return err
-	}
-	if !found {
-		if err = saveRequest(ctx, tx, actor, id, kind, input, true); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }

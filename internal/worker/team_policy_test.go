@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
 func teamPolicyFixture() TeamPolicy {
@@ -87,6 +89,46 @@ func TestTeamPolicyInvalid(t *testing.T) {
 				t.Fatalf("invalid policy digest = %q, %v", sha, err)
 			}
 		})
+	}
+}
+
+func TestTeamPolicyRookDeliveryExclusive(t *testing.T) {
+	for _, name := range []string{"rook", "other"} {
+		for _, botID := range []int64{c.DeliveryGitHubBotID, 99} {
+			for _, kind := range []string{"Bot", "User"} {
+				for _, role := range []string{"none", "plan", "implement", "engineering-review", "customer-qa"} {
+					for _, deliver := range []bool{false, true} {
+						label := name + "/" + stringID(int(botID)) + "/" + kind + "/" + role
+						if deliver {
+							label += "/deliver"
+						}
+						t.Run(label, func(t *testing.T) {
+							p := teamPolicyFixture()
+							m := TeamMember{Name: name, Actor: Actor{ID: botID, Login: "coordinator[bot]", Kind: kind}}
+							if role != "none" {
+								m.Capabilities = append(m.Capabilities, role)
+							}
+							if deliver {
+								m.Capabilities = append(m.Capabilities, "deliver")
+							}
+							p.Members = append(p.Members, m)
+							if role == "implement" {
+								p.EngineeringPeers[name] = "planner"
+							}
+							restricted := deliver || name == "rook" || botID == c.DeliveryGitHubBotID
+							want := kind == "Bot" && (!restricted || name == "rook" && botID == c.DeliveryGitHubBotID && (role == "none" || role == "plan"))
+							if err := ValidateTeamPolicy(p); (err == nil) != want {
+								t.Fatal("incorrect delivery role policy", err)
+							}
+							sha, err := TeamPolicySHA(p)
+							if (err == nil) != want || want && !hexSHA.MatchString(sha) || !want && sha != "" {
+								t.Fatal("incorrect delivery policy digest", sha, err)
+							}
+						})
+					}
+				}
+			}
+		}
 	}
 }
 

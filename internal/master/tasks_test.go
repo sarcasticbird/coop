@@ -108,8 +108,8 @@ func TestTaskMutationGuardsAndCompletionRequiresMatchingPR(t *testing.T) {
 		t.Fatal(err)
 	}
 	complete := c.TaskCompleteInput{Reference: task.Reference, Goal: in.Goal, AssignmentSHA: digest(task.Binding), PullRequestURL: "https://github.com/example/coop/pull/2", RequestID: "complete"}
-	if _, err = s.TaskComplete(ctx, b, complete); !errors.Is(err, c.ErrConflict) || backend.closes != 0 {
-		t.Fatal("unregistered PR closed task", err)
+	if _, err = s.TaskComplete(ctx, b, complete); !errors.Is(err, c.ErrForbidden) || backend.closes != 0 {
+		t.Fatal("author completion was not denied", err)
 	}
 	link := c.ArtifactLink{Goal: in.Goal, Kind: "pull_request", URL: complete.PullRequestURL, TaskURL: task.Reference, AssignmentSHA: complete.AssignmentSHA, RequestID: "pr"}
 	if _, err = s.RegisterArtifact(ctx, b, link); err != nil {
@@ -120,8 +120,23 @@ func TestTaskMutationGuardsAndCompletionRequiresMatchingPR(t *testing.T) {
 	if _, err = s.TaskBind(ctx, o, c.TaskBindInput{Binding: binding, ExpectedRevision: task.Revision, ExpectedAssignmentSHA: complete.AssignmentSHA, RequestID: "rebind"}); err == nil {
 		t.Fatal("published work rebound")
 	}
-	if _, err = s.TaskComplete(ctx, b, complete); err != nil {
+	if _, err = s.TaskComplete(ctx, b, complete); !errors.Is(err, c.ErrForbidden) || backend.closes != 0 {
+		t.Fatal("registered PR allowed author completion", err)
+	}
+
+	s, o, _, rook, delivery := deliveryFixture(t)
+	grant, err := s.CreateHandoff(ctx, o, delivery)
+	if err != nil {
 		t.Fatal(err)
+	}
+	backend = s.Tasks.(*testTasks)
+	complete = c.TaskCompleteInput{Reference: delivery.TaskURL, Goal: delivery.Goal, AssignmentSHA: delivery.AssignmentSHA, PullRequestURL: "https://github.com/example/coop/pull/999", DeliveryHandoffID: grant.ID, RequestID: "complete"}
+	if _, err = s.TaskComplete(ctx, rook, complete); !errors.Is(err, c.ErrConflict) || backend.closes != 0 {
+		t.Fatal("unmatched PR closed task", err)
+	}
+	complete.PullRequestURL = delivery.PRURL
+	if _, err = s.TaskComplete(ctx, rook, complete); err != nil || backend.closes != 1 {
+		t.Fatal("Rook could not complete matching owner-authorized PR", err)
 	}
 }
 func TestTaskReadUsesCurrentMembershipAndDisabledIsExplicit(t *testing.T) {

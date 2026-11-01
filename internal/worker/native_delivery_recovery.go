@@ -138,7 +138,7 @@ func recoverNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMas
 		if e != nil {
 			return result, e
 		}
-		if e = nativeConfirmDelivery(ctx, cfg, g, authority, x); e != nil {
+		if e = nativeConfirmDelivery(ctx, cfg, m, g, authority, x); e != nil {
 			return result, e
 		}
 		record.State = "completed"

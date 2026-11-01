@@ -252,7 +252,7 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			out.Cache.Reasons[task.Task.URL] = "cache_pr_unknown"
 			continue
 		}
-		if p.Merged && firstPostMergeQAHandoff(out, task, authorities[v.Object.Goal], p) != nil {
+		if nativeDeliveryActor(cfg) || p.Merged && firstPostMergeQAHandoff(out, task, authorities[v.Object.Goal], p) != nil {
 			live := nativeActionClient(r.live)
 			if live == nil {
 				e = c.ErrUnsupported

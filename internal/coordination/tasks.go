@@ -102,11 +102,12 @@ type TaskBindInput struct {
 	RequestID             string            `json:"request_id"`
 }
 type TaskCompleteInput struct {
-	Reference      string  `json:"reference"`
-	Goal           GoalRef `json:"goal"`
-	AssignmentSHA  string  `json:"assignment_sha256"`
-	PullRequestURL string  `json:"pull_request_url"`
-	RequestID      string  `json:"request_id"`
+	DeliveryHandoffID string  `json:"delivery_handoff_id,omitempty"`
+	Reference         string  `json:"reference"`
+	Goal              GoalRef `json:"goal"`
+	AssignmentSHA     string  `json:"assignment_sha256"`
+	PullRequestURL    string  `json:"pull_request_url"`
+	RequestID         string  `json:"request_id"`
 }
 
 // TaskAdoptInput admits an existing native issue under current server authority.

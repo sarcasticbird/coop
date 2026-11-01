@@ -5,6 +5,10 @@ PR and reviews. A conversation acknowledgement is not an assignment or approval.
 Deploy the master API before updating workers and guest CLIs. Historical source
 acceptance, reviews and unknown-write holds remain in place.
 
+For owner-authorized Rook-only source delivery, activation gates and rollback,
+see [Rook-only delivery](rook-only-delivery.md). QA/release handoffs below do not
+replace the exact `deliver` handoff or authorize author self-merge.
+
 ## Request first postmerge QA
 
 An authenticated owner or coordinator with `plan` capability can record a bounded
@@ -122,12 +126,13 @@ such as `release.yml`). Omit `review_id`. The request itself records the bounded
 owner grant; messages or planner capability cannot create that grant. A repository
 and tag can have only one request. Changed idempotency payloads are rejected.
 
-When the matching source delivery job is selected, it includes this recorded
-owner extension. Current peer approval, independent QA, CI, mergeability and
-head-match protection still apply. It uses the normal protected `deliver` action
-to merge and complete the original source task.
+This release request does not authorize merging. Source delivery now needs the
+separate exact owner delivery decision and an assigned Rook-only `deliver` job,
+with current peer approval, independent QA, CI, mergeability and head protection.
+Only that job can merge and complete the original source task. A release grant
+does not bypass a delivery hold or an incompatible source-policy binding.
 
-Rook routes the release request to the original assigned author. That author can
+After confirmed source delivery, Rook routes the separate release request to the original assigned author. That author can
 execute the guarded follow-up without inventing a new implementation task:
 
 ```sh

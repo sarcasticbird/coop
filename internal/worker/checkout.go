@@ -105,6 +105,9 @@ func (c *TaskCheckouts) nativeFixHead(ctx context.Context, dir string, j Job, re
 
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	if c.config.Version == 3 {
+		if j.Kind == "deliver" && !nativeDeliveryJob(c.config, j) {
+			return j, errors.New("native delivery requires exact Rook executor and delivery role")
+		}
 		m := j.Master
 		if c.config.Master == nil || m == nil || m.Goal == nil || m.MasterID != c.config.Master.MasterID || m.AgentID != c.config.Master.AgentID || m.ExecutorID != c.config.Self.ID || m.Goal.Source != "master" || m.Goal.MasterID != m.MasterID || !hexSHA.MatchString(m.Goal.RevisionSHA256) || !hexSHA.MatchString(m.AssignmentSHA) || j.Kind != "plan" && !validBaseBranch(m.BaseBranch) {
 			return j, errors.New("invalid native checkout ownership binding")

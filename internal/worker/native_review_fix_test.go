@@ -69,7 +69,7 @@ func TestNativeUncertainActionHoldsWholeJob(t *testing.T) {
 }
 
 func nativeReviewPRFixture(cfg Config, task NativeTask) PR {
-	return PR{URL: "https://github.com/code/repo/pull/1", TaskURL: task.Task.URL, MasterGoal: &task.Binding.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), Author: cfg.Team.Members[1].Actor, HeadSHA: strings.Repeat("a", 40), BaseBranch: task.Binding.BaseBranch, ScopeRevision: BodyHash("scope"), ScopeUpdatedAt: time.Now().Add(-time.Hour), ChecksState: "success", MergeState: "CLEAN", ReviewsComplete: true, ContributorsComplete: true, Contributors: []Actor{cfg.Team.Members[1].Actor}, QAArtifact: &QAArtifact{SHA256: strings.Repeat("e", 64), HeadSHA: strings.Repeat("a", 40)}}
+	return PR{URL: "https://github.com/code/repo/pull/1", TaskURL: task.Task.URL, MasterGoal: &task.Binding.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), Author: cfg.Team.Members[1].Actor, HeadSHA: strings.Repeat("a", 40), BaseBranch: task.Binding.BaseBranch, BaseSHA: strings.Repeat("d", 40), ScopeRevision: BodyHash("scope"), ScopeUpdatedAt: time.Now().Add(-time.Hour), ChecksState: "success", MergeState: "CLEAN", ReviewsComplete: true, ContributorsComplete: true, Contributors: []Actor{cfg.Team.Members[1].Actor}, QAArtifact: &QAArtifact{SHA256: strings.Repeat("e", 64), HeadSHA: strings.Repeat("a", 40)}}
 }
 func consumeNativeStep(t *testing.T, d *NativeDispatcher) (bool, error) {
 	t.Helper()
@@ -195,6 +195,8 @@ func TestNativePendingChecksDoNotCancelPreparedIdentity(t *testing.T) {
 	p.Reviews = []Review{{ID: "peer", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[0].Actor, State: "APPROVED", Body: NativePeerMetadata(meta), SubmittedAt: time.Now()}}
 	task.PRs = []PR{p}
 	g.catalog.Tasks[0] = task
+	nativeAuthorizeDelivery(t, &cfg, &g.catalog)
+	m.self.Principal.ID, m.self.Principal.GitHubBotID, m.self.Placement.AgentID = "rook", cfg.Self.ID, "rook"
 	v := NativeCandidates(cfg, g.catalog, nil, time.Now())[0]
 	if v.Job.Kind != "deliver" {
 		t.Fatal("fixture requires ready delivery")
@@ -296,6 +298,7 @@ func TestNativeCompletedDeliveryRemainsTerminal(t *testing.T) {
 	p.Reviews = []Review{{ID: "peer-approval", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[0].Actor, State: "APPROVED", Body: NativePeerMetadata(meta), SubmittedAt: time.Now()}}
 	task.PRs = []PR{p}
 	catalog.Tasks[0] = task
+	nativeAuthorizeDelivery(t, &cfg, &catalog)
 	jobs := NativeCandidates(cfg, catalog, nil, time.Now())
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
 		t.Fatal("fixture requires delivery work")

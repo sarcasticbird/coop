@@ -267,6 +267,7 @@ func TestUserEnvironmentDropsUnsafePathEntries(t *testing.T) {
 		"COOP_TOOLS_PROFILE=" + toolsProfile,
 		"FLOX_ENV=" + filepath.Join(root, "core-env"),
 		"PATH=:.:bin",
+		"COOP_RELEASE_TOOLS=" + filepath.Join(root, "release-tools"),
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {

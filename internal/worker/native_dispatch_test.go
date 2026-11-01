@@ -19,6 +19,11 @@ type dispatchMaster struct {
 	reports   map[string]c.Message
 	onSend    func()
 	onMessage func()
+	handoffs  []c.Handoff
+}
+
+func (m *dispatchMaster) Handoffs(context.Context, c.HandoffQuery) (c.HandoffPage, error) {
+	return c.HandoffPage{Handoffs: m.handoffs}, nil
 }
 
 func (m *dispatchMaster) Self(context.Context) (c.SelfIdentity, error) {
@@ -78,7 +83,7 @@ func dispatchFixture(t *testing.T) (Config, *dispatchMaster, *dispatchCatalog, *
 	cfg.Master.HostID = "host"
 	m := &dispatchMaster{nativeMasterFixture: nativeMasterFixture{authority: cat.Goals[0]}}
 	m.self = c.SelfIdentity{RestoreEpoch: 1, Principal: c.Principal{ID: cfg.Master.AgentID, Kind: "agent", GitHubBotID: cfg.Self.ID, Engagements: []string{"coop"}}, Placement: c.Placement{AgentID: cfg.Master.AgentID, HostID: "host", InstanceID: cfg.Master.InstanceID, Generation: 1}}
-	m.threads = []c.Thread{{ID: "private", Engagement: "coop", Members: []string{"author", "peer", "qa"}}}
+	m.threads = []c.Thread{{ID: "private", Engagement: "coop", Members: []string{"author", "peer", "qa", "rook"}}}
 	saveNativeFixtureConnection(t, cfg)
 	return cfg, m, &dispatchCatalog{catalog: cat}, &fakeOpenCode{running: true}
 }

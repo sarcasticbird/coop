@@ -13,10 +13,8 @@ import (
 func TestNativeDeliveryRecoveryRefusesUnsafeInputsWithoutEffects(t *testing.T) {
 	for _, failure := range []string{"session", "message", "operation", "input", "request", "running", "missing-evidence", "uncertain", "started", "known-merge-unconfirmed", "completed-action", "missing-action", "other-uncertain", "other-prepared", "other-engineering", "conversation", "worker-lock", "producer-lock", "paused", "revoked", "placement", "nonterminal-checkpoint", "retired"} {
 		t.Run(failure, func(t *testing.T) {
-			cfg, m, cat, code := dispatchFixture(t)
-			v := NativeCandidates(cfg, cat.catalog, nil, time.Now())[0]
-			x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: v.Goal.Revision.Ref, Job: v.Job, Binding: &v.Task.Binding, Phase: "blocked", Reason: "native_completed_without_result"}
-			x.Job.Kind = "deliver"
+			cfg, m, _, code, _, x := nativeDeliveryActionFixture(t)
+			x.Phase, x.Reason = "blocked", "native_completed_without_result"
 			x.Job.SessionID, x.Job.MessageID = "ses_recovery", "msg_recovery"
 			x.Job.Phase, x.Job.SubmissionState = "completed", "completed"
 			x.Job.TerminalAt = time.Now().UTC()
@@ -148,7 +146,7 @@ func TestNativeDeliveryRecoveryRefusesUnsafeInputsWithoutEffects(t *testing.T) {
 			}
 			afterJournal, _ := os.ReadFile(path)
 			expectedReads := 0
-			if failure == "known-merge-unconfirmed" {
+			if failure == "known-merge-unconfirmed" || failure == "paused" {
 				expectedReads = 1
 			}
 			if string(journal) != string(afterJournal) || requests != expectedReads || code.calls != 0 || code.aborts != 0 {

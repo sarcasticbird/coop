@@ -2,6 +2,8 @@ package master
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -28,7 +30,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if !a.Valid {
 		return out, c.ErrForbidden
 	}
-	if !planner(p) || in.Kind == "release" && p.Kind != "owner" {
+	if !planner(p) || (in.Kind == "release" || in.Kind == "deliver") && p.Kind != "owner" {
 		return out, c.ErrForbidden
 	}
 	environmentDecision := in.Kind == "reassess-qa" && in.Environment != ""
@@ -62,11 +64,20 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, c.ErrForbidden
 	}
 	if strings.HasPrefix(in.TaskURL, "kata:") {
+		if svc.Tasks == nil {
+			return out, c.ErrUnsupported
+		}
 		task, err := svc.Tasks.Read(ctx, in.TaskURL)
 		if err != nil {
 			return out, err
 		}
 		if task.Goal != in.Goal || task.Repository != taskRepo || task.Binding == nil || digest(task.Binding) != in.AssignmentSHA || task.Binding.ApprovalSequence != a.ApprovalSequence {
+			return out, c.ErrConflict
+		}
+		if in.Kind == "deliver" && (task.Binding.TaskScopeSHA != in.TaskScopeSHA || task.Binding.BaseBranch != in.BaseBranch || task.Binding.TaskScopeSHA != digest(struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		}{task.Title, task.Body})) {
 			return out, c.ErrConflict
 		}
 	}
@@ -88,7 +99,7 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if in.Kind == "release" || environmentDecision {
+	if in.Kind == "release" || in.Kind == "deliver" || environmentDecision {
 		current, e := authorize(ctx, tx, p, "decide")
 		if e != nil || current.Kind != "owner" {
 			return out, c.ErrForbidden
@@ -104,6 +115,11 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	}
 	if !fresh.Valid || fresh.ApprovalSequence != a.ApprovalSequence {
 		return out, c.ErrConflict
+	}
+	if in.Kind == "deliver" {
+		if err = svc.deliveryAuthority(ctx, tx, p, fresh, in); err != nil {
+			return out, err
+		}
 	}
 	var assignment string
 	if err = tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.TaskURL).Scan(&assignment); err != nil || assignment != in.AssignmentSHA {
@@ -133,6 +149,11 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		}
 	}
 	out = c.Handoff{ID: newID("ho"), Input: in, ActorID: p.ID, ActorKind: p.Kind, CreatedAt: svc.Store.now().UTC()}
+	if in.Kind == "deliver" {
+		if err = tx.QueryRowContext(ctx, "SELECT coalesce(max(rowid),0)+1 FROM handoffs").Scan(&out.Sequence); err != nil {
+			return c.Handoff{}, err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO handoffs(id,goal_id,revision,release_key,body) VALUES(?,?,?,?,?)", out.ID, in.Goal.GoalID, in.Goal.RevisionSHA256, releaseKey, encode(out)); err != nil {
 		return out, err
 	}
@@ -144,6 +165,126 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	}
 	return out, tx.Commit()
 }
+
+func deliveryPrincipal(ctx context.Context, q queryer, a c.GoalAuthority) (c.Principal, error) {
+	p, err := authorize(ctx, q, c.Principal{ID: c.DeliveryPrincipalID}, "read")
+	if err != nil || p.ID != c.DeliveryPrincipalID || p.Kind != "agent" || p.GitHubBotID != c.DeliveryGitHubBotID {
+		return p, c.ErrForbidden
+	}
+	for _, thread := range []string{a.Revision.Proposal.ThreadID, a.Revision.Proposal.QA.EvidenceDestination.ThreadID} {
+		if thread == "" {
+			continue
+		}
+		if err = member(ctx, q, p, thread); err != nil {
+			return p, err
+		}
+	}
+	return p, nil
+}
+
+// Delivery adds authority alongside the immutable assignment, never to it.
+func (svc *Service) deliveryAuthority(ctx context.Context, q queryer, actor c.Principal, a c.GoalAuthority, in c.HandoffInput) error {
+	if err := c.ValidateHandoff(in); err != nil {
+		return err
+	}
+	if !a.Valid || in.Goal != a.Revision.Ref || in.ApprovalSequence != a.ApprovalSequence || in.AcceptanceSHA != digest(a.Revision.Proposal.Acceptance) {
+		return c.ErrConflict
+	}
+	if _, err := deliveryPrincipal(ctx, q, a); err != nil {
+		return err
+	}
+	evidence, err := loadMessage(ctx, q, in.EvidenceMessageID)
+	if err != nil {
+		return err
+	}
+	if evidence.Imported || evidence.AuthorKind != "owner" || (evidence.ThreadID != a.Revision.Proposal.ThreadID && evidence.ThreadID != a.Revision.Proposal.QA.EvidenceDestination.ThreadID) {
+		return c.ErrForbidden
+	}
+	if err = member(ctx, q, actor, evidence.ThreadID); err != nil {
+		return err
+	}
+	allowed := false
+	repo, err := svc.artifactRepository(in.TaskURL, "issues")
+	if err != nil {
+		return err
+	}
+	for _, scope := range a.Revision.Proposal.Repositories {
+		for _, base := range scope.BaseBranches {
+			if scope.Name == repo && base == in.BaseBranch {
+				allowed = true
+			}
+		}
+	}
+	if !allowed {
+		return c.ErrForbidden
+	}
+	qa := a.Revision.Proposal.QA
+	if (qa.Required || in.Environment != "" || in.EnvironmentRevision != "") && (in.Environment != qa.Environment || in.EnvironmentRevision != qa.EnvironmentRevision) {
+		if err = deliveryQAEnvironment(ctx, q, actor, a, in); err != nil {
+			return err
+		}
+	}
+	if qa.Required && (in.QAReviewID == "" || in.QAEvidenceMessageID == "" || in.QAEvidenceBodySHA == "" || in.Environment == "" || in.EnvironmentRevision == "") {
+		return c.ErrForbidden
+	}
+	if in.QAEvidenceMessageID != "" {
+		report, err := loadMessage(ctx, q, in.QAEvidenceMessageID)
+		if err != nil {
+			return err
+		}
+		hash := sha256.Sum256([]byte(report.Body))
+		if report.Imported || report.AuthorKind != "agent" || report.AuthorID != a.Actors.QA.PrincipalID || report.ThreadID != qa.EvidenceDestination.ThreadID || hex.EncodeToString(hash[:]) != in.QAEvidenceBodySHA {
+			return c.ErrForbidden
+		}
+		if err = member(ctx, q, actor, report.ThreadID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// The master verifies the owner decision and its private evidence. The worker
+// must still resolve the prior GitHub review chain against the current artifact.
+func deliveryQAEnvironment(ctx context.Context, q queryer, actor c.Principal, a c.GoalAuthority, in c.HandoffInput) error {
+	rows, err := q.QueryContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
+		AND json_extract(body,'$.input.kind')='reassess-qa'`, in.Goal.GoalID, in.Goal.RevisionSHA256)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var raw []byte
+		var h c.Handoff
+		if err = rows.Scan(&raw); err != nil {
+			return err
+		}
+		if err = json.Unmarshal(raw, &h); err != nil {
+			return err
+		}
+		x := h.Input
+		if h.ID == "" || h.ActorKind != "owner" || h.ActorID == "" || h.CreatedAt.IsZero() || c.ValidateHandoff(x) != nil || x.Kind != "reassess-qa" || x.Goal != in.Goal || x.TaskURL != in.TaskURL || x.AssignmentSHA != in.AssignmentSHA || x.PRURL != in.PRURL || x.HeadSHA != in.HeadSHA || x.ArtifactSHA != in.ArtifactSHA || x.Environment != in.Environment || x.EnvironmentRevision != in.EnvironmentRevision || x.Environment == "" {
+			continue
+		}
+		owner, e := principal(ctx, q, h.ActorID)
+		if e != nil || owner.ID != h.ActorID || owner.Kind != "owner" || member(ctx, q, owner, a.Revision.Proposal.ThreadID) != nil {
+			continue
+		}
+		evidence, e := loadMessage(ctx, q, x.EvidenceMessageID)
+		if e != nil || evidence.Imported || evidence.AuthorKind != "owner" || (evidence.ThreadID != a.Revision.Proposal.ThreadID && evidence.ThreadID != a.Revision.Proposal.QA.EvidenceDestination.ThreadID) {
+			continue
+		}
+		author, e := principal(ctx, q, evidence.AuthorID)
+		if e != nil || author.ID != evidence.AuthorID || author.Kind != "owner" || member(ctx, q, author, evidence.ThreadID) != nil || member(ctx, q, owner, evidence.ThreadID) != nil || member(ctx, q, actor, evidence.ThreadID) != nil {
+			continue
+		}
+		return nil
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	return c.ErrForbidden
+}
+
 func (svc *Service) Handoffs(ctx context.Context, actor c.Principal, in c.HandoffQuery) (c.HandoffPage, error) {
 	out := c.HandoffPage{Handoffs: []c.Handoff{}}
 	p, err := authorize(ctx, svc.Store.db, actor, "read")

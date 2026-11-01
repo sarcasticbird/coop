@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
 type TeamMember struct {
@@ -57,7 +59,7 @@ func ValidateTeamPolicy(p TeamPolicy) error {
 		seen := map[string]bool{}
 		for _, capability := range m.Capabilities {
 			switch capability {
-			case "plan", "implement", "engineering-review", "customer-qa":
+			case "plan", "implement", "engineering-review", "customer-qa", "deliver":
 			default:
 				return fmt.Errorf("unknown team capability %q", capability)
 			}
@@ -65,6 +67,9 @@ func ValidateTeamPolicy(p TeamPolicy) error {
 				return fmt.Errorf("duplicate team capability %q", capability)
 			}
 			seen[capability] = true
+		}
+		if (seen["deliver"] || m.Name == c.DeliveryPrincipalID || m.Actor.ID == c.DeliveryGitHubBotID) && (m.Name != c.DeliveryPrincipalID || m.Actor.ID != c.DeliveryGitHubBotID || seen["implement"] || seen["engineering-review"] || seen["customer-qa"]) {
+			return errors.New("delivery capability is exclusive to Rook and cannot grant source or assessment roles")
 		}
 		members[m.Name] = m
 		ids[m.Actor.ID] = true

@@ -61,7 +61,7 @@ func TestTaskAdoptCommandRegistered(t *testing.T) {
 }
 
 func TestHandoffCommandsRequireExplicitInput(t *testing.T) {
-	for _, name := range []string{"first-postmerge-qa", "reassess-qa", "request-release", "handoffs"} {
+	for _, name := range []string{"authorize-delivery", "first-postmerge-qa", "reassess-qa", "request-release", "handoffs"} {
 		cmd := root()
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)

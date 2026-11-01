@@ -267,7 +267,8 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `task reassess-qa` | CLI/runbook | Request exact-artifact QA reassessment with new private evidence |
 | `task first-postmerge-qa` | CLI/runbook | Owner/planner records first postmerge QA authority with exact approved environment; no review/tag/workflow or worker execution in this rollout |
 | `task request-release` | CLI/runbook | Owner records exact-source release authority |
-| `task handoffs` | CLI/runbook | Read bounded, scoped QA/release requests |
+| `task authorize-delivery` | CLI/runbook | Owner records or revokes exact-artifact Rook-only delivery authority; see [operator packet](rook-only-delivery.md) |
+| `task handoffs` | CLI/runbook | Read bounded, scoped delivery/QA/release requests |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |
 | `pilot run` | CLI/runbook | Dispatch one approved disposable archive audit |
 | `pilot status` | CLI/runbook | Read the saved fixture receipt |

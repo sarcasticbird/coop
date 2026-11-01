@@ -56,6 +56,9 @@ type handoffSource interface {
 }
 
 func loadCatalogHandoffs(ctx context.Context, m NativeMaster, out *NativeCatalog) error {
+	if out.Reports == nil {
+		out.Reports = map[string]c.Message{}
+	}
 	source, ok := m.(handoffSource)
 	if !ok {
 		return nil
@@ -76,6 +79,13 @@ func loadCatalogHandoffs(ctx context.Context, m NativeMaster, out *NativeCatalog
 					return c.ErrConflict
 				}
 				out.Handoffs = append(out.Handoffs, h)
+				if h.Input.Kind == "deliver" {
+					message, err := m.Message(ctx, h.Input.EvidenceMessageID)
+					if err != nil {
+						return err
+					}
+					out.Reports[message.ID] = message
+				}
 				if len(out.Handoffs) > MaxConnection {
 					return c.ErrCapacity
 				}

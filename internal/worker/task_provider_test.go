@@ -187,7 +187,7 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 	// Even with configured GitHub Projects, Kata creation needs no Project choice.
 	cfg.Projects = Defaults(Config{Projects: []ProjectRef{{Owner: "code", Number: 1}, {Owner: "code", Number: 2}}}).Projects
 	cfg.ProjectOwners = nil
-	transport := &nativeDeliveryTransport{t: t, head: strings.Repeat("a", 40)}
+	transport := &nativeDeliveryTransport{t: t, head: strings.Repeat("a", 40), baseSHA: strings.Repeat("d", 40)}
 	transport.commands = &fakeCommands{respond: transport.response}
 	var provider c.ProviderTask
 	creates, binds, completes := 0, 0, 0
@@ -233,7 +233,7 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 				t.Error(err)
 			}
-			if !transport.merged || in.Reference != provider.Reference || in.AssignmentSHA != NativeAssignmentSHA(*provider.Binding) || in.PullRequestURL != "https://github.com/code/repo/pull/1" || in.RequestID == "" {
+			if !transport.merged || in.Reference != provider.Reference || in.AssignmentSHA != NativeAssignmentSHA(*provider.Binding) || in.PullRequestURL != "https://github.com/code/repo/pull/1" || in.RequestID == "" || in.DeliveryHandoffID != "delivery-grant" {
 				t.Error("completion lost merged exact assignment or request")
 			}
 			completes++
@@ -337,13 +337,23 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 		t.Fatal("qa", err)
 	}
 	finish(qa)
-	delivery := stage(1, "author", "deliver")
+	catalog, err := g.NativeSnapshot(ctx, cfg, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := nativeAuthorizeDelivery(t, &cfg, &catalog)
+	m.handoffs = append(m.handoffs, h)
+	for id, report := range catalog.Reports {
+		m.reports[id] = report
+	}
+	delivery := stage(3, "rook", "deliver")
 
 	action = NativeAction{Operation: "deliver", RequestID: "kata-deliver"}
 	if offline {
 		// The native model ended after the merge acknowledgement was journaled.
 		// Recovery must finish Kata completion without submitting another merge.
 		transport.merged = true
+		transport.mergeParentSHA = transport.baseSHA
 		delivery.Phase, delivery.Reason = "blocked", "native_completed_without_result"
 		delivery.Job.Phase, delivery.Job.SubmissionState = "completed", "completed"
 		delivery.Job.TerminalAt = time.Now().UTC()

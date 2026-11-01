@@ -213,7 +213,7 @@ func (g *GitHubClient) readNativePR(ctx context.Context, cfg Config, t NativeTas
 	artifactTask := t.Task
 	artifactTask.QA.Required = authority.Revision.Proposal.QA.Required
 	artifactPR := pr
-	if release {
+	if release || m.Artifact != nil || nativeDeliveryActor(cfg) {
 		artifactTask.QA.Required = true
 		artifactPR.Merged = false
 	}

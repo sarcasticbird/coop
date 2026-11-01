@@ -35,6 +35,7 @@ type nativeDeliveryTransport struct {
 	checksAfterCheckout                                            string
 	failSourceAfterPush                                            bool
 	stalePRHead                                                    string
+	mergeParentSHA                                                 string
 }
 
 func (s *nativeDeliveryTransport) Run(ctx context.Context, argv, env []string, in io.Reader) (CommandResult, error) {
@@ -238,6 +239,7 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		return jsonResponse(map[string]any{"id": len(s.reviews)}), nil
 	}
 	if endpoint == "repos/code/repo/pulls/1/merge" && method == "PUT" {
+		s.mergeParentSHA = s.baseSHA
 		s.merged = true
 		if s.autoCloseIssue {
 			s.closed = true
@@ -258,7 +260,10 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		if s.stalePRHead != "" {
 			head = s.stalePRHead
 		}
-		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
+		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "merge_commit_sha": strings.Repeat("9", 40), "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
+	}
+	if endpoint == "repos/code/repo/git/commits/"+strings.Repeat("9", 40) {
+		return jsonResponse(map[string]any{"parents": []any{map[string]any{"sha": s.mergeParentSHA}}}), nil
 	}
 	if endpoint == "user/12" {
 		return jsonResponse(map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}), nil
@@ -560,7 +565,17 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		t.Fatal("delivery admitted while held", candidates)
 	}
 	cfg.DeliveryHold = false
-	delivery := stage(1, "author", "deliver")
+	transport.cfg = cfg
+	catalog, err = g.NativeSnapshot(ctx, cfg, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := nativeAuthorizeDelivery(t, &cfg, &catalog)
+	m.handoffs = append(m.handoffs, h)
+	for id, report := range catalog.Reports {
+		m.reports[id] = report
+	}
+	delivery := stage(3, "rook", "deliver")
 	cfg.DeliveryHold = true
 	beforeHeld := len(transport.writes)
 	if _, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err == nil || len(transport.writes) != beforeHeld {
@@ -617,18 +632,22 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	if _, err = autoWait.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = consumeNativeStep(t, autoWait); err != nil {
-		t.Fatal(err)
+	if _, err = consumeNativeStep(t, autoWait); !errors.Is(err, errNativePrerequisiteWait) {
+		t.Fatal("Rook must wait while the independent author repairs CI", err)
 	}
 	retired, e := loadNativeExecution(cfg, delivery.Job.ID)
-	if e != nil || retired.Phase != "cancelled" || autoWait.RecoveryBlocked() || transport.merged {
-		t.Fatal("failed CI kept unstarted delivery reservation", e)
+	if e != nil || retired.Phase != "blocked" || autoWait.RecoveryBlocked() || transport.merged {
+		t.Fatal("failed CI escaped Rook delivery wait", e)
 	}
 	autoWait.catalog, err = g.NativeSnapshot(ctx, cfg, m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixCandidates, err := autoWait.candidates(autoWait.catalog)
+	authorCfg := cfg
+	authorMaster := *cfg.Master
+	authorCfg.Master = &authorMaster
+	authorCfg.Name, authorCfg.Self, authorCfg.Master.AgentID = cfg.Team.Members[1].Name, cfg.Team.Members[1].Actor, "author"
+	fixCandidates := NativeCandidates(authorCfg, autoWait.catalog, nil, time.Now())
 	if err != nil || len(fixCandidates) != 1 || !nativeIsChecksRepair(fixCandidates[0].Job) {
 		t.Fatal("delivery reservation blocked CI repair", err)
 	}
@@ -746,7 +765,7 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	delivery = interrupted
 	finish(delivery)
-	if !transport.merged || !transport.closed || len(m.links) != 3 || len(m.reports) != 1 {
+	if !transport.merged || !transport.closed || len(m.links) != 3 || len(m.reports) != 2 {
 		t.Fatalf("delivery incomplete: merged=%v completed=%v links=%d reports=%d", transport.merged, transport.closed, len(m.links), len(m.reports))
 	}
 	if err := os.RemoveAll(delivery.Job.Checkout); err != nil {

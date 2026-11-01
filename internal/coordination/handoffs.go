@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+const DeliveryPrincipalID = "rook"
+const DeliveryGitHubBotID int64 = 345406391
+
 // HandoffInput grants a bounded follow-up, never a replacement task binding.
 type HandoffInput struct {
 	Kind                string  `json:"kind"`
@@ -22,8 +25,20 @@ type HandoffInput struct {
 	Tag                 string  `json:"tag,omitempty"`
 	Workflow            string  `json:"workflow,omitempty"`
 	RequestID           string  `json:"request_id"`
+	ApprovalSequence    int64   `json:"approval_sequence,omitempty"`
+	TaskScopeSHA        string  `json:"task_scope_sha256,omitempty"`
+	BaseBranch          string  `json:"base_branch,omitempty"`
+	BaseSHA             string  `json:"base_sha,omitempty"`
+	PRScopeRevision     string  `json:"pr_scope_revision,omitempty"`
+	AcceptanceSHA       string  `json:"acceptance_sha256,omitempty"`
+	PeerReviewID        string  `json:"peer_review_id,omitempty"`
+	QAReviewID          string  `json:"qa_review_id,omitempty"`
+	QAEvidenceMessageID string  `json:"qa_evidence_message_id,omitempty"`
+	QAEvidenceBodySHA   string  `json:"qa_evidence_body_sha256,omitempty"`
+	Revoked             bool    `json:"revoked,omitempty"`
 }
 type Handoff struct {
+	Sequence  int64        `json:"sequence,omitempty"`
 	ID        string       `json:"id"`
 	Input     HandoffInput `json:"input"`
 	ActorID   string       `json:"actor_id"`
@@ -46,6 +61,9 @@ var releaseWorkflow = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,100}\.ya?m
 var handoffID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$`)
 
 func ValidateHandoff(in HandoffInput) error {
+	if in.Kind != "deliver" && (in.ApprovalSequence != 0 || in.TaskScopeSHA != "" || in.BaseBranch != "" || in.BaseSHA != "" || in.PRScopeRevision != "" || in.AcceptanceSHA != "" || in.PeerReviewID != "" || in.QAReviewID != "" || in.QAEvidenceMessageID != "" || in.QAEvidenceBodySHA != "" || in.Revoked) {
+		return ErrInvalid
+	}
 	if len(in.Tag) > 128 {
 		return ErrInvalid
 	}
@@ -56,6 +74,20 @@ func ValidateHandoff(in HandoffInput) error {
 		return ErrInvalid
 	}
 	switch in.Kind {
+	case "deliver":
+		if in.ReviewID != "" || in.Tag != "" || in.Workflow != "" || in.ApprovalSequence < 1 || !handoffSHA.MatchString(in.TaskScopeSHA) || !handoffHead.MatchString(in.BaseSHA) || !handoffSHA.MatchString(in.PRScopeRevision) || !handoffSHA.MatchString(in.AcceptanceSHA) || strings.TrimSpace(in.BaseBranch) == "" || len(in.BaseBranch) > 256 || strings.ContainsAny(in.BaseBranch, "\x00\r\n") || !handoffID.MatchString(in.PeerReviewID) {
+			return ErrInvalid
+		}
+		if in.Environment != "" || in.EnvironmentRevision != "" {
+			if strings.TrimSpace(in.Environment) == "" || len(in.Environment) > MaxText || strings.TrimSpace(in.EnvironmentRevision) == "" || len(in.EnvironmentRevision) > 256 || strings.ContainsAny(in.EnvironmentRevision, "\x00\r\n") {
+				return ErrInvalid
+			}
+		}
+		if in.QAReviewID != "" || in.QAEvidenceMessageID != "" || in.QAEvidenceBodySHA != "" {
+			if !handoffID.MatchString(in.QAReviewID) || !handoffID.MatchString(in.QAEvidenceMessageID) || !handoffSHA.MatchString(in.QAEvidenceBodySHA) {
+				return ErrInvalid
+			}
+		}
 	case "first-postmerge-qa":
 		if in.ReviewID != "" || in.Tag != "" || in.Workflow != "" || strings.TrimSpace(in.Environment) == "" || strings.TrimSpace(in.EnvironmentRevision) == "" || len(in.EnvironmentRevision) > 256 || strings.ContainsAny(in.EnvironmentRevision, "\x00\r\n") {
 			return ErrInvalid

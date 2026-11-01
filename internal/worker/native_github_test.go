@@ -120,3 +120,50 @@ func TestNativeReleasePRRevalidatesMergedSourceArtifact(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeRookPRRequiresArtifactWithoutQA(t *testing.T) {
+	for _, merged := range []bool{false, true} {
+		for _, actor := range []string{"author", "rook"} {
+			label := actor + "/open"
+			if merged {
+				label = actor + "/merged"
+			}
+			t.Run(label, func(t *testing.T) {
+				cfg, m, catalog, _ := dispatchFixture(t)
+				task := catalog.catalog.Tasks[0]
+				task.Binding.QAID = 0
+				m.authority.Revision.Proposal.QA.Required = false
+				if actor == "rook" {
+					cfg.Name, cfg.Self, cfg.Master.AgentID = cfg.Team.Members[3].Name, cfg.Team.Members[3].Actor, "rook"
+				}
+				s := &nativeDeliveryTransport{t: t, cfg: cfg, head: strings.Repeat("a", 40), merged: merged}
+				s.prBody = NativePRBody(NativePRMetadata{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding)})
+				sourceReads := 0
+				s.commands = &fakeCommands{respond: func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+					if strings.Contains(endpoint, "/tarball/") {
+						sourceReads++
+					}
+					return s.response(owner, endpoint, method, body)
+				}}
+				g := NewGitHubClient(s)
+				p, err := g.ReadNativePR(t.Context(), cfg, task, m.authority, "https://github.com/code/repo/pull/1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if actor == "author" {
+					if p.QAArtifact != nil || sourceReads != 0 {
+						t.Fatal("QA-optional source author forced artifact hydration")
+					}
+					return
+				}
+				if p.QAArtifact == nil || p.QAArtifact.HeadSHA != s.head || !hexSHA.MatchString(p.QAArtifact.SHA256) || sourceReads == 0 || p.Merged != merged || p.Author.ID != task.Binding.AuthorID {
+					t.Fatal("Rook lost exact source artifact or author", p, sourceReads)
+				}
+				s.failSourceAfterPush, s.localHead = true, s.head
+				if _, err := g.ReadNativePR(t.Context(), cfg, task, m.authority, p.URL); err == nil {
+					t.Fatal("Rook accepted unavailable artifact")
+				}
+			})
+		}
+	}
+}

@@ -193,8 +193,10 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			priority, ordinal = t.Task.Priority, t.Task.Ordinal
 		}
 		switch kind {
-		case "implement", "fix", "deliver":
+		case "implement", "fix":
 			role = "implementer"
+		case "deliver":
+			role = "delivery"
 		case "review":
 			role = "engineering-review"
 		case "qa":
@@ -205,6 +207,13 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			head = p.HeadSHA
 		}
 		master := &MasterJobBinding{MasterID: cfg.Master.MasterID, AgentID: cfg.Master.AgentID, ThreadID: a.Revision.Proposal.ThreadID, Goal: &ref, AssignmentSHA: sha, ExecutorID: cfg.Self.ID, Role: role, BaseBranch: base}
+		if kind == "deliver" {
+			h := nativeDeliveryHandoff(cfg, catalog, *t, a, *p)
+			if h == nil {
+				return
+			}
+			master.DeliveryHandoffID = h.ID
+		}
 		j := Job{Kind: kind, TaskURL: taskURL, PRURL: prURL, HeadSHA: head, ScopeSHA: scope, InputRevision: revision, Master: master, FirstEligibleAt: now, SchedulePriority: priority, ScheduleOrdinal: ordinal}
 		if p != nil {
 			j.PRScopeRevision = p.ScopeRevision
@@ -224,6 +233,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			return
 		}
 		candidate := NativeCandidate{Job: j, Goal: a, Task: t, PR: p}
+		if kind == "deliver" {
+			candidate.Handoff = nativeDeliveryHandoff(cfg, catalog, *t, a, *p)
+		}
 		if kind == "plan" {
 			for _, task := range catalog.Tasks {
 				if task.Binding.Goal == ref && task.Binding.ApprovalSequence != a.ApprovalSequence && !task.Task.Completed {
@@ -328,7 +340,6 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		}
 		if cfg.Self.ID == t.Binding.AuthorID && cfg.Master.AgentID == a.Actors.Author.PrincipalID && memberCapability(self, "implement") {
 			if p.Merged {
-				add("deliver", a, &t, &p, "merged:"+p.HeadSHA)
 				continue
 			}
 			if nativeNeedsBranchRefresh(p) {
@@ -349,13 +360,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				}
 				continue
 			}
-			if cleared && qaCleared && (p.ChecksState == "success" || p.ChecksState == "none") && p.MergeState == "CLEAN" {
-				before := len(out)
-				add("deliver", a, &t, &p, BodyHash(peer.ID+":"+qa.ID+":"+p.ScopeRevision))
-				if len(out) > before {
-					out[len(out)-1].Handoff = releaseHandoff(catalog, t, p)
-				}
-			}
+		}
+		if h := nativeDeliveryHandoff(cfg, catalog, t, a, p); h != nil {
+			add("deliver", a, &t, &p, "delivery:"+h.ID)
 		}
 		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
 			handoff := qaReassessment(catalog, t, a, p, qa)

@@ -29,7 +29,7 @@ func TestTasksPlanningHelperUsesMasterPolicyForCoordinator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := worker.Actor{ID: 99, Login: "rook[bot]", Kind: "Bot"}
+	actor := worker.Actor{ID: c.DeliveryGitHubBotID, Login: "rook[bot]", Kind: "Bot"}
 	cfg.Team.Members = append(cfg.Team.Members, worker.TeamMember{Name: "rook", Actor: actor})
 	cfg.Name, cfg.Self, cfg.Version = "rook", actor, 3
 	project := "01K00000000000000000000000"

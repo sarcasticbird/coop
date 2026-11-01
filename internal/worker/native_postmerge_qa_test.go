@@ -9,7 +9,7 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
-func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
+func TestNativePostMergeQADiscoveryHydratesMetadataArtifact(t *testing.T) {
 	for _, source := range []string{"github", "kata", "legacy"} {
 		for _, mode := range []string{"matching", "no-handoff", "wrong-head", "wrong-environment"} {
 			t.Run(source+"/"+mode, func(t *testing.T) {
@@ -83,8 +83,8 @@ func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
 					if err != nil || len(selected.Tasks) != 1 || selected.Tasks[0].PRs[0].QAArtifact == nil || !selected.Tasks[0].Task.Completed {
 						t.Fatal("fresh task snapshot lost merged artifact", selected, err)
 					}
-				} else if artifactReads != 0 {
-					t.Fatal("unmatched handoff hydrated artifact", artifactReads)
+				} else if mode != "no-handoff" && (artifactReads == 0 || out.Tasks[0].PRs[0].QAArtifact == nil) {
+					t.Fatal("merged PR lost metadata artifact", artifactReads)
 				}
 				if mode == "no-handoff" {
 					if prReads != 0 || len(out.Tasks[0].PRs) != 0 {

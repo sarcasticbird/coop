@@ -64,8 +64,11 @@ approval rules and state format are unchanged. Version 1 rejects a `team` field.
 
 Configuration version 2 validates a required `team` policy (also version 2),
 with stable lowercase member names, immutable bot IDs, capabilities, a qualified
-planner and explicit independent engineering peers. Capabilities are exactly
-`plan`, `implement`, `engineering-review` and `customer-qa`. The configured
+planner and explicit independent engineering peers. Source capabilities are
+`plan`, `implement`, `engineering-review` and `customer-qa`. Native v3 additionally
+supports Rook-only `deliver`, which grants no source/assessment role and requires
+an exact owner handoff; see [activation and limitations](rook-only-delivery.md).
+The configured
 `name` and `self` must identify the same roster member. Legacy `role`,
 `implementer` and `reviewer` authority must be absent or empty, not a second
 source of assignment. Adding another qualified engineer requires configuration,
