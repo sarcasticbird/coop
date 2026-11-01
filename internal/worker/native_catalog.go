@@ -217,6 +217,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	}
 	for _, t := range tasks {
 		for _, p := range t.PRs {
+			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil {
+				continue
+			}
 			for _, r := range p.Reviews {
 				if r.Author.ID != t.Binding.QAID || r.HeadSHA != p.HeadSHA {
 					continue
@@ -225,8 +228,12 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 				if nativeMetadata(r.Body, "qa", &qa) != nil || qa.Goal != t.Binding.Goal || qa.AssignmentSHA != NativeAssignmentSHA(t.Binding) {
 					continue
 				}
+				delete(out.Reports, qa.EvidenceMessageID)
 				report, err := master.Message(ctx, qa.EvidenceMessageID)
 				if err != nil {
+					if nativeDeliveryActor(cfg) {
+						continue
+					}
 					return out, err
 				}
 				out.Reports[report.ID] = report
@@ -234,6 +241,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		}
 		out.Tasks = append(out.Tasks, t)
 	}
+	loadNativeDeliveryEvidence(ctx, cfg, master, &out)
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	sort.Slice(out.Goals, func(i, j int) bool { return out.Goals[i].Revision.Ref.GoalID < out.Goals[j].Revision.Ref.GoalID })
 	out.ReadAt = time.Now().UTC()

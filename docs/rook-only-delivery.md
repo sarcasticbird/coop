@@ -81,6 +81,16 @@ ordering. Callers never supply the sequence. Rook completion references the
 selected handoff ID. A later grant requires a new explicit owner decision and
 fresh validation, not replay of an older grant.
 
+Withdrawal must match a recorded owner grant exactly except for `revoked` and
+the new `request_id`. It remains available while the goal is paused, superseded
+or rejected, the assignment has drifted, or Rook is disabled. The owner still
+needs live `read`/`decide` authority, current historical source/QA thread membership
+and master admission. Resuming execution cannot revive a withdrawn grant.
+Workers retain all decisions for ordering, but load private evidence only for
+current nonrevoked candidates. Inaccessible evidence denies its candidate, not
+unrelated authorized work; revoked or superseded history is not an evidence-read
+prerequisite for discovery.
+
 ## Retained work boundaries
 
 A delivery-only amendment is supported for the **same goal, task and assignment**

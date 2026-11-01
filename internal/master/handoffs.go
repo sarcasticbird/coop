@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,9 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	var out c.Handoff
 	if err := c.ValidateHandoff(in); err != nil {
 		return out, err
+	}
+	if in.Kind == "deliver" && in.Revoked {
+		return svc.revokeDelivery(ctx, actor, in)
 	}
 	p, err := authorize(ctx, svc.Store.db, actor, "read")
 	if err != nil {
@@ -161,6 +165,101 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, err
 	}
 	if err = event(ctx, tx, "handoff", a.Revision.Proposal.ThreadID, ""); err != nil {
+		return out, err
+	}
+	return out, tx.Commit()
+}
+
+// Withdrawal binds recorded authority, not current execution eligibility. A
+// paused or superseded goal, stale assignment, or disabled executor cannot veto it.
+func (svc *Service) revokeDelivery(ctx context.Context, actor c.Principal, in c.HandoffInput) (c.Handoff, error) {
+	var out c.Handoff
+	tx, err := svc.Store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	p, err := authorize(ctx, tx, actor, "read")
+	if err != nil {
+		return out, err
+	}
+	p, err = authorize(ctx, tx, p, "decide")
+	if err != nil {
+		return out, err
+	}
+	if p.Kind != "owner" {
+		return out, c.ErrForbidden
+	}
+	if in.Goal.Source != "master" || in.Goal.MasterID != svc.Store.id {
+		return out, c.ErrConflict
+	}
+	var raw []byte
+	if err = tx.QueryRowContext(ctx, "SELECT body FROM goal_revisions WHERE goal_id=? AND sha=?", in.Goal.GoalID, in.Goal.RevisionSHA256).Scan(&raw); err != nil {
+		return out, c.ErrConflict
+	}
+	var revision c.GoalRevision
+	if json.Unmarshal(raw, &revision) != nil || revision.Ref != in.Goal {
+		return out, c.ErrConflict
+	}
+	for _, thread := range []string{revision.Proposal.ThreadID, revision.Proposal.QA.EvidenceDestination.ThreadID} {
+		if thread != "" {
+			if err = member(ctx, tx, p, thread); err != nil {
+				return out, err
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT body FROM handoffs WHERE goal_id=? AND revision=?
+		AND json_extract(body,'$.input.kind')='deliver'`, in.Goal.GoalID, in.Goal.RevisionSHA256)
+	if err != nil {
+		return out, err
+	}
+	matched := false
+	for rows.Next() {
+		var grant c.Handoff
+		if err = rows.Scan(&raw); err != nil {
+			break
+		}
+		if err = json.Unmarshal(raw, &grant); err != nil {
+			break
+		}
+		if grant.ID == "" || grant.Sequence < 1 || grant.ActorKind != "owner" || grant.ActorID == "" || grant.Input.Revoked {
+			continue
+		}
+		original := grant.Input
+		original.RequestID, original.Revoked = in.RequestID, true
+		if original == in {
+			matched = true
+			break
+		}
+	}
+	err = errors.Join(err, rows.Err(), rows.Close())
+	if err != nil {
+		return out, err
+	}
+	if !matched {
+		return out, c.ErrConflict
+	}
+	if found, e := request(ctx, tx, p.ID, in.RequestID, "handoff", in, &out); found || e != nil {
+		return out, e
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM handoffs").Scan(&count); err != nil {
+		return out, err
+	}
+	if count >= 10000 {
+		return out, c.ErrCapacity
+	}
+	out = c.Handoff{ID: newID("ho"), Input: in, ActorID: p.ID, ActorKind: p.Kind, CreatedAt: svc.Store.now().UTC()}
+	if err = tx.QueryRowContext(ctx, "SELECT coalesce(max(rowid),0)+1 FROM handoffs").Scan(&out.Sequence); err != nil {
+		return c.Handoff{}, err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO handoffs(id,goal_id,revision,release_key,body) VALUES(?,?,?,?,?)", out.ID, in.Goal.GoalID, in.Goal.RevisionSHA256, "", encode(out)); err != nil {
+		return out, err
+	}
+	if err = saveRequest(ctx, tx, p.ID, in.RequestID, "handoff", in, out); err != nil {
+		return out, err
+	}
+	if err = event(ctx, tx, "handoff", revision.Proposal.ThreadID, ""); err != nil {
 		return out, err
 	}
 	return out, tx.Commit()

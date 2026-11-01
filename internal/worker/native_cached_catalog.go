@@ -273,6 +273,9 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			continue
 		}
 		for _, p := range t.PRs {
+			if nativeDeliveryActor(cfg) && nativeDeliveryDecision(out, t, p) == nil {
+				continue
+			}
 			for _, review := range p.Reviews {
 				if review.Author.ID != t.Binding.QAID || review.HeadSHA != p.HeadSHA {
 					continue
@@ -295,6 +298,7 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 			out.Cache.Ready[url] = true
 		}
 	}
+	loadNativeDeliveryEvidence(ctx, cfg, m, &out)
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	out.ReadAt = r.clock.Now()
 	out.Complete = true

@@ -79,13 +79,6 @@ func loadCatalogHandoffs(ctx context.Context, m NativeMaster, out *NativeCatalog
 					return c.ErrConflict
 				}
 				out.Handoffs = append(out.Handoffs, h)
-				if h.Input.Kind == "deliver" {
-					message, err := m.Message(ctx, h.Input.EvidenceMessageID)
-					if err != nil {
-						return err
-					}
-					out.Reports[message.ID] = message
-				}
 				if len(out.Handoffs) > MaxConnection {
 					return c.ErrCapacity
 				}
@@ -97,6 +90,32 @@ func loadCatalogHandoffs(ctx context.Context, m NativeMaster, out *NativeCatalog
 		}
 	}
 	return nil
+}
+
+// Missing evidence denies only its current delivery candidate. Retain all
+// decisions for ordering, but never hydrate revoked or superseded history.
+func loadNativeDeliveryEvidence(ctx context.Context, cfg Config, m NativeMaster, out *NativeCatalog) {
+	if !nativeDeliveryActor(cfg) || cfg.DeliveryHold {
+		return
+	}
+	for _, task := range out.Tasks {
+		for _, pr := range task.PRs {
+			h := nativeDeliveryDecision(*out, task, pr)
+			if h == nil {
+				continue
+			}
+			id := h.Input.EvidenceMessageID
+			delete(out.Reports, id)
+			message, err := m.Message(ctx, id)
+			if err != nil || message.ID != id {
+				if out.Cache != nil {
+					out.Cache.Reasons[task.Task.URL] = "cache_delivery_evidence_unknown"
+				}
+				continue
+			}
+			out.Reports[id] = message
+		}
+	}
 }
 func (m *taskSnapshotMaster) Handoffs(ctx context.Context, in c.HandoffQuery) (c.HandoffPage, error) {
 	if source, ok := m.NativeMaster.(handoffSource); ok {

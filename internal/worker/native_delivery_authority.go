@@ -23,10 +23,7 @@ func nativeDeliveryJob(cfg Config, j Job) bool {
 
 // Select the latest decision before checking its scope. Never fall back to an
 // older grant when a replacement or revocation no longer matches the artifact.
-func nativeDeliveryHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR) *c.Handoff {
-	if !nativeDeliveryActor(cfg) || cfg.DeliveryHold || !cat.Complete || !a.Valid || a.State != "approved" || a.Revision.Ref != t.Binding.Goal || a.ActiveRevisionSHA256 != t.Binding.Goal.RevisionSHA256 || a.ApprovalSequence != t.Binding.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Task.BodySHA != t.Binding.TaskScopeSHA {
-		return nil
-	}
+func nativeDeliveryDecision(cat NativeCatalog, t NativeTask, p PR) *c.Handoff {
 	var h *c.Handoff
 	for i := range cat.Handoffs {
 		v := &cat.Handoffs[i]
@@ -39,6 +36,17 @@ func nativeDeliveryHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.Goal
 		}
 	}
 	if h == nil || h.Sequence < 1 || h.ID == "" || h.ActorKind != "owner" || h.ActorID == "" || c.ValidateHandoff(h.Input) != nil || h.Input.Revoked {
+		return nil
+	}
+	return h
+}
+
+func nativeDeliveryHandoff(cfg Config, cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR) *c.Handoff {
+	if !nativeDeliveryActor(cfg) || cfg.DeliveryHold || !cat.Complete || !a.Valid || a.State != "approved" || a.Revision.Ref != t.Binding.Goal || a.ActiveRevisionSHA256 != t.Binding.Goal.RevisionSHA256 || a.ApprovalSequence != t.Binding.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Task.BodySHA != t.Binding.TaskScopeSHA {
+		return nil
+	}
+	h := nativeDeliveryDecision(cat, t, p)
+	if h == nil {
 		return nil
 	}
 	in := h.Input
