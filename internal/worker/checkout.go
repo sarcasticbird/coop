@@ -105,6 +105,9 @@ func (c *TaskCheckouts) nativeFixHead(ctx context.Context, dir string, j Job, re
 
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	if c.config.Version == 3 {
+		if nativeSourceKind(j.Kind) && !nativeSourceJob(c.config, j) {
+			return j, errors.New("source stage requires exact supplemental executor and authority")
+		}
 		if j.Kind == "tag-only" && !nativeTagOnlyJob(c.config, j) {
 			return j, errors.New("native tag-only requires exact Rook executor, delivery role and handoff")
 		}
@@ -300,7 +303,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if err != nil || strings.TrimSpace(string(branch)) != owner.Branch {
 			return j, errors.New("checkout branch changed")
 		}
-		if j.Kind == "qa" || nativeRetainedGate(j.Kind) {
+		if j.Kind == "qa" || nativeRetainedGate(j.Kind) || nativeSourceKind(j.Kind) {
 			// This is a local guardrail; the QA App must also lack contents write.
 			const disabledPushURL = "/dev/null/coop-qa-push-disabled"
 			if created {
@@ -317,7 +320,7 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 				return j, errors.New("QA checkout effective push URL changed")
 			}
 		}
-		if j.Kind == "review" || j.Kind == "qa" || nativeRetainedGate(j.Kind) {
+		if j.Kind == "review" || j.Kind == "qa" || nativeRetainedGate(j.Kind) || nativeSourceKind(j.Kind) {
 			repo, n, err := parseRef(j.PRURL)
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")
@@ -342,6 +345,23 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 				if _, err := c.run(ctx, checkout, "git", "reset", "--hard", "FETCH_HEAD"); err != nil {
 					return j, err
 				}
+			}
+		}
+		if nativeSourceKind(j.Kind) {
+			if _, err := c.run(ctx, checkout, "git", "fetch", "origin", j.Master.SourceTargetSHA); err != nil {
+				return j, err
+			}
+			tree, err := c.run(ctx, checkout, "git", "merge-tree", "--write-tree", j.Master.SourceTargetSHA, j.HeadSHA)
+			if err != nil || strings.TrimSpace(string(tree)) != j.Master.SourceResultTreeSHA {
+				return j, errors.New("source integration candidate differs; explicit author integration and renewed independent gates required")
+			}
+			archive, err := c.run(ctx, checkout, "git", "archive", "--format=tar.gz", "--prefix=source/", j.Master.SourceResultTreeSHA)
+			if err != nil {
+				return j, err
+			}
+			bundle, err := sourceBundleSHA(archive)
+			if err != nil || bundle != j.Master.SourceResultBundleSHA {
+				return j, errors.New("source integration payload differs from owner authority")
 			}
 		}
 	}

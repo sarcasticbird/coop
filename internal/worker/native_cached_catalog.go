@@ -144,6 +144,14 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 	if err := loadCatalogHandoffs(ctx, m, &out); err != nil {
 		return out, err
 	}
+	if err := loadNativeSourceDecisions(ctx, cfg, m, &out); err != nil {
+		return out, err
+	}
+	// Supplements carry live owner decisions and external identities that are
+	// deliberately absent from the legacy native cache projection.
+	if len(out.SourceDecisions) > 0 {
+		return r.live.NativeSnapshot(ctx, cfg, m)
+	}
 	loadNativeRetainedEvidence(ctx, cfg, m, &out)
 	loadNativeTagOnlyBridgeEvidence(ctx, cfg, m, &out)
 	ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &out)

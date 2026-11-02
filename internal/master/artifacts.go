@@ -121,6 +121,15 @@ func (svc *Service) registerArtifact(ctx context.Context, actor c.Principal, in 
 		if p.ID != a.Actors.Author.PrincipalID {
 			return out, c.ErrForbidden
 		}
+		if svc.Tasks != nil && strings.HasPrefix(in.TaskURL, "kata:") {
+			parent, e := svc.Tasks.Read(ctx, in.TaskURL)
+			if e != nil {
+				return out, e
+			}
+			if parent.Binding == nil || parent.Binding.Purpose != "" {
+				return out, c.ErrForbidden
+			}
+		}
 		parentRepo, e := svc.artifactRepository(in.TaskURL, "issues")
 		if e != nil || parentRepo != repo {
 			return out, c.ErrInvalid

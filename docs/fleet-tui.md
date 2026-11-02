@@ -268,6 +268,8 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `task first-postmerge-qa` | CLI/runbook | Owner/planner records first postmerge QA authority with exact approved environment; no review/tag/workflow or worker execution in this rollout |
 | `task request-release` | CLI/runbook | Owner records exact-source release authority |
 | `task authorize-delivery` | CLI/runbook | Owner records or revokes exact-artifact Rook-only delivery authority; see [operator packet](rook-only-delivery.md) |
+| `task source-decision` | CLI/runbook | Owner supplemental external intake, target transition, exact execution or withdrawal |
+| `task source-decisions` | CLI/runbook | Read immutable supplemental owner decisions |
 | `task authorize-tag-only` | CLI/runbook | Owner records or revokes immutable Rook-only tag authority; no workflow or release assets |
 | `task handoffs` | CLI/runbook | Read bounded, scoped delivery/QA/release requests |
 | `pilot` | CLI/runbook | Experimental fixture-only Kata/AgentsView spike |

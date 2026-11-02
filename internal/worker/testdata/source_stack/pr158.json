@@ -1,0 +1,471 @@
+{
+  "Tree": "f138fe97b539870e4f01caaddc287f3ba897c10a",
+  "PR": {
+    "url": "https://api.github.com/repos/sarcasticbird/coop/pulls/158",
+    "id": 5100035098,
+    "node_id": "PR_kwDOTeUyEc8AAAABL_xcGg",
+    "html_url": "https://github.com/sarcasticbird/coop/pull/158",
+    "diff_url": "https://github.com/sarcasticbird/coop/pull/158.diff",
+    "patch_url": "https://github.com/sarcasticbird/coop/pull/158.patch",
+    "issue_url": "https://api.github.com/repos/sarcasticbird/coop/issues/158",
+    "commits_url": "https://api.github.com/repos/sarcasticbird/coop/pulls/158/commits",
+    "review_comments_url": "https://api.github.com/repos/sarcasticbird/coop/pulls/158/comments",
+    "review_comment_url": "https://api.github.com/repos/sarcasticbird/coop/pulls/comments{/number}",
+    "comments_url": "https://api.github.com/repos/sarcasticbird/coop/issues/158/comments",
+    "statuses_url": "https://api.github.com/repos/sarcasticbird/coop/statuses/99587865a8133a67311dcb1b65e67a59562eedb5",
+    "number": 158,
+    "state": "open",
+    "locked": false,
+    "title": "Simplify Kata coordination and unify QA environment authority",
+    "user": {
+      "login": "sarcasticbird",
+      "id": 6818256,
+      "node_id": "MDQ6VXNlcjY4MTgyNTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6818256?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/sarcasticbird",
+      "html_url": "https://github.com/sarcasticbird",
+      "followers_url": "https://api.github.com/users/sarcasticbird/followers",
+      "following_url": "https://api.github.com/users/sarcasticbird/following{/other_user}",
+      "gists_url": "https://api.github.com/users/sarcasticbird/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/sarcasticbird/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/sarcasticbird/subscriptions",
+      "organizations_url": "https://api.github.com/users/sarcasticbird/orgs",
+      "repos_url": "https://api.github.com/users/sarcasticbird/repos",
+      "events_url": "https://api.github.com/users/sarcasticbird/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/sarcasticbird/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "## Summary\n- Make ordinary results quiet and actionable coordination explicit through addressed handoffs, with Kata-first operational guidance.\n- Keep settled history out of hot scans using rebuildable pending-work indexes while retaining canonical recovery/idempotency evidence. Tolerate brief producer contention, honor cancellation, and revalidate authority after locking.\n- Resolve QA execution, published metadata, and delivery/release clearance against one environment authority. Exact-artifact owner reassessments can name a repaired runtime without changing the task, source head, artifact, or historical results.\n\n## Commits\n- `8a38714` Simplify coordination with quiet replies and explicit handoffs\n- `921f835` Index pending coordination work and tolerate producer contention\n- `9958786` Resolve QA environment authority through bounded owner reassessments\n\n## Validation\n- `TMPDIR=/private/tmp flox activate -- go test ./...` passed on the final repair.\n- Focused race checks passed for environment authorization/publication/inheritance, invalid planning-job QA requests, reassessment, and postmerge QA actions; earlier indexing/contention focused race checks also passed.\n- `go vet ./...` and `git diff --check` passed during repair validation.\n- RoboRev1289, 1293, and 1295 passed. Review1294's reachable nil-binding panic was fixed with early QA job/binding validation and a regression test before the final passing review.\n\n## Controlled live validation\nMatching runtime repairs are installed on the master and all four workers. The bounded smoke used one canonical Kata task, one documentation-only PR (#157), and independent Hawk peer review and Wren QA on unchanged head `3d8b82df2fa4e1706953e259189946b307d46074`.\n\n- Repaired-build Rook idle observation: 85.683ms CPU over 60.082255875 seconds (0.142609492% of one core), same PID, no restart.\n- One explicit handoff produced one native turn and one quiet reply with zero downstream deliveries. An idle restart retained byte-identical canonical turn evidence and one reply after 60 seconds.\n- Final Wren review5724018838 approved the bounded smoke against `kata-first-smoke-9958786-v1`; emitted metadata records authenticated handoff `ho_Y5WSN2CDHYQ67VFFQQ3OV5LSIU`. Evidence-body digest and quiet report receipt were verified.\n- Earlier failed observations and QA holds remain preserved. Accepted runtime observations were not replayed simply to obtain a new result. This is bounded smoke evidence, not exhaustive fleet testing or an independent bird engineering review of this runtime diff.\n\nAll worker admissions are held; #157 remains open/unmerged. This PR does not authorize merge, release, or resuming older goals.\n\n## Follow-up boundary\nAutomatic history archival/expiry, a consolidated bounded-rollout command, and clearer admission/status reporting remain follow-up scope.\n",
+    "labels": [],
+    "milestone": null,
+    "active_lock_reason": null,
+    "created_at": "2026-10-31T17:46:53Z",
+    "updated_at": "2026-10-31T17:46:53Z",
+    "closed_at": null,
+    "merged_at": null,
+    "merge_commit_sha": "8703843d97ebf738180ce443da6087103ab9847d",
+    "assignee": null,
+    "assignees": [],
+    "requested_reviewers": [],
+    "requested_teams": [],
+    "head": {
+      "label": "sarcasticbird:simplify/kata-first",
+      "ref": "simplify/kata-first",
+      "repo": {
+        "id": 1306866193,
+        "node_id": "R_kgDOTeUyEQ",
+        "name": "coop",
+        "full_name": "sarcasticbird/coop",
+        "owner": {
+          "login": "sarcasticbird",
+          "id": 6818256,
+          "node_id": "MDQ6VXNlcjY4MTgyNTY=",
+          "avatar_url": "https://avatars.githubusercontent.com/u/6818256?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/sarcasticbird",
+          "html_url": "https://github.com/sarcasticbird",
+          "followers_url": "https://api.github.com/users/sarcasticbird/followers",
+          "following_url": "https://api.github.com/users/sarcasticbird/following{/other_user}",
+          "gists_url": "https://api.github.com/users/sarcasticbird/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/sarcasticbird/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/sarcasticbird/subscriptions",
+          "organizations_url": "https://api.github.com/users/sarcasticbird/orgs",
+          "repos_url": "https://api.github.com/users/sarcasticbird/repos",
+          "events_url": "https://api.github.com/users/sarcasticbird/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/sarcasticbird/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "private": false,
+        "fork": false,
+        "archived": false,
+        "disabled": false,
+        "description": "Sandboxed sessions for coding agents on Apple silicon — one VM per project, your paths, your configs",
+        "homepage": null,
+        "language": "Go",
+        "visibility": "public",
+        "is_template": false,
+        "topics": [],
+        "forks_count": 0,
+        "forks": 0,
+        "stargazers_count": 1,
+        "watchers_count": 1,
+        "watchers": 1,
+        "open_issues_count": 15,
+        "open_issues": 15,
+        "size": 3728,
+        "default_branch": "main",
+        "has_issues": true,
+        "has_projects": true,
+        "has_wiki": true,
+        "has_pages": false,
+        "has_downloads": false,
+        "has_discussions": false,
+        "has_pull_requests": true,
+        "pushed_at": "2026-11-02T03:55:33Z",
+        "created_at": "2026-07-20T17:42:19Z",
+        "updated_at": "2026-10-30T19:59:41Z",
+        "allow_forking": true,
+        "web_commit_signoff_required": false,
+        "pull_request_creation_policy": "all",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "spdx_id": "Apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "url": "https://api.github.com/repos/sarcasticbird/coop",
+        "html_url": "https://github.com/sarcasticbird/coop",
+        "archive_url": "https://api.github.com/repos/sarcasticbird/coop/{archive_format}{/ref}",
+        "assignees_url": "https://api.github.com/repos/sarcasticbird/coop/assignees{/user}",
+        "blobs_url": "https://api.github.com/repos/sarcasticbird/coop/git/blobs{/sha}",
+        "branches_url": "https://api.github.com/repos/sarcasticbird/coop/branches{/branch}",
+        "collaborators_url": "https://api.github.com/repos/sarcasticbird/coop/collaborators{/collaborator}",
+        "comments_url": "https://api.github.com/repos/sarcasticbird/coop/comments{/number}",
+        "commits_url": "https://api.github.com/repos/sarcasticbird/coop/commits{/sha}",
+        "compare_url": "https://api.github.com/repos/sarcasticbird/coop/compare/{base}...{head}",
+        "contents_url": "https://api.github.com/repos/sarcasticbird/coop/contents/{+path}",
+        "contributors_url": "https://api.github.com/repos/sarcasticbird/coop/contributors",
+        "deployments_url": "https://api.github.com/repos/sarcasticbird/coop/deployments",
+        "downloads_url": "https://api.github.com/repos/sarcasticbird/coop/downloads",
+        "events_url": "https://api.github.com/repos/sarcasticbird/coop/events",
+        "forks_url": "https://api.github.com/repos/sarcasticbird/coop/forks",
+        "git_commits_url": "https://api.github.com/repos/sarcasticbird/coop/git/commits{/sha}",
+        "git_refs_url": "https://api.github.com/repos/sarcasticbird/coop/git/refs{/sha}",
+        "git_tags_url": "https://api.github.com/repos/sarcasticbird/coop/git/tags{/sha}",
+        "git_url": "git://github.com/sarcasticbird/coop.git",
+        "issue_comment_url": "https://api.github.com/repos/sarcasticbird/coop/issues/comments{/number}",
+        "issue_events_url": "https://api.github.com/repos/sarcasticbird/coop/issues/events{/number}",
+        "issues_url": "https://api.github.com/repos/sarcasticbird/coop/issues{/number}",
+        "keys_url": "https://api.github.com/repos/sarcasticbird/coop/keys{/key_id}",
+        "labels_url": "https://api.github.com/repos/sarcasticbird/coop/labels{/name}",
+        "languages_url": "https://api.github.com/repos/sarcasticbird/coop/languages",
+        "merges_url": "https://api.github.com/repos/sarcasticbird/coop/merges",
+        "milestones_url": "https://api.github.com/repos/sarcasticbird/coop/milestones{/number}",
+        "notifications_url": "https://api.github.com/repos/sarcasticbird/coop/notifications{?since,all,participating}",
+        "pulls_url": "https://api.github.com/repos/sarcasticbird/coop/pulls{/number}",
+        "releases_url": "https://api.github.com/repos/sarcasticbird/coop/releases{/id}",
+        "ssh_url": "git@github.com:sarcasticbird/coop.git",
+        "stargazers_url": "https://api.github.com/repos/sarcasticbird/coop/stargazers",
+        "statuses_url": "https://api.github.com/repos/sarcasticbird/coop/statuses/{sha}",
+        "subscribers_url": "https://api.github.com/repos/sarcasticbird/coop/subscribers",
+        "subscription_url": "https://api.github.com/repos/sarcasticbird/coop/subscription",
+        "tags_url": "https://api.github.com/repos/sarcasticbird/coop/tags",
+        "teams_url": "https://api.github.com/repos/sarcasticbird/coop/teams",
+        "trees_url": "https://api.github.com/repos/sarcasticbird/coop/git/trees{/sha}",
+        "clone_url": "https://github.com/sarcasticbird/coop.git",
+        "mirror_url": null,
+        "hooks_url": "https://api.github.com/repos/sarcasticbird/coop/hooks",
+        "svn_url": "https://github.com/sarcasticbird/coop"
+      },
+      "sha": "99587865a8133a67311dcb1b65e67a59562eedb5",
+      "user": {
+        "login": "sarcasticbird",
+        "id": 6818256,
+        "node_id": "MDQ6VXNlcjY4MTgyNTY=",
+        "avatar_url": "https://avatars.githubusercontent.com/u/6818256?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/sarcasticbird",
+        "html_url": "https://github.com/sarcasticbird",
+        "followers_url": "https://api.github.com/users/sarcasticbird/followers",
+        "following_url": "https://api.github.com/users/sarcasticbird/following{/other_user}",
+        "gists_url": "https://api.github.com/users/sarcasticbird/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/sarcasticbird/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/sarcasticbird/subscriptions",
+        "organizations_url": "https://api.github.com/users/sarcasticbird/orgs",
+        "repos_url": "https://api.github.com/users/sarcasticbird/repos",
+        "events_url": "https://api.github.com/users/sarcasticbird/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/sarcasticbird/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      }
+    },
+    "base": {
+      "label": "sarcasticbird:main",
+      "ref": "main",
+      "repo": {
+        "id": 1306866193,
+        "node_id": "R_kgDOTeUyEQ",
+        "name": "coop",
+        "full_name": "sarcasticbird/coop",
+        "owner": {
+          "login": "sarcasticbird",
+          "id": 6818256,
+          "node_id": "MDQ6VXNlcjY4MTgyNTY=",
+          "avatar_url": "https://avatars.githubusercontent.com/u/6818256?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/sarcasticbird",
+          "html_url": "https://github.com/sarcasticbird",
+          "followers_url": "https://api.github.com/users/sarcasticbird/followers",
+          "following_url": "https://api.github.com/users/sarcasticbird/following{/other_user}",
+          "gists_url": "https://api.github.com/users/sarcasticbird/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/sarcasticbird/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/sarcasticbird/subscriptions",
+          "organizations_url": "https://api.github.com/users/sarcasticbird/orgs",
+          "repos_url": "https://api.github.com/users/sarcasticbird/repos",
+          "events_url": "https://api.github.com/users/sarcasticbird/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/sarcasticbird/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "private": false,
+        "fork": false,
+        "archived": false,
+        "disabled": false,
+        "description": "Sandboxed sessions for coding agents on Apple silicon — one VM per project, your paths, your configs",
+        "homepage": null,
+        "language": "Go",
+        "visibility": "public",
+        "is_template": false,
+        "topics": [],
+        "forks_count": 0,
+        "forks": 0,
+        "stargazers_count": 1,
+        "watchers_count": 1,
+        "watchers": 1,
+        "open_issues_count": 15,
+        "open_issues": 15,
+        "size": 3728,
+        "default_branch": "main",
+        "has_issues": true,
+        "has_projects": true,
+        "has_wiki": true,
+        "has_pages": false,
+        "has_downloads": false,
+        "has_discussions": false,
+        "has_pull_requests": true,
+        "pushed_at": "2026-11-02T03:55:33Z",
+        "created_at": "2026-07-20T17:42:19Z",
+        "updated_at": "2026-10-30T19:59:41Z",
+        "allow_forking": true,
+        "web_commit_signoff_required": false,
+        "pull_request_creation_policy": "all",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "spdx_id": "Apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "url": "https://api.github.com/repos/sarcasticbird/coop",
+        "html_url": "https://github.com/sarcasticbird/coop",
+        "archive_url": "https://api.github.com/repos/sarcasticbird/coop/{archive_format}{/ref}",
+        "assignees_url": "https://api.github.com/repos/sarcasticbird/coop/assignees{/user}",
+        "blobs_url": "https://api.github.com/repos/sarcasticbird/coop/git/blobs{/sha}",
+        "branches_url": "https://api.github.com/repos/sarcasticbird/coop/branches{/branch}",
+        "collaborators_url": "https://api.github.com/repos/sarcasticbird/coop/collaborators{/collaborator}",
+        "comments_url": "https://api.github.com/repos/sarcasticbird/coop/comments{/number}",
+        "commits_url": "https://api.github.com/repos/sarcasticbird/coop/commits{/sha}",
+        "compare_url": "https://api.github.com/repos/sarcasticbird/coop/compare/{base}...{head}",
+        "contents_url": "https://api.github.com/repos/sarcasticbird/coop/contents/{+path}",
+        "contributors_url": "https://api.github.com/repos/sarcasticbird/coop/contributors",
+        "deployments_url": "https://api.github.com/repos/sarcasticbird/coop/deployments",
+        "downloads_url": "https://api.github.com/repos/sarcasticbird/coop/downloads",
+        "events_url": "https://api.github.com/repos/sarcasticbird/coop/events",
+        "forks_url": "https://api.github.com/repos/sarcasticbird/coop/forks",
+        "git_commits_url": "https://api.github.com/repos/sarcasticbird/coop/git/commits{/sha}",
+        "git_refs_url": "https://api.github.com/repos/sarcasticbird/coop/git/refs{/sha}",
+        "git_tags_url": "https://api.github.com/repos/sarcasticbird/coop/git/tags{/sha}",
+        "git_url": "git://github.com/sarcasticbird/coop.git",
+        "issue_comment_url": "https://api.github.com/repos/sarcasticbird/coop/issues/comments{/number}",
+        "issue_events_url": "https://api.github.com/repos/sarcasticbird/coop/issues/events{/number}",
+        "issues_url": "https://api.github.com/repos/sarcasticbird/coop/issues{/number}",
+        "keys_url": "https://api.github.com/repos/sarcasticbird/coop/keys{/key_id}",
+        "labels_url": "https://api.github.com/repos/sarcasticbird/coop/labels{/name}",
+        "languages_url": "https://api.github.com/repos/sarcasticbird/coop/languages",
+        "merges_url": "https://api.github.com/repos/sarcasticbird/coop/merges",
+        "milestones_url": "https://api.github.com/repos/sarcasticbird/coop/milestones{/number}",
+        "notifications_url": "https://api.github.com/repos/sarcasticbird/coop/notifications{?since,all,participating}",
+        "pulls_url": "https://api.github.com/repos/sarcasticbird/coop/pulls{/number}",
+        "releases_url": "https://api.github.com/repos/sarcasticbird/coop/releases{/id}",
+        "ssh_url": "git@github.com:sarcasticbird/coop.git",
+        "stargazers_url": "https://api.github.com/repos/sarcasticbird/coop/stargazers",
+        "statuses_url": "https://api.github.com/repos/sarcasticbird/coop/statuses/{sha}",
+        "subscribers_url": "https://api.github.com/repos/sarcasticbird/coop/subscribers",
+        "subscription_url": "https://api.github.com/repos/sarcasticbird/coop/subscription",
+        "tags_url": "https://api.github.com/repos/sarcasticbird/coop/tags",
+        "teams_url": "https://api.github.com/repos/sarcasticbird/coop/teams",
+        "trees_url": "https://api.github.com/repos/sarcasticbird/coop/git/trees{/sha}",
+        "clone_url": "https://github.com/sarcasticbird/coop.git",
+        "mirror_url": null,
+        "hooks_url": "https://api.github.com/repos/sarcasticbird/coop/hooks",
+        "svn_url": "https://github.com/sarcasticbird/coop"
+      },
+      "sha": "306bfd0a3e7ae76fdd00635553e399941cec6394",
+      "user": {
+        "login": "sarcasticbird",
+        "id": 6818256,
+        "node_id": "MDQ6VXNlcjY4MTgyNTY=",
+        "avatar_url": "https://avatars.githubusercontent.com/u/6818256?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/sarcasticbird",
+        "html_url": "https://github.com/sarcasticbird",
+        "followers_url": "https://api.github.com/users/sarcasticbird/followers",
+        "following_url": "https://api.github.com/users/sarcasticbird/following{/other_user}",
+        "gists_url": "https://api.github.com/users/sarcasticbird/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/sarcasticbird/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/sarcasticbird/subscriptions",
+        "organizations_url": "https://api.github.com/users/sarcasticbird/orgs",
+        "repos_url": "https://api.github.com/users/sarcasticbird/repos",
+        "events_url": "https://api.github.com/users/sarcasticbird/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/sarcasticbird/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      }
+    },
+    "_links": {
+      "comments": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/issues/158/comments"
+      },
+      "commits": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/pulls/158/commits"
+      },
+      "statuses": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/statuses/99587865a8133a67311dcb1b65e67a59562eedb5"
+      },
+      "html": {
+        "href": "https://github.com/sarcasticbird/coop/pull/158"
+      },
+      "issue": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/issues/158"
+      },
+      "review_comments": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/pulls/158/comments"
+      },
+      "review_comment": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/pulls/comments{/number}"
+      },
+      "self": {
+        "href": "https://api.github.com/repos/sarcasticbird/coop/pulls/158"
+      }
+    },
+    "author_association": "OWNER",
+    "auto_merge": null,
+    "draft": false,
+    "merged": false,
+    "mergeable": true,
+    "rebaseable": true,
+    "mergeable_state": "clean",
+    "merged_by": null,
+    "comments": 0,
+    "review_comments": 0,
+    "maintainer_can_modify": false,
+    "commits": 3,
+    "additions": 1325,
+    "deletions": 86,
+    "changed_files": 29
+  },
+  "Reviews": [],
+  "Commits": {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "commits": {
+            "totalCount": 3,
+            "nodes": [
+              {
+                "commit": {
+                  "id": "C_kwDOTeUyEdoAKDhhMzg3MTRjZjY2OGVhZjkyZTgxNGIzZjUzNTk4M2FiODdmM2NhOTY",
+                  "oid": "8a38714cf668eaf92e814b3f535983ab87f3ca96",
+                  "committer": {
+                    "user": {
+                      "__typename": "User",
+                      "databaseId": 6818256,
+                      "login": "sarcasticbird"
+                    }
+                  },
+                  "authors": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "user": {
+                          "__typename": "User",
+                          "databaseId": 6818256,
+                          "login": "sarcasticbird"
+                        }
+                      }
+                    ],
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "MQ"
+                    }
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "id": "C_kwDOTeUyEdoAKDkyMWY4MzU4ZWUzN2MwNTUyMTVkYWVkYzI0Y2NmZTliOGY2MWIxNWE",
+                  "oid": "921f8358ee37c055215daedc24ccfe9b8f61b15a",
+                  "committer": {
+                    "user": {
+                      "__typename": "User",
+                      "databaseId": 6818256,
+                      "login": "sarcasticbird"
+                    }
+                  },
+                  "authors": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "user": {
+                          "__typename": "User",
+                          "databaseId": 6818256,
+                          "login": "sarcasticbird"
+                        }
+                      }
+                    ],
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "MQ"
+                    }
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "id": "C_kwDOTeUyEdoAKDk5NTg3ODY1YTgxMzNhNjczMTFkY2IxYjY1ZTY3YTU5NTYyZWVkYjU",
+                  "oid": "99587865a8133a67311dcb1b65e67a59562eedb5",
+                  "committer": {
+                    "user": {
+                      "__typename": "User",
+                      "databaseId": 6818256,
+                      "login": "sarcasticbird"
+                    }
+                  },
+                  "authors": {
+                    "totalCount": 1,
+                    "nodes": [
+                      {
+                        "user": {
+                          "__typename": "User",
+                          "databaseId": 6818256,
+                          "login": "sarcasticbird"
+                        }
+                      }
+                    ],
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "MQ"
+                    }
+                  }
+                }
+              }
+            ],
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": "Mw"
+            }
+          }
+        }
+      }
+    }
+  }
+}

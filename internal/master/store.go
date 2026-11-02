@@ -151,7 +151,7 @@ func OpenStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	return s, nil
 }
 func (s *Store) initialize(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, schema+recoverySchema+githubCacheSchema+conversationSchema); err != nil {
+	if _, err := s.db.ExecContext(ctx, schema+recoverySchema+githubCacheSchema+conversationSchema+sourceJourneySchema); err != nil {
 		return fmt.Errorf("initialize master schema: %w", err)
 	}
 	if err := s.initializeConversationPublications(ctx); err != nil {

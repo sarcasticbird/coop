@@ -36,13 +36,14 @@ type NativeExecution struct {
 	PausedDecisionSequence      int64
 }
 type NativeCandidate struct {
-	QAEnvironment *nativeQAEnvironment
-	Handoff       *c.Handoff
-	Job           Job
-	Goal          c.GoalAuthority
-	Task          *NativeTask
-	PR            *PR
-	RebindTasks   []string
+	SourceDecision *c.SourceDecision
+	QAEnvironment  *nativeQAEnvironment
+	Handoff        *c.Handoff
+	Job            Job
+	Goal           c.GoalAuthority
+	Task           *NativeTask
+	PR             *PR
+	RebindTasks    []string
 }
 
 const nativeBranchRefreshPrefix = "branch-refresh:"
@@ -266,6 +267,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	for _, value := range catalog.Tasks {
 		t := value
+		if t.Binding.Purpose != "" {
+			continue
+		}
 		if !nativeCacheTaskReady(catalog, t.Task.URL, now) {
 			continue
 		}
@@ -390,6 +394,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 	}
 	out = append(out, nativeRetainedCandidates(cfg, catalog, history, now)...)
 	out = append(out, NativeTagOnlyCandidates(cfg, catalog, history, now)...)
+	out = append(out, nativeSourceCandidates(cfg, catalog, history, now)...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Job.ID < out[j].Job.ID })
 	return out
 }

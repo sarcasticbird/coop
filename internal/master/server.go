@@ -130,6 +130,7 @@ func NewHandler(service *Service, policy *Policy) http.Handler {
 	registerGitHubCache(mux, service, wrap)
 	registerTasks(mux, service, wrap)
 	registerHandoffs(mux, service, wrap)
+	registerSourceJourney(mux, service, wrap)
 	mux.HandleFunc("GET /api/v1/deliveries/{id}", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return s.OwnDelivery(r.Context(), p, r.PathValue("id"))
 	}))

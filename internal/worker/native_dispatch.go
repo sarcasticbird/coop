@@ -382,7 +382,7 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 					}
 				}
 				x := NativeExecution{Version: 3, MasterID: d.config.Master.MasterID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation, Goal: v.Goal.Revision.Ref, Job: j, Phase: "selected", SelectedAt: d.clock.Now()}
-				if v.Task != nil {
+				if v.Task != nil && !nativeSourceKind(v.Job.Kind) {
 					b := v.Task.Binding
 					x.Binding = &b
 					x.Job.WorkTitle = diagnosticTitle(v.Task.Task.Title)
@@ -880,6 +880,13 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 	return x.Phase == "completed", nil
 }
 func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, error) {
+	if nativeSourceKind(x.Job.Kind) {
+		if !nativeSourceJob(cfg, x.Job) || v.SourceDecision == nil {
+			return "", c.ErrForbidden
+		}
+		raw, _ := json.Marshal(v.SourceDecision)
+		return fmt.Sprintf("You are %s, assigned ONLY %s for supplemental owner source decision %s. Use /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json. Action operation must be %s with stable request_id; source-review requires verdict approved or changes-needed and body; source-qa requires verdict and PRIVATE report_body. Read all original source/evidence. Independently assess exact source AND target integration tree/payload, product acceptance and environment. Do not relabel historical reports. No source push, native metadata edits, replacement product tasks, implementation, hold changes, release, installation or runtime changes. Rook alone may perform separately assigned retarget/delivery. Uncertain effects are read-only recovery only; never replay or change request ID. Authority: %s", cfg.Name, x.Job.Kind, v.SourceDecision.ID, x.Job.ID, x.Job.Kind, raw), nil
+	}
 	goal, _ := json.Marshal(v.Goal.Revision)
 	binding, _ := json.Marshal(x.Binding)
 	taskLifecycle := "Task creation and rebinding can select a configured Project with project_owner and project_number; one configured Project is selected automatically and confirmed Ready."

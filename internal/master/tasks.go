@@ -166,6 +166,9 @@ func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.Task
 	if !planner(p) {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
+	if in.Purpose != "" && in.Purpose != "source-gates" {
+		return c.ProviderTask{}, c.ErrInvalid
+	}
 	if in.ExpectedApprovalSequence != a.ApprovalSequence {
 		return c.ProviderTask{}, c.ErrConflict
 	}
@@ -179,6 +182,7 @@ func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.Task
 		return c.ProviderTask{}, err
 	}
 	intent.TaskURL = ""
+	intent.Purpose = in.Purpose
 	// Persist the original approval intent before the external write. A retry after
 	// a lost reply must reuse both its original payload and its approved actors.
 	tx, err := svc.Store.db.BeginTx(ctx, nil)
@@ -266,6 +270,7 @@ func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.Task
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
+	binding.Purpose = in.Purpose
 	if task.Binding != nil && !reflect.DeepEqual(*task.Binding, binding) {
 		return c.ProviderTask{}, c.ErrConflict
 	}
@@ -314,6 +319,10 @@ func (svc *Service) TaskBind(ctx context.Context, actor c.Principal, in c.TaskBi
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
+	if in.Binding.Purpose != "" && in.Binding.Purpose != "source-gates" {
+		return c.ProviderTask{}, c.ErrInvalid
+	}
+	expected.Purpose = in.Binding.Purpose
 	if !reflect.DeepEqual(expected, in.Binding) {
 		return c.ProviderTask{}, c.ErrForbidden
 	}

@@ -24,6 +24,11 @@ type NativeMaster interface {
 const NativeCatalogTimeout = 5 * time.Minute
 
 type NativeCatalog struct {
+	SourceDecisions  []c.SourceDecision
+	SourceTasks      map[string]bool
+	SourceEntries    []nativeSourceEntry
+	SourceEffects    map[string][]c.SourceEffectReceipt
+	SourceRefusals   map[string]string
 	RegisteredGoals  map[c.GoalRef]bool
 	RetainedTrees    map[string]string
 	RetainedPayloads map[string]string
@@ -107,12 +112,18 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	if err := loadCatalogHandoffs(ctx, master, &out); err != nil {
 		return out, err
 	}
+	if err := loadNativeSourceDecisions(ctx, cfg, master, &out); err != nil {
+		return out, err
+	}
 	loadNativeRetainedEvidence(ctx, cfg, master, &out)
 	loadNativeTagOnlyBridgeEvidence(ctx, cfg, master, &out)
 	ctx = context.WithValue(ctx, nativeRetainedReadKey{}, &out)
 	tasks := map[string]NativeTask{}
 	deniedRetained := map[string]bool{}
 	for _, link := range links {
+		if out.SourceTasks[link.URL] || out.SourceTasks[link.TaskURL] {
+			continue
+		}
 		if link.Kind != "task" || !selectedOnly && !nativeDiscoveryTask(cfg, link.URL) {
 			continue
 		}
@@ -141,6 +152,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		tasks[link.URL] = t
 	}
 	for _, link := range links {
+		if out.SourceTasks[link.URL] || out.SourceTasks[link.TaskURL] {
+			continue
+		}
 		if link.Kind != "pull_request" || !selectedOnly && !nativeDiscoveryTask(cfg, link.TaskURL) {
 			continue
 		}
@@ -262,6 +276,9 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	loadNativeDeliveryEvidence(ctx, cfg, master, &out)
 	loadNativeTagOnlyEvidence(ctx, cfg, master, &out)
 	loadNativeRetainedTrees(ctx, cfg, reader, &out)
+	if err := reader.hydrateNativeSources(ctx, cfg, master, &out); err != nil {
+		return out, err
+	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	sort.Slice(out.Goals, func(i, j int) bool { return out.Goals[i].Revision.Ref.GoalID < out.Goals[j].Revision.Ref.GoalID })
 	out.ReadAt = time.Now().UTC()

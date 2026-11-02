@@ -7,16 +7,20 @@ import (
 )
 
 type MasterJobBinding struct {
-	DeliveryHandoffID string `json:",omitempty"`
-	AssignmentSHA     string
-	ExecutorID        int64
-	Role              string
-	BaseBranch        string
-	MasterID          string
-	ThreadID          string
-	AgentID           string
-	DeliveryID        string
-	Goal              *c.GoalRef `json:",omitempty"`
+	SourceDecisionID      string `json:",omitempty"`
+	SourceTargetSHA       string `json:",omitempty"`
+	SourceResultTreeSHA   string `json:",omitempty"`
+	SourceResultBundleSHA string `json:",omitempty"`
+	DeliveryHandoffID     string `json:",omitempty"`
+	AssignmentSHA         string
+	ExecutorID            int64
+	Role                  string
+	BaseBranch            string
+	MasterID              string
+	ThreadID              string
+	AgentID               string
+	DeliveryID            string
+	Goal                  *c.GoalRef `json:",omitempty"`
 }
 type MasterConfig struct {
 	BlockerRecipient string `json:"blocker_recipient,omitempty"`

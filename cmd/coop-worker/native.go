@@ -13,6 +13,9 @@ import (
 )
 
 func nativeCommand(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "observe-source" {
+		return nativeObserveSource(args[1:], out)
+	}
 	if len(args) > 0 && args[0] == "authority-digests" {
 		return nativeAuthorityDigestsCommand(args[1:], out)
 	}
@@ -83,6 +86,28 @@ func nativeCommand(args []string, out io.Writer) error {
 	} else {
 		result, err = worker.RunNativeAction(ctx, cfg, master, worker.NewGitHubClient(worker.ExecRunner{}), *job, action)
 	}
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(out).Encode(result)
+}
+
+func nativeObserveSource(args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("native observe-source", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	path := flags.String("config", "", "private v3 configuration")
+	job := flags.String("job", "", "original saved source stage")
+	request := flags.String("request", "", "original action request")
+	if flags.Parse(args) != nil || *path == "" || *job == "" || *request == "" || len(flags.Args()) != 0 {
+		return c.ErrInvalid
+	}
+	cfg, err := worker.LoadConfig(*path)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	result, err := worker.ObserveSourceAction(ctx, cfg, worker.NewGitHubClient(worker.ExecRunner{}), *job, *request)
 	if err != nil {
 		return err
 	}

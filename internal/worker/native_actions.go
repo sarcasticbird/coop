@@ -17,6 +17,7 @@ import (
 // NativeAction accepts intent and prose, never caller-provided authority,
 // review evidence, principal IDs or assignment metadata.
 type NativeAction struct {
+	Purpose       string      `json:"purpose,omitempty"`
 	Operation     string      `json:"operation"`
 	RequestID     string      `json:"request_id"`
 	TaskURL       string      `json:"task_url,omitempty"`
@@ -100,6 +101,9 @@ func nativeJobHasResult(cfg Config, x NativeExecution) (bool, error) {
 		return false, err
 	}
 	want := map[string]string{"plan": "complete-plan", "implement": "publish-pr", "fix": "publish-pr", "review": "review", "qa": "qa", "deliver": "deliver", "tag-only": "tag-only"}[x.Job.Kind]
+	if nativeSourceKind(x.Job.Kind) {
+		want = x.Job.Kind
+	}
 	if nativeRetainedGate(x.Job.Kind) {
 		want = "delivery-readiness"
 	}
@@ -189,6 +193,9 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	}
 	if retired {
 		return empty, c.ErrEpoch
+	}
+	if nativeSourceKind(x.Job.Kind) {
+		return runNativeSourceAction(ctx, cfg, m, g, x, in)
 	}
 	raw, _ := json.Marshal(in)
 	digest := BodyHash(string(raw))
@@ -664,7 +671,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 					if e != nil {
 						return e
 					}
-					created, e := cl.TaskCreate(ctx, c.TaskCreateInput{Goal: x.Goal, ExpectedApprovalSequence: a.ApprovalSequence, Repository: in.Repository, BaseBranch: in.BaseBranch, Title: in.Title, Body: in.Body, DependsOn: in.DependsOn, RequestID: "native-create-" + BodyHash(jobID+in.RequestID)})
+					created, e := cl.TaskCreate(ctx, c.TaskCreateInput{Purpose: in.Purpose, Goal: x.Goal, ExpectedApprovalSequence: a.ApprovalSequence, Repository: in.Repository, BaseBranch: in.BaseBranch, Title: in.Title, Body: in.Body, DependsOn: in.DependsOn, RequestID: "native-create-" + BodyHash(jobID+in.RequestID)})
 					if e != nil {
 						return e
 					}
