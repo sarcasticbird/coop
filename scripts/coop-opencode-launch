@@ -5,6 +5,13 @@ umask 077
 mode=${1:-}
 shift
 case "$mode" in serve|attach) ;; *) echo 'invalid OpenCode launcher mode' >&2; exit 64;; esac
+# coop-env resets PATH. Both entry points must prefer the operator-installed
+# immutable runtime (or its atomically updated symlink) over the core package.
+runtime=opencode
+if [[ -e /usr/local/libexec/coop-opencode-runtime || -L /usr/local/libexec/coop-opencode-runtime ]]; then
+  [[ -x /usr/local/libexec/coop-opencode-runtime ]] || { echo 'installed OpenCode runtime is not executable' >&2; exit 1; }
+  runtime=/usr/local/libexec/coop-opencode-runtime
+fi
 directory=/var/lib/coop/opencode
 password_file=$directory/server-password
 deadline=$((SECONDS + 30))
@@ -38,7 +45,7 @@ export OPENCODE_SERVER_PASSWORD
 export OPENCODE_SERVER_USERNAME=opencode
 if [[ "$mode" == serve ]]; then
   [[ $# == 0 ]] || exit 64
-  exec /usr/local/libexec/coop-github env -- opencode serve --hostname 127.0.0.1 --port 4096
+  exec /usr/local/libexec/coop-github env -- "$runtime" serve --hostname 127.0.0.1 --port 4096
 fi
 # Use curl config stdin so credentials are absent from process arguments.
 ready=false
@@ -50,4 +57,4 @@ for (( attempt=0; attempt<30 && SECONDS<deadline; attempt++ )); do
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'OpenCode server is not ready; helper service may still be starting' >&2; exit 1; }
-exec /usr/local/libexec/coop-github env -- opencode attach http://127.0.0.1:4096 "$@"
+exec /usr/local/libexec/coop-github env -- "$runtime" attach http://127.0.0.1:4096 "$@"

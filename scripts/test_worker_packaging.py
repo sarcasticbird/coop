@@ -32,8 +32,9 @@ class Launchers(unittest.TestCase):
         self.executable("opencode", '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_LOG"\ntest "${#OPENCODE_SERVER_PASSWORD}" = 64\n')
         helper = self.executable("helper", '#!/bin/sh\nshift 2\nexec "$@"\n')
         self.launch = self.root / "launch"
+        self.runtime = self.root / "coop-opencode-runtime"
         source = (SCRIPTS / "coop-opencode-launch").read_text()
-        self.launch.write_text(source.replace("/var/lib/coop/opencode", str(self.state)).replace("/usr/local/libexec/coop-github", str(helper)))
+        self.launch.write_text(source.replace("/var/lib/coop/opencode", str(self.state)).replace("/usr/local/libexec/coop-github", str(helper)).replace("/usr/local/libexec/coop-opencode-runtime", str(self.runtime)))
 
     def executable(self, name, source):
         path = self.bin / name
@@ -67,6 +68,39 @@ class Launchers(unittest.TestCase):
         password.unlink()
         password.symlink_to(self.root / "outside")
         self.assertNotEqual(self.run_launcher("serve").returncode, 0)
+
+    def test_installed_runtime_is_used_for_server_and_attach(self):
+        for symlink in (False, True):
+            with self.subTest(symlink=symlink):
+                installed = self.executable("installed-opencode", '#!/bin/sh\nprintf "installed %s\\n" "$*" >> "$TEST_LOG"\ntest "${#OPENCODE_SERVER_PASSWORD}" = 64\n')
+                if symlink:
+                    self.runtime.symlink_to(installed)
+                else:
+                    self.runtime.write_bytes(installed.read_bytes())
+                    self.runtime.chmod(0o755)
+                for mode in ("serve", "attach"):
+                    result = self.run_launcher(mode)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.log.read_text().splitlines(), ["installed serve --hostname 127.0.0.1 --port 4096", "installed attach http://127.0.0.1:4096"])
+                self.runtime.unlink()
+                self.log.unlink()
+
+    def test_invalid_installed_runtime_never_falls_back(self):
+        self.assertEqual(self.run_launcher("serve").returncode, 0)
+        self.log.unlink()
+        for invalid in ("non-executable", "broken-symlink"):
+            with self.subTest(invalid=invalid):
+                if invalid == "broken-symlink":
+                    self.runtime.symlink_to(self.root / "missing-runtime")
+                else:
+                    self.runtime.write_text("#!/bin/sh\nexit 0\n")
+                    self.runtime.chmod(0o600)
+                for mode in ("serve", "attach"):
+                    result = self.run_launcher(mode)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("installed OpenCode runtime is not executable", result.stderr)
+                    self.assertFalse(self.log.exists())
+                self.runtime.unlink()
 
     def test_readiness_failure_is_bounded_and_does_not_start_server(self):
         self.assertEqual(self.run_launcher("serve").returncode, 0)
