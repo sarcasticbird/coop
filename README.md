@@ -190,6 +190,8 @@ forwarding SSH, mounting more host directories, or seeding sensitive data.
   review handoffs, controls and recovery
 - [Coop master](docs/master.md): private conversations, addressed messages and
   native owner goal decisions across hosts
+- [Bird memory](docs/bird-memory.md): SQLite-backed working knowledge independent
+  of container images, with Markdown import
 - [Security model](docs/security-model.md): trust boundaries and non-promises
 - [Release process](docs/release.md): contributor-only release procedure
 

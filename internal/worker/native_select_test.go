@@ -11,6 +11,7 @@ import (
 func nativeWorkFixture(t *testing.T) (Config, NativeCatalog, NativeTask) {
 	cfg, _, _, _, _ := teamScopeFixture(t)
 	cfg.Version = 3
+	cfg.Team.Members = append(cfg.Team.Members, TeamMember{Name: "rook", Actor: Actor{ID: 14, Login: "rook[bot]", Kind: "Bot"}, Capabilities: []string{"plan", "deliver"}})
 	cfg.Master = &MasterConfig{MasterID: "master", AgentID: "author", Engagement: "coop"}
 	cfg.Name = cfg.Team.Members[1].Name
 	cfg.Self = cfg.Team.Members[1].Actor
@@ -60,12 +61,10 @@ func TestNativeEngineeringStageHandoffs(t *testing.T) {
 	task.PRs[0] = p
 	catalog.Tasks[0] = task
 	catalog.Reports["report"] = c.Message{ID: "report", ThreadID: "private", AuthorID: "qa", AuthorKind: "agent", Body: "private report"}
-	cfg.Name = cfg.Team.Members[1].Name
-	cfg.Self = cfg.Team.Members[1].Actor
-	cfg.Master.AgentID = "author"
+	selectNativeRook(&cfg, nil)
 	jobs = NativeCandidates(cfg, catalog, nil, now)
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
-		t.Fatalf("missing author delivery %+v", jobs)
+		t.Fatalf("missing Rook delivery %+v", jobs)
 	}
 	p.HeadSHA = strings.Repeat("b", 40)
 	task.PRs[0] = p

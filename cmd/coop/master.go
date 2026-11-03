@@ -151,5 +151,5 @@ func installMasterCommands(root *cobra.Command) {
 	installMasterRecovery(masterCmd)
 	masterCmd.AddCommand(serve)
 	root.AddCommand(masterCmd)
-	root.AddCommand(threadCommand(), messageCommand(), teamCommand(), inboxCommand(), goalCommand(), cacheCommand())
+	root.AddCommand(threadCommand(), messageCommand(), teamCommand(), inboxCommand(), goalCommand(), cacheCommand(), memoryCommand())
 }

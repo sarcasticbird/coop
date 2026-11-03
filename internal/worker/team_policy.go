@@ -58,6 +58,10 @@ func ValidateTeamPolicy(p TeamPolicy) error {
 		for _, capability := range m.Capabilities {
 			switch capability {
 			case "plan", "implement", "engineering-review", "customer-qa":
+			case "deliver":
+				if m.Name != "rook" || slices.Contains(m.Capabilities, "implement") || slices.Contains(m.Capabilities, "engineering-review") || slices.Contains(m.Capabilities, "customer-qa") {
+					return errors.New("delivery belongs only to independent Rook")
+				}
 			default:
 				return fmt.Errorf("unknown team capability %q", capability)
 			}

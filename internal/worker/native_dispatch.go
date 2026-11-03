@@ -415,23 +415,28 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	return false, nil
 }
 func verifyNativePlacement(ctx context.Context, cfg Config, m NativeEngineeringMaster) error {
+	_, err := nativeCurrentSelf(ctx, cfg, m)
+	return err
+}
+
+func nativeCurrentSelf(ctx context.Context, cfg Config, m NativeEngineeringMaster) (c.SelfIdentity, error) {
 	self, err := m.Self(ctx)
 	if err != nil {
-		return err
+		return self, err
 	}
 	var connection masterConnectionState
 	raw, err := readPrivate(filepath.Join(masterDir(cfg), "connection.json"), 4096)
 	if err != nil {
-		return c.ErrEpoch
+		return self, c.ErrEpoch
 	}
 	if strictTeamJSON(raw, &connection) != nil || connection.Version != 1 || connection.MasterID != cfg.Master.MasterID || connection.InstanceID != cfg.Master.InstanceID || connection.Generation != cfg.Master.Generation || connection.Epoch < 1 || connection.Epoch != self.RestoreEpoch {
-		return c.ErrEpoch
+		return self, c.ErrEpoch
 	}
 	want := c.Placement{AgentID: cfg.Master.AgentID, HostID: cfg.Master.HostID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation}
 	if self.Principal.ID != cfg.Master.AgentID || self.Principal.Kind != "agent" || self.Principal.GitHubBotID != cfg.Self.ID || self.Placement != want || !containsExact(self.Principal.Engagements, cfg.Master.Engagement) {
-		return c.ErrForbidden
+		return self, c.ErrForbidden
 	}
-	return nil
+	return self, nil
 }
 func containsExact(values []string, want string) bool {
 	for _, v := range values {
@@ -455,6 +460,9 @@ func verifyNativeThreads(ctx context.Context, cfg Config, m NativeEngineeringMas
 			return err
 		}
 		if th.ID != id || th.Engagement != cfg.Master.Engagement {
+			return c.ErrForbidden
+		}
+		if cfg.Master.AgentID == "rook" && !containsExact(th.Members, cfg.Master.AgentID) {
 			return c.ErrForbidden
 		}
 		for _, principal := range []string{a.Actors.Author.PrincipalID, a.Actors.Peer.PrincipalID, a.Actors.QA.PrincipalID} {
@@ -512,6 +520,14 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	}
 	if x.Wait != nil && !nativeDependenciesReady(catalog, x.Wait) {
 		return NativeCandidate{}, errNativeDependencyWait
+	}
+	if x.Job.Kind == "deliver" {
+		if x.Binding == nil {
+			return NativeCandidate{}, c.ErrForbidden
+		}
+		if err := verifyNativeDelivery(ctx, d.config, d.master, *x.Binding, authority); err != nil {
+			return NativeCandidate{}, err
+		}
 	}
 	selection := catalog
 	if x.Job.Kind == "plan" && (len(x.Turns) > 0 || x.Phase == "blocked" && (resumableNativeReason(x.Reason) || x.Reason == "native_completed_without_result")) {
@@ -879,8 +895,8 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	if nativeIsPostMergeQA(v.Job) && v.Handoff != nil {
 		prompt += "\nThis is the first postmerge QA assessment of the exact merged artifact, not a premerge clearance, reassessment, release authorization or release/install verification. Read private evidence message " + v.Handoff.Input.EvidenceMessageID + ". Preserve the completed task state and historical lack of premerge QA. Independently assess the bound artifact in environment " + v.Handoff.Input.Environment + " at revision " + v.Handoff.Input.EnvironmentRevision + ". Report supported findings and limitations through the normal QA action. Do not change source, reopen the task, merge, publish or invent device results."
 	}
-	if v.Handoff != nil && v.Handoff.Input.Kind == "release" {
-		prompt += "\nOwner-approved delivery extension " + v.Handoff.ID + " authorizes merging this exact reviewed PR after all existing gates and publishing tag " + v.Handoff.Input.Tag + " through " + v.Handoff.Input.Workflow + ". Original task, source acceptance and independent peer/QA bindings remain unchanged. Use the normal deliver action first. After confirmed merge, the assigned author can invoke /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal " + v.Handoff.Input.Goal.GoalID + " --revision " + v.Handoff.Input.Goal.RevisionSHA256 + " --handoff " + v.Handoff.ID + ". This guarded command returns waiting until release CI/publication succeeds; checking the same handoff never republishes the tag. A published receipt is not released-artifact QA or a Homebrew install pass."
+	if x.Job.Kind == "deliver" {
+		prompt += "\nRook owns integration only: merge this exact PR through deliver after fresh independent engineering review, required QA and checks pass. Do not modify or push source, perform contributor review, publish tags or releases, or install/deploy artifacts. If source needs repair, leave it to the assigned author; routine delivery within this approved task needs no additional owner approval."
 	}
 	if nativeIsBranchRefresh(x.Job) && v.PR != nil {
 		prompt += "\nThis author fix is a branch refresh. Merge the approved base branch " + v.PR.BaseBranch + " at exact commit " + v.PR.BaseSHA + " into the assigned PR branch, resolving conflicts within this task's approved scope. Fetch and verify that exact base commit before merging. Preserve the PR history and all local work; never force-push, reset away changes, or change the approved base. Checkpoint and validate the merged result, then use publish-pr with artifact omitted so the helper regenerates immutable exact-head source metadata. New CI, independent peer review and exact-artifact QA remain required before deliver. Do not request another goal approval for this routine branch maintenance. If the merge cannot be resolved within approved scope, checkpoint and report the concrete conflict rather than retrying in a loop."
@@ -894,6 +910,7 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	if len(v.RebindTasks) > 0 {
 		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")
 	}
+	prompt += birdMemoryInstructions
 	if len(prompt) > 32<<10 {
 		return prompt, c.ErrSize
 	}

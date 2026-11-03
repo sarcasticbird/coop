@@ -256,6 +256,10 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `team` | UI | Coordination Team presence/placement; CLI --watch remains read-only |
 | `team inspect` | CLI/runbook | Read one agent's diagnostics; Team --watch opens the same detail with Enter |
 | `cache status` | CLI/runbook | Read scoped master GitHub cache freshness without provider calls or agent wake |
+| `memory list` | CLI/runbook | List durable bird memory keys and revisions |
+| `memory read` | CLI/runbook | Read one memory from master SQLite |
+| `memory write` | CLI/runbook | Update memory with an expected revision |
+| `memory import-markdown` | CLI/runbook | Import Markdown without deleting sources or overwriting knowledge |
 | `task` | CLI/runbook | Task-provider command help |
 | `task tui` | CLI/runbook | Open native Kata in the pinned project, optionally at a canonical issue reference |
 | `chat` | CLI/runbook | Open the authenticated active standing team ticket in native Kata |

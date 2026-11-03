@@ -7,6 +7,8 @@
 - Rook coordinates assignments and resolves routine blockers. Robin and Hawk
   implement and review; Wren designs and tests.
 - Coop delivers addressed work, executes it and recovers interrupted execution.
+- Bird identities and SQLite-backed memory outlive containers and images. See
+  [bird memory](bird-memory.md); guest Markdown is an import source, not authority.
 - One shared team conversation contains the full roster. Task-specific discussion
   belongs on the task. Routine staffing must not require editing private chats.
 - Publish results quietly. Address a bird only when asking it to act. Do not send
@@ -14,26 +16,38 @@
 - Monitor processes must not manufacture periodic model conversations or keep a
   second task/reminder ledger. Surface actionable state changes on the task.
 
-## Clean-start cutover
+## Consolidation direction
 
-gh-sweep remains held until a small Kata task has passed the complete assignment,
-implementation, review and result-publication path on the new installation.
+This is an internal orchestration platform. Existing unfinished work is
+expendable: keep code that supports the working contract and close or abandon
+what does not. Do not build historical assignment/evidence migration machinery
+merely to preserve the old PR stack. Preserve knowledge and avoid replaying
+unknown external effects; there is no requirement to resume old jobs.
 
-1. Pause admissions, drain saved turns and stop all workers. Disable the old
-   monitor, security digest, fleet automation and history jobs during maintenance.
-2. Keep one private offline rollback set: consistent master and Kata snapshots,
-   worker state, configurations and binary identities. Validate archives before
-   retiring live state. This set is rollback evidence, not scheduler input.
-3. Reconcile action journals and remote mutation outcomes. Terminal conversation
-   or engineering turns alone do not establish that every mutation is settled.
-4. Replace obsolete coordination conversations and reminders with the shared
-   team conversation and current tasks. Start workers with clean, consistently
-   registered identities/state; never mix a fresh master with old delivery cursors.
-5. Install a single tested source generation for master, clients and all workers.
-   Update bird instructions and host configuration to the same working contract.
-6. Run the small end-to-end task and check quiet result publication, addressed
-   handoffs, coordinator blocker delivery, restart recovery and idle CPU usage.
-7. Resume normal work only after those checks; choose gh-sweep priority with Chris.
+Keep the local Apple-container, Kata, SQLite and AgentsView stack. Borrow
+separate identity, runtime, execution and operation lifetimes from SPACE, not
+its infrastructure. Kata owns tasks; Coop owns execution and persistent memory;
+AgentsView indexes history and grants no authority.
+
+The normal workflow is implementation by Robin or Hawk, independent review by
+the other engineer, Wren QA, then Rook merge and Kata completion. An approved
+task with current checks/review/QA should not need another operator approval
+for a routine merge. Escalate actual questions and ambiguous effects, not
+ordinary transport retries or container maintenance.
+
+Containers must be replaceable from pinned images, with durable memory,
+checkpointed work, session data needed for recovery, and action receipts outside
+the replaceable root disk. Replacement fences the old execution generation;
+it does not create a new bird or erase knowledge.
+
+Use focused tests for identity/access, restart persistence, no duplicate
+consequential effects, and the complete implementation/review/QA/Rook-merge
+loop. Keep gh-sweep unchanged for now: it is the refreshed birds' first real
+project under the new workflow, not a historical migration prerequisite.
+
+The memory API/importer, Rook-only native merge policy and earlier coordination/
+startup cleanup are implemented in source. Portable execution state, actual
+image-swap support and live fleet activation remain implementation work.
 
 ## Future history policy
 

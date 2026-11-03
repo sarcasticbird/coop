@@ -49,6 +49,14 @@ github_bot_id = 4
 engagements = ["example-engagement"]
 capabilities = ["read", "send"]
 
+[[principals]]
+id = "rook"
+kind = "agent"
+alias = "rook"
+github_bot_id = 5
+engagements = ["example-engagement"]
+capabilities = ["read", "send", "deliver"]
+
 [[placements]]
 agent_id = "example-builder"
 host_id = "example-host"

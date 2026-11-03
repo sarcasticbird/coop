@@ -122,10 +122,11 @@ such as `release.yml`). Omit `review_id`. The request itself records the bounded
 owner grant; messages or planner capability cannot create that grant. A repository
 and tag can have only one request. Changed idempotency payloads are rejected.
 
-When the matching source delivery job is selected, it includes this recorded
-owner extension. Current peer approval, independent QA, CI, mergeability and
-head-match protection still apply. It uses the normal protected `deliver` action
-to merge and complete the original source task.
+Source delivery is separate: Rook uses the protected `deliver` action to merge
+and complete the original task after current peer approval, independent QA, CI,
+mergeability and head-match checks. An approved task is sufficient for routine
+merging; a release request is not a merge prerequisite and grants Rook no tag or
+release authority. Rook's ordinary delivery prompt does not instruct publication.
 
 Rook routes the release request to the original assigned author. That author can
 execute the guarded follow-up without inventing a new implementation task:

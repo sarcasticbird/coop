@@ -227,7 +227,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, err
 	}
 	if in.Operation == "deliver" && (record.Step == "task-completed" || record.Step == "merge") && record.State == "prepared" {
-		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err == nil {
+		if err = nativeConfirmDelivery(ctx, cfg, m, reader, a, x); err == nil {
 			record.State = "completed"
 			record.Result.URL = x.Job.PRURL
 			record.Result.Phase = "completed"
@@ -248,6 +248,14 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	guard := func() error {
 		if in.Operation == "deliver" && cfg.DeliveryHold {
 			return errors.New("delivery held by worker configuration; implementation, review and QA remain enabled")
+		}
+		if in.Operation == "deliver" {
+			if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || x.Job.Master.Role != "delivery" {
+				return c.ErrForbidden
+			}
+			if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, a); err != nil {
+				return err
+			}
 		}
 		if kataTaskSource(cfg) {
 			if _, err := TaskProviderClient(ctx, cfg); err != nil {
@@ -452,11 +460,20 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				}
 			}
 		}
+		if in.Operation == "deliver" && nativeContributor(pr, cfg.Self.ID) {
+			return c.ErrForbidden
+		}
 		if step == "task-completed" && !pr.Merged {
 			return c.ErrForbidden
 		}
-		if _, err := nativeCurrentGoal(ctx, cfg, m, x.Goal); err != nil {
+		fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+		if err != nil {
 			return err
+		}
+		if in.Operation == "deliver" {
+			if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, fresh); err != nil {
+				return err
+			}
 		}
 		record.State, record.Step = "uncertain", step
 		if err := saveNativeAction(cfg, record); err != nil {
@@ -901,7 +918,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		}
 		record.Result.URL = pr.URL
 	case "deliver":
-		if x.Job.Kind != "deliver" || x.Binding == nil || cfg.Self.ID != task.Binding.AuthorID || cfg.Master.AgentID != a.Actors.Author.PrincipalID {
+		if x.Job.Kind != "deliver" || x.Binding == nil || !nativeDeliveryActor(cfg, task.Binding) {
 			return empty, c.ErrForbidden
 		}
 		if !pr.Merged {
@@ -945,7 +962,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		// GitHub can close the linked task as part of merging the PR. Confirm
 		// that exact completed delivery before attempting another task write.
 		if record.Step != "task-completed" {
-			confirmed := nativeConfirmDelivery(ctx, cfg, reader, a, x)
+			confirmed := nativeConfirmDelivery(ctx, cfg, m, reader, a, x)
 			if confirmed == nil {
 				record.Step = "task-completed"
 				if err = saveNativeAction(cfg, record); err != nil {
@@ -977,7 +994,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, c.ErrInvalid
 	}
 	if in.Operation == "deliver" {
-		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err != nil {
+		if err = nativeConfirmDelivery(ctx, cfg, m, reader, a, x); err != nil {
 			return empty, err
 		}
 	}
@@ -989,9 +1006,12 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	return record.Result, nil
 }
 
-func nativeConfirmDelivery(ctx context.Context, cfg Config, g *GitHubClient, a c.GoalAuthority, x NativeExecution) error {
-	if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || cfg.Self.ID != x.Binding.AuthorID || cfg.Master.AgentID != a.Actors.Author.PrincipalID {
+func nativeConfirmDelivery(ctx context.Context, cfg Config, m NativeEngineeringMaster, g *GitHubClient, a c.GoalAuthority, x NativeExecution) error {
+	if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || x.Job.Master.Role != "delivery" {
 		return c.ErrForbidden
+	}
+	if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, a); err != nil {
+		return err
 	}
 	task, err := g.ReadNativeTask(ctx, cfg, x.Job.TaskURL)
 	if err != nil {
@@ -1007,5 +1027,12 @@ func nativeConfirmDelivery(ctx context.Context, cfg Config, g *GitHubClient, a c
 	if !pr.Merged || pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 		return c.ErrConflict
 	}
-	return nil
+	if nativeContributor(pr, cfg.Self.ID) {
+		return c.ErrForbidden
+	}
+	fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+	if err != nil {
+		return err
+	}
+	return verifyNativeDelivery(ctx, cfg, m, *x.Binding, fresh)
 }

@@ -200,6 +200,28 @@ execution still hold the worker. With the worker stopped, an operator can use
 dependency is available. This rechecks authority and session ownership, retains
 the old turn and enforces the continuation limit; it does not submit a prompt.
 
+### Rook integration
+
+Native delivery belongs to the stable agent principal `rook`, not the source
+author or an alias. Its worker roster member must also be named `rook`, have
+`deliver`, and have no implementation, engineering-review or customer-QA
+capability. Grant `read`, `send`, `deliver` on the master and include Rook in
+the approved goal and QA evidence threads. Use its configured immutable GitHub
+bot ID; no production bot ID is embedded in the policy.
+
+Rook merges only after exact-head independent review, required exact-artifact
+QA, passing checks and clean mergeability. It cannot integrate work it
+contributed to. The author retains all source repairs. Rook's checkout fetches
+the exact PR head and disables its origin push URL as a local guardrail;
+provider permissions remain independently configured.
+
+An approved task authorizes routine integration without a second per-PR owner
+grant. Current master capability, placement, membership and goal approval are
+rechecked before each merge/task-completion effect. The master task-completion
+API independently restricts completion to Rook and rechecks after provider reads.
+`delivery_hold` still prevents delivery without stopping implementation/review/QA.
+This grants no tag, release, installation or deployment authority.
+
 A delivery turn can end after a read failure with its original journal still
 `prepared` and its step empty. With the worker stopped, use the explicit command:
 

@@ -34,7 +34,7 @@ func TestNativePromptUsesTaskSourceLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, required := range []string{"coop-worker native action --config", "Every action JSON requires operation and a stable request_id.", "Never self-review.", task.Task.URL} {
+			for _, required := range []string{"coop-worker native action --config", "Every action JSON requires operation and a stable request_id.", "Never self-review.", task.Task.URL, "memory list --config", "expected_revision", "Do not create new Markdown memory files"} {
 				if !strings.Contains(prompt, required) {
 					t.Fatalf("source prompt omitted guard or identity %q", required)
 				}

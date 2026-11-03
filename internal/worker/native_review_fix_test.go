@@ -195,6 +195,7 @@ func TestNativePendingChecksDoNotCancelPreparedIdentity(t *testing.T) {
 	p.Reviews = []Review{{ID: "peer", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[0].Actor, State: "APPROVED", Body: NativePeerMetadata(meta), SubmittedAt: time.Now()}}
 	task.PRs = []PR{p}
 	g.catalog.Tasks[0] = task
+	selectNativeRook(&cfg, m)
 	v := NativeCandidates(cfg, g.catalog, nil, time.Now())[0]
 	if v.Job.Kind != "deliver" {
 		t.Fatal("fixture requires ready delivery")
@@ -296,6 +297,7 @@ func TestNativeCompletedDeliveryRemainsTerminal(t *testing.T) {
 	p.Reviews = []Review{{ID: "peer-approval", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[0].Actor, State: "APPROVED", Body: NativePeerMetadata(meta), SubmittedAt: time.Now()}}
 	task.PRs = []PR{p}
 	catalog.Tasks[0] = task
+	selectNativeRook(&cfg, nil)
 	jobs := NativeCandidates(cfg, catalog, nil, time.Now())
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
 		t.Fatal("fixture requires delivery work")

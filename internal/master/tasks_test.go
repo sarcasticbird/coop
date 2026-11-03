@@ -14,12 +14,16 @@ import (
 type testTasks struct {
 	task                   c.ProviderTask
 	creates, binds, closes int
+	onRead                 func()
 }
 
 func (b *testTasks) Capabilities() c.TaskCapabilities {
 	return c.TaskCapabilities{Provider: "kata", ProjectUID: "01M5MCPEHHP4C98MZSHJEE3M8D", PolicySHA: strings.Repeat("a", 64)}
 }
 func (b *testTasks) Read(_ context.Context, ref string) (c.ProviderTask, error) {
+	if b.onRead != nil {
+		b.onRead()
+	}
 	if b.task.Reference != ref {
 		return c.ProviderTask{}, c.ErrNotFound
 	}
@@ -108,7 +112,11 @@ func TestTaskMutationGuardsAndCompletionRequiresMatchingPR(t *testing.T) {
 		t.Fatal(err)
 	}
 	complete := c.TaskCompleteInput{Reference: task.Reference, Goal: in.Goal, AssignmentSHA: digest(task.Binding), PullRequestURL: "https://github.com/example/coop/pull/2", RequestID: "complete"}
-	if _, err = s.TaskComplete(ctx, b, complete); !errors.Is(err, c.ErrConflict) || backend.closes != 0 {
+	rook := enrollTaskRook(t, s, o, in.Goal)
+	if _, err = s.TaskComplete(ctx, b, complete); !errors.Is(err, c.ErrForbidden) || backend.closes != 0 {
+		t.Fatal("author admitted to native task completion", err)
+	}
+	if _, err = s.TaskComplete(ctx, rook, complete); !errors.Is(err, c.ErrConflict) || backend.closes != 0 {
 		t.Fatal("unregistered PR closed task", err)
 	}
 	link := c.ArtifactLink{Goal: in.Goal, Kind: "pull_request", URL: complete.PullRequestURL, TaskURL: task.Reference, AssignmentSHA: complete.AssignmentSHA, RequestID: "pr"}
@@ -120,8 +128,88 @@ func TestTaskMutationGuardsAndCompletionRequiresMatchingPR(t *testing.T) {
 	if _, err = s.TaskBind(ctx, o, c.TaskBindInput{Binding: binding, ExpectedRevision: task.Revision, ExpectedAssignmentSHA: complete.AssignmentSHA, RequestID: "rebind"}); err == nil {
 		t.Fatal("published work rebound")
 	}
-	if _, err = s.TaskComplete(ctx, b, complete); err != nil {
+	if _, err = s.TaskComplete(ctx, rook, complete); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func enrollTaskRook(t *testing.T, svc *Service, owner c.Principal, goal c.GoalRef) c.Principal {
+	t.Helper()
+	rook := c.Principal{ID: "rook", Alias: "rook", Kind: "agent", GitHubBotID: 99, Engagements: []string{"coop"}, Capabilities: []string{"read", "send", "deliver"}}
+	if err := svc.Store.Configure(t.Context(), []c.Principal{rook}, nil); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := svc.ResolveGoal(t.Context(), owner, goal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, err := svc.Store.Thread(t.Context(), owner, authority.Revision.Proposal.ThreadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Store.SetMembers(t.Context(), owner, c.SetMembers{ThreadID: thread.ID, ExpectedMembers: thread.Members, Members: append(append([]string{}, thread.Members...), rook.ID), RequestID: "enroll-rook"}); err != nil {
+		t.Fatal(err)
+	}
+	return rook
+}
+
+func TestTaskRookCompletionRechecksLiveAuthorityAfterProviderRead(t *testing.T) {
+	for _, fault := range []string{"deliver", "send", "membership", "goal"} {
+		t.Run(fault, func(t *testing.T) {
+			s, owner, author, input, backend := taskFixture(t)
+			task, err := s.TaskCreate(t.Context(), owner, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rook := enrollTaskRook(t, s, owner, input.Goal)
+			complete := c.TaskCompleteInput{Reference: task.Reference, Goal: input.Goal, AssignmentSHA: digest(task.Binding), PullRequestURL: "https://github.com/example/coop/pull/2", RequestID: "complete-revoked"}
+			if _, err := s.RegisterArtifact(t.Context(), author, c.ArtifactLink{Goal: input.Goal, Kind: "pull_request", URL: complete.PullRequestURL, TaskURL: task.Reference, AssignmentSHA: complete.AssignmentSHA, RequestID: "pr"}); err != nil {
+				t.Fatal(err)
+			}
+			backend.onRead = func() {
+				backend.onRead = nil
+				switch fault {
+				case "deliver", "send":
+					revoked := rook
+					revoked.Capabilities = []string{"read", "send"}
+					if fault == "send" {
+						revoked.Capabilities = []string{"read", "deliver"}
+					}
+					if err := s.Store.Configure(t.Context(), []c.Principal{revoked}, nil); err != nil {
+						t.Fatal(err)
+					}
+				case "membership":
+					a, err := s.ResolveGoal(t.Context(), owner, input.Goal)
+					if err != nil {
+						t.Fatal(err)
+					}
+					th, err := s.Store.Thread(t.Context(), owner, a.Revision.Proposal.ThreadID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					members := []string{}
+					for _, id := range th.Members {
+						if id != rook.ID {
+							members = append(members, id)
+						}
+					}
+					if _, err := s.Store.SetMembers(t.Context(), owner, c.SetMembers{ThreadID: th.ID, ExpectedMembers: th.Members, Members: members, RequestID: "revoke-rook"}); err != nil {
+						t.Fatal(err)
+					}
+				case "goal":
+					a, err := s.ResolveGoal(t.Context(), owner, input.Goal)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := s.DecideGoal(t.Context(), owner, c.GoalDecisionInput{GoalID: input.Goal.GoalID, RevisionSHA256: input.Goal.RevisionSHA256, ExpectedDecisionSequence: a.DecisionSequence, Action: "pause", RequestID: "pause-at-read"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if _, err := s.TaskComplete(t.Context(), rook, complete); !errors.Is(err, c.ErrForbidden) || backend.closes != 0 {
+				t.Fatal("revoked Rook closed task", err, backend.closes)
+			}
+		})
 	}
 }
 func TestTaskReadUsesCurrentMembershipAndDisabledIsExplicit(t *testing.T) {

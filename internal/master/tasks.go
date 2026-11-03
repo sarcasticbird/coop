@@ -353,7 +353,7 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
-	if p.Kind != "owner" && p.ID != a.Actors.Author.PrincipalID {
+	if !c.CanDeliver(p, a.Actors) {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
 	if !validID(in.RequestID) {
@@ -391,6 +391,13 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	}
 	if err = svc.reserveTaskRequest(ctx, p.ID, in.RequestID, "task-complete", in); err != nil {
 		return c.ProviderTask{}, err
+	}
+	p, a, err = svc.taskAuthority(ctx, p, in.Goal, true)
+	if err != nil {
+		return c.ProviderTask{}, err
+	}
+	if !c.CanDeliver(p, a.Actors) || a.ApprovalSequence != task.Binding.ApprovalSequence {
+		return c.ProviderTask{}, c.ErrForbidden
 	}
 	return svc.Tasks.Complete(ctx, in, p)
 }

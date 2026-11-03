@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"net/http"
@@ -261,6 +262,10 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 		m.self.Principal.ID = agent
 		m.self.Principal.GitHubBotID = cfg.Self.ID
 		m.self.Placement.AgentID = agent
+		m.self.Principal.Capabilities = []string{"read", "send"}
+		if agent == "rook" {
+			m.self.Principal.Capabilities = append(m.self.Principal.Capabilities, "deliver")
+		}
 		saveNativeFixtureConnection(t, cfg)
 		transport.cfg = cfg
 		catalog, err := g.NativeSnapshot(ctx, cfg, m)
@@ -337,7 +342,7 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 		t.Fatal("qa", err)
 	}
 	finish(qa)
-	delivery := stage(1, "author", "deliver")
+	delivery := stage(3, "rook", "deliver")
 
 	action = NativeAction{Operation: "deliver", RequestID: "kata-deliver"}
 	if offline {
@@ -371,10 +376,33 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 			}
 		}
 	} else {
+		// A grant revoked after the acknowledged merge must prevent task closure.
+		// Restoring it resumes the same journal without submitting another merge.
+		transport.commands.respond = func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+			result, err := transport.response(owner, endpoint, method, body)
+			if method == "PUT" && endpoint == "repos/code/repo/pulls/1/merge" {
+				m.self.Principal.Capabilities = []string{"read", "send"}
+			}
+			return result, err
+		}
+		if _, err = RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, action); !errors.Is(err, c.ErrForbidden) || !transport.merged || completes != 0 {
+			t.Fatal("revoked Rook completed Kata task", err, completes)
+		}
+		m.self.Principal.Capabilities = []string{"read", "send", "deliver"}
+		transport.commands.respond = transport.response
 		if _, err = RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, action); err != nil {
 			t.Fatal("delivery", err)
 		}
 		finish(delivery)
+		merges := 0
+		for _, write := range transport.writes {
+			if strings.Contains(write, "/merge") {
+				merges++
+			}
+		}
+		if merges != 1 {
+			t.Fatal("acknowledged merge replayed", merges)
+		}
 	}
 	if creates != 1 || binds != 1 || completes != 1 || !transport.merged || provider.ClosedReason != "done" {
 		t.Fatalf("incomplete provider delivery %d %d %d %+v", creates, binds, completes, provider)

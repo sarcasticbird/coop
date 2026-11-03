@@ -15,6 +15,8 @@ func TestNativeDeliveryRecoveryRefusesUnsafeInputsWithoutEffects(t *testing.T) {
 		t.Run(failure, func(t *testing.T) {
 			cfg, m, cat, code := dispatchFixture(t)
 			v := NativeCandidates(cfg, cat.catalog, nil, time.Now())[0]
+			selectNativeRook(&cfg, m)
+			v.Job.Master.AgentID, v.Job.Master.ExecutorID, v.Job.Master.Role = "rook", cfg.Self.ID, "delivery"
 			x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: v.Goal.Revision.Ref, Job: v.Job, Binding: &v.Task.Binding, Phase: "blocked", Reason: "native_completed_without_result"}
 			x.Job.Kind = "deliver"
 			x.Job.SessionID, x.Job.MessageID = "ses_recovery", "msg_recovery"

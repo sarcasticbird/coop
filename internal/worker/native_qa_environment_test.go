@@ -142,11 +142,7 @@ func TestQAEnvironmentResolvedThroughPublicationAndClearance(t *testing.T) {
 	authorCfg := f.cfg
 	masterCfg := *f.cfg.Master
 	authorCfg.Master = &masterCfg
-	for _, member := range f.cfg.Team.Members {
-		if member.Actor.ID == task.Binding.AuthorID {
-			authorCfg.Name, authorCfg.Self, authorCfg.Master.AgentID = member.Name, member.Actor, f.master.authority.Actors.Author.PrincipalID
-		}
-	}
+	selectNativeRook(&authorCfg, nil)
 	jobs := NativeCandidates(authorCfg, cat, nil, time.Now())
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
 		t.Fatalf("resolved QA missing from delivery gate: %+v", jobs)

@@ -299,6 +299,10 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		m.self.Principal.ID = agent
 		m.self.Principal.GitHubBotID = cfg.Self.ID
 		m.self.Placement.AgentID = agent
+		m.self.Principal.Capabilities = []string{"read", "send"}
+		if agent == "rook" {
+			m.self.Principal.Capabilities = append(m.self.Principal.Capabilities, "deliver")
+		}
 		transport.cfg = cfg
 		catalog, err := g.NativeSnapshot(ctx, cfg, m)
 		if err != nil {
@@ -555,12 +559,12 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Name, cfg.Self = cfg.Team.Members[1].Name, cfg.Team.Members[1].Actor
+	selectNativeRook(&cfg, m)
 	if candidates := NativeCandidates(cfg, catalog, nil, time.Now()); len(candidates) != 0 {
 		t.Fatal("delivery admitted while held", candidates)
 	}
 	cfg.DeliveryHold = false
-	delivery := stage(1, "author", "deliver")
+	delivery := stage(3, "rook", "deliver")
 	cfg.DeliveryHold = true
 	beforeHeld := len(transport.writes)
 	if _, err := RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, NativeAction{Operation: "deliver", RequestID: "delivery"}); err == nil || len(transport.writes) != beforeHeld {
@@ -628,15 +632,22 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixCandidates, err := autoWait.candidates(autoWait.catalog)
-	if err != nil || len(fixCandidates) != 1 || !nativeIsChecksRepair(fixCandidates[0].Job) {
-		t.Fatal("delivery reservation blocked CI repair", err)
+	authorConfig := cfg
+	authorMaster := *cfg.Master
+	authorConfig.Master = &authorMaster
+	authorConfig.Name, authorConfig.Self, authorConfig.Master.AgentID = cfg.Team.Members[1].Name, cfg.Team.Members[1].Actor, "author"
+	fixCandidates := NativeCandidates(authorConfig, autoWait.catalog, nil, time.Now())
+	if len(fixCandidates) != 1 || !nativeIsChecksRepair(fixCandidates[0].Job) {
+		t.Fatal("delivery reservation blocked the author's CI repair")
+	}
+	if candidates := NativeCandidates(cfg, autoWait.catalog, nil, time.Now()); len(candidates) != 0 {
+		t.Fatal("Rook took over the author's repair", candidates)
 	}
 	transport.checks = ""
 	if err = saveNativeExecution(cfg, delivery); err != nil {
 		t.Fatal(err)
 	}
-	for _, failure := range []string{"peer", "checks", "qa"} {
+	for _, failure := range []string{"peer", "checks", "qa", "capability", "placement", "membership"} {
 		fired := false
 		m.onMessage = func() {
 			if fired {
@@ -650,6 +661,12 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 				transport.checks = "FAILURE"
 			case "qa":
 				transport.reviews[2]["state"] = "DISMISSED"
+			case "capability":
+				m.self.Principal.Capabilities = []string{"read", "send"}
+			case "placement":
+				m.self.Placement.Generation++
+			case "membership":
+				m.threads[0].Members = []string{"author", "peer", "qa"}
 			}
 		}
 		if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil || transport.merged {
@@ -663,6 +680,9 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		transport.checks = ""
 		transport.reviews[1]["state"] = "APPROVED"
 		transport.reviews[2]["state"] = "APPROVED"
+		m.self.Principal.Capabilities = []string{"read", "send", "deliver"}
+		m.self.Placement.Generation = cfg.Master.Generation
+		m.threads[0].Members = []string{"author", "peer", "qa", "rook"}
 	}
 	if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err != nil {
 		t.Fatal(err)

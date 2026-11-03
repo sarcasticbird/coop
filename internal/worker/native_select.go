@@ -193,8 +193,10 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			priority, ordinal = t.Task.Priority, t.Task.Ordinal
 		}
 		switch kind {
-		case "implement", "fix", "deliver":
+		case "implement", "fix":
 			role = "implementer"
+		case "deliver":
+			role = "delivery"
 		case "review":
 			role = "engineering-review"
 		case "qa":
@@ -328,7 +330,6 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		}
 		if cfg.Self.ID == t.Binding.AuthorID && cfg.Master.AgentID == a.Actors.Author.PrincipalID && memberCapability(self, "implement") {
 			if p.Merged {
-				add("deliver", a, &t, &p, "merged:"+p.HeadSHA)
 				continue
 			}
 			if nativeNeedsBranchRefresh(p) {
@@ -347,6 +348,12 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				if nativeFixCycles(t.Task.URL, history) < Defaults(cfg).Limits.MaxReviewCycles {
 					add("fix", a, &t, &p, BodyHash(peer.ID+":"+qa.ID+":"+p.ScopeRevision))
 				}
+				continue
+			}
+		}
+		if nativeDeliveryActor(cfg, t.Binding) && !nativeContributor(p, cfg.Self.ID) {
+			if p.Merged {
+				add("deliver", a, &t, &p, "merged:"+p.HeadSHA)
 				continue
 			}
 			if cleared && qaCleared && (p.ChecksState == "success" || p.ChecksState == "none") && p.MergeState == "CLEAN" {

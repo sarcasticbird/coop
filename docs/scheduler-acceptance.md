@@ -108,9 +108,9 @@ these workflows.
 
 | Case | Required result and evidence |
 | --- | --- |
-| Reciprocal engineering | Each engineer authors once, independent assigned peer formally reviews exact head; author fixes and delivers using expected-head protection; merged PR and completed issue both confirmed |
+| Reciprocal engineering | Each engineer authors once, independent assigned peer formally reviews exact head; author fixes and independent Rook delivers using expected-head protection; merged PR and completed issue both confirmed |
 | Independence negatives | Self, outsider, QA-as-engineer, joint author/contributor, unresolved identity pagination and board-only reassignment never clear engineering |
-| Customer QA cycle | After engineering/checks, QA actor reports changes-needed on a seeded defect; author fixes; new engineering review then new QA pass on the actually tested artifact; only then author delivery |
+| Customer QA cycle | After engineering/checks, QA actor reports changes-needed on a seeded defect; author fixes; new engineering review then new QA pass on the actually tested artifact; only then Rook delivery |
 | QA blocked | Unavailable tools/environment, missing artifact, wrong native review state/actor, copied/edited marker or stale environment cannot pass; explicit blocked review and visible wait reason |
 | Freshness | New head, retarget away/back, changed assignment/acceptance/environment, dismissed review and paused goal invalidate affected clearance; reapproval never inferred from old evidence |
 | Repository boundary | Foreign repository/PR/task/goal links cannot dispatch, fix, review or deliver; positive same-repository control still succeeds |
