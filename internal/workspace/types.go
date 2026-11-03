@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/sarcasticbird/coop/internal/config"
+	"github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
 
@@ -49,18 +50,20 @@ type Backend interface {
 	Apply(context.Context, Spec) error
 }
 type AppliedSpec struct {
-	Project   string                    `json:"project,omitempty"`
-	Home      string                    `json:"home"`
-	Workdir   string                    `json:"workdir"`
-	Resources config.Resources          `json:"resources"`
-	Mounts    []config.Mount            `json:"mounts,omitempty"`
-	Volumes   []config.Volume           `json:"volumes,omitempty"`
-	Publishes []config.Publish          `json:"publishes,omitempty"`
-	SSH       bool                      `json:"ssh"`
-	Command   []string                  `json:"command,omitempty"`
-	Orgs      []string                  `json:"orgs,omitempty"`
-	Restart   string                    `json:"restart,omitempty"`
-	Services  map[string]config.Service `json:"services,omitempty"`
+	Runtime   string                         `json:"runtime,omitempty"`
+	Execution *coordination.ExecutionBinding `json:"execution,omitempty"`
+	Project   string                         `json:"project,omitempty"`
+	Home      string                         `json:"home"`
+	Workdir   string                         `json:"workdir"`
+	Resources config.Resources               `json:"resources"`
+	Mounts    []config.Mount                 `json:"mounts,omitempty"`
+	Volumes   []config.Volume                `json:"volumes,omitempty"`
+	Publishes []config.Publish               `json:"publishes,omitempty"`
+	SSH       bool                           `json:"ssh"`
+	Command   []string                       `json:"command,omitempty"`
+	Orgs      []string                       `json:"orgs,omitempty"`
+	Restart   string                         `json:"restart,omitempty"`
+	Services  map[string]config.Service      `json:"services,omitempty"`
 }
 type Record struct {
 	Version     int         `json:"version"`
@@ -85,7 +88,15 @@ func CheckSpecification(state runtime.State, have, want string) error {
 	return nil
 }
 func (s Spec) Record() Record {
-	return Record{Version: 1, Mode: s.Mode, Identity: s.Identity, RuntimeName: s.RuntimeName, Fingerprint: s.Fingerprint, Image: s.Image, Applied: AppliedSpec{
+	r := Record{Version: 1, Mode: s.Mode, Identity: s.Identity, RuntimeName: s.RuntimeName, Fingerprint: s.Fingerprint, Image: s.Image, Applied: AppliedSpec{
 		Project: s.Project, Home: s.Home, Workdir: s.Workdir, Resources: s.Config.Resources, Mounts: s.Config.Mounts, Volumes: s.Config.Volumes, Publishes: s.Config.Publishes, SSH: s.Config.SSH, Command: s.Profile.Command, Orgs: s.Profile.Orgs, Restart: s.Profile.Restart, Services: s.Profile.Services,
 	}}
+	if s.Mode == Agent && s.Profile.Runtime == "container" {
+		r.Applied.Runtime = "container"
+		if s.Profile.Execution != nil {
+			binding := s.Profile.Execution.ExecutionBinding
+			r.Applied.Execution = &binding
+		}
+	}
+	return r
 }

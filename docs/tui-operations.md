@@ -98,6 +98,10 @@ against this inventory; a newly added command must receive an explicit row.
 | `mcp serve`, `mcp stdio`, `master serve` | Services runbook, never started/daemonized by the browser; private configuration and operator-managed service lifetime |
 | `team`, `team inspect`, `inbox` | Team presence and selected-agent diagnostics are available through `team --watch`; unified coordination and pending delivery views belong to #94 |
 | `cache status` | Read-only CLI/MCP cache diagnostics; no GitHub calls or agent wake, see `docs/github-cache.md` |
+| `memory list` | CLI/MCP; list durable bird memory keys without loading bodies |
+| `memory read` | CLI/MCP; read one scoped bird memory |
+| `memory write` | CLI/MCP; save knowledge using an expected revision |
+| `memory import-markdown` | CLI; create memory from Markdown without overwriting existing knowledge or deleting files |
 | `task` | CLI/runbook | Task-provider command help |
 | `task tui` | CLI/runbook | Native Kata project or canonical issue reference through the configured master host |
 | `chat` | CLI/runbook | Native Kata standing team ticket from the authenticated active conversation source |

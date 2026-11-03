@@ -75,8 +75,8 @@ coop task reassess-qa --file /private/path/reassess.json
 The private JSON contains the existing `goal` reference, canonical `task_url`,
 `pr_url`, `assignment_sha256`, `head_sha`, `artifact_sha256`, the latest native
 QA `review_id`, a new `evidence_message_id`, and a stable `request_id`.
-Use the review identity from Coop's native PR evidence, not a shortened display
-label. The evidence must be an owner or assigned-QA message in the approved goal
+Use the numeric GitHub review ID from Coop's native PR evidence, not the GraphQL
+node ID or a shortened display label. The evidence must be an owner or assigned-QA message in the approved goal
 thread or its configured private QA evidence destination. An author message
 cannot grant reassessment authority.
 
@@ -86,6 +86,23 @@ a different review does not admit a job. Further requests for the same unchanged
 review cannot produce a stream of retries. Wren must independently reconcile the
 new evidence and publish a fresh verdict through the guarded QA action. Neither
 the request nor owner UAT replaces her verdict or clears a merge gate.
+
+An **owner** may include both `environment` and `environment_revision` in that
+same exact-artifact handoff, backed by an owner-authored evidence message. This
+records a bounded environment decision without changing the source, goal/task
+binding or peer review. Coordinators may request evidence-only reassessments but
+cannot change the environment. The master stamps the creator's authority; older
+handoffs lacking that provenance cannot supply an environment override.
+
+One resolver supplies the effective environment to the QA prompt, the published
+`coop-qa:v3` result and the delivery/release clearance checks. Reassessment results
+record `assessment: "reassessment"` and `handoff_id` alongside the actual evaluated
+environment. Evidence-only followups inherit the prior resolved environment.
+Validation requires the authenticated handoff and exact prior assessment; prose
+alone cannot change a machine-readable verdict. Original goal defaults and prior
+failure reports remain intact. Deploy the matching master and workers before
+requesting an environment-changing reassessment; old workers do not understand
+this clearance provenance.
 
 This handles new device/UAT evidence or a resolved environment prerequisite.
 An actual source defect still goes to the assigned developer. Do not make an
@@ -105,13 +122,18 @@ such as `release.yml`). Omit `review_id`. The request itself records the bounded
 owner grant; messages or planner capability cannot create that grant. A repository
 and tag can have only one request. Changed idempotency payloads are rejected.
 
-When the matching source delivery job is selected, it includes this recorded
-owner extension. Current peer approval, independent QA, CI, mergeability and
-head-match protection still apply. It uses the normal protected `deliver` action
-to merge and complete the original source task.
+Source delivery is separate: Rook uses the protected `deliver` action to merge
+and complete the original task after current peer approval, independent QA, CI,
+mergeability and head-match checks. An approved task is sufficient for routine
+merging; a release request is not a merge prerequisite and grants Rook no tag or
+release authority. Rook's ordinary delivery prompt does not instruct publication.
 
-Rook routes the release request to the original assigned author. That author can
-execute the guarded follow-up without inventing a new implementation task:
+The master delivers the owner's release request directly to the original
+assigned author through the existing durable message queue, including when the
+source task is already completed. Retrying the same request repairs a failed
+notification without creating another handoff or wake. Rook retains merge and
+task-completion ownership; the author receives release-only follow-up authority,
+without inventing a new implementation task:
 
 ```sh
 /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json \
@@ -132,7 +154,7 @@ the PR merged. A remotely visible merge cannot bypass local write recovery.
 The result is `waiting` while the matching tag workflow/publication is pending.
 Failed or cancelled workflow runs return `blocked` with a concrete reason. A
 later successful workflow rerun can be checked with the same handoff and tag.
-Rook schedules a later check using the same handoff. `published` requires a
+An explicit follow-up to the author can check the same handoff. `published` requires a
 successful matching workflow and a non-draft release with assets. This receipt
 is not independent artifact QA, checksum/provenance verification or an install
 pass. The private local journal prevents duplicate tag writes. An unknown write

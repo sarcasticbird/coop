@@ -95,7 +95,7 @@ func (m *taskSnapshotMaster) Handoffs(ctx context.Context, in c.HandoffQuery) (c
 	return c.HandoffPage{}, nil
 }
 func qaReassessment(cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR, r Review) *c.Handoff {
-	if !nativeChangesRequested("qa", t.Binding, a, p, r) {
+	if !nativeChangesRequested("qa", t.Binding, a, p, r, cat.Handoffs...) {
 		return nil
 	}
 	var old NativeQAResult
@@ -107,6 +107,9 @@ func qaReassessment(cat NativeCatalog, t NativeTask, a c.GoalAuthority, p PR, r 
 		h := &cat.Handoffs[i]
 		in := h.Input
 		if in.Kind != "reassess-qa" || in.Goal != t.Binding.Goal || in.TaskURL != t.Task.URL || in.AssignmentSHA != NativeAssignmentSHA(t.Binding) || in.PRURL != p.URL || in.HeadSHA != p.HeadSHA || in.ArtifactSHA != p.QAArtifact.SHA256 || in.ReviewID != r.ID || in.EvidenceMessageID == old.EvidenceMessageID {
+			continue
+		}
+		if _, err := resolveNativeQAEnvironment(t.Binding, a, p, h, cat.Handoffs); err != nil {
 			continue
 		}
 		// Prefer the first immutable request. Later messages must not produce a

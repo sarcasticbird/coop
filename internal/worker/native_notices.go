@@ -109,7 +109,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 	}
 	var peers []c.Presence
 	peersRead := false
-	validateOwner := func(recipients []string) error {
+	validateRecipients := func(recipients []string) error {
 		if len(recipients) == 0 {
 			return nil
 		}
@@ -131,7 +131,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 				return c.ErrForbidden
 			}
 			for _, peer := range peers {
-				if recipient == peer.AgentID || recipient == peer.Alias {
+				if peer.AgentID == d.config.Master.AgentID && (recipient == peer.AgentID || recipient == peer.Alias) {
 					return c.ErrForbidden
 				}
 			}
@@ -200,6 +200,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	recovery := masterRecoveryView{cfg: d.config}
 	for _, turn := range turns {
 		if turn.Message.ThreadID != "" && (latest.Master == nil || turn.Message.CreatedAt.After(latest.SubmittedAt)) {
 			latest = turn.Job
@@ -209,7 +210,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 		if turn.Phase != "blocked" || turn.Reason == "local_pause" || turn.Reason == "goal_paused" {
 			continue
 		}
-		retired, err := retiredTurn(d.config, turn)
+		retired, err := recovery.retiredTurn(turn)
 		if err != nil {
 			return err
 		}
@@ -298,11 +299,11 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 				body += strings.Join(lines, "\n\n")
 			}
 			recipients := []string{}
-			if owner := d.config.Master.BlockerRecipient; owner != "" {
-				recipients = append(recipients, owner)
-				body = "@" + owner + "\n" + body
+			if recipient := d.config.Master.BlockerRecipient; recipient != "" {
+				recipients = append(recipients, recipient)
+				body = "@" + recipient + "\n" + body
 			}
-			if err := validateOwner(recipients); err != nil {
+			if err := validateRecipients(recipients); err != nil {
 				return err
 			}
 			body += "\nObserved: " + now.UTC().Format(time.RFC3339)
@@ -321,7 +322,7 @@ func (d *NativeDispatcher) NotifyBlockers(ctx context.Context) error {
 	if s.Pending == nil {
 		return nil
 	}
-	err = validateOwner(s.Pending.Message.Recipients)
+	err = validateRecipients(s.Pending.Message.Recipients)
 	if err == nil {
 		err = verifyNativePlacement(ctx, d.config, d.master)
 	}

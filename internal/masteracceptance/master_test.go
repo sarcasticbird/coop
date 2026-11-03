@@ -259,7 +259,18 @@ func TestMasterLocalRemoteAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, err := children[0].cl.Pending(ctx, c.PendingQuery{})
+	if err != nil || len(pending.Deliveries) != 0 {
+		t.Fatal("quiet peer reply created another turn", err)
+	}
+	reply, err := s.MessageStatus(ctx, owner, peerStatus.Deliveries[0].ReplyMessageID)
+	if err != nil || len(reply.Deliveries) != 0 {
+		t.Fatal("peer result was not published quietly", err)
+	}
+	if _, err := ch.cl.Send(ctx, c.SendMessage{ThreadID: th.ID, ParentMessageID: peerStatus.Deliveries[0].ReplyMessageID, Recipients: []string{children[0].cfg.Master.AgentID}, Body: "Please apply the reviewed change.", RequestID: "explicit-peer-handoff"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = children[0].cl.Pending(ctx, c.PendingQuery{})
 	if err != nil || len(pending.Deliveries) != 1 {
-		t.Fatal("peer reply did not address original author", err)
+		t.Fatal("explicit peer handoff was not delivered", err)
 	}
 }

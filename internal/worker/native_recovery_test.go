@@ -37,6 +37,9 @@ func TestNativeEngineeringRecoveryNeverReplaysOrAbandonsRunningTurn(t *testing.T
 	if x.Phase != "blocked" || x.Reason != "native_observation_unavailable" {
 		t.Fatalf("unbounded native uncertainty %+v", x)
 	}
+	if _, err = ResolveNativeEngineering(context.Background(), cfg, broken, x.Job.ID, x.Job.SessionID, x.Job.MessageID, "cancel"); err == nil {
+		t.Fatal("missing native evidence treated as terminal cancellation")
+	}
 	code.running = false
 	resolved, err := ResolveNativeEngineering(context.Background(), cfg, code, x.Job.ID, x.Job.SessionID, x.Job.MessageID, "cancel")
 	if err != nil || resolved.Phase != "cancelled" {

@@ -11,6 +11,8 @@ import (
 
 // Profile is a host-owned named machine, separate from coding-tool state mounts.
 type Profile struct {
+	Runtime            string                          `toml:"runtime"`
+	Execution          *AgentExecution                 `toml:"execution"`
 	Diagnostics        *coordination.DiagnosticBinding `toml:"diagnostics"`
 	Communication      *MasterCommunication            `toml:"communication"`
 	Command            []string                        `toml:"command"`
@@ -20,6 +22,13 @@ type Profile struct {
 	Seeds              []Seed                          `toml:"seed"`
 	Restart            string                          `toml:"restart"`
 	Services           map[string]Service              `toml:"services"`
+}
+
+// AgentExecution references the bird's private, placement-pinned host client.
+// It does not create a placement or grant credentials to the guest.
+type AgentExecution struct {
+	coordination.ExecutionBinding
+	ClientConfig string `toml:"client_config"`
 }
 
 type Service struct {
@@ -49,6 +58,18 @@ func validateProfiles(cfg *Config) error {
 		return fmt.Errorf("at most 64 profiles are supported")
 	}
 	for name, p := range cfg.Profiles {
+		if p.Runtime != "" && p.Runtime != "machine" && p.Runtime != "container" {
+			return fmt.Errorf("profile %s has unknown runtime %q", name, p.Runtime)
+		}
+		if p.Execution != nil {
+			e := p.Execution
+			if p.Runtime != "container" || !filepath.IsAbs(e.ClientConfig) || coordination.ValidateExecutionBinding(e.ExecutionBinding) != nil {
+				return fmt.Errorf("profile %s requires a complete container execution binding and absolute client_config", name)
+			}
+		}
+		if _, worker := p.Services["worker"]; worker && p.Runtime == "container" && p.Execution == nil {
+			return fmt.Errorf("profile %s container worker requires an execution binding", name)
+		}
 		if p.Diagnostics != nil && coordination.ValidateDiagnosticBinding(*p.Diagnostics) != nil {
 			return fmt.Errorf("profile %s requires a complete diagnostic master/placement binding", name)
 		}

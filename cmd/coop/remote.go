@@ -54,6 +54,7 @@ func remoteCommandAllowed(parts []string) bool {
 		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover", "master conversation cursor", "master conversation map", "master conversation reaccept", "master conversation legacy",
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team", "team inspect", "inbox", "goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
 		"task capabilities", "task read", "task list", "task create", "task adopt", "task handoffs", "task first-postmerge-qa", "task reassess-qa", "task request-release",
+		"memory list", "memory read", "memory write", "memory import-markdown",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register":
 		return true
 	case "cache status":

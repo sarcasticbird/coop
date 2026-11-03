@@ -54,7 +54,17 @@ func New(name string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	backend := workspace.MachineBackend{Runtime: runtime.AppleMachine{}, Store: store}
+	var backend workspace.Backend = workspace.MachineBackend{Runtime: runtime.AppleMachine{}, Store: store}
+	if spec.Profile.Runtime == "container" {
+		backend = workspace.ContainerBackend{Runtime: runtime.AppleMachine{}, Store: store, Guard: executionGuard}
+	}
+	if record, err := store.Load(workspace.Agent, name); err == nil {
+		if (record.Applied.Runtime == "container") != (spec.Profile.Runtime == "container") {
+			return nil, fmt.Errorf("runtime conversion is not automatic; preserve the existing agent and prepare a new profile")
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 	return &Session{Spec: spec, Controller: workspace.Controller{Backend: backend, Store: store}, Runner: backend, CredentialManager: credential.NewManager(""), CoreLock: coreLock, Output: os.Stdout}, nil
 }
 func (s *Session) output() io.Writer {
@@ -172,6 +182,9 @@ func (s *Session) prepareChecked(ctx context.Context, requested []string, provis
 			}
 		}
 		if ensure {
+			if err := s.checkPortableWorker(ctx); err != nil {
+				return err
+			}
 			if err := exec.ExecContext(ctx, s.Spec.RuntimeName, []string{guestControl, "ensure"}, nil); err != nil {
 				return err
 			}

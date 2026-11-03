@@ -59,7 +59,8 @@
         "pkg-path": "less"
       },
       "opencode": {
-        "pkg-path": "opencode"
+        "pkg-path": "opencode",
+        "version": "1.18.18"
       },
       "openssh": {
         "pkg-path": "openssh"
@@ -673,27 +674,27 @@
     {
       "attr_path": "opencode",
       "broken": false,
-      "derivation": "/nix/store/p9m0ry13h205kx696sxgwbkfgf5rv6wm-opencode-1.18.3.drv",
+      "derivation": "/nix/store/6dkiznnigizgpl7c39w8xlzyjzx9i1jq-opencode-1.18.18.drv",
       "description": "AI coding agent built for the terminal",
       "install_id": "opencode",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
-      "name": "opencode-1.18.3",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2c423e03bbafcff28bfadc6781a4a8257f205cb5",
+      "name": "opencode-1.18.18",
       "pname": "opencode",
-      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
-      "rev_count": 1037713,
-      "rev_date": "2026-07-19T21:52:44Z",
-      "scrape_date": "2026-07-21T05:25:08.351097Z",
+      "rev": "2c423e03bbafcff28bfadc6781a4a8257f205cb5",
+      "rev_count": 1059570,
+      "rev_date": "2026-08-22T00:54:23Z",
+      "scrape_date": "2026-08-23T05:27:29.236194Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "1.18.3",
+      "version": "1.18.18",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/1970p2qsn4n6shd481ppvw6anjh78rli-opencode-1.18.3"
+        "out": "/nix/store/wl25fz3vwmpxz0pglvanyipaaxm4s8rz-opencode-1.18.18"
       },
       "system": "aarch64-linux",
       "group": "toplevel",

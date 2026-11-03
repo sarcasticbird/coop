@@ -326,6 +326,20 @@ func (d *NativeDispatcher) reconcileDeliveryReadiness(ctx context.Context, x *Na
 		return false, c.ErrUnavailable
 	}
 	obsolete := stale || nativeScopeChanged(*x, catalog)
+	// Repairs now belong to the source author on a different bird. Release an
+	// unstarted Rook slot when current evidence requests that author repair.
+	for _, task := range catalog.Tasks {
+		if task.Task.URL != x.Job.TaskURL {
+			continue
+		}
+		for _, pr := range task.PRs {
+			if pr.URL == x.Job.PRURL && !pr.Merged {
+				obsolete = obsolete || nativeNeedsChecksRepair(pr) || nativeNeedsBranchRefresh(pr) ||
+					nativeLatestReview(pr, task.Binding.PeerID).State == "CHANGES_REQUESTED" ||
+					nativeLatestReview(pr, task.Binding.QAID).State == "CHANGES_REQUESTED"
+			}
+		}
+	}
 	for _, candidate := range NativeCandidates(d.config, catalog, nil, d.clock.Now()) {
 		if candidate.Job.ID == x.Job.ID {
 			return false, nil

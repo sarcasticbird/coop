@@ -114,7 +114,7 @@ func TestReplyAtomicLinkage(t *testing.T) {
 	}
 }
 
-func TestAddressingAndPeerBudget(t *testing.T) {
+func TestExplicitHandoffsAndQuietReplies(t *testing.T) {
 	s, owner, bot, th := storeFixture(t)
 	ctx := context.Background()
 	r, err := s.Send(ctx, owner, c.SendMessage{ThreadID: th.ID, Recipients: []string{bot.ID}, Body: "start", RequestID: "start"})
@@ -133,9 +133,9 @@ func TestAddressingAndPeerBudget(t *testing.T) {
 	if err != nil || len(watch.Deliveries) != 0 {
 		t.Fatal("watcher awakened")
 	}
-	for hop := 1; hop <= 3; hop++ {
+	for hop := 1; hop <= 6; hop++ {
 		actor, target := bot, other
-		if hop == 2 {
+		if hop%2 == 0 {
 			actor, target = other, bot
 		}
 		r, err = s.Send(ctx, actor, c.SendMessage{ThreadID: th.ID, ParentMessageID: r.MessageID, Recipients: []string{target.ID, actor.ID}, Body: "peer question", RequestID: strings.Repeat("x", hop)})
@@ -145,8 +145,8 @@ func TestAddressingAndPeerBudget(t *testing.T) {
 		if len(r.Deliveries) != 1 {
 			t.Fatalf("self delivery %+v", r)
 		}
-		if hop == 3 && r.Deliveries[0].State != "suppressed" {
-			t.Fatal("third automatic hop awakened")
+		if r.Deliveries[0].State != "queued" {
+			t.Fatal("explicit handoff suppressed by conversation depth")
 		}
 	}
 	reply, err := s.Send(ctx, bot, c.SendMessage{ThreadID: th.ID, ParentMessageID: r.MessageID, Body: "default reply", RequestID: "default"})
@@ -154,7 +154,56 @@ func TestAddressingAndPeerBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(reply.Deliveries) != 0 {
-		t.Fatal("default self reply awakened")
+		t.Fatal("agent result triggered a reply loop")
+	}
+	human, err := s.Send(ctx, owner, c.SendMessage{ThreadID: th.ID, ParentMessageID: reply.MessageID, Body: "next question", RequestID: "human-followup"})
+	if err != nil || len(human.Deliveries) != 1 || human.Deliveries[0].AgentID != bot.ID {
+		t.Fatalf("human follow-up not delivered: %+v %v", human, err)
+	}
+}
+
+func TestPeerChainCeilingPreservesHistoryAndOwnerContinuation(t *testing.T) {
+	s, owner, bot, th := storeFixture(t)
+	other, err := s.Principal(t.Context(), "agent-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Send(t.Context(), owner, c.SendMessage{ThreadID: th.ID, Recipients: []string{bot.ID}, Body: "start", RequestID: "start-chain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for hop := 1; hop <= c.MaxPeerHops+1; hop++ {
+		actor, target := bot, other
+		if hop%2 == 0 {
+			actor, target = other, bot
+		}
+		in := c.SendMessage{ThreadID: th.ID, ParentMessageID: r.MessageID, Recipients: []string{target.ID}, Body: "explicit peer handoff", RequestID: strings.Repeat("h", hop)}
+		r, err = s.Send(t.Context(), actor, in)
+		if err != nil || len(r.Deliveries) != 1 {
+			t.Fatal("peer message lost", hop, r, err)
+		}
+		d := r.Deliveries[0]
+		if hop <= c.MaxPeerHops && d.State != "queued" || hop > c.MaxPeerHops && (d.State != "suppressed" || d.Reason != "peer_hop_limit") {
+			t.Fatal("unexpected peer ceiling", hop, d)
+		}
+		if hop > c.MaxPeerHops {
+			again, err := s.Send(t.Context(), actor, in)
+			if err != nil || again.MessageID != r.MessageID || again.Deliveries[0] != d {
+				t.Fatal("suppressed retry changed its receipt", err)
+			}
+		}
+	}
+	m, err := s.Message(t.Context(), owner, r.MessageID)
+	if err != nil || m.Hop != c.MaxPeerHops+1 || m.Body != "explicit peer handoff" {
+		t.Fatal("suppressed history lost", m, err)
+	}
+	human, err := s.Send(t.Context(), owner, c.SendMessage{ThreadID: th.ID, ParentMessageID: m.ID, Body: "continue", RequestID: "continue-chain"})
+	if err != nil || len(human.Deliveries) != 1 || human.Deliveries[0].State != "queued" {
+		t.Fatal("owner continuation suppressed", human, err)
+	}
+	next, err := s.Send(t.Context(), bot, c.SendMessage{ThreadID: th.ID, ParentMessageID: human.MessageID, Recipients: []string{other.ID}, Body: "new peer chain", RequestID: "new-chain"})
+	if err != nil || len(next.Deliveries) != 1 || next.Deliveries[0].State != "queued" {
+		t.Fatal("owner did not reset peer chain", next, err)
 	}
 }
 

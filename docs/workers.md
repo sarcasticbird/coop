@@ -115,8 +115,13 @@ live file is an expected member of those two generations, then finishes that
 saved transaction before staging the requested package. It rejects independent
 content, mode, ownership or symlink changes rather than overwriting them.
 Failures leave the transaction and its prior-generation files intact; successful
-transactions are retained in private `worker/install-history.*/generation/`
-directories. Existing `install-before/` material is not removed. Do not delete
+transactions retain the current and immediately preceding generation in private
+`worker/install-history.*/generation/` directories. After successful publication,
+the installer removes older unmodified, checksum-verified generations under its
+lock. Manifest continuity selects the predecessor, not timestamps. Unknown,
+modified or symlink-containing history is preserved for inspection. Operational
+receipts, bird memories, sessions and checkouts are outside this retention rule.
+Existing `install-before/` material is not removed. Do not delete
 the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
@@ -527,27 +532,28 @@ Manual replies and compaction summaries do not establish the worker's executed
 identity. Native metadata is not independent verification of the upstream
 provider's effective reasoning effort or billing behavior.
 
-## Existing guest Flox migration
+## Autonomous work before merge
 
-Existing VMs can retain an older Flox that cannot parse current project manifests.
-`scripts/upgrade-agent-flox.sh NAME stage|apply|rollback` stages pinned Flox 1.18.1
-in `/opt/coop-flox-upgrade` using its official immutable Nix flake. Stage checks
-core tools in a separate environment copy and runs the real `to` test/build
-commands in an isolated validation checkout. The pinned source reports version
-`1.18.1-gf264cf2`. These root guest images use single-user Nix without a `nixbld`
-group; the migration scopes that setting to its invocations and guest bootstrap.
-Apply preserves the verified guest bootstrap, prepends the candidate
-to its PATH, verifies effective resolution and restores the prior bootstrap on
-failure. Rollback restores the before-copy after checking both revisions.
-Apply requires a maintenance window with the old core activations stopped;
-Flox refuses mixed-version activation of the same environment. Stage leaves
-those activations running and never applies the new bootstrap implicitly.
+For autonomous work that must stop before merge, set `"delivery_hold": true`
+in the v3 worker configuration and restart the worker service. This excludes
+delivery jobs and refuses delivery actions while allowing implementation,
+fixes, publication recovery, peer review and QA. Worker status reports the hold.
+Use the general admission pause only when all new work and recovery should
+wait; it is not a stop-before-merge switch. Remove the delivery hold explicitly
+when delivery is authorized.
 
-The script leaves the default Nix profile, Nix daemon and repository image assets
-unchanged. It requires explicit operation on a running named VM. Keep the staged
-closure, checksum/version evidence and cold backup until live acceptance passes.
-For future VMs, perform this onboarding before enabling worker services; this
-delivery deliberately preserves the existing image fingerprint.
+## Container tool environment
+
+Worker commands use the core tools materialized at image build time, followed
+by configured tools and system fallbacks. The guest launcher does not activate
+Flox or contact its catalog. Flox is optional inside a Coop: missing project
+Flox metadata or catalog authentication is not itself a work blocker.
+
+Use supported project tool versions and record the actual commands, versions,
+source revision and test results. Add a project environment only when the
+project needs it, not to satisfy a Coop requirement. Local host development can
+continue to use Flox. Image construction still resolves the pinned core tools
+through Flox; this is separate from starting worker commands.
 
 ## Prompt size failures
 
@@ -676,6 +682,13 @@ Worker ledger versions are explicit. A v1 configuration reads and writes only
 v1 state; a v2 configuration reads and writes only v2 state. Loading state never
 upgrades it. Runtime startup requires initialized, fenced storage. Conversion
 does not start a worker or authorize live activation.
+
+For a new v3 worker, `coop-worker init-state --config PATH` writes the configured
+native instance identity directly into unused private storage. It creates no
+legacy wake queue, migration journal or migration backup, and accepts the real
+Kata-enabled configuration. Existing migrated workers still validate their
+original migration evidence; missing or partial evidence cannot masquerade as
+fresh storage. Initialization never overwrites an existing worker.
 
 For a first v2 worker with unused storage, run the explicit offline command:
 

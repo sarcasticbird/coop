@@ -39,11 +39,16 @@ func loadMasterTurn(cfg Config, id string) (MasterTurn, error) {
 	if err != nil {
 		return out, err
 	}
+	return decodeMasterTurn(cfg, id, raw, &masterRecoveryView{cfg: cfg})
+}
+
+func decodeMasterTurn(cfg Config, id string, raw []byte, recovery *masterRecoveryView) (MasterTurn, error) {
+	var out MasterTurn
 	if strictTeamJSON(raw, &out) != nil || out.Version != 1 || out.MasterID != cfg.Master.MasterID || out.Delivery.ID != id || out.Message.ID != out.Delivery.MessageID || out.BodySHA != BodyHash(out.Message.Body) {
 		return out, errors.New("master inbox ownership mismatch")
 	}
 	if out.InstanceID != cfg.Master.InstanceID || out.Generation != cfg.Master.Generation {
-		if _, ok, e := adoptedRecoveryRecord(cfg, "inbox", filepath.Base(masterRecordPath(cfg, id)), raw); e != nil || !ok {
+		if _, ok, e := recovery.adoptedRecord("inbox", filepath.Base(masterRecordPath(cfg, id)), raw); e != nil || !ok {
 			if e != nil {
 				return out, e
 			}
@@ -60,7 +65,21 @@ func saveMasterTurn(cfg Config, in *MasterTurn) error {
 	if err != nil || len(raw) > 256<<10 {
 		return errors.New("master inbox record too large")
 	}
-	return atomicPrivate(masterRecordPath(cfg, in.Delivery.ID), raw)
+	key := BodyHash(in.Delivery.ID) + ".json"
+	// Publish the hint first so a crash cannot hide a newly admitted turn.
+	// Scheduling prunes an orphan hint if the initial canonical write failed.
+	if !terminalMasterTurn(*in) {
+		if err := markMasterPending(cfg, "inbox", key, in.Delivery.ID); err != nil {
+			return err
+		}
+	}
+	if err := atomicPrivate(masterRecordPath(cfg, in.Delivery.ID), raw); err != nil {
+		return err
+	}
+	if terminalMasterTurn(*in) {
+		return unmarkMasterPending(cfg, "inbox", key)
+	}
+	return nil
 }
 func masterTurns(cfg Config) ([]MasterTurn, error) {
 	entries, err := os.ReadDir(filepath.Join(masterDir(cfg), "inbox"))
@@ -74,6 +93,7 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		return nil, c.ErrCapacity
 	}
 	out := []MasterTurn{}
+	recovery := masterRecoveryView{cfg: cfg}
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			return nil, errors.New("unknown master inbox record")
@@ -86,12 +106,17 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		if strictTeamJSON(raw, &item) != nil || e.Name() != BodyHash(item.Delivery.ID)+".json" {
 			return nil, errors.New("invalid master inbox identity")
 		}
-		item, err = loadMasterTurn(cfg, item.Delivery.ID)
+		item, err = decodeMasterTurn(cfg, item.Delivery.ID, raw, &recovery)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
+	sortMasterTurns(out)
+	return out, nil
+}
+
+func sortMasterTurns(out []MasterTurn) {
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if (a.Message.AuthorKind == "owner") != (b.Message.AuthorKind == "owner") {
@@ -99,5 +124,4 @@ func masterTurns(cfg Config) ([]MasterTurn, error) {
 		}
 		return a.Message.Sequence < b.Message.Sequence
 	})
-	return out, nil
 }

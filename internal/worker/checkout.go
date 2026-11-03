@@ -109,6 +109,9 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if c.config.Master == nil || m == nil || m.Goal == nil || m.MasterID != c.config.Master.MasterID || m.AgentID != c.config.Master.AgentID || m.ExecutorID != c.config.Self.ID || m.Goal.Source != "master" || m.Goal.MasterID != m.MasterID || !hexSHA.MatchString(m.Goal.RevisionSHA256) || !hexSHA.MatchString(m.AssignmentSHA) || j.Kind != "plan" && !validBaseBranch(m.BaseBranch) {
 			return j, errors.New("invalid native checkout ownership binding")
 		}
+		if j.Kind == "deliver" && (!nativeDeliveryActor(c.config, NativeTaskBinding{}) || m.Role != "delivery") {
+			return j, errors.New("delivery checkout requires independent Rook")
+		}
 	} else if j.Master != nil {
 		return j, errors.New("native checkout requires v3 configuration")
 	}
@@ -291,8 +294,9 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		if err != nil || strings.TrimSpace(string(branch)) != owner.Branch {
 			return j, errors.New("checkout branch changed")
 		}
-		if j.Kind == "qa" {
-			// This is a local guardrail; the QA App must also lack contents write.
+		if j.Kind == "qa" || j.Master != nil && j.Kind == "deliver" {
+			// A local guardrail, not provider authorization. Rook's merge permission
+			// must not be used to push source; QA should lack contents write entirely.
 			const disabledPushURL = "/dev/null/coop-qa-push-disabled"
 			if created {
 				if _, err := c.run(ctx, checkout, "git", "config", "--local", "--replace-all", "remote.origin.pushurl", disabledPushURL); err != nil {
@@ -301,14 +305,14 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 			}
 			push, err := c.run(ctx, checkout, "git", "config", "--local", "--get-all", "remote.origin.pushurl")
 			if err != nil || strings.TrimSpace(string(push)) != disabledPushURL {
-				return j, errors.New("QA checkout push protection changed")
+				return j, errors.New("checkout push protection changed")
 			}
 			push, err = c.run(ctx, checkout, "git", "remote", "get-url", "--push", "--all", "origin")
 			if err != nil || strings.TrimSpace(string(push)) != disabledPushURL {
-				return j, errors.New("QA checkout effective push URL changed")
+				return j, errors.New("checkout effective push URL changed")
 			}
 		}
-		if j.Kind == "review" || j.Kind == "qa" {
+		if j.Kind == "review" || j.Kind == "qa" || j.Master != nil && j.Kind == "deliver" {
 			repo, n, err := parseRef(j.PRURL)
 			if err != nil || repo != owner.Repo {
 				return j, errors.New("review target outside checkout")

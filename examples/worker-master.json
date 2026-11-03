@@ -50,6 +50,17 @@
         "capabilities": [
           "customer-qa"
         ]
+      },
+      {
+        "name": "rook",
+        "actor": {
+          "id": 5,
+          "login": "rook[bot]",
+          "kind": "Bot"
+        },
+        "capabilities": [
+          "deliver"
+        ]
       }
     ],
     "planner": "planner",

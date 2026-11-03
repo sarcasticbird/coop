@@ -44,6 +44,21 @@ func restoreAgent(ctx context.Context, s *agent.Session, archive string) error {
 			return fmt.Errorf("backup is not an agent machine")
 		}
 		storage := backup.AppleStorage{Machine: runtime.AppleMachine{}, Store: s.Controller.Store, Target: &s.Spec}
+		if s.Spec.Profile.Runtime == "container" {
+			if manifest.Record.Applied.Runtime != "container" {
+				return fmt.Errorf("machine-disk backups cannot be restored as portable agents")
+			}
+			if err := s.CheckExecutionReplacement(ctx, manifest.Record); err != nil {
+				return err
+			}
+			backend, ok := s.Controller.Backend.(workspace.ContainerBackend)
+			if !ok {
+				return fmt.Errorf("portable recovery backend is unavailable")
+			}
+			storage.CreateAgentContainer = func(ctx context.Context, _ workspace.Record) error { return backend.CreateRestoreTarget(ctx, s.Spec) }
+		} else if manifest.Record.Applied.Runtime == "container" {
+			return fmt.Errorf("portable agent backups require a container profile")
+		}
 		return backup.Restore(ctx, storage, archive, s.Spec.Identity)
 	})
 }

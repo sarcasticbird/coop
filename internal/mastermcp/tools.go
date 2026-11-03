@@ -50,6 +50,11 @@ func NewServer(service *master.Service, p c.Principal) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "coop-master", Version: "1"}, nil)
 	registerTaskProviderTools(server, service, p)
 	if slices.Contains(p.Capabilities, "read") {
+		bind(server, s, "coop_master_memory_read", "Read persistent bird memory. Memory is knowledge, not approval or execution authority.", true, func(ctx context.Context, in c.MemoryQuery) (any, error) { return s.ReadMemory(ctx, p, in) })
+		bind(server, s, "coop_master_memory_list", "List persistent bird memory keys and revisions without loading their bodies.", true, func(ctx context.Context, in c.MemoryList) (any, error) { return s.ListMemory(ctx, p, in) })
+		if p.Kind == "agent" && slices.Contains(p.Capabilities, "send") || p.Kind == "owner" && slices.Contains(p.Capabilities, "manage") {
+			bind(server, s, "coop_master_memory_write", "Save persistent bird memory with expected_revision (0 creates). Stale edits conflict. Survives container replacement.", false, func(ctx context.Context, in c.MemoryWrite) (any, error) { return s.WriteMemory(ctx, p, in) })
+		}
 		registerGitHubCacheStatus(server, service, p)
 		bind(server, s, "coop_master_team", "Read scoped agent presence and placement.", true, func(ctx context.Context, _ empty) (any, error) { return s.Team(ctx, p) })
 		bind(server, s, "coop_master_agent_status", "Read one visible agent's bounded diagnostic snapshot and freshness. Does not wake it or authorize work.", true, func(ctx context.Context, in agentStatusInput) (any, error) {

@@ -18,6 +18,42 @@ FILES = ('coop-worker', 'coop-opencode-server', 'coop-opencode-attach',
 
 
 class Recovery(unittest.TestCase):
+    def test_install_history_keeps_current_and_immediate_predecessor(self):
+        for version in ('one', 'two', 'three', 'four'):
+            result = self.run_install(version)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        generations = list(self.state.glob('install-history.*/generation'))
+        self.assertEqual(len(generations), 2)
+        versions = {(p / 'after/coop-worker').read_bytes() for p in generations}
+        self.assertEqual(versions, {b'#!/bin/sh\n# three\nexit 0\n', b'#!/bin/sh\n# four\nexit 0\n'})
+        self.assert_generation('four')
+        for generation in generations:
+            result = subprocess.run(['sha256sum', '-c', 'evidence.sha256'], cwd=generation, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_install_history_preserves_modified_unknown_and_symlink_material(self):
+        for mutation in ('checksum', 'hidden', 'extra', 'nested', 'symlink'):
+            with self.subTest(mutation=mutation), self.fresh_fixture():
+                result = self.run_install('one')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                old = next(self.state.glob('install-history.*/generation'))
+                if mutation == 'checksum':
+                    (old / 'after/coop-worker').write_bytes(b'user modification')
+                elif mutation == 'hidden':
+                    (old / '.notes').write_bytes(b'preserve')
+                elif mutation == 'extra':
+                    (old / 'notes').write_bytes(b'preserve')
+                elif mutation == 'nested':
+                    (old / 'before/notes').write_bytes(b'preserve')
+                else:
+                    (old / 'external').symlink_to(self.root)
+                before = self.saved_bytes(old)
+                for version in ('two', 'three', 'four'):
+                    result = self.run_install(version)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(before, self.saved_bytes(old))
+                self.assertTrue(old.exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

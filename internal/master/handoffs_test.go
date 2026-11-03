@@ -108,6 +108,104 @@ func TestHandoffAuthorityIdentityAndRetry(t *testing.T) {
 	}
 }
 
+func TestReleaseHandoffNotifiesAuthorAfterTaskCompletion(t *testing.T) {
+	s, owner, _, _, in := qaHandoffFixture(t)
+	in.Kind, in.ReviewID, in.Tag, in.Workflow = "release", "", "v1.2.3", "release.yml"
+	backend := s.Tasks.(*testTasks)
+	backend.task.State, backend.task.ClosedReason = "closed", "done"
+	a, err := s.ResolveGoal(t.Context(), owner, in.Goal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	author, err := s.Store.Principal(t.Context(), a.Actors.Author.PrincipalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil || again != first {
+		t.Fatal("release retry changed handoff", err)
+	}
+	pending, err := s.Store.Pending(t.Context(), author, c.PendingQuery{})
+	if err != nil || len(pending.Deliveries) != 1 {
+		t.Fatal("release notification missing or duplicated", pending, err)
+	}
+	message, err := s.Store.Message(t.Context(), author, pending.Deliveries[0].MessageID)
+	if err != nil || message.AuthorID != owner.ID || len(message.Recipients) != 1 || message.Recipients[0] != author.ID || !strings.Contains(message.Body, "--handoff "+first.ID) {
+		t.Fatal("release notification lost its author or exact handoff", message, err)
+	}
+	if backend.task.State != "closed" || backend.creates != 1 || backend.binds != 1 || backend.closes != 0 {
+		t.Fatal("release notification changed completed source work")
+	}
+}
+
+func TestReleaseHandoffNotificationCommitsAtomically(t *testing.T) {
+	s, owner, _, _, in := qaHandoffFixture(t)
+	in.Kind, in.ReviewID, in.Tag, in.Workflow = "release", "", "v1.2.3", "release.yml"
+	if _, err := s.Store.db.Exec("CREATE TRIGGER fail_release_notice BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT, 'notification unavailable'); END;"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateHandoff(t.Context(), owner, in); err == nil {
+		t.Fatal("failed notification was not reported")
+	}
+	var count int
+	if err := s.Store.db.QueryRow("SELECT count(*) FROM handoffs").Scan(&count); err != nil || count != 0 {
+		t.Fatal("handoff committed without its notification", count, err)
+	}
+	if _, err := s.Store.db.Exec("DROP TRIGGER fail_release_notice"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil {
+		t.Fatal("release retry did not recover", err)
+	}
+	if err := s.Store.db.QueryRow("SELECT count(*) FROM messages WHERE json_extract(body,'$.request_id')=?", "release-handoff-"+again.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatal("notification not delivered exactly once", count, err)
+	}
+}
+
+func TestQAEnvironmentDecisionRequiresOwner(t *testing.T) {
+	s, owner, planner, qa, in := qaHandoffFixture(t)
+	in.Environment, in.EnvironmentRevision = "repaired runtime", "repair-v2"
+	if _, err := s.CreateHandoff(t.Context(), planner, in); !errors.Is(err, c.ErrForbidden) {
+		t.Fatalf("planner changed QA environment: %v", err)
+	}
+	h, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil || h.ActorKind != "owner" || h.Input.Environment != in.Environment {
+		t.Fatalf("owner decision missing provenance: %+v %v", h, err)
+	}
+	again, err := s.CreateHandoff(t.Context(), owner, in)
+	if err != nil || again.ID != h.ID || again.ActorKind != "owner" {
+		t.Fatal("owner retry changed authority", err)
+	}
+	in.RequestID = "missing-revision"
+	in.EnvironmentRevision = ""
+	if _, err := s.CreateHandoff(t.Context(), owner, in); !errors.Is(err, c.ErrInvalid) {
+		t.Fatal("partial environment accepted", err)
+	}
+	in.EnvironmentRevision = "repair-v2"
+	evidence, err := s.Store.Send(t.Context(), qa, c.SendMessage{ThreadID: s.mustHandoffEvidenceThread(t, owner, in.EvidenceMessageID), Body: "agent claim", RequestID: "agent-env-claim"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.EvidenceMessageID, in.RequestID = evidence.MessageID, "agent-evidence"
+	if _, err := s.CreateHandoff(t.Context(), owner, in); !errors.Is(err, c.ErrForbidden) {
+		t.Fatal("agent evidence changed environment", err)
+	}
+}
+
+func (s *Service) mustHandoffEvidenceThread(t *testing.T, owner c.Principal, id string) string {
+	t.Helper()
+	m, err := s.Store.Message(t.Context(), owner, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m.ThreadID
+}
+
 func TestFirstPostmergeQAAuthorityAndRetry(t *testing.T) {
 	for _, actor := range []string{"owner", "planner"} {
 		for _, evidenceAuthor := range []string{"owner", "qa"} {

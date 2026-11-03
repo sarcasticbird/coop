@@ -47,16 +47,25 @@ func lockMasterProducer(cfg Config) (func(), error) {
 // A periodic flush can briefly hold the shared producer while a native turn
 // queues its prepared reply. Wait only for that contention, before any writes.
 func lockMasterReplyProducer(cfg Config) (func(), error) {
+	return waitMasterProducer(context.Background(), cfg)
+}
+
+func waitMasterProducer(ctx context.Context, cfg Config) (func(), error) {
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	retry := time.NewTicker(50 * time.Millisecond)
 	defer retry.Stop()
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		release, err := lockMasterProducer(cfg)
 		if !errors.Is(err, errNativeProducerBusy) {
 			return release, err
 		}
 		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-timeout.C:
 			return nil, err
 		case <-retry.C:
@@ -109,6 +118,9 @@ func QueueMasterReply(cfg Config, deliveryID, body string) error {
 	} else if !os.IsNotExist(e) {
 		return e
 	}
+	if err := markMasterPending(cfg, "outbox", id+".json", id); err != nil {
+		return err
+	}
 	return writeWakeImmutable(path, raw)
 }
 func (m *MasterComms) FlushOutbox(ctx context.Context) error {
@@ -125,18 +137,45 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 	defer release()
 
 	dir := filepath.Join(masterDir(m.Config), "outbox")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil
+	scanDir := masterIndexDir(m.Config, "outbox")
+	// Helpers can die while the worker stays alive. The producer lock ensures
+	// any staging file or uncommitted hint is abandoned, even on warm scans.
+	if err := prepareMasterIndex(m.Config, "outbox", false); err != nil {
+		return err
+	}
+	if err := pruneMissingOutboxHints(m.Config); err != nil {
+		return err
+	}
+	if !m.outboxIndexed {
+		// Reply CLI helpers also create MasterComms while the worker is live.
+		// Never clear shared pending hints: a failed helper must not hide work
+		// from a worker that has already initialized its index.
+		scanDir = dir
+	}
+	entries, err := os.ReadDir(scanDir)
+	if os.IsNotExist(err) && !m.outboxIndexed {
+		err = nil
 	}
 	if err != nil {
 		return err
 	}
+	// Preserve existing hints and create missing ones only after proving the
+	// canonical record is pending. Helpers must not fsync settled history.
 	recovery := masterRecoveryView{cfg: m.Config}
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			return errors.New("invalid outbox entry")
 		}
+		if m.outboxIndexed {
+			id, err := readPrivate(filepath.Join(scanDir, e.Name()), 4096)
+			if err != nil {
+				return err
+			}
+			if !hexSHA.Match(id) || e.Name() != string(id)+".json" {
+				return errors.New("invalid master outbox index identity")
+			}
+		}
+		settled := func() error { return unmarkMasterPending(m.Config, "outbox", e.Name()) }
 		raw, err := readPrivate(filepath.Join(dir, e.Name()), c.MaxJSON)
 		if err != nil {
 			return err
@@ -144,6 +183,9 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		if _, ok, e := recovery.adoptedRecord("outbox", e.Name(), raw); e != nil {
 			return e
 		} else if ok {
+			if err := settled(); err != nil {
+				return err
+			}
 			continue
 		}
 		var in masterOutbox
@@ -155,6 +197,9 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 			return retireErr
 		}
 		if retired {
+			if err := settled(); err != nil {
+				return err
+			}
 			continue
 		}
 		if in.Epoch != m.connection.Epoch {
@@ -166,8 +211,14 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 			if strictTeamJSON(saved, &receipt) != nil || receipt.MasterID != in.MasterID || receipt.MessageID == "" {
 				return errors.New("invalid saved reply receipt")
 			}
+			if err := settled(); err != nil {
+				return err
+			}
 			continue
 		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := markMasterPending(m.Config, "outbox", e.Name(), in.Reply.RequestID); err != nil {
 			return err
 		}
 		receipt, err := m.Client.PublishReply(ctx, in.Reply)
@@ -178,6 +229,9 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 					return errors.Join(err, proofErr)
 				}
 				if canceled {
+					if err := settled(); err != nil {
+						return err
+					}
 					continue
 				}
 			}
@@ -196,7 +250,11 @@ func (m *MasterComms) FlushOutbox(ctx context.Context) error {
 		if err = writeWakeImmutable(result, data); err != nil {
 			return err
 		}
+		if err := settled(); err != nil {
+			return err
+		}
 	}
+	m.outboxIndexed = true
 	return nil
 }
 

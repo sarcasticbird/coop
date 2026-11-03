@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const SupportedOpenCodeVersion = "1.18.18"
+
 type OpenCode interface {
 	Health(context.Context) (ServerHealth, error)
 	EnsureSession(context.Context, Config, Job) (Job, error)
@@ -111,7 +113,7 @@ func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir s
 func (c *OpenCodeClient) Health(ctx context.Context) (ServerHealth, error) {
 	var health ServerHealth
 	err := c.request(ctx, "GET", "/global/health", "", nil, &health)
-	if err == nil && (!health.Healthy || health.Version != "1.18.18") {
+	if err == nil && (!health.Healthy || health.Version != SupportedOpenCodeVersion) {
 		err = &OpenCodeError{Category: "unsupported_server_version"}
 	}
 	return health, err

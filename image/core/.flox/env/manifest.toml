@@ -28,6 +28,7 @@ unzip.pkg-path = "unzip"
 codex.pkg-path = "codex"
 claude-code.pkg-path = "claude-code"
 opencode.pkg-path = "opencode"
+opencode.version = "1.18.18"
 
 [options]
 systems = ["aarch64-linux"]

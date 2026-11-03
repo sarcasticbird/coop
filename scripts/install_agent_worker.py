@@ -222,6 +222,7 @@ recover() {
   history=$(mktemp -d /var/lib/coop/worker/install-history.XXXXXXXX)
   mv "$pending" "$history/generation"
   sync -f /var/lib/coop/worker
+  prune_install_history "$history"
 }
 write_evidence() {
   (cd "$1" && {
@@ -231,6 +232,60 @@ write_evidence() {
     for file in $files; do sha256sum "after/$file"; done
     for file in $files; do if test -f "before/$file"; then sha256sum "before/$file"; fi; done
   })
+}
+prune_install_history() {
+  current=$1
+  previous=''
+  # Follow the manifest chain, not timestamps: preserve this transaction and
+  # its immediate predecessor even when several installs share a clock tick.
+  for old in /var/lib/coop/worker/install-history.????????; do
+    test "$old" != "$current" || continue
+    test ! -L "$old" && test -d "$old/generation" || continue
+    if cmp -s "$old/generation/new.manifest" "$current/generation/old.manifest"; then
+      previous=$old
+      break
+    fi
+  done
+  for old in /var/lib/coop/worker/install-history.????????; do
+    test "$old" != "$current" && test "$old" != "$previous" || continue
+    suffix=${old##*.}
+    case "$suffix" in *[!a-zA-Z0-9]*) continue ;; esac
+    test ! -L "$old" && test -d "$old/generation" || continue
+    # Unknown/modified history is preserved for inspection. Never follow a
+    # symlink, delete a pending transaction, or touch operational worker state.
+    test "$(find "$old" ! -type f ! -type d -print)" = '' || continue
+    test "$(find "$old" ! -user "$(id -u)" -print)" = '' || continue
+    test "$(find "$old" -mindepth 1 -name '.*' -print)" = '' || continue
+    test "$(cat "$old/generation/identity")" = "$agent" || continue
+    valid=yes
+    for entry in "$old"/* "$old/generation"/*; do
+      case "${entry#"$old"/}" in
+        generation|generation/after|generation/before) ;;
+        generation/package.tar|generation/SHA256SUMS|generation/identity|generation/config.json) ;;
+        generation/coop-worker|generation/coop-opencode-server|generation/coop-opencode-attach|generation/coop-opencode-launch) ;;
+        generation/old.manifest|generation/new.manifest|generation/current.manifest|generation/evidence.sha256) ;;
+        generation/adoption|generation/adoption-state|generation/config-drift) ;;
+        *) valid=no ;;
+      esac
+    done
+    for directory in before after; do
+      for entry in "$old/generation/$directory"/*; do
+        test -e "$entry" || continue
+        test -f "$entry" || valid=no
+        case "${entry##*/}" in
+          coop-worker|coop-opencode-server|coop-opencode-attach|coop-opencode-launch|config.json) ;;
+          *) valid=no ;;
+        esac
+      done
+    done
+    test "$valid" = yes || continue
+    # Compare freshly calculated evidence, rather than executing paths from
+    # an old checksum file. Preserve the history if any input changed.
+    evidence=$(write_evidence "$old/generation") || continue
+    test "$evidence" = "$(cat "$old/generation/evidence.sha256")" || continue
+    rm -rf -- "$old"
+  done
+  sync -f /var/lib/coop/worker
 }
 had_pending=no
 if test -e "$pending" || test -L "$pending"; then had_pending=yes; fi

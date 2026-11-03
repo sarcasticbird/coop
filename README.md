@@ -76,6 +76,9 @@ The managed agent continues after terminal detachment. Its home, repositories,
 and installed services survive stop/start. See [Persistent agents](docs/agents.md)
 for profiles, server commands, helper services, credentials, and recovery.
 
+Refreshed birds can use opt-in [portable runtimes](docs/bird-runtime.md) with
+guest-only data volumes and fenced image replacement. Existing machines are unchanged.
+
 ## Everyday commands
 
 ```text
@@ -190,6 +193,8 @@ forwarding SSH, mounting more host directories, or seeding sensitive data.
   review handoffs, controls and recovery
 - [Coop master](docs/master.md): private conversations, addressed messages and
   native owner goal decisions across hosts
+- [Bird memory](docs/bird-memory.md): SQLite-backed working knowledge independent
+  of container images, with Markdown import
 - [Security model](docs/security-model.md): trust boundaries and non-promises
 - [Release process](docs/release.md): contributor-only release procedure
 

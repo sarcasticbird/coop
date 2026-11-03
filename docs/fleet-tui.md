@@ -139,8 +139,9 @@ member IDs. Compose a root message with explicit recipients, or reply with the
 selected parent ID. With no explicit recipients a reply addresses its parent
 author excluding the sender; a root message with no recipients is a note and
 wakes nobody. Preview thread, recipients, parent, body and request ID before
-submission. Automatic peer replies have a two-hop budget; owner messages start
-a new chain. Do not interpret suppression as a transport error.
+submission. Agent replies are quiet unless explicitly addressed; explicit
+handoffs have no hop limit. Older suppressed receipts remain historical and
+must not be interpreted as transport errors.
 
 Membership replacement requires the complete observed old member set and the
 complete desired set. A conflict requires a fresh read and a newly reviewed
@@ -255,6 +256,10 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | `team` | UI | Coordination Team presence/placement; CLI --watch remains read-only |
 | `team inspect` | CLI/runbook | Read one agent's diagnostics; Team --watch opens the same detail with Enter |
 | `cache status` | CLI/runbook | Read scoped master GitHub cache freshness without provider calls or agent wake |
+| `memory list` | CLI/runbook | List durable bird memory keys and revisions |
+| `memory read` | CLI/runbook | Read one memory from master SQLite |
+| `memory write` | CLI/runbook | Update memory with an expected revision |
+| `memory import-markdown` | CLI/runbook | Import Markdown without deleting sources or overwriting knowledge |
 | `task` | CLI/runbook | Task-provider command help |
 | `task tui` | CLI/runbook | Open native Kata in the pinned project, optionally at a canonical issue reference |
 | `chat` | CLI/runbook | Open the authenticated active standing team ticket in native Kata |

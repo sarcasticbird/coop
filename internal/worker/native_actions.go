@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,7 +151,13 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	if cfg.Version != 3 || cfg.Master == nil || cfg.Team == nil || in.RequestID == "" || len(in.RequestID) > 128 || len(in.Body) > c.MaxText || len(in.ReportBody) > c.MaxText {
 		return empty, c.ErrInvalid
 	}
-	release, err := lockNativeProducer(cfg)
+	// Correctable input must not bind an immutable action intent.
+	if (in.Operation == "review" || in.Operation == "qa") && in.Verdict != "approved" && in.Verdict != "changes-needed" {
+		return empty, fmt.Errorf("review/qa verdict must be approved or changes-needed: %w", c.ErrInvalid)
+	}
+	// A periodic receipt flush may briefly own the shared producer. Wait before
+	// reading authority or preparing any effect; worker-side probes stay nonblocking.
+	release, err := waitMasterProducer(ctx, cfg)
 	if err != nil {
 		return empty, err
 	}
@@ -224,7 +231,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, err
 	}
 	if in.Operation == "deliver" && (record.Step == "task-completed" || record.Step == "merge") && record.State == "prepared" {
-		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err == nil {
+		if err = nativeConfirmDelivery(ctx, cfg, m, reader, a, x); err == nil {
 			record.State = "completed"
 			record.Result.URL = x.Job.PRURL
 			record.Result.Phase = "completed"
@@ -240,7 +247,20 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	var pr PR
 	postmerge := nativeIsPostMergeQA(x.Job)
 	var postmergeHandoff *c.Handoff
+	var qaEnvironment nativeQAEnvironment
+	var qaHandoff *c.Handoff
 	guard := func() error {
+		if in.Operation == "deliver" && cfg.DeliveryHold {
+			return errors.New("delivery held by worker configuration; implementation, review and QA remain enabled")
+		}
+		if in.Operation == "deliver" {
+			if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || x.Job.Master.Role != "delivery" {
+				return c.ErrForbidden
+			}
+			if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, a); err != nil {
+				return err
+			}
+		}
 		if kataTaskSource(cfg) {
 			if _, err := TaskProviderClient(ctx, cfg); err != nil {
 				return err
@@ -303,8 +323,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 							}
 						}
 					}
-					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot" || current.Head.SHA != record.PublishedHeadSHA || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
-						return c.ErrForbidden
+					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot" || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
+						return fmt.Errorf("post-push PR identity or branch changed: %w", c.ErrForbidden)
+					}
+					if err := validatePublishedHead(current.Head.SHA, x.Job.HeadSHA, record.PublishedHeadSHA); err != nil {
+						return err
 					}
 					if _, err = ParseNativePRMetadata(current.Body, task.Task.Repo, task.Task.URL, x.Goal, NativeAssignmentSHA(task.Binding)); err != nil {
 						return err
@@ -335,6 +358,19 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 						}
 					}
 				}
+			}
+		}
+		if in.Operation == "qa" {
+			if x.Binding == nil || x.Job.Kind != "qa" {
+				return c.ErrForbidden
+			}
+			if postmerge {
+				qaEnvironment, e = resolveNativeQAEnvironment(*x.Binding, a, pr, nil, nil)
+			} else {
+				qaEnvironment, qaHandoff, e = nativeJobQAEnvironment(ctx, m, x, a, pr)
+			}
+			if e != nil {
+				return e
 			}
 		}
 		if postmerge {
@@ -418,17 +454,30 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 						return err
 					}
 					reports[report.ID] = report
-					if _, ok := nativeQAState(task.Binding, a, pr, reports); !ok {
+					handoffs, err := nativeQAHandoffs(ctx, m, a)
+					if err != nil {
+						return err
+					}
+					if _, ok := nativeQAState(task.Binding, a, pr, reports, handoffs...); !ok {
 						return c.ErrForbidden
 					}
 				}
 			}
 		}
+		if in.Operation == "deliver" && nativeContributor(pr, cfg.Self.ID) {
+			return c.ErrForbidden
+		}
 		if step == "task-completed" && !pr.Merged {
 			return c.ErrForbidden
 		}
-		if _, err := nativeCurrentGoal(ctx, cfg, m, x.Goal); err != nil {
+		fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+		if err != nil {
 			return err
+		}
+		if in.Operation == "deliver" {
+			if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, fresh); err != nil {
+				return err
+			}
 		}
 		record.State, record.Step = "uncertain", step
 		if err := saveNativeAction(cfg, record); err != nil {
@@ -835,7 +884,10 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			if report.Imported || report.ID != record.Result.EvidenceMessageID || report.AuthorID != cfg.Master.AgentID || report.AuthorKind != "agent" || report.ThreadID != dest.ThreadID || BodyHash(report.Body) != record.Result.EvidenceBodySHA {
 				return empty, c.ErrForbidden
 			}
-			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: a.Revision.Proposal.QA.Environment, EnvironmentRevision: a.Revision.Proposal.QA.EnvironmentRevision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			if qaHandoff != nil {
+				qa.Assessment, qa.HandoffID = "reassessment", qaHandoff.ID
+			}
 			public = "Independent customer QA " + in.Verdict + " for this exact head. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
 			if postmerge {
 				qa.Assessment, qa.HandoffID = "first-postmerge", postmergeHandoff.ID
@@ -870,7 +922,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		}
 		record.Result.URL = pr.URL
 	case "deliver":
-		if x.Job.Kind != "deliver" || x.Binding == nil || cfg.Self.ID != task.Binding.AuthorID || cfg.Master.AgentID != a.Actors.Author.PrincipalID {
+		if x.Job.Kind != "deliver" || x.Binding == nil || !nativeDeliveryActor(cfg, task.Binding) {
 			return empty, c.ErrForbidden
 		}
 		if !pr.Merged {
@@ -914,7 +966,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		// GitHub can close the linked task as part of merging the PR. Confirm
 		// that exact completed delivery before attempting another task write.
 		if record.Step != "task-completed" {
-			confirmed := nativeConfirmDelivery(ctx, cfg, reader, a, x)
+			confirmed := nativeConfirmDelivery(ctx, cfg, m, reader, a, x)
 			if confirmed == nil {
 				record.Step = "task-completed"
 				if err = saveNativeAction(cfg, record); err != nil {
@@ -946,7 +998,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		return empty, c.ErrInvalid
 	}
 	if in.Operation == "deliver" {
-		if err = nativeConfirmDelivery(ctx, cfg, reader, a, x); err != nil {
+		if err = nativeConfirmDelivery(ctx, cfg, m, reader, a, x); err != nil {
 			return empty, err
 		}
 	}
@@ -958,9 +1010,12 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	return record.Result, nil
 }
 
-func nativeConfirmDelivery(ctx context.Context, cfg Config, g *GitHubClient, a c.GoalAuthority, x NativeExecution) error {
-	if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || cfg.Self.ID != x.Binding.AuthorID || cfg.Master.AgentID != a.Actors.Author.PrincipalID {
+func nativeConfirmDelivery(ctx context.Context, cfg Config, m NativeEngineeringMaster, g *GitHubClient, a c.GoalAuthority, x NativeExecution) error {
+	if x.Job.Kind != "deliver" || x.Binding == nil || x.Job.Master == nil || x.Job.Master.Role != "delivery" {
 		return c.ErrForbidden
+	}
+	if err := verifyNativeDelivery(ctx, cfg, m, *x.Binding, a); err != nil {
+		return err
 	}
 	task, err := g.ReadNativeTask(ctx, cfg, x.Job.TaskURL)
 	if err != nil {
@@ -976,5 +1031,12 @@ func nativeConfirmDelivery(ctx context.Context, cfg Config, g *GitHubClient, a c
 	if !pr.Merged || pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 		return c.ErrConflict
 	}
-	return nil
+	if nativeContributor(pr, cfg.Self.ID) {
+		return c.ErrForbidden
+	}
+	fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+	if err != nil {
+		return err
+	}
+	return verifyNativeDelivery(ctx, cfg, m, *x.Binding, fresh)
 }

@@ -277,6 +277,37 @@ func TestNativeBlockerNoticeNetworkingDoesNotHoldWorkerTick(t *testing.T) {
 	}
 }
 
+func TestNativeBlockerNoticeReachesCoordinator(t *testing.T) {
+	cfg, comms, store, owner, bot, _, _ := commsFixture(t)
+	coordinator := c.Principal{ID: "rook", Alias: "coordinator", Kind: "agent", Engagements: []string{"coop"}, Capabilities: []string{"read", "send"}, GitHubBotID: 99}
+	if err := store.Configure(t.Context(), []c.Principal{owner, bot, coordinator}, []c.Placement{{AgentID: bot.ID, HostID: cfg.Master.HostID, InstanceID: cfg.Master.InstanceID, Generation: 1}, {AgentID: coordinator.ID, HostID: "host", InstanceID: "rook-instance", Generation: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	thread, err := store.CreateThread(t.Context(), owner, c.CreateThread{Title: "Team", Engagement: "coop", Members: []string{owner.ID, bot.ID, coordinator.ID}, RequestID: "team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Master.BlockerRecipient = coordinator.Alias
+	if err := comms.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{ID: BodyHash("blocked"), Kind: "fix", Master: &MasterJobBinding{ThreadID: thread.ID}}
+	d := &NativeDispatcher{config: cfg, master: comms.Client.(NativeEngineeringMaster), clock: RealClock{}, history: map[string]NativeExecution{j.ID: {Job: j, Phase: "blocked", Reason: "native_completed_without_result"}}}
+	for range 2 {
+		if err := notifyNativeBlockers(t, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := store.Messages(t.Context(), owner, thread.ID, 0)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("expected one coordinator notice: %+v %v", page, err)
+	}
+	status, err := store.MessageStatus(t.Context(), owner, page.Messages[0].ID)
+	if err != nil || len(status.Deliveries) != 1 || status.Deliveries[0].AgentID != coordinator.ID || status.Deliveries[0].State != "queued" {
+		t.Fatalf("coordinator not awakened: %+v %v", status, err)
+	}
+}
+
 func TestNativeBlockerNoticesRespectPausePlacementAndOwnerRouting(t *testing.T) {
 	for _, scenario := range []string{"paused", "admission_paused", "epoch", "agent_recipient", "agent_alias"} {
 		t.Run(scenario, func(t *testing.T) {

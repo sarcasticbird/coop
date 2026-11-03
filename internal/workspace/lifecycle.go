@@ -72,6 +72,11 @@ func (c Controller) ensureLocked(ctx context.Context, s Spec) error {
 	case runtime.StateStopped:
 		return c.Backend.Start(ctx, s)
 	default:
+		if ready, ok := c.Backend.(interface {
+			WaitReady(context.Context, Spec) error
+		}); ok {
+			return ready.WaitReady(ctx, s)
+		}
 		return nil
 	}
 }
@@ -92,6 +97,13 @@ func (c Controller) downLocked(ctx context.Context, s Spec) error {
 
 func (c Controller) Apply(ctx context.Context, s Spec) error {
 	return c.withLock(ctx, s, func() error {
+		if backend, ok := c.Backend.(interface {
+			ResumeApply(context.Context, Spec) (bool, error)
+		}); ok {
+			if handled, err := backend.ResumeApply(ctx, s); handled || err != nil {
+				return err
+			}
+		}
 		info, err := c.owned(ctx, s)
 		if err != nil {
 			return err
@@ -112,7 +124,12 @@ func (c Controller) Destroy(ctx context.Context, s Spec) error {
 			return err
 		}
 		if info.State == runtime.StateAbsent {
-			return fmt.Errorf("%s does not exist", s.RuntimeName)
+			// A failed portable destroy may have removed the container but left
+			// volumes. Its retained ownership record authorizes only that cleanup.
+			r, err := c.Store.Load(s.Mode, s.Identity)
+			if err != nil || s.Mode != Agent || r.Applied.Runtime != "container" || r.RuntimeName != s.RuntimeName {
+				return fmt.Errorf("%s does not exist or has no portable destruction ownership", s.RuntimeName)
+			}
 		}
 		if info.State == runtime.StateRunning {
 			if err := c.Backend.Stop(ctx, s); err != nil {

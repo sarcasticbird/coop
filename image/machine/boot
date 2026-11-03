@@ -1,0 +1,15 @@
+#!/bin/bash
+# Only portable named containers use this entrypoint. The machine plugin keeps
+# its existing /sbin/init entrypoint and root-disk behavior.
+set -euo pipefail
+umask 077
+for directory in /root /workspace /var/lib/coop /usr/local/libexec; do
+  test -d "$directory" && test ! -L "$directory"
+done
+chmod 0700 /root /workspace /var/lib/coop
+for helper in coop-guest coop-env coop-agent-run coop-service-run; do
+  destination=/usr/local/libexec/$helper
+  test ! -L "$destination"
+  install -m 0755 "/opt/coop-machine/libexec/$helper" "$destination"
+done
+exec /sbin/init
