@@ -5,6 +5,11 @@ and `/workspace` checkout directory. They have administrative access inside
 the guest. Host home and project folders are not shared. Interactive Coops
 continue to mount the selected project and explicitly configured folders.
 
+Refreshed birds may opt into [volume-backed named containers](bird-runtime.md)
+for replaceable images. Their home, work, worker state and managed helpers live
+on guest-only volumes. Existing profiles keep the machine behavior below;
+switching an existing machine profile's backend is never automatic.
+
 Agent machines require Apple Container 1.5.0 or newer. Cold disk recovery is
 currently supported only with its verified 1.5.x storage layout.
 

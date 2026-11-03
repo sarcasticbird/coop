@@ -46,8 +46,9 @@ loop. Keep gh-sweep unchanged for now: it is the refreshed birds' first real
 project under the new workflow, not a historical migration prerequisite.
 
 The memory API/importer, Rook-only native merge policy and earlier coordination/
-startup cleanup are implemented in source. Portable execution state, actual
-image-swap support and live fleet activation remain implementation work.
+startup cleanup are implemented in source. [Portable named-container state and
+fenced image replacement](bird-runtime.md) are now opt-in source features.
+Real-runtime UAT and live fleet activation remain pending.
 
 ## Future history policy
 

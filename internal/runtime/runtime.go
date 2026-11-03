@@ -22,15 +22,17 @@ import (
 
 // RunSpec describes a session container to create.
 type RunSpec struct {
-	Name    string
-	Image   string
-	CPUs    int
-	Memory  string
-	SSH     bool
-	Env     map[string]string
-	Labels  map[string]string
-	Mounts  []Mount  // bind mounts (source resolved host-side)
-	Volumes []Volume // named volumes
+	Command    []string // defaults to the interactive sleep entrypoint
+	GuestAdmin bool     // machine-equivalent administration inside the isolated VM
+	Name       string
+	Image      string
+	CPUs       int
+	Memory     string
+	SSH        bool
+	Env        map[string]string
+	Labels     map[string]string
+	Mounts     []Mount  // bind mounts (source resolved host-side)
+	Volumes    []Volume // named volumes
 	// Publishes map guest TCP ports to host loopback.
 	Publishes []Publish
 }
@@ -358,6 +360,9 @@ func runArgs(spec RunSpec) ([]string, error) {
 	}
 	args := []string{"run", "-d", "--name", spec.Name,
 		"--cpus", fmt.Sprint(spec.CPUs), "--memory", spec.Memory}
+	if spec.GuestAdmin {
+		args = append(args, "--cap-add", "ALL", "--masked-path", "NONE", "--read-only-path", "NONE")
+	}
 	if spec.SSH {
 		args = append(args, "--ssh")
 	}
@@ -380,7 +385,17 @@ func runArgs(spec RunSpec) ([]string, error) {
 	for _, publish := range spec.Publishes {
 		args = append(args, "--publish", fmt.Sprintf("127.0.0.1:%d:%d/tcp", publish.HostPort, publish.GuestPort))
 	}
-	args = append(args, spec.Image, "sleep", "infinity")
+	args = append(args, spec.Image)
+	command := spec.Command
+	if len(command) == 0 {
+		command = []string{"sleep", "infinity"}
+	}
+	for _, arg := range command {
+		if strings.ContainsRune(arg, '\x00') {
+			return nil, fmt.Errorf("invalid container command")
+		}
+	}
+	args = append(args, command...)
 	return args, nil
 }
 

@@ -92,6 +92,13 @@ func (c Controller) downLocked(ctx context.Context, s Spec) error {
 
 func (c Controller) Apply(ctx context.Context, s Spec) error {
 	return c.withLock(ctx, s, func() error {
+		if backend, ok := c.Backend.(interface {
+			ResumeApply(context.Context, Spec) (bool, error)
+		}); ok {
+			if handled, err := backend.ResumeApply(ctx, s); handled || err != nil {
+				return err
+			}
+		}
 		info, err := c.owned(ctx, s)
 		if err != nil {
 			return err

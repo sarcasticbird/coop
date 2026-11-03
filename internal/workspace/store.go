@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	c "github.com/sarcasticbird/coop/internal/coordination"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,6 +50,18 @@ func configName(name string) error {
 	return nil
 }
 func ValidateRecord(r Record) error {
+	if r.Applied.Runtime != "" && (r.Mode != Agent || r.Applied.Runtime != "container") {
+		return fmt.Errorf("unsupported workspace runtime")
+	}
+	if r.Applied.Execution != nil && (r.Mode != Agent || r.Applied.Runtime != "container") {
+		return fmt.Errorf("execution binding requires a portable agent")
+	}
+	if r.Applied.Execution != nil && c.ValidateExecutionBinding(*r.Applied.Execution) != nil {
+		return fmt.Errorf("invalid workspace execution binding")
+	}
+	if _, worker := r.Applied.Services["worker"]; worker && r.Applied.Runtime == "container" && r.Applied.Execution == nil {
+		return fmt.Errorf("portable worker ownership requires an execution binding")
+	}
 	if err := validKey(r.Mode, r.Identity); err != nil {
 		return err
 	}

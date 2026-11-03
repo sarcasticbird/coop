@@ -20,13 +20,14 @@ import (
 )
 
 type AppleStorage struct {
-	Machine           runtime.AppleMachine
-	Store             workspace.Store
-	Target            *workspace.Spec
-	CreateInteractive func(context.Context, workspace.Record, string, func(string) error) error
-	Maintenance       bool
-	Archive           string
-	ArchiveSHA256     string
+	Machine              runtime.AppleMachine
+	Store                workspace.Store
+	Target               *workspace.Spec
+	CreateInteractive    func(context.Context, workspace.Record, string, func(string) error) error
+	CreateAgentContainer func(context.Context, workspace.Record) error
+	Maintenance          bool
+	Archive              string
+	ArchiveSHA256        string
 }
 type volumeRecord struct {
 	Name    string `json:"name"`
@@ -218,7 +219,7 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 	snapshot := Snapshot{Record: r, RuntimeVersion: version}
 	meta := diskMetadata{Source: r, RuntimeVersion: version}
 	var bundle string
-	if r.Mode == workspace.Agent {
+	if r.Mode == workspace.Agent && r.Applied.Runtime != "container" {
 		info, state, err := s.Machine.Inspect(ctx, r.RuntimeName)
 		if err != nil {
 			return snapshot, err
@@ -251,6 +252,24 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 			return snapshot, err
 		}
 	} else {
+		if r.Mode == workspace.Agent {
+			rows, err := s.Machine.NativeContainers(ctx)
+			if err != nil {
+				return snapshot, err
+			}
+			found := false
+			for _, row := range rows {
+				if row.Configuration.ID == r.RuntimeName {
+					if err := workspace.ValidatePortableContainer(row, r); err != nil {
+						return snapshot, err
+					}
+					found = true
+				}
+			}
+			if !found {
+				return snapshot, fmt.Errorf("portable agent container is absent")
+			}
+		}
 		info, err := s.container(ctx, r.RuntimeName)
 		if err != nil {
 			return snapshot, err
@@ -268,7 +287,7 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 		if err != nil {
 			return snapshot, err
 		}
-		volumes, err := runtime.NewApple().ListVolumes()
+		volumes, err := s.Machine.NativeVolumes(ctx)
 		if err != nil {
 			return snapshot, err
 		}
@@ -304,6 +323,20 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 			meta.Volumes = append(meta.Volumes, volumeRecord{Name: name, Payload: payload})
 			if err := appendDisk(&snapshot, payload, path); err != nil {
 				return snapshot, err
+			}
+		}
+		if r.Mode == workspace.Agent {
+			if len(meta.Volumes) != len(workspace.AgentVolumes(r.RuntimeName)) {
+				return snapshot, fmt.Errorf("portable agent data volume set is incomplete")
+			}
+			for _, want := range workspace.AgentVolumes(r.RuntimeName) {
+				found := false
+				for _, v := range meta.Volumes {
+					found = found || v.Name == want.Name
+				}
+				if !found {
+					return snapshot, fmt.Errorf("portable agent data volume is missing")
+				}
 			}
 		}
 	}
@@ -417,7 +450,7 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 		return s.publishMaintenance(ctx, r, meta, root, dir, pending)
 	}
 	var bundle string
-	if r.Mode == workspace.Agent {
+	if r.Mode == workspace.Agent && r.Applied.Runtime != "container" {
 		_, state, err := s.Machine.Inspect(ctx, r.RuntimeName)
 		if err != nil {
 			return err
@@ -436,23 +469,25 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 			return err
 		}
 	} else {
-		if s.CreateInteractive == nil {
+		if s.CreateInteractive == nil && (r.Mode != workspace.Agent || s.CreateAgentContainer == nil) {
 			return fmt.Errorf("interactive recovery creation is not configured")
 		}
 		// Prove absence using a successful full listing, not a failed inspect.
-		state, err := runtime.NewApple().State(r.RuntimeName)
+		rows, err := s.Machine.NativeContainers(ctx)
 		if err != nil {
 			return err
 		}
-		if state != runtime.StateAbsent {
-			return fmt.Errorf("destination interactive Coop already exists")
+		for _, row := range rows {
+			if row.Configuration.ID == r.RuntimeName {
+				return fmt.Errorf("destination container already exists")
+			}
 		}
 		for _, v := range meta.Volumes {
 			if !strings.HasPrefix(v.Name, meta.Source.RuntimeName+project.VolumeSep) || !payloadName.MatchString(v.Payload) {
 				return fmt.Errorf("archive volume ownership mismatch")
 			}
 			name := r.RuntimeName + strings.TrimPrefix(v.Name, meta.Source.RuntimeName)
-			volumes, err := runtime.NewApple().ListVolumes()
+			volumes, err := s.Machine.NativeVolumes(ctx)
 			if err != nil {
 				return err
 			}
@@ -462,7 +497,11 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 				}
 			}
 		}
-		if err := s.CreateInteractive(ctx, r, "", nil); err != nil {
+		if r.Mode == workspace.Agent {
+			if err := s.CreateAgentContainer(ctx, r); err != nil {
+				return err
+			}
+		} else if err := s.CreateInteractive(ctx, r, "", nil); err != nil {
 			return err
 		}
 		bundle, err = ownedPath(root, "containers", r.RuntimeName)
@@ -471,8 +510,18 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 		}
 		for _, v := range meta.Volumes {
 			name := r.RuntimeName + strings.TrimPrefix(v.Name, meta.Source.RuntimeName)
-			if err := runtime.NewApple().EnsureVolume(name); err != nil {
+			volumes, err := s.Machine.NativeVolumes(ctx)
+			if err != nil {
 				return err
+			}
+			exists := false
+			for _, v := range volumes {
+				exists = exists || v == name
+			}
+			if !exists {
+				if _, err := s.Machine.Output(ctx, "volume", "create", name); err != nil {
+					return err
+				}
 			}
 			dest, err := s.volumeSource(ctx, root, name)
 			if err != nil {
@@ -497,7 +546,7 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 	if err := replaceColdDisk(ctx, filepath.Join(dir, "rootfs"), destination); err != nil {
 		return fmt.Errorf("incomplete restore of %s: %w", r.RuntimeName, err)
 	}
-	if r.Mode == workspace.Agent && meta.Initialized {
+	if r.Mode == workspace.Agent && r.Applied.Runtime != "container" && meta.Initialized {
 		marker, err := ownedPath(bundle, "machine.initialized")
 		if err != nil {
 			return err
@@ -513,11 +562,21 @@ func validatePayloadSet(dir string, meta diskMetadata) error {
 	want := map[string]bool{"rootfs": true, ".runtime-metadata.json": true}
 	names := map[string]bool{}
 	for _, v := range meta.Volumes {
-		if meta.Source.Mode != workspace.Interactive || !strings.HasPrefix(v.Name, meta.Source.RuntimeName+project.VolumeSep) || !archiveVolumeName.MatchString(v.Name) || !strings.HasPrefix(v.Payload, "volume-") || !payloadName.MatchString(v.Payload) || want[v.Payload] || names[v.Name] {
+		if (meta.Source.Mode != workspace.Interactive && meta.Source.Applied.Runtime != "container") || !strings.HasPrefix(v.Name, meta.Source.RuntimeName+project.VolumeSep) || !archiveVolumeName.MatchString(v.Name) || !strings.HasPrefix(v.Payload, "volume-") || !payloadName.MatchString(v.Payload) || want[v.Payload] || names[v.Name] {
 			return fmt.Errorf("invalid archive volume ownership or payload mapping")
 		}
 		want[v.Payload] = true
 		names[v.Name] = true
+	}
+	if meta.Source.Mode == workspace.Agent && meta.Source.Applied.Runtime == "container" {
+		if len(meta.Volumes) != len(workspace.AgentVolumes(meta.Source.RuntimeName)) {
+			return fmt.Errorf("incomplete portable agent backup")
+		}
+		for _, v := range workspace.AgentVolumes(meta.Source.RuntimeName) {
+			if !names[v.Name] {
+				return fmt.Errorf("missing portable agent backup volume")
+			}
+		}
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {

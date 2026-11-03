@@ -37,11 +37,20 @@ func Merge(containers []runtime.ContainerInfo, machines []Machine, records []wor
 	for _, c := range containers {
 		if !children[c.Name] {
 			c.Mode = "interactive"
+			if r, ok := owned[c.Name]; ok && r.Applied.Runtime == "container" {
+				if c.Labels["coop.agent"] != r.Identity || c.Labels["coop.storage"] != "agent-volumes-v1" {
+					return nil, fmt.Errorf("portable agent ownership mismatch")
+				}
+				c.Mode, c.Profile = "agent", r.Identity
+			}
 			rows = append(rows, c)
 		}
 	}
 	for _, m := range machines {
 		if r, ok := owned[m.Name]; ok {
+			if r.Applied.Runtime == "container" {
+				return nil, fmt.Errorf("portable agent conflicts with a machine-plugin VM")
+			}
 			if m.State != "running" && m.State != "stopped" {
 				return nil, fmt.Errorf("machine %s state is not authoritative", m.Name)
 			}

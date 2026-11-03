@@ -19,8 +19,13 @@ COPY coop-agent-run /usr/local/libexec/coop-agent-run
 COPY coop-service-run /usr/local/libexec/coop-service-run
 COPY coop-agent.service /etc/systemd/system/coop-agent.service
 COPY coop-helper@.service /etc/systemd/system/coop-helper@.service
+COPY boot /opt/coop-machine/boot
+COPY coop-guest /opt/coop-machine/libexec/coop-guest
+COPY coop-env /opt/coop-machine/libexec/coop-env
+COPY coop-agent-run /opt/coop-machine/libexec/coop-agent-run
+COPY coop-service-run /opt/coop-machine/libexec/coop-service-run
 COPY zshrc /etc/zshrc
-RUN chmod 0755 /usr/local/bin/coop-user-env /usr/local/libexec/coop-* && \
+RUN chmod 0755 /usr/local/bin/coop-user-env /usr/local/libexec/coop-* /opt/coop-machine/boot && \
     chmod 0700 /var/lib/coop
 ENV HOME=/root
 ENV COOP_CORE=/opt/coop-core
@@ -31,4 +36,7 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV NIX_REMOTE=local
 ENV container=container
 WORKDIR /workspace
+# Native containers must request systemd poweroff rather than SIGTERM, which
+# systemd does not interpret as a graceful machine shutdown (glibc SIGRTMIN+4).
+STOPSIGNAL 38
 CMD ["/sbin/init"]

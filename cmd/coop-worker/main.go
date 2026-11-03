@@ -51,7 +51,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return qaSourceDigest(args[1:], out)
 	}
 	switch command {
-	case "run", "validate", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "recover-master-migration", "init-state":
+	case "run", "validate", "portable-check", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "recover-master-migration", "init-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -175,6 +175,13 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 			return err
 		}
 		return json.NewEncoder(out).Encode(map[string]bool{"compatible": true})
+	}
+	if command == "portable-check" {
+		binding, err := worker.PortableBinding(c)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(binding)
 	}
 	store := worker.NewVersionedFileStore(c.StateDir, c.Version)
 	if command != "validate" && command != "status" {

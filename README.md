@@ -76,6 +76,9 @@ The managed agent continues after terminal detachment. Its home, repositories,
 and installed services survive stop/start. See [Persistent agents](docs/agents.md)
 for profiles, server commands, helper services, credentials, and recovery.
 
+Refreshed birds can use opt-in [portable runtimes](docs/bird-runtime.md) with
+guest-only data volumes and fenced image replacement. Existing machines are unchanged.
+
 ## Everyday commands
 
 ```text

@@ -72,5 +72,7 @@ include that instruction. Retire the old files only after verification.
 The API and importer are source changes, not a live fleet migration. Installing
 the matching master and worker binaries and importing each bird's existing files
 are still required. Host-side memory persistence removes one dependency on guest
-disks; it does not yet make checkouts, native session databases or action journals
-portable. Full image replacement remains a separate lifecycle change.
+disks. [Portable bird runtimes](bird-runtime.md) add guest-only volumes for
+checkouts, native sessions, worker journals and managed helpers, with explicit
+fenced image replacement. Their live boot/image-swap UAT and fleet activation
+are still pending.

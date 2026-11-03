@@ -1,0 +1,27 @@
+# Merge into private host configuration for a NEW profile. Do not change an
+# existing machine profile's backend. Replace every identity/path placeholder.
+[profiles.pilot]
+runtime = "container"
+command = ["opencode"]
+orgs = ["example"]
+restart = "no"
+# Declare explicit credential grants separately, as for machine profiles.
+
+[profiles.pilot.resources]
+cpus = 4
+memory = "8G"
+
+[profiles.pilot.execution]
+master_id = "example-master"
+agent_id = "pilot"
+host_id = "example-host"
+worker_instance_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+generation = 1
+client_config = "/absolute/private/pilot-master-client.toml"
+
+# Stage binaries, private config and init-state through an administrative shell
+# before calling up. The worker's state/work paths must be on the data volumes.
+# Include the existing authenticated OpenCode server helper as well; this
+# example is not a complete private worker/server/credential configuration.
+[profiles.pilot.services.worker]
+command = ["/usr/local/libexec/coop-worker", "run", "--config", "/var/lib/coop/worker/config.json"]
