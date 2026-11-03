@@ -13,7 +13,7 @@ type ExecutionBinding struct {
 }
 
 func ValidateExecutionBinding(b ExecutionBinding) error {
-	if ValidateDiagnosticBinding(DiagnosticBinding{MasterID: b.MasterID, Placement: b.Placement}) != nil || len(b.InstanceID) != 64 || b.InstanceID != strings.ToLower(b.InstanceID) {
+	if ValidateDiagnosticBinding(DiagnosticBinding(b)) != nil || len(b.InstanceID) != 64 || b.InstanceID != strings.ToLower(b.InstanceID) {
 		return ErrInvalid
 	}
 	if _, err := hex.DecodeString(b.InstanceID); err != nil {

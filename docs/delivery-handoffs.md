@@ -128,8 +128,12 @@ mergeability and head-match checks. An approved task is sufficient for routine
 merging; a release request is not a merge prerequisite and grants Rook no tag or
 release authority. Rook's ordinary delivery prompt does not instruct publication.
 
-Rook routes the release request to the original assigned author. That author can
-execute the guarded follow-up without inventing a new implementation task:
+The master delivers the owner's release request directly to the original
+assigned author through the existing durable message queue, including when the
+source task is already completed. Retrying the same request repairs a failed
+notification without creating another handoff or wake. Rook retains merge and
+task-completion ownership; the author receives release-only follow-up authority,
+without inventing a new implementation task:
 
 ```sh
 /usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json \
@@ -150,7 +154,7 @@ the PR merged. A remotely visible merge cannot bypass local write recovery.
 The result is `waiting` while the matching tag workflow/publication is pending.
 Failed or cancelled workflow runs return `blocked` with a concrete reason. A
 later successful workflow rerun can be checked with the same handoff and tag.
-Rook schedules a later check using the same handoff. `published` requires a
+An explicit follow-up to the author can check the same handoff. `published` requires a
 successful matching workflow and a non-draft release with assets. This receipt
 is not independent artifact QA, checksum/provenance verification or an install
 pass. The private local journal prevents duplicate tag writes. An unknown write

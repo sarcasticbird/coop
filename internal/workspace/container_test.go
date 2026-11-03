@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -56,11 +57,12 @@ func (r *portableRuntime) command(_ context.Context, args []string, _ io.Reader,
 			return writeJSON(rows)
 		}
 		r.writes = append(r.writes, strings.Join(args, " "))
-		if args[1] == "create" {
+		switch args[1] {
+		case "create":
 			r.volumes[args[2]] = "initial data"
-		} else if args[1] == "rm" {
+		case "rm":
 			delete(r.volumes, args[2])
-		} else {
+		default:
 			return fmt.Errorf("unexpected volume command %v", args)
 		}
 		return nil
@@ -353,6 +355,88 @@ func TestPortableRestoreTargetRemainsUnownedUntilColdPublication(t *testing.T) {
 	before := len(r.writes)
 	if err := c.Ensure(t.Context(), s); err == nil || len(r.writes) != before {
 		t.Fatal("unfinished restore started")
+	}
+}
+
+func TestPortableDestroyResumesAfterPartialRemoval(t *testing.T) {
+	for _, fault := range []string{"container-before", "container-after", "volume-before", "volume-after", "last-volume-after"} {
+		t.Run(fault, func(t *testing.T) {
+			s, b, r := portableFixture(t)
+			c := Controller{Backend: b, Store: b.Store}
+			if err := c.Ensure(t.Context(), s); err != nil {
+				t.Fatal(err)
+			}
+			volumeCalls, failed := 0, false
+			b.Runtime.Command = func(ctx context.Context, args []string, in io.Reader, out, stderr io.Writer) error {
+				if failed {
+					return r.command(ctx, args, in, out, stderr)
+				}
+				removeContainer := args[0] == "rm"
+				removeVolume := len(args) > 1 && args[0] == "volume" && args[1] == "rm"
+				if removeVolume {
+					volumeCalls++
+				}
+				inject := removeContainer && strings.HasPrefix(fault, "container-") || removeVolume && (volumeCalls == 2 && strings.HasPrefix(fault, "volume-") || volumeCalls == 4 && fault == "last-volume-after")
+				if !inject {
+					return r.command(ctx, args, in, out, stderr)
+				}
+				failed = true
+				if strings.HasSuffix(fault, "after") {
+					if err := r.command(ctx, args, in, out, stderr); err != nil {
+						return err
+					}
+				}
+				return errors.New("removal interrupted")
+			}
+			c.Backend = b
+			if err := c.Destroy(t.Context(), s); err == nil || !failed {
+				t.Fatal("removal fault not exercised", err)
+			}
+			if _, err := b.Store.Load(s.Mode, s.Identity); err != nil {
+				t.Fatal("partial destruction lost ownership", err)
+			}
+			if err := c.Destroy(t.Context(), s); err != nil {
+				t.Fatal("partial destruction could not resume", err)
+			}
+			if len(r.rows) != 0 || len(r.volumes) != 0 {
+				t.Fatal("owned resources remain after destruction")
+			}
+			if _, err := b.Store.Load(s.Mode, s.Identity); !os.IsNotExist(err) {
+				t.Fatal("completed destruction retained ownership", err)
+			}
+		})
+	}
+}
+
+func TestPortableDestroyRetryPreservesUnownedOrSharedVolumes(t *testing.T) {
+	for _, scenario := range []string{"unowned", "shared", "drifted"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, b, r := portableFixture(t)
+			if err := b.Create(t.Context(), s); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "unowned":
+				delete(r.rows, s.RuntimeName)
+				if err := b.Store.Remove(s.Mode, s.Identity); err != nil {
+					t.Fatal(err)
+				}
+			case "shared":
+				other := r.rows[s.RuntimeName]
+				other.Configuration.ID = "foreign-reader"
+				r.rows[other.Configuration.ID] = other
+				delete(r.rows, s.RuntimeName)
+			case "drifted":
+				row := r.rows[s.RuntimeName]
+				row.Configuration.Labels[storageLabel] = "foreign"
+				r.rows[s.RuntimeName] = row
+			}
+			before := len(r.writes)
+			c := Controller{Backend: b, Store: b.Store}
+			if err := c.Destroy(t.Context(), s); err == nil || len(r.writes) != before || len(r.volumes) != 4 {
+				t.Fatal("destruction bypassed ownership or reference checks", err)
+			}
+		})
 	}
 }
 

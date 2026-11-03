@@ -12,6 +12,7 @@ const (
 	MaxPageBytes      = 1 << 20
 	MaxPageRecords    = 100
 	MaxPending        = 128
+	MaxPeerHops       = 20
 	MaxMessages       = 100000
 	HeartbeatInterval = 15 * time.Second
 	PresenceStale     = 45 * time.Second

@@ -90,8 +90,10 @@ request ID conflicts. A reply uses `--reply-to MESSAGE_ID`. Owner replies withou
 explicit recipients address the parent author, excluding the sender. Agent and
 service replies are quiet by default: publishing a result does not wake another
 model. For a handoff that needs action, explicitly name the recipient with `--to`.
-Empty recipients record a note without waking watchers. Explicit handoffs have no
-hop limit; idempotent requests and bounded pending queues remain enforced.
+Empty recipients record a note without waking watchers. Addressed agent/service
+replies are suppressed after 20 peer hops in one parent-linked chain; their
+messages and `peer_hop_limit` receipts remain readable. Owner messages start a
+fresh chain. Idempotent requests and bounded pending queues remain enforced.
 Historical suppressed receipts retain their original meaning and are not replayed.
 
 Workers keep rebuildable pending inbox/outbox indexes under `master/v1/indexes`.

@@ -135,9 +135,13 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, p c.Principal, in
 			continue
 		}
 		d := c.Delivery{ID: newID("d"), MessageID: m.ID, AgentID: id, State: "queued"}
-		// Explicit requests are not suppressed because of conversation depth.
-		// Quiet replies prevent reflexive reply loops; the pending limit bounds
-		// addressed work. Hop remains historical provenance, not admission.
+		// Quiet replies prevent reflexive loops; a generous ceiling also bounds
+		// explicit peer ping-pong. Owner messages start a fresh chain.
+		if p.Kind != "owner" && m.Hop > c.MaxPeerHops {
+			d.State, d.Reason = "suppressed", "peer_hop_limit"
+			out.Deliveries = append(out.Deliveries, d)
+			continue
+		}
 		var pending int
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM deliveries WHERE agent_id=? AND state IN ('publishing','queued','received','running','admitted')", id).Scan(&pending); err != nil {
 			return out, err

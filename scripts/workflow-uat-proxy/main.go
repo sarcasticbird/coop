@@ -75,18 +75,18 @@ func main() {
 		if r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/session/") && strings.HasSuffix(r.URL.Path, "/prompt_async") {
 			raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 			if err != nil {
-				http.Error(w, "invalid native request", 413)
+				http.Error(w, "invalid native request", http.StatusRequestEntityTooLarge)
 				return
 			}
 			var body struct {
 				MessageID string `json:"messageID"`
 			}
 			if json.Unmarshal(raw, &body) != nil || !strings.HasPrefix(body.MessageID, "msg_") {
-				http.Error(w, "missing native intent", 400)
+				http.Error(w, "missing native intent", http.StatusBadRequest)
 				return
 			}
 			if err := reserve(*counter, r.URL.Path+"/"+body.MessageID, *limit); err != nil {
-				http.Error(w, "UAT budget/intent held", 409)
+				http.Error(w, "UAT budget/intent held", http.StatusConflict)
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))

@@ -352,7 +352,7 @@ func TestLiveFleetWorkflowPilot(t *testing.T) {
 				} else if err != nil {
 					t.Fatal(err)
 				}
-				if x.Phase == "blocked" && (x.Reason == "native_completed_without_result" || x.Reason == "native_observation_unavailable") && !(completionFault.Load() && x.Job.Kind == "deliver") {
+				if x.Phase == "blocked" && (x.Reason == "native_completed_without_result" || x.Reason == "native_observation_unavailable") && (!completionFault.Load() || x.Job.Kind != "deliver") {
 					t.Fatalf("%s %s held: %s; inspect retained evidence", s.Spec.Identity, x.Job.Kind, x.Reason)
 				}
 			}

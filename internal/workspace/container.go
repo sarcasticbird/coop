@@ -197,6 +197,10 @@ func (b ContainerBackend) coldVolumes(ctx context.Context, s Spec, required bool
 			return fmt.Errorf("agent data volume %s is missing or unexpectedly present", v.Name)
 		}
 	}
+	return b.unsharedStoppedVolumes(ctx, s)
+}
+
+func (b ContainerBackend) unsharedStoppedVolumes(ctx context.Context, s Spec) error {
 	rows, err := b.Runtime.NativeContainers(ctx)
 	if err != nil {
 		return err
@@ -206,7 +210,7 @@ func (b ContainerBackend) coldVolumes(ctx context.Context, s Spec, required bool
 			if mount.Type.Volume == nil {
 				continue
 			}
-			for _, v := range want {
+			for _, v := range AgentVolumes(s.RuntimeName) {
 				if mount.Type.Volume.Name == v.Name && (row.Configuration.ID != s.RuntimeName || row.Status.State != "stopped") {
 					return fmt.Errorf("agent volume %s is referenced by %s", v.Name, row.Configuration.ID)
 				}
@@ -525,13 +529,40 @@ func (b ContainerBackend) Remove(ctx context.Context, s Spec) error {
 	} else if pending != nil {
 		return fmt.Errorf("resolve pending replacement before destruction")
 	}
-	if err := b.coldVolumes(ctx, s, true); err != nil {
+	record, err := b.Store.Load(Agent, s.Identity)
+	if err != nil {
 		return err
 	}
-	if _, err := b.Runtime.Output(ctx, "rm", s.RuntimeName); err != nil {
+	if record.RuntimeName != s.RuntimeName || record.Applied.Runtime != "container" || ValidateRecord(record) != nil {
+		return fmt.Errorf("container destruction ownership mismatch")
+	}
+	row, err := b.current(ctx, s)
+	if err != nil {
 		return err
+	}
+	if row != nil {
+		if err := ValidatePortableContainer(*row, record); err != nil {
+			return err
+		}
+	}
+	// Only explicit destruction tolerates absent resources. Creation, restore
+	// and image replacement still require the complete owned volume set.
+	if err := b.unsharedStoppedVolumes(ctx, s); err != nil {
+		return err
+	}
+	volumes, err := b.Runtime.NativeVolumes(ctx)
+	if err != nil {
+		return err
+	}
+	if row != nil {
+		if _, err := b.Runtime.Output(ctx, "rm", s.RuntimeName); err != nil {
+			return err
+		}
 	}
 	for _, v := range AgentVolumes(s.RuntimeName) {
+		if !slices.Contains(volumes, v.Name) {
+			continue
+		}
 		if _, err := b.Runtime.Output(ctx, "volume", "rm", v.Name); err != nil {
 			return err
 		}

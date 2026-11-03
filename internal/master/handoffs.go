@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -113,7 +114,11 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		return out, c.ErrConflict
 	}
 	if found, e := request(ctx, tx, p.ID, in.RequestID, "handoff", in, &out); found || e != nil {
-		return out, e
+		if e != nil {
+			return out, e
+		}
+		_ = tx.Rollback()
+		return out, svc.notifyReleaseAuthor(ctx, p, a, out)
 	}
 	var count int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM handoffs").Scan(&count); err != nil {
@@ -136,13 +141,50 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if _, err = tx.ExecContext(ctx, "INSERT INTO handoffs(id,goal_id,revision,release_key,body) VALUES(?,?,?,?,?)", out.ID, in.Goal.GoalID, in.Goal.RevisionSHA256, releaseKey, encode(out)); err != nil {
 		return out, err
 	}
+	if in.Kind == "release" {
+		notice := releaseAuthorMessage(a, out)
+		if _, err = authorize(ctx, tx, p, "send"); err != nil {
+			return out, err
+		}
+		if err = member(ctx, tx, p, notice.ThreadID); err != nil {
+			return out, err
+		}
+		receipt, err := svc.Store.insertMessage(ctx, tx, p, notice)
+		if err != nil {
+			return out, err
+		}
+		if err = svc.Store.stageSource(ctx, tx, p, &receipt, ""); err != nil {
+			return out, err
+		}
+		if err = saveRequest(ctx, tx, p.ID, notice.RequestID, "send", notice, receipt); err != nil {
+			return out, err
+		}
+	}
 	if err = saveRequest(ctx, tx, p.ID, in.RequestID, "handoff", in, out); err != nil {
 		return out, err
 	}
 	if err = event(ctx, tx, "handoff", a.Revision.Proposal.ThreadID, ""); err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	return out, svc.notifyReleaseAuthor(ctx, p, a, out)
+}
+
+// Reuse durable message delivery rather than scheduling author merge work.
+// A retry repairs a failed notification without creating another handoff/wake.
+func (svc *Service) notifyReleaseAuthor(ctx context.Context, owner c.Principal, a c.GoalAuthority, h c.Handoff) error {
+	if h.Input.Kind != "release" {
+		return nil
+	}
+	_, err := svc.Store.Send(ctx, owner, releaseAuthorMessage(a, h))
+	return err
+}
+
+func releaseAuthorMessage(a c.GoalAuthority, h c.Handoff) c.SendMessage {
+	body := fmt.Sprintf("Owner-approved release handoff %s for %s. Read this exact handoff through the authenticated master and execute the guarded release follow-up:\n/usr/local/libexec/coop-worker native release --config /var/lib/coop/worker/config.json --goal %s --revision %s --handoff %s\nThis is release-only authority. Verify the merged source and current release gates; do not merge, reopen the task, modify source, or install/deploy. Report the result, preserving the same handoff and any uncertain journal.", h.ID, h.Input.PRURL, h.Input.Goal.GoalID, h.Input.Goal.RevisionSHA256, h.ID)
+	return c.SendMessage{ThreadID: a.Revision.Proposal.ThreadID, Recipients: []string{a.Actors.Author.PrincipalID}, Body: body, RequestID: "release-handoff-" + h.ID}
 }
 func (svc *Service) Handoffs(ctx context.Context, actor c.Principal, in c.HandoffQuery) (c.HandoffPage, error) {
 	out := c.HandoffPage{Handoffs: []c.Handoff{}}
