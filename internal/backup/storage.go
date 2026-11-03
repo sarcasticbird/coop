@@ -42,6 +42,13 @@ type diskMetadata struct {
 
 var archiveVolumeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
 
+// The 1.6.1 native bundle/volume layout is verified by the disposable portable
+// agent cold-restore pilot. This is not a compatibility claim for other 1.6
+// releases, the machine plugin, or interactive maintenance.
+func verifiedColdLayout(version string, r workspace.Record) bool {
+	return strings.HasPrefix(version, "1.5.") || version == "1.6.1" && r.Mode == workspace.Agent && r.Applied.Runtime == "container"
+}
+
 type containerInspection struct {
 	Configuration struct {
 		ID    string `json:"id"`
@@ -73,13 +80,13 @@ func (s AppleStorage) ValidateArchive(m Manifest) error {
 	if !reflect.DeepEqual(meta.Source, m.Record) || meta.RuntimeVersion != m.RuntimeVersion {
 		return fmt.Errorf("archive source metadata does not match its manifest")
 	}
-	if !strings.HasPrefix(m.RuntimeVersion, "1.5.") {
+	if !verifiedColdLayout(m.RuntimeVersion, m.Record) {
 		return fmt.Errorf("%w: archive runtime layout is incompatible", workspace.ErrUnsupported)
 	}
 	return nil
 }
 
-func (s AppleStorage) root(ctx context.Context) (string, string, error) {
+func (s AppleStorage) root(ctx context.Context, r workspace.Record) (string, string, error) {
 	data, err := s.Machine.Output(ctx, "system", "status", "--format", "json")
 	if err != nil {
 		return "", "", err
@@ -95,8 +102,8 @@ func (s AppleStorage) root(ctx context.Context) (string, string, error) {
 	if err := json.Unmarshal(data, &info); err != nil {
 		return "", "", err
 	}
-	if !strings.HasPrefix(info.Server.Version, "1.5.") {
-		return "", "", fmt.Errorf("%w: cold disk layout is verified only for Apple Container 1.5.x", workspace.ErrUnsupported)
+	if !verifiedColdLayout(info.Server.Version, r) {
+		return "", "", fmt.Errorf("%w: cold disk layout is verified only for Apple Container 1.5.x, or 1.6.1 portable agents", workspace.ErrUnsupported)
 	}
 	if !filepath.IsAbs(info.Paths.AppRoot) {
 		return "", "", fmt.Errorf("runtime did not report an absolute storage root")
@@ -212,7 +219,7 @@ func (s AppleStorage) Snapshot(ctx context.Context, r workspace.Record) (Snapsho
 	} else if pending != nil {
 		return Snapshot{}, fmt.Errorf("incomplete maintenance; preserve and resume original archive %s before taking another backup", pending.Archive)
 	}
-	root, version, err := s.root(ctx)
+	root, version, err := s.root(ctx, r)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -430,21 +437,21 @@ func (s AppleStorage) Publish(ctx context.Context, r workspace.Record, dir strin
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	root, _, err := s.root(ctx)
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(meta.RuntimeVersion, "1.5.") {
+	if !verifiedColdLayout(meta.RuntimeVersion, meta.Source) {
 		return fmt.Errorf("%w: archive runtime layout is incompatible", workspace.ErrUnsupported)
 	}
 	if s.Target != nil {
 		if s.Target.Mode != r.Mode || s.Target.Identity != r.Identity {
 			return fmt.Errorf("selected recovery identity mismatch")
 		}
-		if s.Target.Image != r.Image {
+		if strings.TrimPrefix(s.Target.Image, "docker.io/library/") != strings.TrimPrefix(r.Image, "docker.io/library/") {
 			return fmt.Errorf("%w: configure the destination with the archive's image before restoring", workspace.ErrUnsupported)
 		}
 		r = s.Target.Record()
+	}
+	root, _, err := s.root(ctx, r)
+	if err != nil {
+		return err
 	}
 	if s.Maintenance || pending != nil {
 		return s.publishMaintenance(ctx, r, meta, root, dir, pending)

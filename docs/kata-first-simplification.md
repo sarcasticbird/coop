@@ -48,7 +48,7 @@ project under the new workflow, not a historical migration prerequisite.
 The memory API/importer, Rook-only native merge policy and earlier coordination/
 startup cleanup are implemented in source. [Portable named-container state and
 fenced image replacement](bird-runtime.md) are now opt-in source features.
-The disposable runtime pilot has passed; current-runtime cold backup acceptance,
+The disposable runtime and real 1.6.1 portable cold-recovery pilots have passed;
 full engineering/delivery UAT and live fleet activation remain pending.
 
 ## Future history policy

@@ -10,8 +10,10 @@ for replaceable images. Their home, work, worker state and managed helpers live
 on guest-only volumes. Existing profiles keep the machine behavior below;
 switching an existing machine profile's backend is never automatic.
 
-Agent machines require Apple Container 1.5.0 or newer. Cold disk recovery is
-currently supported only with its verified 1.5.x storage layout.
+Agent machines require Apple Container 1.5.0 or newer. Legacy machine cold
+recovery remains limited to the verified 1.5.x layout. Portable named agents
+also support the [verified 1.6.1 cold-recovery layout](evidence/bird-cold-recovery-pilot-2026-11-03.md);
+this does not enable other 1.6.x versions or interactive maintenance.
 
 ## Configure and launch
 

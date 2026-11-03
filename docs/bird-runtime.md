@@ -92,6 +92,11 @@ clone a live execution identity. The target stays stopped and ownership is not
 published until disk restoration succeeds. Restored worker configuration must
 be adopted/staged to the new placement before services can start.
 
+Cold recovery is verified on Apple Container **1.6.1 for portable agents**, in
+addition to the existing 1.5.x support. Other 1.6 releases, machine-plugin disks
+and interactive maintenance are not implicitly enabled by this verification.
+See the [real cold-recovery evidence](evidence/bird-cold-recovery-pilot-2026-11-03.md).
+
 Archives can contain login stores and secrets written to disk. They are private
 but unencrypted. Existing machines and their backups remain unchanged; their
 root disks cannot be grafted into this volume layout. Import useful memory and
@@ -103,7 +108,8 @@ rescuing obsolete jobs wholesale.
 The [disposable live pilot](evidence/bird-runtime-pilot-2026-11-03.md) passed real
 boot/mount, native-session continuity, placement fencing and interrupted image
 replacement on Apple Container 1.6.1. Mocked cold backup/restore tests also pass,
-but actual cold backup remains refused outside the verified 1.5.x disk layout.
+and a [real CLI cold backup/restore](evidence/bird-cold-recovery-pilot-2026-11-03.md)
+now passes for portable agents on that exact release.
 Production birds have not been converted, restarted or deployed, and no existing
-memory import has run. Cold recovery compatibility and full workflow UAT remain
-gates before fleet activation. gh-sweep remains untouched.
+memory import has run. Full workflow UAT remains a gate before fleet activation.
+gh-sweep remains untouched.

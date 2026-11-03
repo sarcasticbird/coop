@@ -62,18 +62,48 @@ func TestPublishRejectsMissingPayloadsBeforeRuntime(t *testing.T) {
 }
 
 func TestUnverifiedRuntimeRefusesColdDiskAccess(t *testing.T) {
+	for _, tc := range []struct{ version, backend string }{{"1.6.0", "container"}, {"1.6.2", "container"}, {"1.7.0", "container"}, {"1.6.1-dev", "container"}, {"1.6.1", ""}} {
+		t.Run(tc.version+"/"+tc.backend, func(t *testing.T) { testUnverifiedRuntime(t, tc.version, tc.backend) })
+	}
+}
+
+func testUnverifiedRuntime(t *testing.T, version, backend string) {
+	t.Helper()
 	called := 0
 	m := runtime.AppleMachine{Command: func(_ context.Context, args []string, _ io.Reader, out, _ io.Writer) error {
 		called++
 		if strings.Join(args, " ") != "system status --format json" {
 			t.Fatal("unverified layout reached disk metadata operation", args)
 		}
-		_, err := io.WriteString(out, `{"paths":{"appRoot":"/must-not-read"},"server":{"version":"1.6.1"}}`)
-		return err
+		return json.NewEncoder(out).Encode(map[string]any{"paths": map[string]string{"appRoot": "/must-not-read"}, "server": map[string]string{"version": version}})
 	}}
-	r := workspace.Record{Version: 1, Mode: workspace.Agent, Identity: "pilot", RuntimeName: "coop-agent-pilot", Applied: workspace.AppliedSpec{Runtime: "container"}}
+	r := workspace.Record{Version: 1, Mode: workspace.Agent, Identity: "pilot", RuntimeName: "coop-agent-pilot", Applied: workspace.AppliedSpec{Runtime: backend}}
 	if _, err := (AppleStorage{Machine: m}).Snapshot(t.Context(), r); !errors.Is(err, workspace.ErrUnsupported) || called != 1 {
 		t.Fatal("unverified cold layout was accepted", err, called)
+	}
+}
+
+func TestColdArchiveCompatibilityIsBackendScoped(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		mode    workspace.Mode
+		backend string
+		allow   bool
+	}{{"1.5.0", workspace.Agent, "", true}, {"1.5.0", workspace.Interactive, "", true}, {"1.6.1", workspace.Agent, "container", true}, {"1.6.1", workspace.Agent, "", false}, {"1.6.1", workspace.Interactive, "", false}, {"1.6.2", workspace.Agent, "container", false}} {
+		t.Run(tc.version+"/"+string(tc.mode)+"/"+tc.backend, func(t *testing.T) {
+			r := workspace.Record{Version: 1, Mode: tc.mode, Identity: "pilot", RuntimeName: "pilot", Applied: workspace.AppliedSpec{Runtime: tc.backend}}
+			if tc.mode == workspace.Agent {
+				r.RuntimeName = "coop-agent-pilot"
+			}
+			meta, err := json.Marshal(diskMetadata{Source: r, RuntimeVersion: tc.version})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = (AppleStorage{}).ValidateArchive(Manifest{Record: r, RuntimeVersion: tc.version, Metadata: meta})
+			if (err == nil) != tc.allow {
+				t.Fatalf("compatibility: allow=%v, err=%v", tc.allow, err)
+			}
+		})
 	}
 }
 

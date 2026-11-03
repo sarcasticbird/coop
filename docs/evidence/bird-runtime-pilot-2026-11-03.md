@@ -3,8 +3,10 @@
 ## Result
 
 **Core runtime acceptance passed on Apple Container 1.6.1, macOS 27.0.1,
-Apple silicon. This is not fleet rollout approval.** Cold backup/restore remains
-held because the disk adapter is verified only for Apple Container 1.5.x.
+Apple silicon. This is not fleet rollout approval.** Cold backup/restore was
+initially held on the 1.5.x version guard; the subsequent
+[real 1.6.1 portable cold-recovery pilot](bird-cold-recovery-pilot-2026-11-03.md)
+has now passed.
 
 The pilot used isolated host configuration/state, a separate temporary master
 SQLite database, synthetic principals and placement tokens, empty credential
@@ -28,7 +30,7 @@ bird disks, task data and gh-sweep were not changed.
 | Local Git commit and uncommitted source changes retained | Pass |
 | Worker state, managed helper files and synthetic receipt bytes retained | Pass |
 | Identical memory retry after replacement | Pass; revision remains 1 |
-| CLI cold backup on unverified 1.6 layout | Correctly refused, not silently enabled |
+| Initial CLI cold backup on unverified 1.6 layout | Correctly refused; subsequent verified cold-recovery pilot passed |
 | Pilot containers left stopped | Pass |
 
 The successful bound-pilot run used these actual built images:
@@ -88,10 +90,9 @@ credential acquisition or live master restart.
 
 ## Remaining gates
 
-- Verify the current runtime's cold-storage layout and exercise an actual
-  backup/restore round trip before making fleet replacement the normal path.
-  This pilot neither read unapproved runtime disk paths nor bypassed the
-  existing version guard.
+- Cold recovery was subsequently verified with explicitly approved disposable
+  disk access; see the [cold-recovery follow-up](bird-cold-recovery-pilot-2026-11-03.md).
+  Other runtime/backend layouts remain guarded rather than implicitly enabled.
 - Run the real engineering → independent review → QA → Rook merge → Kata
   completion journey, including interrupted consequential operations.
 - Plan explicit memory import and fleet activation after those gates pass.

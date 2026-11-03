@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,13 @@ import (
 )
 
 func TestPortableAgentColdBackupAndRestoreIncludesEveryDataVolume(t *testing.T) {
+	for _, version := range []string{"1.5.0", "1.6.1"} {
+		t.Run(version, func(t *testing.T) { testPortableAgentColdBackupAndRestore(t, version) })
+	}
+}
+
+func testPortableAgentColdBackupAndRestore(t *testing.T, version string) {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -54,14 +62,14 @@ func TestPortableAgentColdBackupAndRestoreIncludesEveryDataVolume(t *testing.T) 
 			volumes[v.Name] = path
 			mounts = append(mounts, map[string]any{"destination": v.Target, "type": map[string]any{"volume": map[string]string{"name": v.Name}}})
 		}
-		rows[r.RuntimeName] = map[string]any{"configuration": map[string]any{"id": r.RuntimeName, "image": map[string]string{"reference": r.Image}, "labels": map[string]string{"coop.agent": r.Identity, "coop.storage": "agent-volumes-v1", "coop.incarnation": "incarnation", "coop.spec": r.Fingerprint}, "resources": map[string]any{"cpus": 1, "memoryInBytes": 1 << 30}, "mounts": mounts}, "status": map[string]string{"state": "stopped"}}
+		rows[r.RuntimeName] = map[string]any{"configuration": map[string]any{"id": r.RuntimeName, "image": map[string]string{"reference": "docker.io/library/" + r.Image}, "labels": map[string]string{"coop.agent": r.Identity, "coop.storage": "agent-volumes-v1", "coop.incarnation": "incarnation", "coop.spec": r.Fingerprint}, "resources": map[string]any{"cpus": 1, "memoryInBytes": 1 << 30}, "mounts": mounts}, "status": map[string]string{"state": "stopped"}}
 	}
 	materialize(record, "source")
 	machine := runtime.AppleMachine{Command: func(_ context.Context, args []string, _ io.Reader, out, _ io.Writer) error {
 		write := func(v any) error { return json.NewEncoder(out).Encode(v) }
 		switch strings.Join(args, " ") {
 		case "system status --format json":
-			return write(map[string]any{"paths": map[string]string{"appRoot": root}, "server": map[string]string{"version": "1.5.0"}})
+			return write(map[string]any{"paths": map[string]string{"appRoot": root}, "server": map[string]string{"version": version}})
 		case "list --all --format json":
 			values := []any{}
 			for _, v := range rows {
@@ -100,7 +108,23 @@ func TestPortableAgentColdBackupAndRestoreIncludesEveryDataVolume(t *testing.T) 
 	target := record
 	target.Identity = "robin-copy"
 	target.RuntimeName = "coop-agent-robin-copy"
+	storage.Target = &workspace.Spec{Mode: target.Mode, Identity: target.Identity, RuntimeName: target.RuntimeName, Image: target.Image, Fingerprint: target.Fingerprint, Config: config.Config{Resources: target.Applied.Resources}, Profile: config.Profile{Runtime: "container"}}
 	storage.CreateAgentContainer = func(_ context.Context, r workspace.Record) error { materialize(r, "empty target"); return nil }
+	storage.Target.Image = "different-image"
+	if err := Restore(t.Context(), storage, archive, target.Identity); !errors.Is(err, workspace.ErrUnsupported) {
+		t.Fatal("different image was accepted", err)
+	}
+	if _, exists := rows[target.RuntimeName]; exists {
+		t.Fatal("incompatible restore created a target")
+	}
+	storage.Target.Image = target.Image
+	if version == "1.6.1" {
+		storage.Target.Profile.Runtime = ""
+		if err := Restore(t.Context(), storage, archive, target.Identity); !errors.Is(err, workspace.ErrUnsupported) {
+			t.Fatal("1.6.1 destination backend was not checked", err)
+		}
+		storage.Target.Profile.Runtime = "container"
+	}
 	if err := Restore(t.Context(), storage, archive, target.Identity); err != nil {
 		t.Fatal(err)
 	}
