@@ -96,6 +96,9 @@ func nativeExecutionPath(cfg Config, id string) string {
 	return filepath.Join(masterDir(cfg), "engineering", id+".json")
 }
 func saveNativeExecution(cfg Config, x NativeExecution) error {
+	if x.unresolvedHistoricalRecovery() {
+		return c.ErrConflict
+	}
 	if x.Version != 3 || cfg.Master == nil || x.MasterID != cfg.Master.MasterID || x.InstanceID != cfg.Master.InstanceID || x.Generation != cfg.Master.Generation || !hexSHA.MatchString(x.Job.ID) || x.Job.Master == nil || x.Job.Master.Goal == nil || *x.Job.Master.Goal != x.Goal {
 		return c.ErrConflict
 	}
@@ -120,7 +123,7 @@ func loadNativeExecution(cfg Config, id string) (NativeExecution, error) {
 	if err != nil {
 		return x, err
 	}
-	if strictTeamJSON(raw, &x) != nil || x.Version != 3 || x.Job.ID != id || cfg.Master == nil || x.MasterID != cfg.Master.MasterID || x.Job.Master == nil || x.Job.Master.Goal == nil || *x.Job.Master.Goal != x.Goal {
+	if strictTeamJSON(raw, &x) != nil || x.unresolvedHistoricalRecovery() || x.Version != 3 || x.Job.ID != id || cfg.Master == nil || x.MasterID != cfg.Master.MasterID || x.Job.Master == nil || x.Job.Master.Goal == nil || *x.Job.Master.Goal != x.Goal {
 		return x, c.ErrConflict
 	}
 	if x.Job.Master.AgentID != cfg.Master.AgentID || x.Job.Master.MasterID != cfg.Master.MasterID || x.Job.Master.ExecutorID != cfg.Self.ID || x.Binding != nil && (x.Binding.Goal != x.Goal || x.Binding.TaskURL != x.Job.TaskURL || NativeAssignmentSHA(*x.Binding) != x.Job.Master.AssignmentSHA) {

@@ -18,23 +18,62 @@ type NativeContinuation struct {
 	MessageID string
 }
 
-type NativeExecution struct {
-	Continuations               []NativeContinuation `json:",omitempty"`
-	ContinuationSourceMessageID string               `json:",omitempty"`
-	ContinuationRequestID       string               `json:",omitempty"`
-	PendingContinuation         *Job                 `json:",omitempty"`
-	Wait                        *NativeDependencyWait
-	SelectedAt                  time.Time
-	Version                     int
-	MasterID, InstanceID        string
-	Generation                  int64
-	Goal                        c.GoalRef
-	Binding                     *NativeTaskBinding
-	Job                         Job
-	Phase, Reason               string
-	Turns                       []Job
-	PausedDecisionSequence      int64
+// Historical native recovery requests remain audit data. Only already-adopted
+// records are readable; this worker cannot complete or replay that old protocol.
+type nativeRecoveryAuditRequest struct {
+	ID                     string `json:"id"`
+	ExpectedSHA256         string `json:"expectedSHA256"`
+	OriginalMessageID      string `json:"originalMessageID"`
+	SuccessorMessageID     string `json:"successorMessageID"`
+	BindingSHA256          string `json:"bindingSHA256"`
+	Text                   string `json:"text"`
+	PreviousContinuationID string `json:"previousContinuationID,omitempty"`
 }
+
+type nativeRecoveryAudit struct {
+	RecoveryID     string `json:",omitempty"`
+	Request        nativeRecoveryAuditRequest
+	Original       Job
+	OriginalReason string `json:",omitempty"`
+	RequestedAt    time.Time
+	Adopted        bool
+}
+
+type NativeExecution struct {
+	// Historical rejected recovery attempts are audit evidence, never work to
+	// schedule or an accepted continuation. Retain them across journal rewrites.
+	RejectedRecoveryContinuations []Job                 `json:",omitempty"`
+	Recovery                      *nativeRecoveryAudit  `json:",omitempty"`
+	RecoveryFollowups             []nativeRecoveryAudit `json:",omitempty"`
+	Continuations                 []NativeContinuation  `json:",omitempty"`
+	ContinuationSourceMessageID   string                `json:",omitempty"`
+	ContinuationRequestID         string                `json:",omitempty"`
+	PendingContinuation           *Job                  `json:",omitempty"`
+	Wait                          *NativeDependencyWait
+	SelectedAt                    time.Time
+	Version                       int
+	MasterID, InstanceID          string
+	Generation                    int64
+	Goal                          c.GoalRef
+	Binding                       *NativeTaskBinding
+	Job                           Job
+	Phase, Reason                 string
+	Turns                         []Job
+	PausedDecisionSequence        int64
+}
+
+func (x NativeExecution) unresolvedHistoricalRecovery() bool {
+	if x.Recovery != nil && !x.Recovery.Adopted {
+		return true
+	}
+	for _, followup := range x.RecoveryFollowups {
+		if !followup.Adopted {
+			return true
+		}
+	}
+	return false
+}
+
 type NativeCandidate struct {
 	QAEnvironment *nativeQAEnvironment
 	Handoff       *c.Handoff
