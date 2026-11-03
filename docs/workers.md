@@ -173,8 +173,14 @@ command = ["/usr/local/libexec/coop-opencode-server"]
 command = ["/usr/local/libexec/coop-github", "env", "--", "/usr/local/libexec/coop-worker", "run", "--config", "/var/lib/coop/worker/config.json"]
 ```
 
-The server binds to `127.0.0.1:4096` and requires Basic authentication. Helper
-startup order is unspecified. The worker waits for readiness, and the attach
+The server binds to `127.0.0.1:4096` and requires Basic authentication. The
+launchers prefer an operator-installed `/usr/local/libexec/coop-opencode-runtime`
+executable or symlink for both server and attach. An invalid installed runtime
+fails rather than silently falling back; when absent, they use `opencode` on PATH.
+The checked worker installer preserves this runtime selection and does not replace
+the operator-installed runtime itself.
+
+Helper startup order is unspecified. The worker waits for readiness, and the attach
 client waits up to 30 attempts. With `restart = "always"`, exiting the client
 reopens it after two seconds; this does not restart the server. Press `Ctrl-b`,
 release, then `d` to detach tmux. Copy uses terminal selection or tmux copy mode;
