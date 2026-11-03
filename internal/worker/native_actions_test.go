@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,46 @@ import (
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
+
+func TestNativeVerdictValidationDoesNotBindIntent(t *testing.T) {
+	for _, operation := range []string{"review", "qa"} {
+		t.Run(operation, func(t *testing.T) {
+			cfg, m, cat, _ := dispatchFixture(t)
+			v := NativeCandidates(cfg, cat.catalog, nil, time.Now())[0]
+			x := NativeExecution{Version: 3, MasterID: cfg.Master.MasterID, InstanceID: cfg.Master.InstanceID, Generation: cfg.Master.Generation, Goal: v.Goal.Revision.Ref, Job: v.Job, Binding: &v.Task.Binding, Phase: "active"}
+			if err := saveNativeExecution(cfg, x); err != nil {
+				t.Fatal(err)
+			}
+			g := NewGitHubClient(&fakeCommands{respond: func(string, string, string, []byte) (CommandResult, error) {
+				t.Fatal("invalid verdict reached GitHub")
+				return CommandResult{}, c.ErrUnavailable
+			}})
+			in := NativeAction{Operation: operation, RequestID: "correctable-verdict", Verdict: "passed", ReportBody: "Private test evidence"}
+			if _, err := RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, in); !errors.Is(err, c.ErrInvalid) || !strings.Contains(err.Error(), "approved or changes-needed") {
+				t.Fatal("missing actionable verdict validation", err)
+			}
+			for _, path := range []string{nativeActionIntentPath(cfg, x.Job.ID, in.RequestID), nativeActionPath(cfg, x.Job.ID, in.RequestID)} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatal("invalid verdict bound an immutable request", err)
+				}
+			}
+			in.Verdict = "approved"
+			m.offline = true
+			if _, err := RunNativeAction(t.Context(), cfg, m, g, x.Job.ID, in); err == nil {
+				t.Fatal("offline authority bypassed")
+			}
+			raw, err := os.ReadFile(nativeActionIntentPath(cfg, x.Job.ID, in.RequestID))
+			var intent nativeActionIntent
+			if err != nil || json.Unmarshal(raw, &intent) != nil || intent.Action.Verdict != "approved" {
+				t.Fatal("corrected verdict could not reuse its uncommitted request ID", err)
+			}
+			prompt, err := nativePrompt(cfg, x, v)
+			if err != nil || !strings.Contains(prompt, "mode 0600") || !strings.Contains(prompt, "verdict must be exactly approved or changes-needed") {
+				t.Fatal("prompt omits action file or verdict contract", err)
+			}
+		})
+	}
+}
 
 func TestNativeTaskProjectSelectionPrecedesEffects(t *testing.T) {
 	for _, operation := range []string{"create-task", "rebind-task"} {

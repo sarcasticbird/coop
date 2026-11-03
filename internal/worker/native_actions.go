@@ -151,6 +151,10 @@ func RunNativeAction(ctx context.Context, cfg Config, m NativeEngineeringMaster,
 	if cfg.Version != 3 || cfg.Master == nil || cfg.Team == nil || in.RequestID == "" || len(in.RequestID) > 128 || len(in.Body) > c.MaxText || len(in.ReportBody) > c.MaxText {
 		return empty, c.ErrInvalid
 	}
+	// Correctable input must not bind an immutable action intent.
+	if (in.Operation == "review" || in.Operation == "qa") && in.Verdict != "approved" && in.Verdict != "changes-needed" {
+		return empty, fmt.Errorf("review/qa verdict must be approved or changes-needed: %w", c.ErrInvalid)
+	}
 	// A periodic receipt flush may briefly own the shared producer. Wait before
 	// reading authority or preparing any effect; worker-side probes stay nonblocking.
 	release, err := waitMasterProducer(ctx, cfg)
