@@ -125,6 +125,13 @@ Existing `install-before/` material is not removed. Do not delete
 the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
+Historical `RejectedRecoveryContinuations`, `Recovery` and `RecoveryFollowups`
+entries in native execution journals are preserved as audit evidence. They do
+not authorize a retry, become current continuations, or resolve a missing native
+observation. Unadopted historical recovery requests still refuse startup; the
+current worker cannot replay that old protocol. Rebuilding a guest does not
+repair missing evidence; retain its sessions and recovery journals.
+
 If the only independent change is a deliberate worker config edit, first
 inspect that change and take a verified cold backup. With services stopped,
 the normal installer can explicitly retain the live config while replacing the
