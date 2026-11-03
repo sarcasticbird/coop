@@ -100,8 +100,10 @@ rescuing obsolete jobs wholesale.
 
 ## Acceptance boundary
 
-This is source implementation with mocked-runtime interruption, ownership,
-fencing and cold backup/restore tests. No live bird has been converted, restarted
-or deployed, and no memory import has run. Actual Apple Container boot/mount,
-native-session continuity and image-swap UAT must pass on a disposable pilot
-before a fleet cutover. gh-sweep remains untouched.
+The [disposable live pilot](evidence/bird-runtime-pilot-2026-11-03.md) passed real
+boot/mount, native-session continuity, placement fencing and interrupted image
+replacement on Apple Container 1.6.1. Mocked cold backup/restore tests also pass,
+but actual cold backup remains refused outside the verified 1.5.x disk layout.
+Production birds have not been converted, restarted or deployed, and no existing
+memory import has run. Cold recovery compatibility and full workflow UAT remain
+gates before fleet activation. gh-sweep remains untouched.

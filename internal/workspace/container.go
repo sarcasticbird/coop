@@ -10,6 +10,8 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/sarcasticbird/coop/internal/runtime"
 )
@@ -303,6 +305,9 @@ func (b ContainerBackend) CreateRestoreTarget(ctx context.Context, s Spec) error
 	if _, err := b.Runtime.Output(ctx, "start", s.RuntimeName); err != nil {
 		return err
 	}
+	if err := b.WaitReady(ctx, s); err != nil {
+		return err
+	}
 	if _, err := b.Runtime.Output(ctx, "stop", s.RuntimeName); err != nil {
 		return err
 	}
@@ -477,7 +482,38 @@ func (b ContainerBackend) Start(ctx context.Context, s Spec) error {
 		return err
 	}
 	_, err := b.Runtime.Output(ctx, "start", s.RuntimeName)
-	return err
+	if err != nil {
+		return err
+	}
+	return b.WaitReady(ctx, s)
+}
+
+// A running container process is not yet a usable systemd manager. In
+// particular, replacement starts a fresh root and can reach exec before the
+// manager socket exists. Keep service callers behind a bounded readiness gate.
+// A degraded manager is usable for administrative repair; individual service
+// and worker authority/health checks still govern execution.
+func (b ContainerBackend) WaitReady(ctx context.Context, s Spec) error {
+	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var state bytes.Buffer
+	err := b.Runtime.NativeExec(readyCtx, s.RuntimeName, "/", []string{"/bin/bash", "-euc", `for ((n=0;n<300;n++)); do
+		if [[ -S /run/systemd/private ]]; then
+		  state=$(systemctl is-system-running --wait) || true
+		  printf '%s\n' "$state"
+		  case "$state" in running|degraded) exit 0;; *) exit 1;; esac
+		fi
+  sleep 0.1
+done
+echo 'systemd manager socket did not become ready' >&2
+exit 1`}, nil, &state, io.Discard)
+	if err != nil {
+		return fmt.Errorf("portable agent systemd readiness failed (%s): %w", strings.TrimSpace(state.String()), err)
+	}
+	if status := strings.TrimSpace(state.String()); status != "running" && status != "degraded" {
+		return fmt.Errorf("portable agent systemd is not ready: %s", status)
+	}
+	return nil
 }
 func (b ContainerBackend) Stop(ctx context.Context, s Spec) error {
 	_, err := b.Runtime.Output(ctx, "stop", s.RuntimeName)

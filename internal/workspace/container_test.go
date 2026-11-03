@@ -23,11 +23,19 @@ type portableRuntime struct {
 	writes  []string
 	fail    string
 	machine bool
+	ready   string
 }
 
 func (r *portableRuntime) command(_ context.Context, args []string, _ io.Reader, out, _ io.Writer) error {
 	writeJSON := func(value any) error { return json.NewEncoder(out).Encode(value) }
 	switch args[0] {
+	case "exec":
+		ready := r.ready
+		if ready == "" {
+			ready = "running"
+		}
+		_, err := io.WriteString(out, ready+"\n")
+		return err
 	case "machine":
 		if r.machine {
 			return writeJSON([]map[string]string{{"id": "coop-agent-robin"}})
@@ -411,5 +419,29 @@ func TestPortableAgentDoesNotDuplicateAnotherProfilesExecution(t *testing.T) {
 	b.Guard = func(context.Context, *Record, Spec) error { return nil }
 	if err := b.Create(t.Context(), spec); err == nil || len(r.writes) != 0 {
 		t.Fatal("execution duplicated across profiles", err, r.writes)
+	}
+}
+
+func TestPortableAgentDoesNotAdmitServicesBeforeReadySystemd(t *testing.T) {
+	spec, b, r := portableFixture(t)
+	if err := b.Create(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	r.ready = "starting"
+	c := Controller{Backend: b, Store: b.Store}
+	if err := c.Ensure(t.Context(), spec); err == nil {
+		t.Fatal("unready boot admitted")
+	}
+	writes := len(r.writes)
+	if err := c.Ensure(t.Context(), spec); err == nil || len(r.writes) != writes {
+		t.Fatal("running process bypassed readiness or repeated start", err)
+	}
+	r.ready = "running"
+	if err := c.Ensure(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	r.ready = "degraded"
+	if err := c.Ensure(t.Context(), spec); err != nil {
+		t.Fatal("a ready but degraded manager blocked administrative repair", err)
 	}
 }

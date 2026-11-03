@@ -72,6 +72,11 @@ func (c Controller) ensureLocked(ctx context.Context, s Spec) error {
 	case runtime.StateStopped:
 		return c.Backend.Start(ctx, s)
 	default:
+		if ready, ok := c.Backend.(interface {
+			WaitReady(context.Context, Spec) error
+		}); ok {
+			return ready.WaitReady(ctx, s)
+		}
 		return nil
 	}
 }

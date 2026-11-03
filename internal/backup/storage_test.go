@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,6 +58,22 @@ func TestPublishRejectsMissingPayloadsBeforeRuntime(t *testing.T) {
 				t.Fatal("runtime reached before complete payload validation")
 			}
 		})
+	}
+}
+
+func TestUnverifiedRuntimeRefusesColdDiskAccess(t *testing.T) {
+	called := 0
+	m := runtime.AppleMachine{Command: func(_ context.Context, args []string, _ io.Reader, out, _ io.Writer) error {
+		called++
+		if strings.Join(args, " ") != "system status --format json" {
+			t.Fatal("unverified layout reached disk metadata operation", args)
+		}
+		_, err := io.WriteString(out, `{"paths":{"appRoot":"/must-not-read"},"server":{"version":"1.6.1"}}`)
+		return err
+	}}
+	r := workspace.Record{Version: 1, Mode: workspace.Agent, Identity: "pilot", RuntimeName: "coop-agent-pilot", Applied: workspace.AppliedSpec{Runtime: "container"}}
+	if _, err := (AppleStorage{Machine: m}).Snapshot(t.Context(), r); !errors.Is(err, workspace.ErrUnsupported) || called != 1 {
+		t.Fatal("unverified cold layout was accepted", err, called)
 	}
 }
 

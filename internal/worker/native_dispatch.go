@@ -715,7 +715,7 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 			if err != nil {
 				return false, err
 			}
-			if !health.Healthy || health.Version != "1.18.18" {
+			if !health.Healthy || health.Version != SupportedOpenCodeVersion {
 				return false, errors.New("unsupported native server")
 			}
 			j, err := d.checkouts.Prepare(ctx, x.Job)
