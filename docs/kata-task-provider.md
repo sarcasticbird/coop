@@ -89,9 +89,10 @@ Failed responses retain their original request and reservation for reconciliatio
 
 The native engine checks the actual merged PR, current exact head, peer review,
 QA and checks before completing the Kata task. The internal completion API
-trusts an authenticated current author or owner and requires its registered
-matching PR; it is not a separate GitHub merge verifier. Only Kata's `done`
-closure satisfies dependencies. Canceled and superseded tasks do not.
+independently restricts completion to the current Rook delivery principal and
+requires its registered matching PR; it is not a separate GitHub merge verifier.
+Only Kata's `done` closure satisfies dependencies. Canceled and superseded tasks
+do not.
 
 This version pins one project and engineering policy per master. Dependencies
 must be Kata tasks in the same exact goal revision; finish retained GitHub work
