@@ -185,7 +185,8 @@ func TestCommitReviewOversizePromptReleasesSlot(t *testing.T) {
 func TestCommitReviewPausedEngineeringContinuation(t *testing.T) {
 	cfg, m, g, code := dispatchFixture(t)
 	ctx := context.Background()
-	d, e := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, RealClock{})
+	clock := &fakeClock{now: time.Now()}
+	d, e := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, clock)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -218,7 +219,13 @@ func TestCommitReviewPausedEngineeringContinuation(t *testing.T) {
 	if e = saveNativeAction(cfg, uncertain); e != nil {
 		t.Fatal(e)
 	}
-	restarted, e := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, RealClock{})
+	// Resolving the effect does not bypass the failed continuation's saved
+	// retry backoff. Advance time instead of depending on wall-clock sleeps.
+	if !x.Job.NextAttemptAt.After(clock.Now()) {
+		t.Fatal("uncertain continuation did not retain retry backoff")
+	}
+	clock.now = x.Job.NextAttemptAt.Add(time.Second)
+	restarted, e := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, clock)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -226,7 +233,7 @@ func TestCommitReviewPausedEngineeringContinuation(t *testing.T) {
 	commCfg, comms, _, _, _, _, _ := commsFixture(t)
 	engine := &Engine{Config: commCfg, Store: NewVersionedFileStore(commCfg.StateDir, 3), MasterRuntime: &MasterRuntime{Comms: comms, Engineering: restarted}}
 	restarted.catalog = g.catalog
-	restarted.nextRefresh = time.Now().Add(time.Hour)
+	restarted.nextRefresh = clock.Now().Add(time.Hour)
 	for i := 0; i < 100; i++ {
 		if e = engine.Tick(ctx); e != nil {
 			t.Fatal(e)
