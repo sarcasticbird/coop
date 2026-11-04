@@ -48,6 +48,7 @@ func TestRemoteRouteReconstructsInvocation(t *testing.T) {
 	}{
 		{name: "guest-argv", directory: "/server/project with spaces", flags: []string{"--remote-directory=/server/project with spaces"}, command: hostile, want: append([]string{"--"}, hostile...), tty: true},
 		{name: "agent", flags: []string{"--agent=robin"}, command: hostile, want: append([]string{"--agent=robin", "--"}, hostile...), kind: hostrouter.Agent, id: "robin", tty: true},
+		{name: "agent-attach", flags: []string{"--agent=robin"}, command: []string{"attach"}, want: []string{"--agent=robin", "attach", "--"}, kind: hostrouter.Agent, id: "robin", tty: true},
 		{name: "captured-agent", flags: []string{"--target-kind=agent", "--target-id=robin"}, command: []string{"status"}, want: []string{"--agent=robin", "status", "--"}, kind: hostrouter.Agent, id: "robin"},
 		{name: "captured-interactive", flags: []string{"--target-kind=interactive", "--target-id=robin"}, command: []string{"status"}, want: []string{"status", "--"}, kind: hostrouter.Interactive, id: "robin"},
 		{name: "credential-names", flags: []string{"--agent=missing-profile", "--credentials=github,aws-dev", "--credentials=\"comma,name\""}, command: hostile, want: append([]string{"--credentials=github,aws-dev,\"comma,name\"", "--agent=missing-profile", "--"}, hostile...), kind: hostrouter.Agent, id: "missing-profile", tty: true},
@@ -405,7 +406,7 @@ func TestReceiveHostInvocationInteractiveRevalidation(t *testing.T) {
 }
 
 func TestRemoteCommandClassificationExhaustive(t *testing.T) {
-	remote := strings.Fields("init up down status shell sync apply rebuild destroy backup restore doctor upgrade ping approve team inbox")
+	remote := strings.Fields("attach init up down status shell sync apply rebuild destroy backup restore doctor upgrade ping approve team inbox")
 	remote = append(remote,
 		"work-ui-exec",
 		"credentials refresh", "credentials watch", "worker status", "worker pause", "worker resume", "worker requests",

@@ -43,7 +43,7 @@ func TestOperationCommandFamilies(t *testing.T) {
 		values, want []string
 		directory    string
 	}{
-		{"enter", nil, []string{"--agent", "same", "--"}, ""},
+		{"enter", nil, []string{"--agent", "same", "attach"}, ""},
 		{"status", nil, []string{"--agent", "same", "status"}, ""},
 		{"up", nil, []string{"--agent", "same", "up"}, ""},
 		{"down", nil, []string{"--agent", "same", "down"}, ""},

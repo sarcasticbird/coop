@@ -76,7 +76,7 @@ func terminalFixture(t *testing.T, kind TargetKind) (Target, context.Context) {
 	target := Target{Host: h, Kind: kind, ID: "fixture-profile"}
 	args := []string{"--"}
 	if kind == Agent {
-		args = []string{"--agent", target.ID, "--"}
+		args = []string{"--agent", target.ID, "attach"}
 	}
 	command, err := actionCommand(ActionRequest{Target: target, Operation: "command", Args: args})
 	if err != nil {

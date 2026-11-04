@@ -80,6 +80,7 @@ func TestTUIForegroundCredentialForwarding(t *testing.T) {
 			{name: "agent-up", kind: hostrouter.Agent, args: []string{"--agent", "selected", "up"}, forward: true},
 			{name: "project-entry", kind: hostrouter.Interactive, args: []string{"--"}, forward: true},
 			{name: "agent-entry", kind: hostrouter.Agent, args: []string{"--agent", "selected", "--"}, forward: true},
+			{name: "agent-attach", kind: hostrouter.Agent, args: []string{"--agent", "selected", "attach"}},
 			{name: "agent-sync", kind: hostrouter.Agent, args: []string{"--agent", "selected", "sync"}, forward: true},
 			{name: "agent-refresh", kind: hostrouter.Agent, args: []string{"--agent", "selected", "credentials", "refresh"}, forward: true},
 			{name: "explicit-grants", kind: hostrouter.Agent, args: []string{"--agent", "selected", "--credentials=explicit", "credentials", "refresh"}},

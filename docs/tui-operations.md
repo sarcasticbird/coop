@@ -73,6 +73,7 @@ against this inventory; a newly added command must receive an explicit row.
 | Current CLI | Representation |
 | --- | --- |
 | default entry, `shell` | Fleet Enter or `x` > enter; actual local terminal or remote SSH PTY, return and refresh |
+| `attach` | Running named birds use attach-only entry; installed ownership is checked without starting, applying the desired image or acquiring credentials |
 | `tui` | Launch this browser; no nested TUI inside an action |
 | `ls`, `inventory` | Fleet local and registered remote inventory; independent refresh and stale/error health |
 | `status` | Fleet state plus `x` > status CLI result |

@@ -211,7 +211,7 @@ func TestRuntimeIntegrationKeptReplyAcrossWorkspaces(t *testing.T) {
 			calls := 0
 			m.services.Foreground = func(_ context.Context, req hostrouter.ActionRequest) (*exec.Cmd, error) {
 				calls++
-				if req.Target != target || req.Operation != "command" || !slices.Equal(req.Args, []string{"--agent", target.ID, "--"}) {
+				if req.Target != target || req.Operation != "command" || !slices.Equal(req.Args, []string{"--agent", target.ID, "attach"}) {
 					t.Fatalf("Connect retargeted: %+v", req)
 				}
 				return exec.Command("unused"), nil // The model callback is delivered below; no process runs.

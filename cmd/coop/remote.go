@@ -49,7 +49,7 @@ func remoteCommandAllowed(parts []string) bool {
 	switch strings.Join(parts, " ") {
 	case "work-ui-exec":
 		return true
-	case "init", "up", "down", "status", "shell", "sync", "apply", "rebuild", "destroy", "backup", "restore", "doctor", "upgrade", "ping", "approve",
+	case "attach", "init", "up", "down", "status", "shell", "sync", "apply", "rebuild", "destroy", "backup", "restore", "doctor", "upgrade", "ping", "approve",
 		"credentials refresh", "credentials watch", "worker status", "worker pause", "worker resume", "worker requests",
 		"master serve", "master backup", "master restore", "master reconcile status", "master reconcile pause", "master reconcile resume", "master reconcile evidence", "master reconcile resolve", "master placement set", "master history import", "master history list", "master cutover", "master conversation cursor", "master conversation map", "master conversation reaccept", "master conversation legacy",
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team", "team inspect", "inbox", "goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
@@ -151,7 +151,7 @@ func routeHostCommand(cmd *cobra.Command, args []string, h hostrouter.Host) erro
 	argv = append(argv, args...)
 	req := hostrouter.ActionRequest{Target: hostrouter.Target{Host: h, Kind: hostrouter.TargetKind(kind), ID: id}, Operation: "command", Directory: directory, Args: argv}
 	tty, _ := global.GetBool("tty")
-	if len(parts) == 0 || (len(parts) == 1 && (parts[0] == "shell" || parts[0] == "init" || parts[0] == "destroy")) {
+	if len(parts) == 0 || (len(parts) == 1 && (parts[0] == "attach" || parts[0] == "shell" || parts[0] == "init" || parts[0] == "destroy")) {
 		tty = true
 	}
 	if err := remoteExecute(cmd.Context(), req, cmd, tty); err != nil {
