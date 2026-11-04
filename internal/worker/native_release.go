@@ -145,20 +145,11 @@ func nativeReleaseTarget(ctx context.Context, cfg Config, m NativeEngineeringMas
 		return empty, c.ErrForbidden
 	}
 	if a.Revision.Proposal.QA.Required {
-		review := nativeLatestReview(p, t.Binding.QAID)
-		var qa NativeQAResult
-		if nativeMetadata(review.Body, "qa", &qa) != nil {
-			return empty, c.ErrForbidden
-		}
-		report, e := m.Message(ctx, qa.EvidenceMessageID)
-		if e != nil {
-			return empty, e
-		}
 		handoffs, e := nativeQAHandoffs(ctx, m, a)
 		if e != nil {
 			return empty, e
 		}
-		if _, clear := nativeQAState(t.Binding, a, p, map[string]c.Message{report.ID: report}, handoffs...); !clear {
+		if _, clear := nativeQAState(t.Binding, a, p, handoffs...); !clear {
 			return empty, c.ErrForbidden
 		}
 	}

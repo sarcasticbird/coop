@@ -180,9 +180,13 @@ an explicit `project_owner` and `project_number` on the first request. Invalid
 selection is rejected before saving a mutation journal or changing GitHub, so
 the planner can correct that input using the same request ID. Once a journal
 exists, its original input remains immutable.
-It publishes immutable private QA evidence and places only its digest/reference
-and safe summary in a formal exact-head GitHub QA review. A chat reply or private
-report alone cannot satisfy QA. Authored work needs an independent peer review.
+QA clearance is the assigned QA bot's formal exact-head GitHub review. The
+private `report_body` remains in the saved action intent; it is neither copied
+onto GitHub nor sent through a second publication workflow. Discovery and Rook
+do not fetch private messages to establish QA clearance. Historical private
+message references remain readable records, not additional merge gates. A chat
+reply or private report alone cannot satisfy QA. Authored work still needs an
+independent peer review, and checks, artifact and environment must match.
 
 The configured turn limit starts at submission, after preparation and fresh
 authority checks. It defaults to 30 minutes and supports up to one hour.

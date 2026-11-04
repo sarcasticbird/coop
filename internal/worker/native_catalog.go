@@ -30,13 +30,12 @@ type NativeCatalog struct {
 	TaskScope string
 	Goals     []c.GoalAuthority
 	Tasks     []NativeTask
-	Reports   map[string]c.Message
 	Complete  bool
 	ReadAt    time.Time
 }
 
 func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master NativeMaster) (NativeCatalog, error) {
-	out := NativeCatalog{Reports: map[string]c.Message{}}
+	var out NativeCatalog
 	if cfg.Version != 3 || cfg.Master == nil {
 		return out, errors.New("native catalog requires v3 configuration")
 	}
@@ -216,22 +215,6 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		}
 	}
 	for _, t := range tasks {
-		for _, p := range t.PRs {
-			for _, r := range p.Reviews {
-				if r.Author.ID != t.Binding.QAID || r.HeadSHA != p.HeadSHA {
-					continue
-				}
-				var qa NativeQAResult
-				if nativeMetadata(r.Body, "qa", &qa) != nil || qa.Goal != t.Binding.Goal || qa.AssignmentSHA != NativeAssignmentSHA(t.Binding) {
-					continue
-				}
-				report, err := master.Message(ctx, qa.EvidenceMessageID)
-				if err != nil {
-					return out, err
-				}
-				out.Reports[report.ID] = report
-			}
-		}
 		out.Tasks = append(out.Tasks, t)
 	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })

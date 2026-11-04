@@ -313,13 +313,12 @@ func TestCommitReviewNativeReviewBoundary(t *testing.T) {
 	p := PR{HeadSHA: strings.Repeat("a", 40), ScopeRevision: BodyHash("scope"), ScopeUpdatedAt: at, ReviewsComplete: true, ContributorsComplete: true, QAArtifact: &QAArtifact{SHA256: strings.Repeat("e", 64)}}
 	peer := NativeReviewResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, Verdict: "approved"}
 	qa := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, ArtifactSHA: p.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: a.Revision.Proposal.QA.Environment, EnvironmentRevision: a.Revision.Proposal.QA.EnvironmentRevision, EvidenceMessageID: "report", EvidenceBodySHA: BodyHash("report"), Verdict: "approved"}
-	reports := map[string]c.Message{"report": {ID: "report", ThreadID: a.Revision.Proposal.QA.EvidenceDestination.ThreadID, AuthorID: a.Actors.QA.PrincipalID, AuthorKind: "agent", Body: "report"}}
 	for _, offset := range []time.Duration{-time.Second, 0, time.Second} {
 		p.Reviews = []Review{{ID: "peer", HeadSHA: p.HeadSHA, Author: Actor{ID: task.Binding.PeerID, Kind: "Bot"}, State: "APPROVED", Body: NativePeerMetadata(peer), SubmittedAt: at.Add(offset)}, {ID: "qa", HeadSHA: p.HeadSHA, Author: Actor{ID: task.Binding.QAID, Kind: "Bot"}, State: "APPROVED", Body: NativeQAMetadata(qa), SubmittedAt: at.Add(offset)}}
 		if _, ok := nativePeerCleared(task.Binding, p); ok != (offset > 0) {
 			t.Fatalf("peer boundary offset %v accepted=%v", offset, ok)
 		}
-		if _, ok := nativeQAState(task.Binding, a, p, reports); ok != (offset > 0) {
+		if _, ok := nativeQAState(task.Binding, a, p); ok != (offset > 0) {
 			t.Fatalf("QA boundary offset %v accepted=%v", offset, ok)
 		}
 	}

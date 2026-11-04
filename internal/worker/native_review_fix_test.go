@@ -238,7 +238,6 @@ func TestNativeDismissedApprovalsScheduleOneReplacement(t *testing.T) {
 			if kind == "qa" {
 				q := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, ArtifactSHA: p.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(cat.Goals[0]), Environment: "staging", EnvironmentRevision: "staging-v1", EvidenceMessageID: "report", EvidenceBodySHA: BodyHash("private report"), Verdict: "approved"}
 				body = NativeQAMetadata(q)
-				cat.Reports["report"] = c.Message{ID: "report", ThreadID: "private", AuthorID: "qa", AuthorKind: "agent", Body: "private report"}
 			}
 			dismissed := Review{ID: "dismissed-approval", HeadSHA: p.HeadSHA, Author: cfg.Self, State: "DISMISSED", Body: body, SubmittedAt: now}
 			p.Reviews = append(p.Reviews, dismissed)

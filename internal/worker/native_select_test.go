@@ -26,7 +26,7 @@ func nativeWorkFixture(t *testing.T) (Config, NativeCatalog, NativeTask) {
 	a.Actors.Peer.GitHubBotID = 11
 	a.Actors.QA.GitHubBotID = 13
 	task := NativeTask{Binding: b, Task: Task{URL: b.TaskURL, Repo: "code/repo", Title: "Task", Body: "scope", BodySHA: b.TaskScopeSHA, Ready: true}}
-	return cfg, NativeCatalog{Complete: true, Goals: []c.GoalAuthority{a}, Tasks: []NativeTask{task}, Reports: map[string]c.Message{}}, task
+	return cfg, NativeCatalog{Complete: true, Goals: []c.GoalAuthority{a}, Tasks: []NativeTask{task}}, task
 }
 func TestNativeEngineeringStageHandoffs(t *testing.T) {
 	cfg, catalog, task := nativeWorkFixture(t)
@@ -56,11 +56,10 @@ func TestNativeEngineeringStageHandoffs(t *testing.T) {
 	if len(jobs) != 1 || jobs[0].Job.Kind != "qa" {
 		t.Fatalf("missing QA handoff %+v", jobs)
 	}
-	qa := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, ArtifactSHA: p.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(catalog.Goals[0]), Environment: "staging", EnvironmentRevision: "staging-v1", EvidenceMessageID: "report", EvidenceBodySHA: BodyHash("private report"), Verdict: "approved"}
+	qa := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, ArtifactSHA: p.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(catalog.Goals[0]), Environment: "staging", EnvironmentRevision: "staging-v1", Verdict: "approved"}
 	p.Reviews = append(p.Reviews, Review{ID: "qa-review", HeadSHA: p.HeadSHA, Author: cfg.Self, State: "APPROVED", Body: NativeQAMetadata(qa), SubmittedAt: now})
 	task.PRs[0] = p
 	catalog.Tasks[0] = task
-	catalog.Reports["report"] = c.Message{ID: "report", ThreadID: "private", AuthorID: "qa", AuthorKind: "agent", Body: "private report"}
 	selectNativeRook(&cfg, nil)
 	jobs = NativeCandidates(cfg, catalog, nil, now)
 	if len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {

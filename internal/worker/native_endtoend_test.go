@@ -557,12 +557,13 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	finish(peer)
 	qa := stage(2, "qa", "qa")
 	private := "Private customer acceptance details must never appear in a PR."
-	m.onSend = func() { transport.checks = "FAILURE" }
+	transport.checks = "FAILURE"
 	if _, err := RunNativeAction(ctx, cfg, m, g, qa.Job.ID, NativeAction{Operation: "qa", RequestID: "qa-review", Verdict: "approved", ReportBody: private}); err == nil || len(transport.reviews) != 2 {
-		t.Fatal("stale checks after private evidence publication cleared QA")
+		t.Fatal("failed checks cleared QA")
 	}
-	m.onSend = nil
 	transport.checks = ""
+	m.onSend = func() { t.Fatal("QA attempted a second private publication") }
+	m.onMessage = func() { t.Fatal("QA fetched private evidence instead of the PR review") }
 	if _, err := RunNativeAction(ctx, cfg, m, g, qa.Job.ID, NativeAction{Operation: "qa", RequestID: "qa-review", Verdict: "approved", ReportBody: private}); err != nil {
 		t.Fatal(err)
 	}
@@ -668,9 +669,11 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	for _, failure := range []string{"peer", "checks", "qa", "capability", "placement", "membership"} {
 		fired := false
-		m.onMessage = func() {
-			if fired {
-				return
+		respond := transport.commands.respond
+		transport.commands.respond = func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+			result, err := respond(owner, endpoint, method, body)
+			if fired || err != nil || endpoint != "graphql" {
+				return result, err
 			}
 			fired = true
 			switch failure {
@@ -687,15 +690,16 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 			case "membership":
 				m.threads[0].Members = []string{"author", "peer", "qa"}
 			}
+			return result, err
 		}
-		if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil || transport.merged {
+		if _, err := RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil || transport.merged || !fired {
 			t.Fatalf("stale %s passed final merge effect gate", failure)
 		}
 		saved, loadErr := loadNativeExecution(cfg, delivery.Job.ID)
 		if loadErr != nil || saved.Phase != "blocked" || models[delivery.Job.ID].calls != 1 {
 			t.Fatal("refused recovery changed original run", loadErr)
 		}
-		m.onMessage = nil
+		transport.commands.respond = respond
 		transport.checks = ""
 		transport.reviews[1]["state"] = "APPROVED"
 		transport.reviews[2]["state"] = "APPROVED"
@@ -785,7 +789,7 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 	}
 	delivery = interrupted
 	finish(delivery)
-	if !transport.merged || !transport.closed || len(m.links) != 3 || len(m.reports) != 1 {
+	if !transport.merged || !transport.closed || len(m.links) != 3 || len(m.reports) != 0 {
 		t.Fatalf("delivery incomplete: merged=%v completed=%v links=%d reports=%d", transport.merged, transport.closed, len(m.links), len(m.reports))
 	}
 	if err := os.RemoveAll(delivery.Job.Checkout); err != nil {

@@ -397,11 +397,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 							return c.ErrConflict
 						}
 						h := firstPostMergeQAHandoff(catalog, task, a, *p)
-						report, err := m.Message(ctx, qa.EvidenceMessageID)
-						if err != nil {
-							return err
-						}
-						if h == nil || ValidateNativePostMergeQA(task.Binding, a, r, report, qa, *h) != nil {
+						if h == nil || ValidateNativePostMergeQA(task.Binding, a, r, qa, *h) != nil {
 							return c.ErrConflict
 						}
 						for k := range p.Reviews {
@@ -444,22 +440,11 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 					return c.ErrForbidden
 				}
 				if a.Revision.Proposal.QA.Required {
-					reports := map[string]c.Message{}
-					review := nativeLatestReview(pr, task.Binding.QAID)
-					var qa NativeQAResult
-					if nativeMetadata(review.Body, "qa", &qa) != nil {
-						return c.ErrForbidden
-					}
-					report, err := m.Message(ctx, qa.EvidenceMessageID)
-					if err != nil {
-						return err
-					}
-					reports[report.ID] = report
 					handoffs, err := nativeQAHandoffs(ctx, m, a)
 					if err != nil {
 						return err
 					}
-					if _, ok := nativeQAState(task.Binding, a, pr, reports, handoffs...); !ok {
+					if _, ok := nativeQAState(task.Binding, a, pr, handoffs...); !ok {
 						return c.ErrForbidden
 					}
 				}
@@ -874,37 +859,18 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			if cfg.Self.ID != task.Binding.QAID || cfg.Master.AgentID != a.Actors.QA.PrincipalID || !peer || !a.Revision.Proposal.QA.Required || pr.QAArtifact == nil || pr.ChecksState != "success" && pr.ChecksState != "none" || strings.TrimSpace(in.ReportBody) == "" {
 				return empty, c.ErrForbidden
 			}
-			if record.Result.EvidenceMessageID == "" {
-				if err = guard(); err != nil {
-					return empty, err
-				}
-				receipt, e := m.Send(ctx, c.SendMessage{ThreadID: a.Revision.Proposal.QA.EvidenceDestination.ThreadID, Body: in.ReportBody, RequestID: "native-qa-" + BodyHash(jobID+in.RequestID)})
-				if e != nil {
-					return empty, e
-				}
-				record.Result.EvidenceMessageID = receipt.MessageID
-				record.Result.EvidenceBodySHA = BodyHash(in.ReportBody)
-				if err = saveNativeAction(cfg, record); err != nil {
-					return empty, err
-				}
-			}
-			report, e := m.Message(ctx, record.Result.EvidenceMessageID)
-			if e != nil {
-				return empty, e
-			}
-			dest := a.Revision.Proposal.QA.EvidenceDestination
-			if report.Imported || report.ID != record.Result.EvidenceMessageID || report.AuthorID != cfg.Master.AgentID || report.AuthorKind != "agent" || report.ThreadID != dest.ThreadID || BodyHash(report.Body) != record.Result.EvidenceBodySHA {
-				return empty, c.ErrForbidden
-			}
-			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: report.ID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			// ReportBody is private and already durable in the original action
+			// intent. Publish clearance once, as the QA bot's actual PR review.
+			// Retain historical receipt fields without requiring or replaying them.
+			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: record.Result.EvidenceMessageID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
 			if qaHandoff != nil {
 				qa.Assessment, qa.HandoffID = "reassessment", qaHandoff.ID
 			}
-			public = "Independent customer QA " + in.Verdict + " for this exact head. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
+			public = "Independent customer QA " + in.Verdict + " for this exact head.\n\n" + NativeQAMetadata(qa)
 			if postmerge {
 				qa.Assessment, qa.HandoffID = "first-postmerge", postmergeHandoff.ID
 				event = "COMMENT"
-				public = "Independent first post-merge QA assessment: " + in.Verdict + ". This assesses the exact merged artifact, not retroactive pre-merge clearance. No merge, release, rebind or restart is authorized. Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
+				public = "Independent first post-merge QA assessment: " + in.Verdict + ". This assesses the exact merged artifact, not retroactive pre-merge clearance. No merge, release, rebind or restart is authorized.\n\n" + NativeQAMetadata(qa)
 			}
 		}
 		if record.Step != "review-published" {
@@ -929,7 +895,15 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		if event == "COMMENT" {
 			expectedState = "COMMENTED"
 		}
-		if actual.ID == "" || actual.HeadSHA != x.Job.HeadSHA || actual.State != expectedState || actual.Body != public {
+		bodyMatches := actual.Body == public
+		if !bodyMatches && in.Operation == "qa" && record.Step == "review-published" && record.Result.EvidenceMessageID != "" && record.Result.EvidenceBodySHA != "" {
+			// An older worker may have published this exact review and then
+			// failed its readback. Recognize its unchanged caption without
+			// fetching the historical private message or publishing again.
+			legacy := strings.Replace(public, "\n\n<!-- coop-qa:v3 ", " Private evidence is retained at the approved master destination.\n\n<!-- coop-qa:v3 ", 1)
+			bodyMatches = actual.Body == legacy
+		}
+		if actual.ID == "" || actual.HeadSHA != x.Job.HeadSHA || actual.State != expectedState || !bodyMatches {
 			return empty, c.ErrConflict
 		}
 		record.Result.URL = pr.URL

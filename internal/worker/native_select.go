@@ -145,17 +145,13 @@ func nativePeerCleared(b NativeTaskBinding, p PR) (Review, bool) {
 	valid := p.ReviewsComplete && !nativeContributor(p, b.PeerID) && r.ID != "" && r.Author.Kind == "Bot" && r.HeadSHA == p.HeadSHA && r.SubmittedAt.After(p.ScopeUpdatedAt) && nativeMetadata(r.Body, "review", &meta) == nil && meta.Version == 3 && meta.Goal == b.Goal && meta.TaskURL == b.TaskURL && meta.AssignmentSHA == NativeAssignmentSHA(b) && meta.HeadSHA == p.HeadSHA && meta.PRScopeRevision == p.ScopeRevision
 	return r, valid && r.State == "APPROVED" && meta.Verdict == "approved"
 }
-func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, reports map[string]c.Message, handoffs ...c.Handoff) (Review, bool) {
+func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, handoffs ...c.Handoff) (Review, bool) {
 	r := nativeLatestReview(p, b.QAID)
 	if p.QAArtifact == nil || !p.ReviewsComplete || nativeContributor(p, b.QAID) || !r.SubmittedAt.After(p.ScopeUpdatedAt) {
 		return r, false
 	}
 	var qa NativeQAResult
 	if nativeMetadata(r.Body, "qa", &qa) != nil {
-		return r, false
-	}
-	report, ok := reports[qa.EvidenceMessageID]
-	if !ok {
 		return r, false
 	}
 	if qa.PRScopeRevision != p.ScopeRevision || qa.HeadSHA != p.HeadSHA || qa.ArtifactSHA != p.QAArtifact.SHA256 || qa.AcceptanceSHA != NativeAcceptanceSHA(a) || qa.Verdict != "approved" {
@@ -169,11 +165,11 @@ func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, reports map[str
 		return r, false
 	}
 	// The actual metadata was parsed above. Reuse the independent actor and
-	// evidence checks with the resolved authority, not the historical default.
+	// current-head review checks with the resolved authority, not the historical default.
 	qa.Assessment, qa.HandoffID = "", ""
 	validated := r
 	validated.Body = NativeQAMetadata(qa)
-	return r, ValidateNativeQA(b, resolved, validated, report, qa) == nil
+	return r, ValidateNativeQA(b, resolved, validated, qa) == nil
 }
 
 func nativeChangesRequested(kind string, b NativeTaskBinding, a c.GoalAuthority, p PR, r Review, handoffs ...c.Handoff) bool {
@@ -355,7 +351,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		peer, cleared := nativePeerCleared(t.Binding, p)
 		qa, qaCleared := Review{}, !a.Revision.Proposal.QA.Required
 		if a.Revision.Proposal.QA.Required {
-			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Reports, catalog.Handoffs...)
+			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Handoffs...)
 		}
 		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
 			if nativeChangesRequested("review", t.Binding, a, p, peer) {
