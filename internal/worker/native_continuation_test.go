@@ -203,8 +203,8 @@ func TestNativeTimedOutContinuationStopsAtAttemptLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted.catalog, restarted.nextRefresh = g.catalog, clock.Now().Add(time.Hour)
-	if restarted.Ready() || !restarted.RecoveryBlocked() {
-		t.Fatal("exhausted continuation was retried after restart")
+	if restarted.Ready() || restarted.RecoveryBlocked() {
+		t.Fatal("exhausted task retried or froze unrelated work after restart")
 	}
 }
 

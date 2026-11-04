@@ -41,6 +41,12 @@ assigned bot's actual review and current checks/head; discovery does not hydrate
 private QA reports. Preserve historical messages without making their availability
 a prerequisite for routine delivery.
 
+A blocked task is not a blocked coworker. Once its model has finished, keep any
+uncertain effects and task reservation intact while allowing unrelated work and
+conversation. Obsolete recovery requests are not instructions to replay. Only an
+unaccounted native process, an active producer or unreadable safety records should
+hold the whole bird. Do not migrate old jobs merely to make them resumable.
+
 Containers must be replaceable from pinned images, with durable memory,
 checkpointed work, session data needed for recovery, and action receipts outside
 the replaceable root disk. Replacement fences the old execution generation;

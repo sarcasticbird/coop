@@ -69,7 +69,7 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.Blocked = append(p.Blocked, NativeBlocker{JobID: v.Job.ID, Task: v.Job.TaskURL, Reason: reason})
 	}
 	for _, x := range d.history {
-		if x.Phase != "blocked" {
+		if x.Phase != "blocked" && (!x.unresolvedHistoricalRecovery() || x.Phase == "completed" || x.Phase == "cancelled") {
 			continue
 		}
 		b := NativeBlocker{JobID: x.Job.ID, Task: x.Job.TaskURL, Reason: nativeRecoveryBlocker(d.config, x)}
@@ -170,7 +170,7 @@ func (d *NativeDispatcher) Progress() NativeProgress {
 		p.ProgressAt, p.WorkTitle = d.active.Job.ProgressAt, p.Current.WorkTitle
 	}
 
-	if x, ok := d.history[p.PrimaryJobID]; ok && x.Phase == "blocked" && (x.Reason == "native_completed_without_result" || x.Reason == "native_dependency_wait") && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
+	if x, ok := d.history[p.PrimaryJobID]; ok && x.Phase == "blocked" && !x.unresolvedHistoricalRecovery() && (x.Reason == "native_completed_without_result" || x.Reason == "native_dependency_wait") && x.Job.Phase == "completed" && x.Job.SubmissionState == "completed" && !x.Job.TerminalAt.IsZero() {
 		target := c.TaskContinuationTarget{JobID: x.Job.ID, TaskURL: x.Job.TaskURL, SessionID: x.Job.SessionID, MessageID: x.Job.MessageID, InstanceID: d.config.Master.InstanceID, Generation: d.config.Master.Generation}
 		if c.ValidateContinuationTarget(target) == nil {
 			p.Continuation = &target

@@ -123,7 +123,7 @@ func loadNativeExecution(cfg Config, id string) (NativeExecution, error) {
 	if err != nil {
 		return x, err
 	}
-	if strictTeamJSON(raw, &x) != nil || x.unresolvedHistoricalRecovery() || !validNativeAbandonment(x) || x.Version != 3 || x.Job.ID != id || cfg.Master == nil || x.MasterID != cfg.Master.MasterID || x.Job.Master == nil || x.Job.Master.Goal == nil || *x.Job.Master.Goal != x.Goal {
+	if strictTeamJSON(raw, &x) != nil || !validNativeAbandonment(x) || x.Version != 3 || x.Job.ID != id || cfg.Master == nil || x.MasterID != cfg.Master.MasterID || x.Job.Master == nil || x.Job.Master.Goal == nil || *x.Job.Master.Goal != x.Goal {
 		return x, c.ErrConflict
 	}
 	if x.Job.Master.AgentID != cfg.Master.AgentID || x.Job.Master.MasterID != cfg.Master.MasterID || x.Job.Master.ExecutorID != cfg.Self.ID || x.Binding != nil && (x.Binding.Goal != x.Goal || x.Binding.TaskURL != x.Job.TaskURL || NativeAssignmentSHA(*x.Binding) != x.Job.Master.AssignmentSHA) {
@@ -186,6 +186,12 @@ func NewNativeDispatcher(cfg Config, m NativeEngineeringMaster, g NativeCatalogR
 		d.history[id] = x
 		switch x.Phase {
 		case "selected", "prepared", "active":
+			// An obsolete recovery protocol is read-only history, never work
+			// to resume. Its task stays reserved; an unaccounted model still
+			// holds the native slot through updateRecoveryHold below.
+			if x.unresolvedHistoricalRecovery() {
+				continue
+			}
 			if d.active != nil {
 				return nil, errors.New("conflicting native engineering intents")
 			}
@@ -286,7 +292,7 @@ func (d *NativeDispatcher) Ready() bool {
 	candidates, err := d.candidates(d.catalog)
 	recovery, recoveryErr := d.automaticRecoveries()
 	stale, staleErr := d.staleRetirements()
-	return err != nil || recoveryErr != nil || staleErr != nil || len(recovery) > 0 || len(stale) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0
+	return err != nil || recoveryErr != nil || staleErr != nil || len(recovery) > 0 || len(stale) > 0 || len(candidates) > 0 || len(d.dependencyWaits()) > 0 || d.resumableBlocked() != nil
 }
 func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 	d.poll()
@@ -348,6 +354,9 @@ func (d *NativeDispatcher) Tick(ctx context.Context) (bool, error) {
 			jobs = append(jobs, v.Job)
 		}
 		waiting := d.dependencyWaits()
+		if resumed := d.resumableBlocked(); resumed != nil {
+			waiting = append(waiting, *resumed)
+		}
 		recovery, err := d.automaticRecoveries()
 		if err != nil {
 			return false, err
@@ -680,7 +689,16 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 		return done, err
 	}
 	if x.Phase == "blocked" && resumableNativeReason(x.Reason) {
-		return d.resumeBlocked(ctx, x)
+		done, err := d.resumeBlocked(ctx, x)
+		if err != nil {
+			x.Job.ReconcileFailures++
+			x.Job.ReconcileError = errorCategory(err)
+			x.Job.NextAttemptAt = d.clock.Now().Add(nativeRecoveryBackoff(x.Job.ReconcileFailures))
+			if saveErr := saveNativeExecution(d.config, *x); saveErr != nil {
+				return false, saveErr
+			}
+		}
+		return done, err
 	}
 	paused, pauseErr := NewVersionedFileStore(d.config.StateDir, 3).Paused()
 	if pauseErr != nil {
@@ -938,14 +956,14 @@ func (d *NativeDispatcher) resumableBlocked() *NativeExecution {
 		return nil
 	}
 	for _, x := range d.history {
-		if x.Phase == "blocked" && !resumableNativeReason(x.Reason) {
+		if !resumableNativeReason(x.Reason) || x.unresolvedHistoricalRecovery() {
 			if held, err := nativeExecutionRecoveryHold(d.config, x); err != nil || held {
 				return nil
 			}
 		}
 	}
 	for _, x := range d.history {
-		if x.Phase != "blocked" || !resumableNativeReason(x.Reason) {
+		if x.Phase != "blocked" || x.unresolvedHistoricalRecovery() || !resumableNativeReason(x.Reason) || d.clock.Now().Before(x.Job.NextAttemptAt) {
 			continue
 		}
 		for _, a := range d.catalog.Goals {
@@ -961,6 +979,9 @@ func (d *NativeDispatcher) resumeBlocked(ctx context.Context, x *NativeExecution
 	return d.resumeBlockedWithRequest(ctx, x, "", "", nil)
 }
 func (d *NativeDispatcher) resumeBlockedWithRequest(ctx context.Context, x *NativeExecution, requestID, sourceMessageID string, check func(context.Context) error) (bool, error) {
+	if x.unresolvedHistoricalRecovery() {
+		return false, c.ErrConflict
+	}
 	a, e := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
 	if e != nil {
 		return false, e

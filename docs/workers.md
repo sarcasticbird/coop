@@ -126,11 +126,13 @@ the manifest or recovery directories to bypass a refusal; preserve the evidence
 and investigate the conflicting artifact.
 
 Historical `RejectedRecoveryContinuations`, `Recovery` and `RecoveryFollowups`
-entries in native execution journals are preserved as audit evidence. They do
-not authorize a retry, become current continuations, or resolve a missing native
-observation. Unadopted historical recovery requests still refuse startup; the
-current worker cannot replay that old protocol. Rebuilding a guest does not
-repair missing evidence; retain its sessions and recovery journals.
+entries in native execution journals are read-only historical evidence. They do
+not authorize a retry or become current continuations. Unadopted requests reserve
+their old task without requiring a historical-protocol migration at startup.
+Once the model is known finished and the producer is free, an uncertain action
+holds only its task; the bird can take unrelated work and conversations. A missing
+or unaccounted native observation, a busy producer or corrupt action records
+still holds the worker slot. Rebuilding a guest does not repair missing evidence.
 
 If the only independent change is a deliberate worker config edit, first
 inspect that change and take a verified cold backup. With services stopped,

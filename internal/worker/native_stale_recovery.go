@@ -12,7 +12,7 @@ import (
 // An action-free terminal checkpoint can release an obsolete task reservation.
 // Retained actions use their existing reconciliation path instead.
 func nativeStaleRetirementEligible(cfg Config, x NativeExecution) (bool, error) {
-	if !nativeTerminalCheckpoint(x) || x.Binding == nil || x.Job.TaskURL == "" {
+	if x.unresolvedHistoricalRecovery() || !nativeTerminalCheckpoint(x) || x.Binding == nil || x.Job.TaskURL == "" {
 		return false, nil
 	}
 	records, err := loadNativeJobActions(cfg, x)

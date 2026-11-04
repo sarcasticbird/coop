@@ -126,8 +126,8 @@ func TestNativeActiveChecksRecoveryRetiresOnlyUneffectedWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			if action == "pushed" || action == "uncertain" {
-				if x.Phase == "cancelled" || !d.RecoveryBlocked() {
-					t.Fatal("remote effects were discarded as an obsolete repair", x.Phase)
+				if x.Phase == "cancelled" || d.RecoveryBlocked() {
+					t.Fatal("task effects were discarded or froze unrelated work", x.Phase)
 				}
 				return
 			}

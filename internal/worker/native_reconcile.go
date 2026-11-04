@@ -103,7 +103,7 @@ func nativeTerminalCheckpoint(x NativeExecution) bool {
 // This is a local eligibility check, not permission to write. Recovery rechecks
 // placement, goal, exact native evidence and each original effect's guard.
 func nativeAutomaticRecovery(cfg Config, x NativeExecution) (bool, error) {
-	if !nativeTerminalCheckpoint(x) || x.Job.ReconcileFailures >= Defaults(cfg).Limits.MaxAttempts && !nativeActionRetryable(x) {
+	if x.unresolvedHistoricalRecovery() || !nativeTerminalCheckpoint(x) || x.Job.ReconcileFailures >= Defaults(cfg).Limits.MaxAttempts && !nativeActionRetryable(x) {
 		return false, nil
 	}
 	records, err := loadNativeJobActions(cfg, x)
