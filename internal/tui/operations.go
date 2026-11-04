@@ -287,6 +287,9 @@ func (f operationForm) action() (pendingAction, error) {
 	switch s.name {
 	case "enter":
 		p.args = []string{"--"}
+		if f.entry.Target.Kind == hostrouter.Agent {
+			p.args = []string{"attach"}
+		}
 	case "backup":
 		p.args = append(p.args, "--", f.values[0])
 	case "restore":

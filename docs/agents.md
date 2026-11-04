@@ -48,6 +48,7 @@ for signing-key placement, owner routing, helper installation and host renewal.
 ```sh
 coop --agent robin up                 # start the managed agent without attaching
 coop --agent robin                   # reconnect to its terminal
+coop --agent robin attach            # attach only to an already-running guest
 coop --agent robin shell             # separate administrative shell
 coop --agent robin gh auth status    # one command, no duplicate managed agent
 coop --agent robin sync              # clone newly visible repositories
@@ -62,6 +63,13 @@ acquires fresh credentials before starting the configured agent and helpers.
 Native coding-tool login state, installed packages, databases, and checkouts
 remain on the guest disk. Each coding tool still controls its own permission
 and approval settings; Coop does not rewrite them.
+
+The fleet TUI uses `attach` for running birds. This explicit operation connects
+to the installed guest without starting it, refreshing credentials, changing
+services or applying the desired image. It can inspect an owned legacy machine
+whose desired base image is newer; actual runtime ownership drift still refuses.
+Portable birds retain their configured-generation fence. Ordinary entry and
+`up` continue to require maintenance when the desired configuration changes.
 
 To restart a named Coop, run `coop --agent robin down` followed by
 `coop --agent robin up`. The worker ledger, queued requests, coding-tool

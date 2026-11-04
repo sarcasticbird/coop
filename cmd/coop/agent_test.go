@@ -47,6 +47,16 @@ func TestWorkerControlsRequireAgentAndRejectCredentialGrants(t *testing.T) {
 	}
 }
 
+func TestAttachRequiresAgentAndRejectsArgumentsAndCredentialGrants(t *testing.T) {
+	for _, args := range [][]string{{"attach"}, {"--agent", "robin", "attach", "unexpected"}, {"--agent", "robin", "--credentials", "sentinel", "attach"}} {
+		cmd := root()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("attachment accepted missing agent, arguments or credential grants", args)
+		}
+	}
+}
+
 func TestPingRequiresAgentAndRejectsCredentialGrants(t *testing.T) {
 	for _, args := range [][]string{{"ping", "--prompt", "question"}, {"--agent", "robin", "--credentials", "sentinel", "ping"}, {"--agent", "robin", "ping", "unexpected-positional"}, {"--agent", "robin", "ping", "--request-id", "invalid"}} {
 		cmd := root()

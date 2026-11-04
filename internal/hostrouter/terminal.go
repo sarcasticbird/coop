@@ -17,12 +17,12 @@ import (
 var _ TerminalClient = SSH{}
 var _ Attachment = (*sshTerminal)(nil)
 
-// Attach uses normal Coop entry (including a persistent agent's application
-// attachment) without resolving remote project paths on the client.
+// Attach connects to a running persistent agent without lifecycle preparation;
+// interactive targets retain normal entry and server-side project resolution.
 func (s SSH) Attach(ctx context.Context, target Target, size TerminalSize) (Attachment, error) {
 	args := []string{"--"}
 	if target.Kind == Agent {
-		args = []string{"--agent", target.ID, "--"}
+		args = []string{"--agent", target.ID, "attach"}
 	}
 	return s.AttachCommand(ctx, ActionRequest{Target: target, Operation: "command", Args: args}, size)
 }

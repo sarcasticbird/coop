@@ -226,6 +226,7 @@ has an embedded form. Flags and positional agent argv are not separate commands.
 | --- | --- | --- |
 | `coop` | UI | Default shell or agent argv entry through Fleet terminal; normal session and credential handling |
 | `shell` | UI | Fleet -> Details -> Connect confirmation or enter operation, real local terminal or remote SSH PTY |
+| `attach` | UI | Running named birds attach to the installed generation without lifecycle preparation or credential refresh |
 | `tui` | UI | Launch browser; no nested TUI action |
 | `ls` | UI | Fleet local inventory; original CLI remains local without host selection |
 | `inventory` | UI | Combined local/registered-host snapshots with independent stale/error health |

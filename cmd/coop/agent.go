@@ -39,6 +39,7 @@ func installAgentCommands(root *cobra.Command, grants *[]string) {
 	var selected string
 	root.PersistentFlags().StringVar(&selected, "agent", "", "select a host-configured persistent agent machine")
 	root.AddCommand(
+		&cobra.Command{Use: "attach", Args: cobra.NoArgs, Short: "Attach to an already-running named agent without preparation", RunE: agentOnly},
 		&cobra.Command{Use: "shell", Args: cobra.NoArgs, Short: "Open a shell in the selected Coop", RunE: func(cmd *cobra.Command, _ []string) error {
 			s, cwd, err := current()
 			if err != nil {
@@ -107,7 +108,7 @@ func namedOperation(cmd *cobra.Command, name string, args, grants []string) erro
 		op = "worker " + cmd.Name()
 	}
 	switch op {
-	case "up", "down", "status", "shell", "sync", "credentials refresh", "apply", "rebuild", "destroy", "backup", "restore", "worker status", "worker pause", "worker resume", "worker requests", "ping", "approve":
+	case "attach", "up", "down", "status", "shell", "sync", "credentials refresh", "apply", "rebuild", "destroy", "backup", "restore", "worker status", "worker pause", "worker resume", "worker requests", "ping", "approve":
 	default:
 		return fmt.Errorf("--agent is not supported with %s", cmd.Name())
 	}
@@ -132,6 +133,8 @@ func namedOperation(cmd *cobra.Command, name string, args, grants []string) erro
 	ctx, stop := runtime.NotifyContext(cmd.Context())
 	defer stop()
 	switch op {
+	case "attach":
+		return s.AttachRunning(ctx)
 	case "ping":
 		prompt, _ := cmd.Flags().GetString("prompt")
 		id, _ := cmd.Flags().GetString("request-id")
