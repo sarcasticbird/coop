@@ -127,7 +127,7 @@ func (c *OpenCodeClient) FenceNativeScope(ctx context.Context, j Job, requestID,
 		return interruptionProof(receipt, j, scopeSHA, "interrupted"), nil
 	}
 	var absent *OpenCodeError
-	if !errors.As(err, &absent) || absent.Status != http.StatusNotFound {
+	if !errors.As(err, &absent) || absent.Status != http.StatusNotFound && (absent.Status != http.StatusConflict || absent.missingReceiptSession != j.SessionID) {
 		return proof, err
 	}
 	var scope nativeScope

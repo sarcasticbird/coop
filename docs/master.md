@@ -326,6 +326,11 @@ itself is never adopted as a missing turn's completion. A newly acknowledged sea
 is read back by its original request ID on retry; never change the request ID or
 scope to bypass a failed attempt.
 
+An absent receipt may be HTTP 404 or this native build's exact HTTP 409
+`ConflictError` / `missing_receipt` for the requested session and recovery route.
+Generic conflicts, near-match messages and foreign-session refusals are errors,
+not absence evidence.
+
 The original accepted `Job`, native identity and timestamps remain unchanged.
 The execution gains a hash-bound `Abandonment` audit and is cancelled only after
 the scope fence is verified. Failed/ambiguous fencing stays blocked and appears

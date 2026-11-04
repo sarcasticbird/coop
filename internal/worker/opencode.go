@@ -37,7 +37,8 @@ type OpenCodeError struct {
 	Category string
 	Status   int
 	// A narrowly parsed native recovery refusal, never arbitrary response text.
-	sealedSession string
+	sealedSession         string
+	missingReceiptSession string
 }
 
 func (e *OpenCodeError) Error() string { return "OpenCode: " + e.Category }
@@ -114,14 +115,20 @@ func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir s
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		failure := &OpenCodeError{Category: "request_failed", Status: res.StatusCode}
-		if method == "POST" && strings.HasSuffix(req.URL.Path, "/recovery") && res.StatusCode == http.StatusConflict {
+		if res.StatusCode == http.StatusConflict {
 			var refusal struct {
 				Tag      string `json:"_tag"`
 				Message  string `json:"message"`
 				Resource string `json:"resource"`
 			}
-			if json.Unmarshal(raw, &refusal) == nil && refusal.Tag == "ConflictError" && refusal.Message == "already_dispositioned" && validSession(refusal.Resource) {
-				failure.sealedSession = refusal.Resource
+			if json.Unmarshal(raw, &refusal) == nil && refusal.Tag == "ConflictError" && validSession(refusal.Resource) {
+				root := "/session/" + refusal.Resource + "/recovery"
+				if method == "POST" && req.URL.Path == root && refusal.Message == "already_dispositioned" {
+					failure.sealedSession = refusal.Resource
+				}
+				if method == "GET" && strings.HasPrefix(req.URL.Path, root+"/") && nativeRecoveryID.MatchString(strings.TrimPrefix(req.URL.Path, root+"/")) && refusal.Message == "missing_receipt" {
+					failure.missingReceiptSession = refusal.Resource
+				}
 			}
 		}
 		return failure

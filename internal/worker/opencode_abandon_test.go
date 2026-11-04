@@ -31,7 +31,7 @@ func TestExactNativeRecoveryRuntimeHealth(t *testing.T) {
 }
 
 func TestOpenCodeAbandonmentFenceProtocol(t *testing.T) {
-	for _, scenario := range []string{"new-seal", "already-sealed", "lost-ack", "message-present", "message-forbidden", "scope-drift", "scope-claims", "busy-child", "foreign-receipt", "tampered-snapshot", "foreign-child", "generic-conflict", "foreign-conflict", "bad-success", "old-receipt-as-new", "post-fence-drift", "lost-ack-scope-drift"} {
+	for _, scenario := range []string{"new-seal", "already-sealed", "native-missing-receipt", "generic-receipt-conflict", "foreign-missing-receipt", "near-miss-missing-receipt", "lost-ack", "message-present", "message-forbidden", "scope-drift", "scope-claims", "busy-child", "foreign-receipt", "tampered-snapshot", "foreign-child", "generic-conflict", "foreign-conflict", "bad-success", "old-receipt-as-new", "post-fence-drift", "lost-ack-scope-drift"} {
 		t.Run(scenario, func(t *testing.T) {
 			var job Job
 			var scope nativeScope
@@ -62,7 +62,20 @@ func TestOpenCodeAbandonmentFenceProtocol(t *testing.T) {
 					}
 					w.WriteHeader(404)
 				case root + "/abandon-test":
-					if scenario == "lost-ack" || scenario == "lost-ack-scope-drift" || scenario == "old-receipt-as-new" {
+					if strings.Contains(scenario, "missing-receipt") || scenario == "generic-receipt-conflict" {
+						resource, message := job.SessionID, "missing_receipt"
+						if scenario == "foreign-missing-receipt" {
+							resource = "ses_foreign"
+						}
+						if scenario == "near-miss-missing-receipt" {
+							message = "missing_receipt_extra"
+						}
+						if scenario == "generic-receipt-conflict" {
+							message = "scope_changed"
+						}
+						w.WriteHeader(409)
+						writeJSON(w, map[string]string{"_tag": "ConflictError", "message": message, "resource": resource})
+					} else if scenario == "lost-ack" || scenario == "lost-ack-scope-drift" || scenario == "old-receipt-as-new" {
 						r := fresh
 						if scenario == "old-receipt-as-new" {
 							r.TimeCreated = job.SubmittedAt.Add(-time.Hour).UnixMilli()
@@ -143,7 +156,7 @@ func TestOpenCodeAbandonmentFenceProtocol(t *testing.T) {
 			}
 			scope = nativeScope{SHA: fresh.ExpectedSHA256, SessionIDs: []string{job.SessionID, "ses_child"}, MessageID: "msg_previous"}
 			proof, err := client.FenceNativeScope(t.Context(), job, "abandon-test", scope.SHA, "prior-test")
-			success := scenario == "new-seal" || scenario == "already-sealed" || scenario == "lost-ack"
+			success := scenario == "new-seal" || scenario == "already-sealed" || scenario == "native-missing-receipt" || scenario == "lost-ack"
 			if success {
 				if err != nil || proof.SessionID != job.SessionID || proof.ScopeSHA != scope.SHA || proof.VerifiedAt.IsZero() {
 					t.Fatal("valid fence refused", err)
