@@ -348,7 +348,16 @@ func (svc *Service) TaskBind(ctx context.Context, actor c.Principal, in c.TaskBi
 	})
 	return result, err
 }
-func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.TaskCompleteInput) (c.ProviderTask, error) {
+func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.TaskCompleteInput) (out c.ProviderTask, err error) {
+	providerEntered := false
+	defer func() {
+		if !providerEntered && errors.Is(err, c.ErrForbidden) {
+			err = &c.TaskCompletionNotStartedError{Cause: err, Refusal: c.TaskCompletionRefusal{
+				Version: 1, MasterID: svc.Store.id, RestoreEpoch: svc.Store.epoch,
+				RequestID: in.RequestID, InputSHA256: c.TaskCompletionInputSHA(in), Effect: "not_started",
+			}}
+		}
+	}()
 	p, a, err := svc.taskAuthority(ctx, actor, in.Goal, true)
 	if err != nil {
 		return c.ProviderTask{}, err
@@ -399,6 +408,7 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if !c.CanDeliver(p, a.Actors) || a.ApprovalSequence != task.Binding.ApprovalSequence {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
+	providerEntered = true
 	return svc.Tasks.Complete(ctx, in, p)
 }
 func registerTasks(mux *http.ServeMux, svc *Service, wrap func(func(http.ResponseWriter, *http.Request, c.Principal) (any, error)) http.HandlerFunc) {

@@ -121,9 +121,17 @@ func (cl *Client) call(ctx context.Context, method, path string, in, out any) er
 	}
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
 		var e struct {
-			Error string `json:"error"`
+			Error   string                   `json:"error"`
+			Refusal *c.TaskCompletionRefusal `json:"task_completion_refusal,omitempty"`
 		}
 		_ = json.Unmarshal(raw, &e)
+		if input, ok := in.(c.TaskCompleteInput); ok && method == "POST" && path == "/api/v1/tasks/complete" && r.StatusCode == http.StatusForbidden && e.Error == c.ErrForbidden.Error() && e.Refusal != nil && c.DecodeJSON(raw, &e) == nil {
+			proof := *e.Refusal
+			epoch, parseErr := strconv.ParseInt(r.Header.Get("X-Coop-Restore-Epoch"), 10, 64)
+			if parseErr == nil && epoch > 0 && proof.Version == 1 && proof.MasterID == cl.cfg.MasterID && proof.MasterID == input.Goal.MasterID && proof.RestoreEpoch == epoch && proof.RequestID == input.RequestID && proof.InputSHA256 == c.TaskCompletionInputSHA(input) && proof.Effect == "not_started" {
+				return &c.TaskCompletionNotStartedError{Cause: c.ErrForbidden, Refusal: proof}
+			}
+		}
 		for _, known := range []error{c.ErrInvalid, c.ErrForbidden, c.ErrNotFound, c.ErrConflict, c.ErrCapacity, c.ErrSize, c.ErrEpoch, c.ErrUnsupported} {
 			if e.Error == known.Error() {
 				return known

@@ -344,6 +344,34 @@ editing or removing it to make a downgrade load.
 The selected runtime stays unchanged. Worker health accepts stock `1.18.18` and
 the exact reviewed `1.18.18-coop-recovery.2` build, not arbitrary suffix variants.
 
+### Completion refusals versus unknown effects
+
+Kata completion has a narrow `task_completion_refusal` error response when the
+master rejects this exact request as forbidden **before entering the provider**.
+It binds version, master, restore epoch, original request ID and the SHA256 of
+the canonical completion input, with `effect: not_started`. The authenticated
+client validates the completion route/status, full input and identity pins;
+the worker also checks its current saved connection epoch.
+
+Only that response, received during the original completion call after an
+acknowledged merge, can leave the action at its previous prepared merge
+checkpoint. The worker retains `CompletionRefusal` as audit data. Once live
+authority permits it again, the scheduler can finish the original task request
+without another merge or model turn. Capability/client discovery stays outside
+the task-write uncertainty boundary.
+
+A bare 403, malformed/foreign proof, timeout, lost response or error returned
+after entering the provider does not establish non-execution. Those effects
+remain uncertain, including when a later task read says Done. The new response
+does not resolve any historical unknown journal and does not prove completion.
+A crash before saving a received refusal remains conservatively held too.
+
+Mixed versions fail closed: an older master supplies no refusal proof, and an
+older worker does not understand the new optional action audit field. Keep such
+workers held rather than deleting audit data. Deterministic restart tests are
+not a passed live UAT; repeat the original fault at the reviewed deployed head
+before declaring the earlier live acceptance gap closed.
+
 A canceled conversation can retain an unsent durable reply. The worker preserves
 that outbox record and skips dispatch only when local recovery and a current
 master receipt confirm cancellation of the same delivery, agent, epoch and native

@@ -187,6 +187,12 @@ fails rather than silently falling back; when absent, they use `opencode` on PAT
 The checked worker installer preserves this runtime selection and does not replace
 the operator-installed runtime itself.
 
+Flox is a local developer/build tool, not a bird execution requirement. Birds
+run tools already installed in the container image and execute the repository's
+test commands directly. Do not activate Flox, resolve packages or upgrade tools
+inside a bird to make a task pass. A materialized tool path under a Flox-built
+image is not runtime activation; preserve those installed tools during cleanup.
+
 Helper startup order is unspecified. The worker waits for readiness, and the attach
 client waits up to 30 attempts. With `restart = "always"`, exiting the client
 reopens it after two seconds; this does not restart the server. Press `Ctrl-b`,
