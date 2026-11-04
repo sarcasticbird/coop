@@ -17,6 +17,14 @@ import (
 
 const SupportedOpenCodeVersion = "1.18.18"
 
+// The production recovery build retains the 1.18.18 worker API. Accept only
+// this reviewed variant, not arbitrary development/version suffixes.
+const SupportedOpenCodeRecoveryVersion = "1.18.18-coop-recovery.2"
+
+func supportedNativeHealth(health ServerHealth) bool {
+	return health.Healthy && (health.Version == SupportedOpenCodeVersion || health.Version == SupportedOpenCodeRecoveryVersion)
+}
+
 type OpenCode interface {
 	Health(context.Context) (ServerHealth, error)
 	EnsureSession(context.Context, Config, Job) (Job, error)
@@ -28,6 +36,9 @@ type OpenCode interface {
 type OpenCodeError struct {
 	Category string
 	Status   int
+	// A narrowly parsed native recovery refusal, never arbitrary response text.
+	sealedSession         string
+	missingReceiptSession string
 }
 
 func (e *OpenCodeError) Error() string { return "OpenCode: " + e.Category }
@@ -103,7 +114,24 @@ func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir s
 		return &OpenCodeError{Category: "response_too_large"}
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return &OpenCodeError{Category: "request_failed", Status: res.StatusCode}
+		failure := &OpenCodeError{Category: "request_failed", Status: res.StatusCode}
+		if res.StatusCode == http.StatusConflict {
+			var refusal struct {
+				Tag      string `json:"_tag"`
+				Message  string `json:"message"`
+				Resource string `json:"resource"`
+			}
+			if json.Unmarshal(raw, &refusal) == nil && refusal.Tag == "ConflictError" && validSession(refusal.Resource) {
+				root := "/session/" + refusal.Resource + "/recovery"
+				if method == "POST" && req.URL.Path == root && refusal.Message == "already_dispositioned" {
+					failure.sealedSession = refusal.Resource
+				}
+				if method == "GET" && strings.HasPrefix(req.URL.Path, root+"/") && nativeRecoveryID.MatchString(strings.TrimPrefix(req.URL.Path, root+"/")) && refusal.Message == "missing_receipt" {
+					failure.missingReceiptSession = refusal.Resource
+				}
+			}
+		}
+		return failure
 	}
 	if output != nil && (len(raw) == 0 || json.Unmarshal(raw, output) != nil) {
 		return &OpenCodeError{Category: "invalid_response"}
@@ -113,7 +141,7 @@ func (c *OpenCodeClient) requestBounded(ctx context.Context, method, path, dir s
 func (c *OpenCodeClient) Health(ctx context.Context) (ServerHealth, error) {
 	var health ServerHealth
 	err := c.request(ctx, "GET", "/global/health", "", nil, &health)
-	if err == nil && (!health.Healthy || health.Version != SupportedOpenCodeVersion) {
+	if err == nil && !supportedNativeHealth(health) {
 		err = &OpenCodeError{Category: "unsupported_server_version"}
 	}
 	return health, err

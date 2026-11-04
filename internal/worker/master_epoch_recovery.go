@@ -179,7 +179,16 @@ func gatherMasterRecovery(ctx context.Context, cfg Config, code OpenCode) ([]c.R
 				if e != nil {
 					return nil, "", e
 				}
-				job = &v.Job
+				if v.Abandonment != nil {
+					// This is an explicit interrupted/unknown disposition, not a
+					// recovered model result. The original accepted Job stays intact.
+					r.Intent = &c.NativeIntent{SessionID: v.Job.SessionID, MessageID: v.Job.MessageID}
+					r.Terminal = v.Abandonment.State == "fenced"
+					r.Uncertain = !r.Terminal
+					r.Observation = mustRecoveryJSON(v.Abandonment)
+				} else {
+					job = &v.Job
+				}
 			case "actions":
 				var v nativeActionRecord
 				if strictTeamJSON(raw, &v) != nil || v.Version != 3 || entry.Name() != BodyHash(v.JobID+"\x00"+v.RequestID)+".json" {

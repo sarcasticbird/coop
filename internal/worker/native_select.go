@@ -40,6 +40,7 @@ type nativeRecoveryAudit struct {
 }
 
 type NativeExecution struct {
+	Abandonment *NativeAbandonment `json:",omitempty"`
 	// Historical rejected recovery attempts are audit evidence, never work to
 	// schedule or an accepted continuation. Retain them across journal rewrites.
 	RejectedRecoveryContinuations []Job                 `json:",omitempty"`

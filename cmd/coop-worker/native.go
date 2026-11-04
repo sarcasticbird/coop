@@ -13,6 +13,9 @@ import (
 )
 
 func nativeCommand(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "abandon" {
+		return nativeAbandon(args[1:], out)
+	}
 	if len(args) > 0 && args[0] == "release" {
 		return nativeReleaseCommand(args[1:], out)
 	}

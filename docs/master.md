@@ -294,6 +294,56 @@ resume observation of the same owned native intent. Engineering has the
 corresponding `native resolve` command.
 Keep uncertain GitHub mutation journals for explicit remote artifact inspection.
 
+### Explicitly abandon a missing native invocation
+
+Ordinary `native resolve --action cancel` still requires the exact native turn's
+terminal evidence. A missing message, idle session, old recovery receipt or worker
+restart alone is not that evidence. Never change a saved session/message ID to
+substitute another turn.
+
+An operator may explicitly abandon a blocked `implement`/`fix` invocation whose
+native message is missing. This is **cancellation with outcome and effects still
+unknown**, not a recovered result or task completion. It requires a stopped and
+paused worker, `delivery_hold: true`, the exact job/session/message, a reviewed
+native scope digest and prior immutable interruption receipt. Every managed
+action for the job must already be completed; prepared or uncertain action
+journals still refuse. Other nonterminal invocations sharing the root refuse too.
+
+```sh
+coop-worker native abandon --config /private/worker.json --job EXACT_JOB \
+  --session EXACT_SESSION --message EXACT_MISSING_MESSAGE \
+  --request-id STABLE_FENCE_ID --scope-sha INSPECTED_SCOPE_SHA256 \
+  --prior-receipt PRIOR_NATIVE_INTERRUPTION_RECEIPT \
+  --reason 'Owner abandons this invocation; outcome and effects remain unknown'
+```
+
+The command records its exact intent before asking the authenticated local
+native runtime to seal only that inspected recovery scope. It invokes no prompt,
+continuation, tool, GitHub mutation or task completion. An already-dispositioned
+scope requires the native server's exact live refusal, the matching earlier
+receipt and an unchanged idle scope without durable claims. An old receipt by
+itself is never adopted as a missing turn's completion. A newly acknowledged seal
+is read back by its original request ID on retry; never change the request ID or
+scope to bypass a failed attempt.
+
+An absent receipt may be HTTP 404 or this native build's exact HTTP 409
+`ConflictError` / `missing_receipt` for the requested session and recovery route.
+Generic conflicts, near-match messages and foreign-session refusals are errors,
+not absence evidence.
+
+The original accepted `Job`, native identity and timestamps remain unchanged.
+The execution gains a hash-bound `Abandonment` audit and is cancelled only after
+the scope fence is verified. Failed/ambiguous fencing stays blocked and appears
+as uncertain recovery evidence. A verified disposition appears as interrupted
+execution evidence with explicit unknown outcome/effects; independent unknown
+action journals remain blocking. Review and accept the full stopped-worker
+recovery inventory through the existing master protocol before resuming. Older
+workers do not understand this new audit field: keep them held rather than
+editing or removing it to make a downgrade load.
+
+The selected runtime stays unchanged. Worker health accepts stock `1.18.18` and
+the exact reviewed `1.18.18-coop-recovery.2` build, not arbitrary suffix variants.
+
 A canceled conversation can retain an unsent durable reply. The worker preserves
 that outbox record and skips dispatch only when local recovery and a current
 master receipt confirm cancellation of the same delivery, agent, epoch and native

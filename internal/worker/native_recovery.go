@@ -68,6 +68,9 @@ func ResolveNativeEngineering(ctx context.Context, cfg Config, code OpenCode, id
 	if err != nil {
 		return x, err
 	}
+	if x.Abandonment != nil {
+		return x, c.ErrConflict
+	}
 	checkpoint := x.Job
 	unsubmitted := (x.Phase == "selected" || x.Phase == "blocked") && x.Job.SubmissionState == "" && x.Job.MessageID == "" && len(x.Turns) > 0
 	if unsubmitted {
