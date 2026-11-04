@@ -136,6 +136,9 @@ func TestLiveFleetWorkflowPilot(t *testing.T) {
 		".github/workflows/test.yml": "name: UAT checks\non: [push, pull_request]\npermissions:\n  contents: read\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@" + checkoutSHA + "\n      - run: bash test.sh\n",
 	}
 	for path, body := range files {
+		if path == "AGENTS.md" {
+			body += "\nFlox is local development tooling only. In this guest, run the installed Bash and the test scripts directly; do not activate Flox, resolve dependencies or upgrade tools. Record the actual shell version.\n"
+		}
 		write(filepath.Join(repoDir, path), []byte(body), 0600)
 	}
 	run(repoDir, "git", "init", "-b", "main")

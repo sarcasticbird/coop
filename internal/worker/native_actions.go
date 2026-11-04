@@ -38,7 +38,8 @@ type NativeActionResult struct {
 	Phase             string `json:"phase"`
 }
 type nativeActionRecord struct {
-	Wait                                                                                                       *NativeDependencyWait `json:"wait,omitempty"`
+	CompletionRefusal                                                                                          *c.TaskCompletionRefusal `json:",omitempty"`
+	Wait                                                                                                       *NativeDependencyWait    `json:"wait,omitempty"`
 	Version                                                                                                    int
 	JobID, RequestID, InputSHA, Operation, State, Step, PublishedHeadSHA, ProjectItemID, ExpectedAssignmentSHA string
 	Result                                                                                                     NativeActionResult
@@ -479,11 +480,22 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				return err
 			}
 		}
+		previousStep := record.Step
 		record.State, record.Step = "uncertain", step
 		if err := saveNativeAction(cfg, record); err != nil {
 			return err
 		}
 		if err := fn(); err != nil {
+			if step == "task-completed" && previousStep == "merge" && in.Operation == "deliver" && isKataTask(x.Job.TaskURL) {
+				input := c.TaskCompleteInput{Reference: x.Job.TaskURL, Goal: x.Goal, AssignmentSHA: x.Job.Master.AssignmentSHA, PullRequestURL: x.Job.PRURL, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)}
+				if proof := verifiedCompletionRefusal(cfg, input, err); proof != nil {
+					// This call was conclusively refused before the provider write.
+					// Retain the proof and the acknowledged merge checkpoint. Never
+					// apply it to an old uncertain journal or claim task completion.
+					record.State, record.Step, record.CompletionRefusal = "prepared", previousStep, proof
+					return errors.Join(err, saveNativeAction(cfg, record))
+				}
+			}
 			return err
 		}
 		record.State = "prepared"
@@ -977,19 +989,23 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			}
 		}
 		if record.Step != "task-completed" {
-			if err = effect("task-completed", func() error {
-				if isKataTask(task.Task.URL) {
-					cl, e := TaskProviderClient(ctx, cfg)
-					if e != nil {
-						return e
-					}
-					_, e = cl.TaskComplete(ctx, c.TaskCompleteInput{Reference: task.Task.URL, Goal: x.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), PullRequestURL: pr.URL, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)})
-					return e
-				}
+			completeTask := func() error {
 				_, n, _ := parseRef(task.Task.URL)
 				_, _, e := reader.api(ctx, strings.Split(task.Task.Repo, "/")[0], "PATCH", "repos/"+task.Task.Repo+"/issues/"+stringID(n), map[string]string{"state": "closed", "state_reason": "completed"})
 				return e
-			}); err != nil {
+			}
+			if isKataTask(task.Task.URL) {
+				// Client/capability discovery cannot write the task.
+				cl, e := TaskProviderClient(ctx, cfg)
+				if e != nil {
+					return empty, e
+				}
+				completeTask = func() error {
+					_, e = cl.TaskComplete(ctx, c.TaskCompleteInput{Reference: task.Task.URL, Goal: x.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), PullRequestURL: pr.URL, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)})
+					return e
+				}
+			}
+			if err = effect("task-completed", completeTask); err != nil {
 				return empty, err
 			}
 		}

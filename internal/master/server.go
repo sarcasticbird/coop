@@ -56,6 +56,14 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	var notStarted *c.TaskCompletionNotStartedError
+	if errors.As(err, &notStarted) && code == c.ErrForbidden.Error() {
+		_ = json.NewEncoder(w).Encode(struct {
+			Error   string                  `json:"error"`
+			Refusal c.TaskCompletionRefusal `json:"task_completion_refusal"`
+		}{code, notStarted.Refusal})
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 }
 func decode(w http.ResponseWriter, r *http.Request, out any) error {

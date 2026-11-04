@@ -458,10 +458,29 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		t.Fatal("foreign post-push head was not refused", err)
 	}
 	transport.stalePRHead = ""
-	if _, err = recovery.reconcileNativeAction(ctx, &fix); err != nil {
+	// Exercise scheduler admission, not a direct call to its recovery helper.
+	// Discovery may be incomplete while the PR still carries old artifact
+	// metadata: that must not starve its acknowledged publication checkpoint.
+	recovery.catalog = NativeCatalog{}
+	recovery.nextRefresh = time.Now().Add(time.Hour)
+	fix.Job.NextAttemptAt = time.Time{}
+	if err = saveNativeExecution(cfg, fix); err != nil {
+		t.Fatal(err)
+	}
+	recovery.history[fix.Job.ID] = fix
+	if !recovery.Ready() {
+		t.Fatal("scheduler did not admit acknowledged publication recovery")
+	}
+	if _, err = recovery.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = consumeNativeStep(t, recovery); err != nil {
 		t.Fatal("automatic publication recovery", err)
 	}
-	if done, err := recovery.reconcileNativeAction(ctx, &fix); err != nil || !done || models[fix.Job.ID].calls != 1 {
+	if _, err = recovery.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := consumeNativeStep(t, recovery); err != nil || !done || models[fix.Job.ID].calls != 1 {
 		t.Fatal("publication recovery did not complete original turn", err)
 	}
 	for _, write := range transport.writes[beforeRecovery:] {

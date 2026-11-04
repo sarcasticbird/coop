@@ -158,7 +158,14 @@ func installTaskProviderRequestHTTP(t *testing.T, cfg *Config, handle func(*http
 			t.Error("provider call lost authenticated master pin")
 		}
 		w.Header().Set("X-Coop-Master-ID", cfg.Master.MasterID)
-		if err := json.NewEncoder(w).Encode(map[string]any{"master_id": cfg.Master.MasterID, "restore_epoch": 1, "data": handle(r)}); err != nil {
+		w.Header().Set("X-Coop-Restore-Epoch", "1")
+		result := handle(r)
+		if failure, ok := result.(taskProviderFailure); ok {
+			w.WriteHeader(failure.status)
+			_ = json.NewEncoder(w).Encode(failure.body)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"master_id": cfg.Master.MasterID, "restore_epoch": 1, "data": result}); err != nil {
 			t.Error(err)
 		}
 	}))
@@ -177,12 +184,24 @@ func installTaskProviderRequestHTTP(t *testing.T, cfg *Config, handle func(*http
 }
 
 func TestKataNativeEngineeringDeliveryAndRebind(t *testing.T) {
-	testKataNativeEngineeringDeliveryAndRebind(t, false)
+	testKataNativeEngineeringDeliveryAndRebind(t, false, "")
 }
 func TestKataNativeOfflineMergedDeliveryRecovery(t *testing.T) {
-	testKataNativeEngineeringDeliveryAndRebind(t, true)
+	testKataNativeEngineeringDeliveryAndRebind(t, true, "")
 }
-func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
+
+type taskProviderFailure struct {
+	status int
+	body   any
+}
+
+func TestKataCompletionRefusalRestartRecovery(t *testing.T) {
+	for _, fault := range []string{"not-started", "bare-forbidden", "lost-response-after-write"} {
+		t.Run(fault, func(t *testing.T) { testKataNativeEngineeringDeliveryAndRebind(t, false, fault) })
+	}
+}
+
+func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool, completionFault string) {
 	cfg, m, _, _ := dispatchFixture(t)
 	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
 	// Even with configured GitHub Projects, Kata creation needs no Project choice.
@@ -192,6 +211,7 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 	transport.commands = &fakeCommands{respond: transport.response}
 	var provider c.ProviderTask
 	creates, binds, completes := 0, 0, 0
+	var completionRequests []string
 	installTaskProviderRequestHTTP(t, &cfg, func(r *http.Request) any {
 		sha, _ := TeamPolicySHA(*cfg.Team)
 		switch r.URL.Path {
@@ -236,6 +256,20 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 			}
 			if !transport.merged || in.Reference != provider.Reference || in.AssignmentSHA != NativeAssignmentSHA(*provider.Binding) || in.PullRequestURL != "https://github.com/code/repo/pull/1" || in.RequestID == "" {
 				t.Error("completion lost merged exact assignment or request")
+			}
+			completionRequests = append(completionRequests, in.RequestID)
+			if completionFault != "" && len(completionRequests) == 1 {
+				if completionFault == "lost-response-after-write" {
+					completes++
+					provider.State, provider.ClosedReason = "closed", "done"
+					return taskProviderFailure{503, map[string]string{"error": "master_unavailable"}}
+				}
+				m.self.Principal.Capabilities = []string{"read", "send"}
+				body := map[string]any{"error": c.ErrForbidden.Error()}
+				if completionFault == "not-started" {
+					body["task_completion_refusal"] = c.TaskCompletionRefusal{Version: 1, MasterID: cfg.Master.MasterID, RestoreEpoch: 1, RequestID: in.RequestID, InputSHA256: c.TaskCompletionInputSHA(in), Effect: "not_started"}
+				}
+				return taskProviderFailure{403, body}
 			}
 			completes++
 			provider.State = "closed"
@@ -345,7 +379,71 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool) {
 	delivery := stage(3, "rook", "deliver")
 
 	action = NativeAction{Operation: "deliver", RequestID: "kata-deliver"}
-	if offline {
+	if completionFault != "" {
+		if _, err = RunNativeAction(ctx, cfg, m, g, delivery.Job.ID, action); err == nil {
+			t.Fatal("fault was not exercised")
+		}
+		records, err := loadNativeJobActions(cfg, delivery)
+		if err != nil || len(records) != 1 {
+			t.Fatal(err, records)
+		}
+		models[delivery.Job.ID].running = false
+		if _, err = runs[delivery.Job.ID].advance(ctx, &delivery); err != nil || !nativeTerminalCheckpoint(delivery) {
+			t.Fatal("missing terminal checkpoint", err)
+		}
+		m.self.Principal.Capabilities = []string{"read", "send", "deliver"}
+		restarted, err := NewNativeDispatcher(cfg, m, g, models[delivery.Job.ID], NewCheckouts(cfg, transport), RealClock{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		restarted.nextRefresh = time.Now().Add(time.Hour)
+		if completionFault != "not-started" {
+			if records[0].State != "uncertain" || records[0].CompletionRefusal != nil {
+				t.Fatal("ambiguous completion was cleared", records[0])
+			}
+			if _, err = RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil {
+				t.Fatal("unknown completion replayed")
+			}
+			if !restarted.held || len(completionRequests) != 1 {
+				t.Fatal("unknown effect lost recovery hold")
+			}
+			return
+		}
+		if records[0].State != "prepared" || records[0].Step != "merge" || records[0].CompletionRefusal == nil || completes != 0 {
+			t.Fatal("not-started refusal lost acknowledged merge", records[0])
+		}
+		for range 2 {
+			if !restarted.Ready() {
+				t.Fatal("scheduler did not admit exact safe completion")
+			}
+			if _, err = restarted.Tick(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = consumeNativeStep(t, restarted); err != nil {
+				t.Fatal(err)
+			}
+		}
+		saved, err := loadNativeExecution(cfg, delivery.Job.ID)
+		if err != nil || saved.Phase != "completed" || saved.Job.SessionID != delivery.Job.SessionID || saved.Job.MessageID != delivery.Job.MessageID || models[delivery.Job.ID].calls != 1 {
+			t.Fatal("restart did not finish same delivery without a model", err)
+		}
+		if len(completionRequests) != 2 || completionRequests[0] != completionRequests[1] {
+			t.Fatal("completion changed original request")
+		}
+		finished, err := loadNativeJobActions(cfg, saved)
+		if err != nil || len(finished) != 1 || finished[0].State != "completed" || finished[0].CompletionRefusal == nil || *finished[0].CompletionRefusal != *records[0].CompletionRefusal || finished[0].InputSHA != records[0].InputSHA {
+			t.Fatal("completion discarded original refusal audit or action identity", err)
+		}
+		merges := 0
+		for _, write := range transport.writes {
+			if strings.Contains(write, "/merge") {
+				merges++
+			}
+		}
+		if merges != 1 {
+			t.Fatal("acknowledged merge replayed", merges)
+		}
+	} else if offline {
 		// The native model ended after the merge acknowledgement was journaled.
 		// Recovery must finish Kata completion without submitting another merge.
 		transport.merged = true
