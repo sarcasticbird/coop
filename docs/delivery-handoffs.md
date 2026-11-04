@@ -47,8 +47,9 @@ The assigned QA actor uses the normal native `qa` action with `verdict` and
 private `report_body`. Publication is a GitHub `COMMENT` review bound to the exact
 commit, not `APPROVE` or `REQUEST_CHANGES`. Its `coop-qa:v3` metadata carries
 `assessment: "first-postmerge"`, the authenticated `handoff_id`, artifact digest,
-acceptance and environment revisions, and the native private evidence message ID
-and body digest. `ValidateNativePostMergeQA` verifies this provenance;
+acceptance and environment revisions. The private report stays in the original
+action intent; publishing or fetching a second private message is not required.
+`ValidateNativePostMergeQA` verifies the actual assigned bot's PR review;
 `ValidateNativeQA` explicitly refuses to treat it as pre-merge clearance.
 An acknowledged action retry returns the same receipt. A lost external write
 response preserves the uncertain journal and requires operator inspection with

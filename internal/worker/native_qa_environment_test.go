@@ -101,15 +101,13 @@ func TestQAEnvironmentResolvedThroughPublicationAndClearance(t *testing.T) {
 	if q.Environment != f.master.handoff.Input.Environment || q.EnvironmentRevision != "repair-v2" || q.Assessment != "reassessment" || q.HandoffID != f.master.handoff.ID {
 		t.Fatalf("wrong recorded environment: %+v", q)
 	}
-	report, err := f.master.Message(t.Context(), result.EvidenceMessageID)
-	if err != nil {
-		t.Fatal(err)
+	if result.URL != p.URL || result.EvidenceMessageID != "" {
+		t.Fatal("QA should publish only its PR review", result)
 	}
-	reports := map[string]c.Message{report.ID: report}
-	if _, ok := nativeQAState(task.Binding, f.master.authority, p, reports, f.master.handoff); !ok {
+	if _, ok := nativeQAState(task.Binding, f.master.authority, p, f.master.handoff); !ok {
 		t.Fatal("resolved QA did not clear")
 	}
-	if _, ok := nativeQAState(task.Binding, f.master.authority, p, reports); ok {
+	if _, ok := nativeQAState(task.Binding, f.master.authority, p); ok {
 		t.Fatal("unproven handoff cleared")
 	}
 	for _, change := range []string{"actor", "head", "artifact", "task", "environment", "review"} {
@@ -128,7 +126,7 @@ func TestQAEnvironmentResolvedThroughPublicationAndClearance(t *testing.T) {
 		case "review":
 			h.Input.ReviewID = r.ID
 		}
-		if _, ok := nativeQAState(task.Binding, f.master.authority, p, reports, h); ok {
+		if _, ok := nativeQAState(task.Binding, f.master.authority, p, h); ok {
 			t.Fatal("tampered environment cleared", change)
 		}
 	}
@@ -154,7 +152,7 @@ func TestQAEnvironmentResolvedThroughPublicationAndClearance(t *testing.T) {
 		}
 	}
 	again, err := RunNativeAction(t.Context(), f.cfg, f.master, f.github, f.execution.Job.ID, f.action)
-	if err != nil || again != result || f.sends != 1 || len(f.events) != 1 {
+	if err != nil || again != result || f.sends != 0 || len(f.events) != 1 {
 		t.Fatal("retry duplicated publication", err)
 	}
 }

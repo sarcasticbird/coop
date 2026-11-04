@@ -95,7 +95,7 @@ func (r *cachedNativeReader) NativeSnapshot(ctx context.Context, cfg Config, m N
 	}
 }
 func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMaster) (NativeCatalog, error) {
-	out := NativeCatalog{Reports: map[string]c.Message{}, Cache: &NativeCacheCoverage{OutOfScope: map[c.GoalRef]bool{}, Registered: map[c.GoalRef]int{}, Ready: map[string]bool{}, FreshUntil: map[string]time.Time{}, Reasons: map[string]string{}}}
+	out := NativeCatalog{Cache: &NativeCacheCoverage{OutOfScope: map[c.GoalRef]bool{}, Registered: map[c.GoalRef]int{}, Ready: map[string]bool{}, FreshUntil: map[string]time.Time{}, Reasons: map[string]string{}}}
 	var objects []c.GitHubCoverage
 	cursor := ""
 	epoch := int64(0)
@@ -272,28 +272,8 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		if unknown[url] {
 			continue
 		}
-		for _, p := range t.PRs {
-			for _, review := range p.Reviews {
-				if review.Author.ID != t.Binding.QAID || review.HeadSHA != p.HeadSHA {
-					continue
-				}
-				var qa NativeQAResult
-				if nativeMetadata(review.Body, "qa", &qa) != nil || qa.Goal != t.Binding.Goal || qa.AssignmentSHA != NativeAssignmentSHA(t.Binding) {
-					continue
-				}
-				report, e := m.Message(ctx, qa.EvidenceMessageID)
-				if e != nil {
-					unknown[url] = true
-					out.Cache.Reasons[url] = "cache_evidence_unknown"
-					continue
-				}
-				out.Reports[report.ID] = report
-			}
-		}
-		if !unknown[url] {
-			out.Tasks = append(out.Tasks, t)
-			out.Cache.Ready[url] = true
-		}
+		out.Tasks = append(out.Tasks, t)
+		out.Cache.Ready[url] = true
 	}
 	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Task.URL < out.Tasks[j].Task.URL })
 	out.ReadAt = r.clock.Now()

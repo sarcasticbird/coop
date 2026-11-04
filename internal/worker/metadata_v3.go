@@ -57,9 +57,10 @@ type NativeQAResult struct {
 	AcceptanceSHA       string    `json:"acceptance_sha256"`
 	Environment         string    `json:"environment"`
 	EnvironmentRevision string    `json:"environment_revision"`
-	EvidenceMessageID   string    `json:"evidence_message_id"`
-	EvidenceBodySHA     string    `json:"evidence_body_sha256"`
-	Verdict             string    `json:"verdict"`
+	// Retained for historical reviews; new QA publishes only its PR review.
+	EvidenceMessageID string `json:"evidence_message_id,omitempty"`
+	EvidenceBodySHA   string `json:"evidence_body_sha256,omitempty"`
+	Verdict           string `json:"verdict"`
 }
 
 func NativeQAMetadata(in NativeQAResult) string {

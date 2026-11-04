@@ -57,18 +57,17 @@ func TestNativeSupersessionBinding(t *testing.T) {
 		t.Fatal("draft-only decision sequence interrupted active approval")
 	}
 }
-func TestNativePrivateQAGate(t *testing.T) {
+func TestNativePRReviewQAGate(t *testing.T) {
 	b, s := nativeBindingFixture()
-	qa := NativeQAResult{Version: 3, Goal: b.Goal, AssignmentSHA: NativeAssignmentSHA(b), TaskURL: b.TaskURL, HeadSHA: strings.Repeat("a", 40), PRScopeRevision: BodyHash("scope"), ArtifactSHA: strings.Repeat("e", 64), AcceptanceSHA: NativeAcceptanceSHA(s.authority), Environment: "staging", EnvironmentRevision: "staging-v1", EvidenceMessageID: "report", EvidenceBodySHA: BodyHash("private report"), Verdict: "approved"}
+	qa := NativeQAResult{Version: 3, Goal: b.Goal, AssignmentSHA: NativeAssignmentSHA(b), TaskURL: b.TaskURL, HeadSHA: strings.Repeat("a", 40), PRScopeRevision: BodyHash("scope"), ArtifactSHA: strings.Repeat("e", 64), AcceptanceSHA: NativeAcceptanceSHA(s.authority), Environment: "staging", EnvironmentRevision: "staging-v1", Verdict: "approved"}
 	review := Review{ID: "review", State: "APPROVED", HeadSHA: qa.HeadSHA, Author: Actor{ID: 4, Kind: "Bot", Login: "qa[bot]"}, Body: NativeQAMetadata(qa)}
-	report := c.Message{ID: "report", ThreadID: "private", AuthorID: "qa", AuthorKind: "agent", Body: "private report"}
-	if err := ValidateNativeQA(b, s.authority, review, report, qa); err != nil {
+	if err := ValidateNativeQA(b, s.authority, review, qa); err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(*Review, *c.Message){func(r *Review, _ *c.Message) { r.ID = "" }, func(r *Review, _ *c.Message) { r.Author.ID = 2 }, func(r *Review, _ *c.Message) { r.HeadSHA = "stale" }, func(_ *Review, m *c.Message) { m.ThreadID = "public" }, func(_ *Review, m *c.Message) { m.Body = "changed" }} {
-		r, m := review, report
-		mutate(&r, &m)
-		if err := ValidateNativeQA(b, s.authority, r, m, qa); err == nil {
+	for _, mutate := range []func(*Review){func(r *Review) { r.ID = "" }, func(r *Review) { r.Author.ID = 2 }, func(r *Review) { r.HeadSHA = "stale" }, func(r *Review) { r.State = "DISMISSED" }, func(r *Review) { r.Author.Kind = "User" }, func(r *Review) { r.Body = "approved" }} {
+		r := review
+		mutate(&r)
+		if err := ValidateNativeQA(b, s.authority, r, qa); err == nil {
 			t.Fatal("invalid QA evidence accepted")
 		}
 	}
@@ -77,7 +76,7 @@ func TestNativePrivateQAGate(t *testing.T) {
 		mutate(&q)
 		r.HeadSHA = q.HeadSHA
 		r.Body = NativeQAMetadata(q)
-		if err := ValidateNativeQA(b, s.authority, r, report, q); err == nil {
+		if err := ValidateNativeQA(b, s.authority, r, q); err == nil {
 			t.Fatalf("self-consistent out-of-scope %s accepted", name)
 		}
 	}

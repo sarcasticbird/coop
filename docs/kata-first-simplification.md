@@ -35,6 +35,12 @@ task with current checks/review/QA should not need another operator approval
 for a routine merge. Escalate actual questions and ambiguous effects, not
 ordinary transport retries or container maintenance.
 
+QA clearance lives on the current PR, not in a second private-message approval
+chain. Keep private report text in the saved action intent. Rook checks the
+assigned bot's actual review and current checks/head; discovery does not hydrate
+private QA reports. Preserve historical messages without making their availability
+a prerequisite for routine delivery.
+
 Containers must be replaceable from pinned images, with durable memory,
 checkpointed work, session data needed for recovery, and action receipts outside
 the replaceable root disk. Replacement fences the old execution generation;

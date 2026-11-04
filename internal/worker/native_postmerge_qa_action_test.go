@@ -90,10 +90,10 @@ func TestNativePostMergeQAActionEndToEnd(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.URL != f.execution.Job.PRURL || result.EvidenceMessageID == "" || result.EvidenceBodySHA != BodyHash(f.action.ReportBody) {
-				t.Fatalf("missing result/evidence: %+v", result)
+			if result.URL != f.execution.Job.PRURL || result.EvidenceMessageID != "" || result.EvidenceBodySHA != "" {
+				t.Fatalf("unexpected result/private publication: %+v", result)
 			}
-			if f.sends != 1 || !reflect.DeepEqual(f.events, []string{"COMMENT"}) || !reflect.DeepEqual(f.transport.writes, []string{"POST repos/code/repo/pulls/1/reviews"}) {
+			if f.sends != 0 || !reflect.DeepEqual(f.events, []string{"COMMENT"}) || !reflect.DeepEqual(f.transport.writes, []string{"POST repos/code/repo/pulls/1/reviews"}) {
 				t.Fatal("unexpected effects", f.sends, f.events, f.transport.writes)
 			}
 			task, err := f.github.ReadNativeTask(t.Context(), f.cfg, f.execution.Job.TaskURL)
@@ -112,15 +112,14 @@ func TestNativePostMergeQAActionEndToEnd(t *testing.T) {
 			if review.Author.ID != task.Binding.QAID || qa.Assessment != "first-postmerge" || qa.HandoffID != f.master.handoff.ID || qa.Verdict != verdict || qa.ArtifactSHA != f.execution.Job.QAArtifact.SHA256 {
 				t.Fatal("wrong original actor or assessment metadata", review, qa)
 			}
-			report, err := f.master.Message(t.Context(), result.EvidenceMessageID)
-			if err != nil || ValidateNativePostMergeQA(task.Binding, f.master.authority, review, report, qa, f.master.handoff) != nil {
+			if ValidateNativePostMergeQA(task.Binding, f.master.authority, review, qa, f.master.handoff) != nil {
 				t.Fatal("real assessment did not validate", err, qa)
 			}
-			if ValidateNativeQA(task.Binding, f.master.authority, review, report, qa) == nil {
+			if ValidateNativeQA(task.Binding, f.master.authority, review, qa) == nil {
 				t.Fatal("postmerge result became premerge clearance")
 			}
 			again, err := RunNativeAction(t.Context(), f.cfg, f.master, f.github, f.execution.Job.ID, f.action)
-			if err != nil || again != result || f.sends != 1 || len(f.events) != 1 || len(f.transport.writes) != 1 {
+			if err != nil || again != result || f.sends != 0 || len(f.events) != 1 || len(f.transport.writes) != 1 {
 				t.Fatal("identical action replayed writes", again, err)
 			}
 			cat, err := nativeValidationSnapshot(t.Context(), f.cfg, f.master, f.github, f.execution.Job)
@@ -143,7 +142,7 @@ func TestNativePostMergeQAActionLostWriteHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	var record nativeActionRecord
-	if err := strictTeamJSON(before, &record); err != nil || record.State != "uncertain" || record.Step != "review-published" || record.Result.EvidenceMessageID == "" {
+	if err := strictTeamJSON(before, &record); err != nil || record.State != "uncertain" || record.Step != "review-published" {
 		t.Fatal("lost response did not retain uncertain evidence journal", record, err)
 	}
 	f.loseWrite = false
@@ -155,7 +154,7 @@ func TestNativePostMergeQAActionLostWriteHeld(t *testing.T) {
 		}
 	}
 	after, err := readPrivate(path, c.MaxJSON)
-	if err != nil || string(before) != string(after) || f.sends != 1 || len(f.transport.reviews) != 2 || len(f.transport.writes) != 1 || len(f.events) != 1 {
+	if err != nil || string(before) != string(after) || f.sends != 0 || len(f.transport.reviews) != 2 || len(f.transport.writes) != 1 || len(f.events) != 1 {
 		t.Fatal("uncertain journal/effects changed on retry", err, f.sends, f.transport.writes)
 	}
 	if _, err := os.Stat(nativeActionPath(f.cfg, f.execution.Job.ID, "different-request")); !os.IsNotExist(err) {
@@ -164,7 +163,7 @@ func TestNativePostMergeQAActionLostWriteHeld(t *testing.T) {
 }
 
 func TestNativePostMergeQAActionAcknowledgedWriteReadFailureRetry(t *testing.T) {
-	for _, change := range []string{"unchanged", "changed-latest-qa", "altered-body"} {
+	for _, change := range []string{"unchanged", "legacy-body", "changed-latest-qa", "altered-body"} {
 		t.Run(change, func(t *testing.T) {
 			f := newPostMergeQAActionFixture(t)
 			respond := f.transport.commands.respond
@@ -185,10 +184,26 @@ func TestNativePostMergeQAActionAcknowledgedWriteReadFailureRetry(t *testing.T) 
 				t.Fatal(err)
 			}
 			var record nativeActionRecord
-			if err := strictTeamJSON(before, &record); err != nil || record.Step != "review-published" || record.State != "prepared" || record.Result.EvidenceMessageID == "" || record.Result.EvidenceBodySHA != BodyHash(f.action.ReportBody) {
+			if err := strictTeamJSON(before, &record); err != nil || record.Step != "review-published" || record.State != "prepared" {
 				t.Fatal("acknowledged write did not retain prepared result", record, err)
 			}
 			switch change {
+			case "legacy-body":
+				// Retain an older acknowledged checkpoint and its exact review,
+				// including the old caption. Private message access is unnecessary.
+				record.Result.EvidenceMessageID = "historical-report"
+				record.Result.EvidenceBodySHA = BodyHash(f.action.ReportBody)
+				if err := saveNativeAction(f.cfg, record); err != nil {
+					t.Fatal(err)
+				}
+				var qa NativeQAResult
+				body := f.transport.reviews[1]["body"].(string)
+				if err := nativeMetadata(body, "qa", &qa); err != nil {
+					t.Fatal(err)
+				}
+				qa.EvidenceMessageID, qa.EvidenceBodySHA = record.Result.EvidenceMessageID, record.Result.EvidenceBodySHA
+				caption, _, _ := strings.Cut(body, "\n\n<!-- coop-qa:v3 ")
+				f.transport.reviews[1]["body"] = caption + " Private evidence is retained at the approved master destination.\n\n" + NativeQAMetadata(qa)
 			case "changed-latest-qa":
 				latest := make(map[string]any)
 				for key, value := range f.transport.reviews[1] {
@@ -211,8 +226,8 @@ func TestNativePostMergeQAActionAcknowledgedWriteReadFailureRetry(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if change == "unchanged" {
-				if retryErr != nil || result.Phase != "completed" || result.URL != f.execution.Job.PRURL || result.EvidenceMessageID != record.Result.EvidenceMessageID || result.EvidenceBodySHA != record.Result.EvidenceBodySHA || evidenceReads == 0 {
+			if change == "unchanged" || change == "legacy-body" {
+				if retryErr != nil || result.Phase != "completed" || result.URL != f.execution.Job.PRURL || result.EvidenceMessageID != record.Result.EvidenceMessageID || result.EvidenceBodySHA != record.Result.EvidenceBodySHA || evidenceReads != 0 {
 					t.Fatal("retry did not verify its own formal result", result, evidenceReads, retryErr)
 				}
 				if err := strictTeamJSON(after, &record); err != nil || record.State != "completed" || record.Step != "review-published" {
@@ -221,7 +236,7 @@ func TestNativePostMergeQAActionAcknowledgedWriteReadFailureRetry(t *testing.T) 
 			} else if retryErr == nil || string(before) != string(after) {
 				t.Fatal("changed formal result was not held with original journal intact", retryErr)
 			}
-			if f.sends != 1 || !reflect.DeepEqual(f.events, []string{"COMMENT"}) || !reflect.DeepEqual(f.transport.writes, []string{"POST repos/code/repo/pulls/1/reviews"}) {
+			if f.sends != 0 || !reflect.DeepEqual(f.events, []string{"COMMENT"}) || !reflect.DeepEqual(f.transport.writes, []string{"POST repos/code/repo/pulls/1/reviews"}) {
 				t.Fatal("acknowledged result retry repeated effects", f.sends, f.events, f.transport.writes)
 			}
 		})
@@ -229,7 +244,7 @@ func TestNativePostMergeQAActionAcknowledgedWriteReadFailureRetry(t *testing.T) 
 }
 
 func TestNativePostMergeQAActionRefusesChangedSafetyInputs(t *testing.T) {
-	for _, timing := range []string{"before-action", "after-evidence"} {
+	for _, timing := range []string{"before-action", "during-discovery"} {
 		for _, change := range []string{"head", "artifact", "assignment", "epoch", "revoked-goal", "self-qa", "prior-qa", "peer", "source-active", "source-uncertain"} {
 			t.Run(timing+"/"+change, func(t *testing.T) {
 				f := newPostMergeQAActionFixture(t)
@@ -273,17 +288,24 @@ func TestNativePostMergeQAActionRefusesChangedSafetyInputs(t *testing.T) {
 						}
 					}
 				}
-				wantSends := 0
 				if timing == "before-action" {
 					mutate()
 				} else {
-					wantSends = 1
-					f.master.onSend = func() { f.sends++; mutate() }
+					respond := f.transport.commands.respond
+					changed := false
+					f.transport.commands.respond = func(owner, endpoint, method string, body []byte) (CommandResult, error) {
+						result, err := respond(owner, endpoint, method, body)
+						if !changed && err == nil {
+							changed = true
+							mutate()
+						}
+						return result, err
+					}
 				}
 				if _, err := RunNativeAction(t.Context(), f.cfg, f.master, f.github, f.execution.Job.ID, f.action); err == nil {
 					t.Fatal("changed safety input allowed assessment")
 				}
-				if f.sends != wantSends || len(f.events) != 0 || len(f.transport.writes) != 0 || !f.transport.closed || !f.transport.merged {
+				if f.sends != 0 || len(f.events) != 0 || len(f.transport.writes) != 0 || !f.transport.closed || !f.transport.merged {
 					t.Fatal("refusal wrote or changed completed source", f.sends, f.events, f.transport.writes)
 				}
 			})
@@ -320,7 +342,7 @@ func TestNativePostMergeQADispatchOriginalActorOnce(t *testing.T) {
 	if err != nil || len(NativeCandidates(f.cfg, cat, map[string]NativeExecution{x.Job.ID: x}, time.Now())) != 0 || code.calls != 1 {
 		t.Fatal("completed assessment submitted again", code.calls, err)
 	}
-	if f.sends != 1 || len(f.transport.writes) != 1 || !f.transport.closed || !f.transport.merged {
+	if f.sends != 0 || len(f.transport.writes) != 1 || !f.transport.closed || !f.transport.merged {
 		t.Fatal("dispatcher mutated source or duplicated effects", f.sends, f.transport.writes)
 	}
 }
