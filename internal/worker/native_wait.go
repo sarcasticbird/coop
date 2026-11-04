@@ -176,7 +176,7 @@ func (d *NativeDispatcher) dependencyWaits() []NativeExecution {
 		return out
 	}
 	for _, x := range d.history {
-		if x.Phase == "blocked" && x.Reason == "native_dependency_wait" && x.Wait != nil && !d.clock.Now().Before(x.Job.NextAttemptAt) && (x.Job.ReconcileFailures < Defaults(d.config).Limits.MaxAttempts || nativeDependencyTransportRetry(x)) && nativeDependenciesReady(d.catalog, x.Wait) {
+		if x.Phase == "blocked" && !x.unresolvedHistoricalRecovery() && x.Reason == "native_dependency_wait" && x.Wait != nil && !d.clock.Now().Before(x.Job.NextAttemptAt) && (x.Job.ReconcileFailures < Defaults(d.config).Limits.MaxAttempts || nativeDependencyTransportRetry(x)) && nativeDependenciesReady(d.catalog, x.Wait) {
 			for _, a := range d.catalog.Goals {
 				if a.Revision.Ref == x.Goal && nativeCatalogApproved(d.catalog, x.Goal, a.ApprovalSequence) {
 					out = append(out, x)

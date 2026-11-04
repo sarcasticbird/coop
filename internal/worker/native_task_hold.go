@@ -8,8 +8,12 @@ import (
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
-// A verified terminal turn without its expected result holds that task, not
-// unrelated work. A retained acknowledged action can recover automatically.
+func nativeModelFinished(j Job) bool {
+	return j.Phase == "completed" && j.SubmissionState == "completed" && !j.TerminalAt.IsZero() && validSession(j.SessionID) && validMessage(j.MessageID)
+}
+
+// A finished model's blocked work holds its task, not the whole coworker.
+// External-action uncertainty is enforced by the task's existing journal.
 func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 	held, err := nativeExecutionRecoveryCheck(cfg, x)
 	if errors.Is(err, errNativeProducerBusy) {
@@ -21,10 +25,13 @@ func nativeExecutionRecoveryHold(cfg Config, x NativeExecution) (bool, error) {
 // Admission needs the underlying busy error to retry; general hold
 // classification remains conservative while another producer is active.
 func nativeExecutionRecoveryCheck(cfg Config, x NativeExecution) (bool, error) {
-	if x.Phase != "blocked" {
+	if x.Phase == "completed" || x.Phase == "cancelled" {
 		return false, nil
 	}
-	if (x.Reason != "native_completed_without_result" && x.Reason != "native_dependency_wait") || x.Job.Phase != "completed" || x.Job.SubmissionState != "completed" || x.Job.TerminalAt.IsZero() || !validSession(x.Job.SessionID) || !validMessage(x.Job.MessageID) {
+	if x.Phase != "blocked" && !x.unresolvedHistoricalRecovery() {
+		return false, nil
+	}
+	if !nativeModelFinished(x.Job) {
 		return true, nil
 	}
 	release, err := lockNativeProducer(cfg)
@@ -47,10 +54,6 @@ func nativeExecutionRecoveryCheck(cfg Config, x NativeExecution) (bool, error) {
 		var record nativeActionRecord
 		if strictTeamJSON(raw, &record) != nil || record.Version != 3 {
 			return true, c.ErrConflict
-		}
-		if record.JobID == x.Job.ID && record.State != "completed" {
-			automatic, err := nativeAutomaticRecovery(cfg, x)
-			return !automatic, err
 		}
 	}
 	return false, nil

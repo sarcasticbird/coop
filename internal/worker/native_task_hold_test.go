@@ -55,7 +55,10 @@ func TestNativeTerminalWaitAllowsIndependentReview(t *testing.T) {
 }
 
 func TestNativeTerminalWaitAllowsConversation(t *testing.T) {
-	cfg, m, g, code, _ := nativeTerminalWaitFixture(t)
+	cfg, m, g, code, waiting := nativeTerminalWaitFixture(t)
+	if err := saveNativeAction(cfg, nativeActionRecord{Version: 3, JobID: waiting.Job.ID, RequestID: "unknown-effect", State: "uncertain"}); err != nil {
+		t.Fatal(err)
+	}
 	d, err := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, RealClock{})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +80,7 @@ func TestNativeTerminalWaitAllowsConversation(t *testing.T) {
 	}
 }
 
-func TestNativeUnsafeTerminalWaitRetainsGlobalHold(t *testing.T) {
+func TestNativeTaskBlockersOnlyHoldGlobalSlotWhenUnaccounted(t *testing.T) {
 	for _, failure := range []string{"unknown-submission", "missing-terminal", "prepared-action", "uncertain-action", "producer-busy", "other-failure"} {
 		t.Run(failure, func(t *testing.T) {
 			cfg, m, g, code, x := nativeTerminalWaitFixture(t)
@@ -107,8 +110,9 @@ func TestNativeUnsafeTerminalWaitRetainsGlobalHold(t *testing.T) {
 				t.Fatal(err)
 			}
 			d, err := NewNativeDispatcher(cfg, m, g, code, &fakeCheckouts{}, RealClock{})
-			if err != nil || !d.RecoveryBlocked() {
-				t.Fatal("unsafe work lost global recovery hold", err)
+			wantGlobal := failure == "unknown-submission" || failure == "missing-terminal" || failure == "producer-busy"
+			if err != nil || d.RecoveryBlocked() != wantGlobal {
+				t.Fatal("task blocker misclassified native slot", failure, d.RecoveryBlocked(), err)
 			}
 		})
 	}

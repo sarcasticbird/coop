@@ -19,6 +19,7 @@ func TestNativeProgressDistinguishesRecoveryAndTaskWait(t *testing.T) {
 		t.Fatal("task wait hidden", p)
 	}
 	x.Reason = "native_observation_unavailable"
+	x.Job.Phase, x.Job.SubmissionState, x.Job.TerminalAt = "active", "accepted", time.Time{}
 	d.history[x.Job.ID] = x
 	if err = d.updateRecoveryHold(); err != nil {
 		t.Fatal(err)
@@ -55,6 +56,7 @@ func TestNativeRecoveryReachesMasterTeamAndWorkerStatus(t *testing.T) {
 	cfg, comms, s, owner, _, _, code := commsFixture(t)
 	dc, m, g, engineeringCode, x := nativeTerminalWaitFixture(t)
 	x.Reason = "native_observation_unavailable"
+	x.Job.Phase, x.Job.SubmissionState, x.Job.TerminalAt = "active", "accepted", time.Time{}
 	if err := saveNativeExecution(dc, x); err != nil {
 		t.Fatal(err)
 	}

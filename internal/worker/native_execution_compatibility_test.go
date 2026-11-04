@@ -98,7 +98,7 @@ func TestNativeExecutionPreservesHistoricalRecoveryAudit(t *testing.T) {
 	}
 }
 
-func TestNativeExecutionRefusesUnadoptedHistoricalRecovery(t *testing.T) {
+func TestNativeExecutionReadsButNeverReplaysUnadoptedHistoricalRecovery(t *testing.T) {
 	for _, field := range []string{"Recovery", "RecoveryFollowups"} {
 		t.Run(field, func(t *testing.T) {
 			cfg, _, _, _, execution := nativeStaleAttemptFixture(t)
@@ -117,8 +117,12 @@ func TestNativeExecutionRefusesUnadoptedHistoricalRecovery(t *testing.T) {
 			if err = atomicPrivate(nativeExecutionPath(cfg, execution.Job.ID), raw); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = loadNativeExecution(cfg, execution.Job.ID); err == nil {
-				t.Fatal("unadopted legacy protocol was silently ignored")
+			loaded, err := loadNativeExecution(cfg, execution.Job.ID)
+			if err != nil || !loaded.unresolvedHistoricalRecovery() {
+				t.Fatal("historical recovery could not be read as blocked history", err)
+			}
+			if err := saveNativeExecution(cfg, loaded); err == nil {
+				t.Fatal("historical recovery was adopted by reading it")
 			}
 		})
 	}

@@ -56,7 +56,7 @@ func (d *NativeDispatcher) candidates(catalog NativeCatalog) ([]NativeCandidate,
 	for _, candidate := range jobs {
 		fenced := false
 		for _, x := range d.history {
-			if x.Phase == "blocked" && (candidate.Job.TaskURL != "" && candidate.Job.TaskURL == x.Job.TaskURL || x.Job.Kind == "plan" && candidate.Job.Kind == "plan" && candidate.Goal.Revision.Ref == x.Goal) {
+			if (x.Phase == "blocked" || x.unresolvedHistoricalRecovery()) && (candidate.Job.TaskURL != "" && candidate.Job.TaskURL == x.Job.TaskURL || x.Job.Kind == "plan" && candidate.Job.Kind == "plan" && candidate.Goal.Revision.Ref == x.Goal) {
 				fenced = true
 				break
 			}

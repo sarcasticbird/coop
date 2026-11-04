@@ -33,8 +33,11 @@ contract; do not turn proving the machinery into the project.
 
 ## Keep the practical safeguards
 
-- Preserve credentials, sessions, work, memory and historical journals. Do not
-  clear uncertainty or rewrite old failures to manufacture success.
+- Preserve credentials, sessions, work and memory. Keep gh-sweep's existing work
+  and the receipts needed to prevent duplicate effects. History is not a product
+  requirement: do not build migrations or old-protocol replay to preserve it.
+  Leave old diagnostics alone; keep them out of active scheduling. Do not clear
+  uncertainty or rewrite old failures to manufacture success.
 - Keep independent review, current-head checks, isolated workspaces and scoped
   identities. Rook must not merge its own implementation.
 - Retry safe reads and known-unstarted operations within ordinary bounds. Never

@@ -404,8 +404,8 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool, comp
 			if _, err = RecoverNativeDelivery(ctx, cfg, m, g, models[delivery.Job.ID], delivery.Job.ID, delivery.Job.SessionID, delivery.Job.MessageID, action); err == nil {
 				t.Fatal("unknown completion replayed")
 			}
-			if !restarted.held || len(completionRequests) != 1 {
-				t.Fatal("unknown effect lost recovery hold")
+			if restarted.held || len(completionRequests) != 1 {
+				t.Fatal("unknown task replayed or froze the whole coworker")
 			}
 			return
 		}

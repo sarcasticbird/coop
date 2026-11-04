@@ -178,6 +178,9 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	if err != nil {
 		return empty, err
 	}
+	if x.unresolvedHistoricalRecovery() {
+		return empty, c.ErrConflict
+	}
 	executionRaw, marshalErr := json.Marshal(x)
 	if marshalErr != nil {
 		return empty, marshalErr
