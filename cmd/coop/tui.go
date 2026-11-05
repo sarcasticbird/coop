@@ -7,7 +7,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -49,31 +48,6 @@ func tuiCommand(ctx context.Context, req hostrouter.ActionRequest) (*exec.Cmd, e
 	return cmd, nil
 }
 
-type tuiActions struct{}
-
-func (tuiActions) Execute(ctx context.Context, req hostrouter.ActionRequest, input io.Reader, output, stderr io.Writer) (hostrouter.ActionResult, error) {
-	if req.Target.Host != hostrouter.Local {
-		return (hostrouter.SSH{}).Execute(ctx, req, input, output, stderr)
-	}
-	result := hostrouter.ActionResult{Target: req.Target}
-	cmd, err := tuiCommand(ctx, req)
-	if err != nil {
-		return result, err
-	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = input, output, io.Discard
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			result.ExitCode = exit.ExitCode()
-		}
-		return result, errors.New("local Coop command failed; inspect host state before retrying")
-	}
-	return result, nil
-}
-
 func tuiPreparedAction(req hostrouter.ActionRequest, credentials []string) (hostrouter.ActionRequest, error) {
 	if len(credentials) > 0 && req.Target.Kind != "" {
 		args := req.Args
@@ -111,7 +85,7 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig str
 		masterConfig = defaultMasterClientPath()
 	}
 	// A missing/invalid private config must not disable the fleet browser or
-	// expose credential/path details. Coordination renders its unavailable state.
+	// expose credential/path details. Session attachment remains independent.
 	var coordination tui.Coordination
 	if client, err := masterclient.LoadConfig(masterConfig); err == nil {
 		coordination = client
@@ -122,11 +96,10 @@ func runOperationalTUI(_ runtime.Runtime, credentials []string, masterConfig str
 		}
 		return tuiCommand(ctx, req)
 	}
-	return tui.RunWithServices(tui.Services{Registry: r, Version: resolvedVersion(),
-		BuildProvenance: currentBuildProvenance(), WorkDestination: workDestination(),
+	return tui.RunWithServices(tui.Services{Registry: r,
 		Coordination: coordination,
 		Inventory:    hostrouter.Router{Local: hostrouter.LocalClient{}, Remote: hostrouter.SSH{}},
-		Actions:      tuiActions{}, Terminal: hostrouter.SSH{}, Foreground: foreground, PrepareAction: prepare})
+		Foreground:   foreground, PrepareAction: prepare})
 }
 
 func tuiExecCommand() *cobra.Command {

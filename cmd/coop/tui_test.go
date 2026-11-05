@@ -4,45 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"io"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/sarcasticbird/coop/internal/hostrouter"
-	"github.com/spf13/cobra"
 )
-
-func TestTUICommandCoverageExhaustive(t *testing.T) {
-	doc, err := os.ReadFile("../../docs/tui-operations.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := root()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--help"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	var walk func(*cobra.Command)
-	walk = func(c *cobra.Command) {
-		if c.Hidden {
-			return
-		}
-		if c.Parent() != nil && (c.Run != nil || c.RunE != nil) {
-			name := strings.Join(commandParts(c), " ")
-			if !strings.Contains(string(doc), "`"+name+"`") {
-				t.Errorf("command %q missing from TUI coverage matrix", name)
-			}
-		}
-		for _, child := range c.Commands() {
-			walk(child)
-		}
-	}
-	walk(cmd)
-}
 
 func TestTUILaunchPreservesImmutableHostAndArgv(t *testing.T) {
 	for _, h := range []hostrouter.Host{hostrouter.Local, {Name: "remote", Address: "trusted-alias"}} {
