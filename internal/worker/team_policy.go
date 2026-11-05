@@ -158,8 +158,9 @@ func ValidateTaskAssignment(p TeamPolicy, a TaskAssignment, q QAPolicy) error {
 	return nil
 }
 
-// TeamPolicySHA sorts set-like fields on copies and excludes mutable logins.
-// encoding/json sorts map keys, making peer mappings deterministic as well.
+// TeamPolicySHA binds contributor assignments, not integration-only ownership.
+// Rook's independent delivery identity and capabilities are checked at merge.
+// Set-like fields are sorted on copies; mutable logins are excluded.
 func TeamPolicySHA(p TeamPolicy) (string, error) {
 	if err := ValidateTeamPolicy(p); err != nil {
 		return "", err
@@ -180,6 +181,9 @@ func TeamPolicySHA(p TeamPolicy) (string, error) {
 		EngineeringPeers map[string]string `json:"engineering_peers"`
 	}{Version: p.Version, Planner: p.Planner, EngineeringPeers: p.EngineeringPeers}
 	for _, m := range p.Members {
+		if m.Name == "rook" && len(m.Capabilities) == 1 && m.Capabilities[0] == "deliver" {
+			continue
+		}
 		capabilities := append([]string{}, m.Capabilities...)
 		slices.Sort(capabilities)
 		canonical.Members = append(canonical.Members, member{m.Name, identity{m.Actor.ID, m.Actor.Kind}, capabilities})

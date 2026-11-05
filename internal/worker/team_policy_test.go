@@ -195,6 +195,29 @@ func TestTeamPolicyDigestCanonical(t *testing.T) {
 	}
 }
 
+func TestTeamPolicyDigestIgnoresIntegrationOnlyMembership(t *testing.T) {
+	p := teamPolicyFixture()
+	want, err := TeamPolicySHA(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Members = append(p.Members, TeamMember{Name: "rook", Actor: Actor{ID: 77, Login: "rook[bot]", Kind: "Bot"}, Capabilities: []string{"deliver"}})
+	before, _ := json.Marshal(p)
+	got, err := TeamPolicySHA(p)
+	if err != nil || got != want {
+		t.Fatal("adding an independent integrator invalidated contributor assignments", got, want, err)
+	}
+	after, _ := json.Marshal(p)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("hash mutated the integration roster")
+	}
+	// Planning is part of assignment policy, not just integration ownership.
+	p.Members[len(p.Members)-1].Capabilities = append(p.Members[len(p.Members)-1].Capabilities, "plan")
+	if got, err = TeamPolicySHA(p); err != nil || got == want {
+		t.Fatal("planning capability disappeared from contributor policy", got, err)
+	}
+}
+
 func TestAssignmentDigestCanonicalAndBound(t *testing.T) {
 	p := teamPolicyFixture()
 	a := assignmentFixture(t, p)
