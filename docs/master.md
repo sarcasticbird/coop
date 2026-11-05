@@ -145,9 +145,9 @@ cursor is never a delivery acknowledgement.
 
 Conversation text does not authorize engineering. Propose an immutable native
 goal revision with purpose, bounded scope, repository/base branches, acceptance
-criteria, author, independent peer and QA policy. Required QA also names an
-environment revision and a private evidence destination. These fields contribute
-to the approved revision hash.
+criteria, author, independent peer and QA policy. Required QA names an environment
+revision, not a second private report destination. These fields contribute to
+the approved revision hash.
 
 ```sh
 coop goal propose THREAD_ID --file /absolute/private/proposal.json \
@@ -207,6 +207,16 @@ do not fetch private messages to establish QA clearance. Historical private
 message references remain readable records, not additional merge gates. A chat
 reply or private report alone cannot satisfy QA. Authored work still needs an
 independent peer review, and checks, artifact and environment must match.
+
+The old `qa.evidence_destination` is not an actor-membership or execution gate.
+New goal proposals need no destination and do not synthesize one. Stored proposals
+and their revision hashes are left unchanged; an inaccessible old report thread
+does not revoke otherwise current authority. Current goal-thread membership and
+engagement, scoped identities and independent QA still apply. If an explicit
+QA/release handoff cites a message at that historical destination, the caller
+must actually have access and the evidence must remain in the current master's
+goal engagement. Removing the routine gate does not authorize foreign/private
+handoff evidence. Goal-bound engineering intake remains separate unfinished work.
 
 The configured turn limit starts at submission, after preparation and fresh
 authority checks. It defaults to 30 minutes and supports up to one hour.

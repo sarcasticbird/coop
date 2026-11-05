@@ -86,10 +86,10 @@ func TestGoalLifecycle(t *testing.T) {
 		}
 	}
 }
-func TestQADestinationMembership(t *testing.T) {
+func TestQAGoalMembership(t *testing.T) {
 	s, _, b, in := goalFixture(t)
 	in.QA = c.QAPolicy{Required: true, ActorID: "outsider", Environment: "test", EnvironmentRevision: "test-v1"}
 	if _, err := s.ProposeGoal(context.Background(), b, in); err == nil {
-		t.Fatal("unreadable QA destination accepted")
+		t.Fatal("QA actor outside current goal accepted")
 	}
 }

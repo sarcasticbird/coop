@@ -113,6 +113,28 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 	if !fresh.Valid || fresh.ApprovalSequence != a.ApprovalSequence {
 		return out, c.ErrConflict
 	}
+	// An explicitly supplied message must still be readable and in the goal's
+	// engagement. Check the optional old destination only when actually using
+	// it as handoff evidence, not as a prerequisite for ordinary QA/delivery.
+	if err = member(ctx, tx, p, evidence.ThreadID); err != nil {
+		return out, err
+	}
+	if evidence.ThreadID != fresh.Revision.Proposal.ThreadID {
+		dest := fresh.Revision.Proposal.QA.EvidenceDestination
+		if dest.MasterID != svc.Store.id || dest.ThreadID != evidence.ThreadID {
+			return out, c.ErrForbidden
+		}
+		var goalEngagement, evidenceEngagement string
+		if err = tx.QueryRowContext(ctx, "SELECT engagement FROM threads WHERE id=?", fresh.Revision.Proposal.ThreadID).Scan(&goalEngagement); err != nil {
+			return out, err
+		}
+		if err = tx.QueryRowContext(ctx, "SELECT engagement FROM threads WHERE id=?", evidence.ThreadID).Scan(&evidenceEngagement); err != nil {
+			return out, err
+		}
+		if dest.Engagement != goalEngagement || evidenceEngagement != goalEngagement {
+			return out, c.ErrForbidden
+		}
+	}
 	var assignment string
 	if err = tx.QueryRowContext(ctx, "SELECT assignment_sha FROM artifacts WHERE goal_id=? AND revision=? AND url=? AND kind='task'", in.Goal.GoalID, in.Goal.RevisionSHA256, in.TaskURL).Scan(&assignment); err != nil || assignment != in.AssignmentSHA {
 		return out, c.ErrConflict
