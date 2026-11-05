@@ -167,7 +167,7 @@ settings can add tools through .coop.toml or an optional project flox environmen
 	rootCmd.AddCommand(pilotCommand())
 	rootCmd.AddCommand(taskCommand())
 	rootCmd.AddCommand(tuiExecCommand())
-	rootCmd.AddCommand(chatCommand(), workUIExecCommand())
+	rootCmd.AddCommand(kataCommand(), chatCommand(), workUIExecCommand())
 	rejectCredentials := func(cmd *cobra.Command) error {
 		if cmd.Flags().Changed("credentials") {
 			return errors.New("--credentials is only valid when entering a coop or using tui")

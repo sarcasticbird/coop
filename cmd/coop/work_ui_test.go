@@ -17,6 +17,7 @@ import (
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 	"github.com/sarcasticbird/coop/internal/hostrouter"
+	"github.com/sarcasticbird/coop/internal/runtime"
 	"github.com/sarcasticbird/coop/internal/taskstore"
 	"github.com/spf13/cobra"
 )
@@ -157,6 +158,9 @@ func TestWorkUIClientDispatchUsesAuthenticatedPins(t *testing.T) {
 	if dispatched != 1 {
 		t.Fatal("native entry did not use selected SSH terminal")
 	}
+	if err := execute("kata", ref); err != nil {
+		t.Fatal("coop kata did not use the existing native entry", err)
+	}
 	for _, args := range [][]string{{"task", "tui", "; echo injected"}, {"chat"}} {
 		if err := execute(args...); err == nil {
 			t.Fatalf("unsafe/unconfigured entry succeeded: %v", args)
@@ -183,7 +187,7 @@ func TestWorkUIClientDispatchUsesAuthenticatedPins(t *testing.T) {
 	if err := execute("task", "tui", ref); err == nil {
 		t.Fatal("wrong authenticated master accepted")
 	}
-	if dispatched != 2 {
+	if dispatched != 3 {
 		t.Fatal("failed verification dispatched receiver")
 	}
 }
@@ -206,7 +210,7 @@ func TestWorkUIMissingReceiverFailsClosed(t *testing.T) {
 
 func TestWorkUICommandsAndForeground(t *testing.T) {
 	r := root()
-	for _, args := range [][]string{{"task", "tui"}, {"chat"}} {
+	for _, args := range [][]string{{"task", "tui"}, {"kata"}, {"chat"}} {
 		cmd, _, err := r.Find(args)
 		if err != nil || cmd.Name() != args[len(args)-1] {
 			t.Fatalf("missing normal command %v: %v", args, err)
@@ -220,6 +224,23 @@ func TestWorkUICommandsAndForeground(t *testing.T) {
 	}
 	if _, err := tuiCommand(context.Background(), hostrouter.ActionRequest{Operation: "work-ui", Args: []string{"chat", "--config=/tmp/untrusted"}}); err == nil {
 		t.Fatal("arbitrary foreground args accepted")
+	}
+}
+
+func TestKataCommandNeverEntersOrMaintainsProjectCoop(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	original := newRuntime
+	defer func() { newRuntime = original }()
+	newRuntime = func() runtime.Runtime {
+		t.Fatal("coop kata tried to enter or maintain a project VM")
+		return nil
+	}
+	cmd := root()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"kata"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("missing native work configuration unexpectedly succeeded")
 	}
 }
 

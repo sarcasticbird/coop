@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +19,7 @@ type foregroundHarness struct {
 	fleetModel
 	initial      tea.Cmd
 	returned     chan fleetModel
-	windowSizes  int
+	windows      int
 	finished     bool
 	inputHandled bool
 }
@@ -31,8 +30,8 @@ func (m foregroundHarness) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.fleetModel = out.(fleetModel)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.windowSizes++
-		if m.windowSizes == 1 {
+		m.windows++
+		if m.windows == 1 {
 			return m, m.initial
 		}
 	case fleetActionDone:
@@ -40,33 +39,32 @@ func (m foregroundHarness) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finished = true
 		cmd = nil
 	case tea.KeyMsg:
-		if m.finished && msg.String() == "?" {
+		if m.finished && msg.String() == "r" {
 			m.inputHandled = true
+			cmd = nil
 		}
 	}
-	// Consume both startup and post-exec resize checks before closing their TTY.
-	if m.finished && m.windowSizes >= 2 && m.inputHandled {
+	if m.finished && m.inputHandled && m.windows >= 2 {
 		return m, tea.Quit
 	}
 	return m, cmd
 }
 
-func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
-	for _, code := range []string{"0", "7", "signal", "remote detach", "direct attach", "native tasks", "native chat"} {
-		t.Run(code, func(t *testing.T) {
+func TestTableForegroundRestoresTTYAndReturnsToInteractiveTable(t *testing.T) {
+	for _, action := range []string{"local", "remote", "Kata", "child-failure", "changed-registration"} {
+		t.Run(action, func(t *testing.T) {
 			master, slave, err := pty.Open()
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer func() { _ = master.Close(); _ = slave.Close() }()
-			if err := pty.Setsize(slave, &pty.Winsize{Rows: 30, Cols: 100}); err != nil {
+			if err := pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 100}); err != nil {
 				t.Fatal(err)
 			}
 			before, err := term.GetState(slave.Fd())
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Drain the real terminal so rendering cannot block on its PTY buffer.
 			fd, err := unix.Dup(int(master.Fd()))
 			if err != nil {
 				t.Fatal(err)
@@ -75,95 +73,49 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 				_ = unix.Close(fd)
 				t.Fatal(err)
 			}
-			reader := os.NewFile(uintptr(fd), "test-tty-output")
+			reader := os.NewFile(uintptr(fd), "table-test-output")
 			drained := make(chan struct{})
 			go func() { _, _ = io.Copy(io.Discard, reader); close(drained) }()
 			defer func() { _ = reader.Close(); <-drained }()
-			m := fixtureFleet()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
+			m, _ := tableFixture()
 			m.ctx = ctx
 			m.services.Foreground = func(ctx context.Context, _ hostrouter.ActionRequest) (*exec.Cmd, error) {
-				finish := "exit " + code
-				if code == "native tasks" || code == "native chat" {
-					finish = "exit 0"
+				command := "test -t 0 && test -t 1 || exit 99; stty -echo; exit 0"
+				if action == "child-failure" {
+					command = "stty -echo; exit 7"
 				}
-				if code == "signal" {
-					finish = "kill -TERM $$"
-				}
-				return exec.CommandContext(ctx, "sh", "-c", "test -t 0 && test -t 1 || exit 99; stty -echo; "+finish), nil
+				return exec.CommandContext(ctx, "sh", "-c", command), nil
 			}
-			p, _ := (operationForm{entry: m.hosts[0].entries[0], index: specIndex(t, "enter")}).action()
-			var client *fixtureTerminal
-			var attachment *fixtureAttachment
-			if code == "remote detach" || code == "direct attach" {
-				r, w := io.Pipe()
-				defer func() { _ = w.Close() }()
-				attachment = &fixtureAttachment{reader: r, done: make(chan struct{})}
-				defer func() { _ = attachment.Close() }()
-				client = &fixtureTerminal{attachment: attachment, ready: make(chan struct{})}
-				// Exercise the in-process attachment bridge rather than the CLI adapter.
-				m.services.Foreground = nil
-				m.services.Terminal = client
-				m.selected = m.hosts[1].entries[0].Target
-				p = pendingAction{entry: m.hosts[1].entries[0], operation: "enter"}
+			key := "enter"
+			if action == "local" {
+				m.selected = m.hosts[0].entries[0].Target
 			}
-			m.selected = p.entry.Target
-			m.filter = p.entry.Target.Host
-			captured := p.entry
-			m.detail, m.detailEntry = true, &captured
-			m.scroll, m.ledgerScroll, m.ledgerFocus = 2, 1, true
-			var out tea.Model
-			var cmd tea.Cmd
-			if code == "direct attach" {
-				m.detail = false
-				direct, run := fleetKey(m, "enter")
-				out, cmd = direct, run
-			} else if code == "native tasks" || code == "native chat" {
-				m.detail = false
-				key := "t"
-				if code == "native chat" {
-					key = "C"
-				}
-				direct, run := fleetKey(m, key)
-				out, cmd = direct, run
-			} else if client != nil {
-				out, cmd = m.dispatch(p)
-			} else {
-				out, cmd = m.dispatchOperation(p)
+			if action == "Kata" {
+				key = "k"
 			}
-			m = out.(fleetModel)
+			selected := m.selected
+			m, cmd := tableKey(m, key)
+			if cmd == nil || !m.busy {
+				t.Fatal("foreground action was not scheduled")
+			}
+			if action == "changed-registration" {
+				m.services.Registry.(*testRegistry).hosts[0].Address = "replacement-host"
+			}
 			returned := make(chan fleetModel, 1)
-			program := tea.NewProgram(foregroundHarness{fleetModel: m, initial: cmd, returned: returned}, tea.WithInput(slave), tea.WithOutput(slave), tea.WithAltScreen(), tea.WithoutSignalHandler())
+			program := tea.NewProgram(foregroundHarness{fleetModel: m, initial: cmd, returned: returned}, tea.WithInput(slave), tea.WithOutput(slave), tea.WithAltScreen(), tea.WithoutSignalHandler(), tea.WithContext(ctx))
 			done := make(chan error, 1)
-			exited := make(chan struct{})
-			var final tea.Model
-			go func() {
-				defer close(exited)
-				var err error
-				final, err = program.Run()
-				done <- err
-			}()
-			defer func() { cancel(); program.Kill(); <-exited }()
-			if client != nil {
-				select {
-				case <-client.ready:
-				case <-time.After(5 * time.Second):
-					t.Fatal("remote terminal did not attach")
-				}
-				if _, err := master.Write([]byte("\x04\x1dignored")); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var result fleetModel
+			go func() { _, err := program.Run(); done <- err }()
 			select {
-			case result = <-returned:
-			case <-time.After(5 * time.Second):
-				t.Fatal("foreground completion did not return to browser")
+			case current := <-returned:
+				if current.busy || current.selected != selected || !current.refreshing {
+					t.Fatal("child did not restore the selected table")
+				}
+			case <-ctx.Done():
+				t.Fatal("foreground action did not return")
 			}
-			// Send real terminal input after exec; a model-only Update cannot prove
-			// that Bubble Tea released and reacquired its cancelable input reader.
-			if _, err := master.Write([]byte("?")); err != nil {
+			if _, err := master.Write([]byte("r")); err != nil {
 				t.Fatal(err)
 			}
 			select {
@@ -171,36 +123,13 @@ func TestForegroundProgramRestoresRealTTYAfterExitAndFailure(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-time.After(5 * time.Second):
-				cancel()
+			case <-ctx.Done():
 				program.Kill()
-				<-done
-				t.Fatal("foreground did not return")
+				t.Fatal("table stopped handling terminal input after return")
 			}
 			after, err := term.GetState(slave.Fd())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if *before != *after {
-				t.Fatal("Bubble Tea did not restore controlling terminal state")
-			}
-			if resumed := final.(foregroundHarness); !resumed.help || !resumed.inputHandled {
-				t.Fatal("browser did not handle keyboard input after foreground return")
-			}
-			if attachment != nil && attachment.writes.String() != "\x04" {
-				t.Fatalf("remote input = %q, want only Ctrl+D", attachment.writes.String())
-			}
-			want := "succeeded"
-			wantDetail := code != "direct attach"
-			if code == "native tasks" || code == "native chat" {
-				want = "Returned from native"
-				wantDetail = false
-			}
-			if code == "7" || code == "signal" {
-				want = "failed"
-			}
-			if result.busy || result.selected != m.selected || !result.refreshing || !strings.Contains(result.status, want) || result.detail != wantDetail || result.detailEntry.Target != captured.Target || result.filter != m.filter || result.scroll != 2 || result.ledgerScroll != 1 || !result.ledgerFocus {
-				t.Fatalf("unusable return: busy=%t selected=%t refreshing=%t status=%q detail=%t target=%t filter=%t scroll=%d ledgerScroll=%d ledgerFocus=%t", result.busy, result.selected == m.selected, result.refreshing, result.status, result.detail, result.detailEntry != nil && result.detailEntry.Target == captured.Target, result.filter == m.filter, result.scroll, result.ledgerScroll, result.ledgerFocus)
+			if err != nil || *after != *before {
+				t.Fatal("terminal settings were not restored", err)
 			}
 		})
 	}

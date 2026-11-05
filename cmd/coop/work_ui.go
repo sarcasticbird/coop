@@ -27,6 +27,12 @@ func taskUICommand() *cobra.Command {
 	return &cobra.Command{Use: "tui [REFERENCE]", Short: "Open the configured native Kata project or issue", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return openWorkUI(cmd, "task", args) }}
 }
 
+func kataCommand() *cobra.Command {
+	cmd := taskUICommand()
+	cmd.Use = "kata [REFERENCE]"
+	return cmd
+}
+
 func chatCommand() *cobra.Command {
 	return &cobra.Command{Use: "chat", Short: "Open the standing team ticket in native Kata", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return openWorkUI(cmd, "chat", args) }}
 }
@@ -236,7 +242,7 @@ func workUIForegroundCommand(ctx context.Context, args []string, masterConfig ..
 	}
 	argv := []string{"chat"}
 	if args[0] == "task" {
-		argv = []string{"task", "tui"}
+		argv = []string{"kata"}
 	}
 	if len(args) == 2 {
 		if _, _, _, err := c.ParseKataTaskReference(args[1]); err != nil {

@@ -90,7 +90,7 @@ coop down                 Stop it and preserve project state
 coop status               Show workspace and image status
 coop ls                   List all workspaces
 coop inventory            List agents and project Coops across registered hosts
-coop tui                  Open the workspace dashboard
+coop tui                  List Coops; attach, open Kata, or message a bird
 coop doctor               Check host requirements and configuration
 coop rebuild              Rebuild after changing configured tools
 coop upgrade              Update Coop's locked core toolset

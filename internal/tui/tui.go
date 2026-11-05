@@ -1,494 +1,571 @@
-// Package tui presents local and registered-host Coops, server references,
-// and lifecycle controls. Launch with `coop tui`.
+// Package tui provides a Coop table, session attachment, Kata and messaging.
 package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/sarcasticbird/coop/internal/agent"
-	"github.com/sarcasticbird/coop/internal/lock"
-	"github.com/sarcasticbird/coop/internal/runtime"
-	"github.com/sarcasticbird/coop/internal/session"
+	textansi "github.com/charmbracelet/x/ansi"
+	c "github.com/sarcasticbird/coop/internal/coordination"
+	"github.com/sarcasticbird/coop/internal/hostrouter"
 )
 
-var (
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
-	headerStyle  = lipgloss.NewStyle().Faint(true)
-	cursorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	runningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	stoppedStyle = lipgloss.NewStyle().Faint(true)
-	errStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	helpStyle    = lipgloss.NewStyle().Faint(true)
-)
+// Result retains the CLI launch contract. Attachments now return to the table.
+type Result struct{ EnterAgent, EnterName, EnterWorkdir string }
 
-// Result reports what the user asked for on exit.
-type Result struct {
-	EnterAgent   string
-	EnterName    string // container to shell into ("" = plain quit)
-	EnterWorkdir string
+type Registry interface {
+	List() ([]hostrouter.Host, error)
+	ResolveTarget(hostrouter.Target) (hostrouter.Host, error)
+}
+type Inventory interface {
+	Watch(context.Context, []hostrouter.Host) <-chan hostrouter.HostInventory
+}
+type Services struct {
+	Inventory     Inventory
+	Registry      Registry
+	Coordination  Coordination
+	Foreground    func(context.Context, hostrouter.ActionRequest) (*exec.Cmd, error)
+	PrepareAction func(hostrouter.ActionRequest) (hostrouter.ActionRequest, error)
 }
 
-type model struct {
-	rt     runtime.Runtime
-	infos  []runtime.ContainerInfo
-	cursor int
-	// confirmName is the immutable identity captured when destroy
-	// confirmation begins — a background refresh can reorder rows
-	// between 'd' and 'y', and the wrong coop must not die for it.
-	confirmName    string
-	confirmProject string
-	confirmProfile string
+type hostState struct {
+	host      hostrouter.Host
+	entries   []hostrouter.InventoryEntry
+	updated   time.Time
+	errorCode string
+}
+type fleetModel struct {
+	services       Services
+	ctx            context.Context
+	hosts          []hostState
+	selected       hostrouter.Target
+	width, height  int
+	scroll         int
 	status         string
-	err            error
-	result         *Result
-	width          int
-	// busy serializes lifecycle actions: while one is in flight, keys
-	// that would launch another are ignored. refreshing prevents ticks
-	// from stacking list subprocesses behind a slow runtime.
-	busy       bool
-	refreshing bool
-	// gen increments on every lifecycle action; refresh results carry
-	// the gen at launch and are dropped if an action started since.
-	gen int
-	// stale marks the listing non-authoritative (an action failed or
-	// its post-action listing failed) — state-dependent operations like
-	// enter stay gated until a successful current-generation refresh.
-	stale bool
+	registryFailed bool
+	refreshing     bool
+	epoch          uint64
+	stream         <-chan hostrouter.HostInventory
+	cancel         context.CancelFunc
+	busy           bool
+	workBusy       bool
+	work           map[hostrouter.Target]c.AgentDiagnostics
+	draft          *messageDraft
 }
-
-// refreshMsg carries periodic listing results; actionDoneMsg is the
-// ONLY message that completes a lifecycle action — a background
-// refresh finishing must never clear the busy gate while an action is
-// still running.
-// refreshMsg carries listing results tagged with the generation that
-// launched them: results from a refresh that started before the latest
-// lifecycle action are stale and must not overwrite the action's
-// outcome (listing or error).
-type refreshMsg struct {
-	infos []runtime.ContainerInfo
-	gen   int
-}
-type actionDoneMsg struct {
-	infos []runtime.ContainerInfo
+type fleetRefresh struct{}
+type fleetTick time.Time
+type registryLoaded struct {
+	hosts []hostrouter.Host
 	err   error
+	epoch uint64
 }
-type errMsg struct {
-	err error
-	gen int
+type hostLoaded struct {
+	inventory hostrouter.HostInventory
+	epoch     uint64
+	done      bool
 }
-type tickMsg time.Time
+type fleetActionDone struct{ err error }
 
-// Run blocks until the user quits; the Result says whether to exec.
-func Run(rt runtime.Runtime) (Result, error) {
-	return runFleet(rt)
+func RunWithServices(s Services) (Result, error) {
+	if s.Inventory == nil || s.Registry == nil {
+		return Result{}, fmt.Errorf("coop inventory and registry are required")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := tea.NewProgram(fleetModel{services: s, ctx: ctx}, tea.WithAltScreen()).Run()
+	return Result{}, err
 }
-
-func (m model) Init() tea.Cmd {
-	// note: Init cannot mutate the model; the first tickMsg establishes
-	// the refreshing flag through the single startRefresh path.
-	return tea.Batch(func() tea.Msg { return tickMsg(time.Now()) })
+func (m fleetModel) Init() tea.Cmd { return func() tea.Msg { return fleetRefresh{} } }
+func fleetClock() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return fleetTick(t) })
 }
-
-func tick() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
-}
-
-// startRefresh is the ONLY way a refresh launches: sets the in-flight
-// flag and tags the result with the current generation.
-func (m *model) startRefresh() tea.Cmd {
+func (m *fleetModel) refresh() tea.Cmd {
+	if m.refreshing || m.busy {
+		return nil
+	}
 	m.refreshing = true
-	rt, gen := m.rt, m.gen
+	m.epoch++
+	epoch, registry := m.epoch, m.services.Registry
 	return func() tea.Msg {
-		infos, err := rt.Containers()
-		if err != nil {
-			return errMsg{err: err, gen: gen}
+		hosts, err := registry.List()
+		return registryLoaded{hosts: hosts, err: err, epoch: epoch}
+	}
+}
+func nextHost(ch <-chan hostrouter.HostInventory, epoch uint64) tea.Cmd {
+	return func() tea.Msg {
+		h, ok := <-ch
+		return hostLoaded{inventory: h, epoch: epoch, done: !ok}
+	}
+}
+func (m fleetModel) rows() []hostrouter.InventoryEntry {
+	var rows []hostrouter.InventoryEntry
+	for _, h := range m.hosts {
+		rows = append(rows, h.entries...)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		ar, br := m.current(a.Target) && a.State == "running", m.current(b.Target) && b.State == "running"
+		if ar != br {
+			return ar
 		}
-		return refreshMsg{infos: infos, gen: gen}
+		if a.Target.Host.Name != b.Target.Host.Name {
+			return a.Target.Host.Name < b.Target.Host.Name
+		}
+		if a.Target.Kind != b.Target.Kind {
+			return a.Target.Kind < b.Target.Kind
+		}
+		return a.Target.ID < b.Target.ID
+	})
+	return rows
+}
+func (m fleetModel) current(t hostrouter.Target) bool {
+	if m.registryFailed && t.Host != hostrouter.Local {
+		return false
 	}
+	for _, h := range m.hosts {
+		if h.host == t.Host {
+			return h.errorCode == "" && fresh(h.updated)
+		}
+	}
+	return false
+}
+func fresh(at time.Time) bool {
+	return !at.IsZero() && !at.After(time.Now()) && time.Since(at) < c.PresenceStale
+}
+func (m fleetModel) entry(t hostrouter.Target) (hostrouter.InventoryEntry, bool) {
+	if m.current(t) {
+		for _, h := range m.hosts {
+			for _, e := range h.entries {
+				if e.Target == t {
+					return e, true
+				}
+			}
+		}
+	}
+	return hostrouter.InventoryEntry{}, false
+}
+func (m *fleetModel) selectVisible() {
+	rows := m.rows()
+	if len(rows) == 0 {
+		m.selected, m.scroll = hostrouter.Target{}, 0
+		return
+	}
+	index := -1
+	for i, e := range rows {
+		if e.Target == m.selected {
+			index = i
+		}
+	}
+	if index < 0 {
+		index, m.selected = 0, rows[0].Target
+	}
+	limit := m.rowLimit()
+	if index < m.scroll {
+		m.scroll = index
+	}
+	if index >= m.scroll+limit {
+		m.scroll = index - limit + 1
+	}
+	m.scroll = max(0, min(m.scroll, len(rows)-limit))
+}
+func (m fleetModel) rowLimit() int {
+	return max(1, m.screenHeight()-m.headerRows()-len(m.footerLines()))
+}
+func (m fleetModel) screenHeight() int {
+	if m.height <= 0 {
+		return 24
+	}
+	return m.height
+}
+func (m fleetModel) headerRows() int {
+	return min(2, max(0, m.screenHeight()-2))
 }
 
-func (m model) selected() *runtime.ContainerInfo {
-	if m.cursor >= 0 && m.cursor < len(m.infos) {
-		return &m.infos[m.cursor]
-	}
-	return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m fleetModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case refreshMsg:
-		m.refreshing = false
-		if msg.gen != m.gen {
-			return m, nil // stale: an action started after this launched
-		}
-		m.infos = msg.infos
-		m.err = nil     // current-generation success clears stale errors
-		m.stale = false // listing is authoritative again
-		if m.cursor >= len(m.infos) {
-			m.cursor = max(0, len(m.infos)-1)
-		}
-		return m, nil
-	case actionDoneMsg:
-		m.busy = false
-		m.status = ""
-		if msg.err != nil {
-			m.err = msg.err
-			m.stale = true // rows may not reflect the partial outcome
+	case fleetRefresh:
+		cmd := m.refresh()
+		return m, tea.Batch(cmd, fleetClock())
+	case fleetTick:
+		inventory, work := m.refresh(), m.refreshWork()
+		return m, tea.Batch(inventory, work, fleetClock())
+	case registryLoaded:
+		if msg.epoch != m.epoch {
 			return m, nil
 		}
-		m.err = nil
-		m.stale = false
-		m.infos = msg.infos
-		if m.cursor >= len(m.infos) {
-			m.cursor = max(0, len(m.infos)-1)
+		m.registryFailed = msg.err != nil
+		if msg.err != nil {
+			msg.hosts = nil
+			for _, h := range m.hosts {
+				if h.host != hostrouter.Local {
+					msg.hosts = append(msg.hosts, h.host)
+				}
+			}
+		}
+		hosts := append([]hostrouter.Host{hostrouter.Local}, msg.hosts...)
+		var states []hostState
+		for _, host := range hosts {
+			state := hostState{host: host}
+			for _, old := range m.hosts {
+				if old.host == host {
+					state = old
+				}
+			}
+			states = append(states, state)
+		}
+		m.hosts = states
+		m.selectVisible()
+		if m.cancel != nil {
+			m.cancel()
+		}
+		ctx := m.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, m.cancel = context.WithCancel(ctx)
+		m.stream = m.services.Inventory.Watch(ctx, hosts)
+		return m, nextHost(m.stream, m.epoch)
+	case hostLoaded:
+		if msg.epoch != m.epoch {
+			return m, nil
+		}
+		if msg.done {
+			m.refreshing = false
+			cmd := m.refreshWork()
+			return m, cmd
+		}
+		for i := range m.hosts {
+			h := &m.hosts[i]
+			if h.host != msg.inventory.Host {
+				continue
+			}
+			h.errorCode = msg.inventory.Error
+			if h.errorCode == "" {
+				if hostrouter.ValidateEntries(msg.inventory.Entries) != nil {
+					h.errorCode = "invalid_inventory"
+				}
+				for _, e := range msg.inventory.Entries {
+					if e.Target.Host != h.host {
+						h.errorCode = "invalid_inventory"
+					}
+				}
+				if h.errorCode == "" {
+					h.entries = append([]hostrouter.InventoryEntry(nil), msg.inventory.Entries...)
+					h.updated = time.Now()
+				}
+			}
+		}
+		m.selectVisible()
+		return m, nextHost(m.stream, m.epoch)
+	case workLoaded:
+		m.workBusy = false
+		m.work = msg.reports
+		return m, nil
+	case messageReady:
+		if m.draft == nil || m.draft.requestID != msg.requestID {
+			return m, nil
+		}
+		m.draft.loading = false
+		if msg.err != nil {
+			m.status = "Cannot message this Coop: " + safeError(msg.err)
+			m.draft = nil
+		} else {
+			m.draft.self, m.draft.thread = msg.self, msg.thread
 		}
 		return m, nil
-	case errMsg:
-		m.refreshing = false
-		if msg.gen == m.gen {
-			m.err = msg.err
+	case messageSent:
+		if m.draft == nil || m.draft.requestID != msg.requestID {
+			return m, nil
+		}
+		m.draft.sending = false
+		if msg.err != nil {
+			m.draft.frozen = m.draft.frozen || msg.uncertain
+			m.status = "Message not confirmed: " + safeError(msg.err)
+		} else {
+			m.status = "Message queued for " + m.draft.binding.AgentID + " in Kata"
+			m.draft = nil
 		}
 		return m, nil
-	case tickMsg:
-		if m.busy || m.refreshing {
-			return m, tick() // don't stack subprocesses
+	case fleetActionDone:
+		m.busy, m.refreshing = false, false
+		m.status = "Returned to Coops"
+		if msg.err != nil {
+			m.status = "Could not open: " + safeError(msg.err)
 		}
-		// explicit sequencing: startRefresh mutates m and MUST run
-		// before the model value is returned
-		cmd := m.startRefresh()
-		return m, tea.Batch(cmd, tick())
+		cmd := m.refresh()
+		return m, cmd
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		return m, nil
+		m.width, m.height = msg.Width, msg.Height
+		m.selectVisible()
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
 	return m, nil
 }
 
-func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	sel := m.selected()
-
-	if m.confirmName != "" {
-		name := m.confirmName
-		projectPath := m.confirmProject
-		profile := m.confirmProfile
-		m.confirmName = ""
-		m.confirmProject = ""
-		m.confirmProfile = ""
-		if msg.String() == "y" {
-			rt := m.rt
-			m.status = "destroying " + name + "..."
-			m.busy = true
-			m.gen++ // invalidate in-flight refreshes
-			if profile != "" {
-				return m, namedAction(rt, name, profile, "destroy")
-			}
-			return m, sessionAction(rt, name, projectPath, func(s *session.Session) error {
-				return s.Destroy()
-			})
+func (m fleetModel) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if k.String() == "ctrl+c" || m.draft == nil && k.String() == "q" {
+		if m.cancel != nil {
+			m.cancel()
 		}
-		m.status = "destroy cancelled"
+		return m, tea.Quit
+	}
+	if m.draft != nil {
+		return m.messageKey(k)
+	}
+	if m.busy {
 		return m, nil
 	}
-
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return m, tea.Quit
-	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+	switch k.String() {
+	case "up", "down", "pgup", "pgdown", "home", "end":
+		rows := m.rows()
+		for i, e := range rows {
+			if e.Target != m.selected {
+				continue
+			}
+			index := i
+			switch k.String() {
+			case "up":
+				index--
+			case "down":
+				index++
+			case "pgup":
+				index -= m.rowLimit()
+			case "pgdown":
+				index += m.rowLimit()
+			case "home":
+				index = 0
+			case "end":
+				index = len(rows) - 1
+			}
+			m.selected = rows[max(0, min(index, len(rows)-1))].Target
+			break
 		}
-	case "down", "j":
-		if m.cursor < len(m.infos)-1 {
-			m.cursor++
-		}
+		m.selectVisible()
 	case "r":
-		if m.busy || m.refreshing {
-			return m, nil
-		}
-		cmd := m.startRefresh()
-		return m, cmd
-	case "u":
-		if m.busy {
-			return m, nil
-		}
-		if sel != nil && sel.State != "running" {
-			name := sel.Name
-			if sel.Mode == "agent" {
-				m.busy = true
-				m.gen++
-				return m, namedAction(m.rt, name, sel.Profile, "up")
-			}
-			projectPath := sel.ProjectMount()
-			if projectPath == "" {
-				m.err = fmt.Errorf("cannot start %s: project mount unavailable", name)
-				return m, nil
-			}
-			rt := m.rt
-			m.status = "starting " + name + "..."
-			m.busy = true
-			m.gen++ // invalidate in-flight refreshes
-			return m, sessionUpAction(rt, name, projectPath)
-		}
-	case "s":
-		if m.busy {
-			return m, nil
-		}
-		if sel != nil && sel.State == "running" {
-			name := sel.Name
-			rt := m.rt
-			m.status = "stopping " + name + "..."
-			m.busy = true
-			m.gen++ // invalidate in-flight refreshes
-			if sel.Mode == "agent" {
-				return m, namedAction(rt, name, sel.Profile, "down")
-			}
-			return m, action(rt, name, func() error { return rt.Stop(name) })
-		}
-	case "d":
-		if sel != nil && !m.busy {
-			if sel.Mode == "agent" {
-				m.confirmName = sel.Name
-				m.confirmProfile = sel.Profile
-				return m, nil
-			}
-			projectPath := sel.ProjectMount()
-			if projectPath == "" {
-				m.err = fmt.Errorf("cannot destroy %s: project mount unavailable", sel.Name)
-				return m, nil
-			}
-			m.confirmName = sel.Name
-			m.confirmProject = projectPath
-		}
+		inventory, work := m.refresh(), m.refreshWork()
+		return m, tea.Batch(inventory, work)
 	case "enter":
-		// gated while busy or while the listing is non-authoritative:
-		// the row's "running" may not reflect reality
-		if sel != nil && sel.State == "running" && !m.busy && !m.stale {
-			if sel.Mode == "agent" {
-				m.result.EnterName = sel.Name
-				m.result.EnterAgent = sel.Profile
-				return m, tea.Quit
-			}
-			m.result.EnterName = sel.Name
-			m.result.EnterWorkdir = projectMount(sel)
-			return m, tea.Quit
+		e, ok := m.entry(m.selected)
+		if !ok {
+			m.status = "Select a reachable Coop first"
+			return m, nil
 		}
+		if e.State != "running" {
+			m.status = "This Coop is not running"
+			return m, nil
+		}
+		args := []string{"--"}
+		directory := e.Project
+		if e.Target.Kind == hostrouter.Agent {
+			args, directory = []string{"--agent", e.Target.ID, "attach"}, ""
+		}
+		if e.Target.Kind == hostrouter.Interactive && directory == "" {
+			m.status = "This Coop's project directory is unavailable"
+			return m, nil
+		}
+		return m.open(hostrouter.ActionRequest{Target: e.Target, Operation: "command", Directory: directory, Args: args})
+	case "k":
+		args := []string{"task"}
+		if r, ok := m.task(m.selected); ok && r.Report.Work.TaskURL != "" {
+			if _, _, _, err := c.ParseKataTaskReference(r.Report.Work.TaskURL); err == nil {
+				args = append(args, r.Report.Work.TaskURL)
+			}
+		}
+		return m.open(hostrouter.ActionRequest{Operation: "work-ui", Args: args})
+	case "m":
+		return m.beginMessage()
 	}
 	return m, nil
 }
 
-func namedAction(rt runtime.Runtime, name, profile, operation string) tea.Cmd {
-	return func() tea.Msg {
-		return completeAction(rt, func() error {
-			s, err := agent.New(profile)
-			if err != nil {
-				return err
-			}
-			if s.Spec.RuntimeName != name {
-				return fmt.Errorf("selected machine identity changed")
-			}
-			switch operation {
-			case "up":
-				return s.Up(context.Background(), nil)
-			case "down":
-				return s.Down(context.Background())
-			case "destroy":
-				return s.Destroy(context.Background())
-			}
-			return fmt.Errorf("invalid machine operation")
-		})
+func (m fleetModel) open(req hostrouter.ActionRequest) (tea.Model, tea.Cmd) {
+	if m.services.Foreground == nil {
+		m.status = "Terminal launcher unavailable"
+		return m, nil
 	}
-}
-
-// action runs a lifecycle operation under the same per-project lock
-// the CLI uses (TUI must not be a lock bypass), then reports completion
-// with a fresh listing — listing failures surface, never masquerade as
-// an empty fleet.
-func action(rt runtime.Runtime, name string, op func() error) tea.Cmd {
-	return func() tea.Msg {
-		release, err := lock.Acquire(name, 5*time.Second)
+	if req.Target.Kind != "" {
+		if _, err := m.services.Registry.ResolveTarget(req.Target); err != nil {
+			m.status = "Coop destination changed; refresh and select again"
+			return m, nil
+		}
+	}
+	if m.services.PrepareAction != nil {
+		var err error
+		req, err = m.services.PrepareAction(req)
 		if err != nil {
-			return actionDoneMsg{err: err}
+			m.status = "Could not prepare session"
+			return m, nil
 		}
-		defer release()
-		return completeAction(rt, op)
 	}
-}
-
-// Session lifecycle methods own the per-project lock, so they must not run
-// through action's lock wrapper. This also verifies that the selected row still
-// resolves to the same container identity before making lifecycle changes.
-func sessionAction(rt runtime.Runtime, name, projectPath string, op func(*session.Session) error) tea.Cmd {
-	return func() tea.Msg {
-		return completeAction(rt, func() error {
-			s, err := session.New(rt, projectPath)
-			if err != nil {
-				return err
-			}
-			if s.Name != name {
-				return fmt.Errorf("selected container %s resolves to %s", name, s.Name)
-			}
-			return op(s)
-		})
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-}
-
-func sessionUpAction(rt runtime.Runtime, name, projectPath string) tea.Cmd {
-	return sessionAction(rt, name, projectPath, func(s *session.Session) error {
-		return s.Up()
-	})
-}
-
-func completeAction(rt runtime.Runtime, op func() error) actionDoneMsg {
-	if err := op(); err != nil {
-		return actionDoneMsg{err: err}
-	}
-	infos, err := rt.Containers()
+	command, err := m.services.Foreground(ctx, req)
 	if err != nil {
-		return actionDoneMsg{err: fmt.Errorf("action done but listing failed: %w", err)}
+		m.status = "Could not prepare terminal: " + safeError(err)
+		return m, nil
 	}
-	return actionDoneMsg{infos: infos}
-}
-
-func projectMount(info *runtime.ContainerInfo) string {
-	if info.Mode == "agent" {
-		return "agent:" + info.Profile
-	}
-	if p := info.ProjectMount(); p != "" {
-		return p
-	}
-	return "/"
-}
-
-func (m model) View() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("coop — fleet") + "\n\n")
-	// PROJECT needs a wide terminal; drop it rather than wrap rows.
-	wide := m.width == 0 || m.width >= 100
-	header := fmt.Sprintf("  %-30s %-8s %-15s %4s %5s %7s", "NAME", "STATE", "IP", "CPU", "MEM", "UPTIME")
-	if wide {
-		header += "  WORKSPACE"
-	}
-	b.WriteString(headerStyle.Render(header) + "\n")
-
-	if len(m.infos) == 0 {
-		b.WriteString(stoppedStyle.Render("  (no coops)") + "\n")
-	}
-	running := 0
-	for i, info := range m.infos {
-		if info.State == "running" {
-			running++
+	registry := m.services.Registry
+	before := func() error {
+		if req.Target.Kind != "" {
+			_, err := registry.ResolveTarget(req.Target)
+			return err
 		}
-		cursor := "  "
-		if i == m.cursor {
-			cursor = cursorStyle.Render("> ")
+		return nil
+	}
+	m.busy, m.refreshing = true, false
+	m.epoch++
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return m, tea.Exec(&foregroundCommand{command: command, before: before}, func(err error) tea.Msg { return fleetActionDone{err: err} })
+}
+
+func coopName(e hostrouter.InventoryEntry) string {
+	if e.Target.Kind == hostrouter.Agent {
+		return e.Target.ID
+	}
+	if e.Project != "" {
+		id := e.Target.ID
+		return filepath.Base(e.Project) + " (" + id[max(0, len(id)-6):] + ")"
+	}
+	return e.Name
+}
+func cell(s string, width int) string {
+	s = strings.ReplaceAll(coordClean(s), "\n", " ")
+	if width < 1 {
+		return ""
+	}
+	s = textansi.Truncate(s, width, "…")
+	return s + strings.Repeat(" ", max(0, width-textansi.StringWidth(s)))
+}
+func coordClean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' {
+			return -1
 		}
-		// truncate variable-width fields: %-Ns pads but never clips.
-		// Names truncate in the middle — the trailing hash is what
-		// distinguishes same-basename projects, and destroy decisions
-		// are made off this rendering.
-		row := fmt.Sprintf("%-30s %-8s %-15s %4d %5s %7s",
-			truncateMiddle(info.Name, 30), truncate(info.State, 8),
-			valueOr(info.IP, "-"), info.CPUs,
-			fmtMem(info.Memory), fmtUptime(info))
-		if wide {
-			// fixed prefix: 2 cursor + 30 name + 8 state + 15 ip + 4 cpu +
-			// 5 mem + 7 uptime + 6 single spaces + 2 gap = 79 columns
-			// (verified by TestViewFitsTerminalWidth, which counts what
-			// actually renders rather than trusting this comment)
-			row += "  " + truncate(shortenPath(projectMount(&info)), max(0, m.widthOr(120)-79))
-		}
-		if info.State == "running" {
-			row = runningStyle.Render(row)
-		} else {
-			row = stoppedStyle.Render(row)
-		}
-		b.WriteString(cursor + row + "\n")
-	}
-
-	b.WriteString("\n")
-	b.WriteString(headerStyle.Render(fmt.Sprintf("%d coops · %d running", len(m.infos), running)) + "\n")
-	if m.confirmName != "" {
-		b.WriteString(errStyle.Render(
-			fmt.Sprintf("destroy %s and its state volumes? [y/N]", m.confirmName)) + "\n")
-	} else if m.err != nil {
-		b.WriteString(errStyle.Render("error: "+m.err.Error()) + "\n")
-	} else if m.status != "" {
-		b.WriteString(helpStyle.Render(m.status) + "\n")
-	}
-	b.WriteString(helpStyle.Render("enter shell · u up · s stop · d destroy · r refresh · q quit"))
-	return b.String()
+		return r
+	}, textansi.Strip(s))
 }
-
-func fmtMem(bytes int64) string {
-	if bytes <= 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%dG", bytes>>30)
-}
-
-// fmtUptime renders compact human uptime: 45s, 12m, 3h02m, 2d5h.
-func fmtUptime(info runtime.ContainerInfo) string {
-	if info.State != "running" || info.Started.IsZero() {
-		return "-"
-	}
-	d := time.Since(info.Started)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
-	}
-}
-
-// shortenPath abbreviates the home prefix for display.
-func shortenPath(p string) string {
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
-		return "~" + strings.TrimPrefix(p, home)
-	}
-	return p
-}
-
 func valueOr(s, fallback string) string {
 	if s == "" {
 		return fallback
 	}
 	return s
 }
-
-func truncate(s string, n int) string {
-	if n > 1 && len(s) > n {
-		return s[:n-1] + "…"
+func safeError(err error) string {
+	for _, known := range []error{c.ErrForbidden, c.ErrConflict, c.ErrNotFound, c.ErrInvalid, c.ErrUnavailable, c.ErrEpoch, context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
 	}
-	return s
+	return "connection unavailable; inspect before retrying"
 }
 
-// truncateMiddle keeps head and tail (the tail carries the identity
-// hash in container names).
-func truncateMiddle(s string, n int) string {
-	if n < 10 || len(s) <= n {
-		return truncate(s, n)
+func (m fleetModel) View() string {
+	// Feedback changes the available row count. Reveal selection using that
+	// exact budget before rendering; never crop an actionable row afterward.
+	m.selectVisible()
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
-	tail := 10
-	head := n - tail - 1
-	return s[:head] + "…" + s[len(s)-tail:]
+	nameWidth, hostWidth, stateWidth := 18, 12, 11
+	if width < 60 {
+		nameWidth, hostWidth = max(4, width-29), 10
+	}
+	row := func(prefix, name, host, state, task string) string {
+		s := prefix + cell(name, nameWidth) + "  " + cell(host, hostWidth) + "  " + cell(state, stateWidth)
+		if width >= 60 {
+			s += "  " + cell(task, width-textansi.StringWidth(s)-2)
+		}
+		return textansi.Truncate(s, width, "")
+	}
+	lines := []string{"COOPS", row("  ", "COOP", "HOST", "STATE", "KATA")}
+	lines = lines[:m.headerRows()]
+	rows := m.rows()
+	if len(rows) == 0 {
+		text := "No Coops found"
+		if m.registryFailed || hasHostError(m.hosts) {
+			text = "Coop inventory unavailable"
+		}
+		if m.refreshing || len(m.hosts) == 0 {
+			text = "Loading Coops…"
+		}
+		lines = append(lines, text)
+	}
+	for i := m.scroll; i < min(len(rows), m.scroll+m.rowLimit()); i++ {
+		e := rows[i]
+		prefix := "  "
+		if e.Target == m.selected {
+			prefix = "> "
+		}
+		state := e.State
+		if !m.current(e.Target) {
+			state = "unavailable"
+		}
+		task := "—"
+		if e.Target.Kind == hostrouter.Agent {
+			task = "unknown"
+			if report, ok := m.task(e.Target); ok {
+				task = valueOr(report.Report.Work.WorkTitle, "—")
+				if task == "—" && report.Report.Work.TaskURL != "" {
+					task = "Assigned task"
+				}
+			}
+		}
+		lines = append(lines, row(prefix, coopName(e), e.Target.Host.Name, state, task))
+	}
+	lines = append(lines, m.footerLines()...)
+	for i := range lines {
+		lines[i] = textansi.Truncate(coordClean(lines[i]), width, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
-func (m model) widthOr(fallback int) int {
-	if m.width > 0 {
-		return m.width
+func (m fleetModel) footerLines() []string {
+	limit := max(0, m.screenHeight()-m.headerRows()-1)
+	var lines []string
+	for _, h := range m.hosts {
+		if h.errorCode != "" {
+			lines = append(lines, h.host.Name+": unavailable (cached rows shown)")
+		}
 	}
-	return fallback
+	if m.registryFailed {
+		lines = append(lines, "Server list unavailable; cached remote Coops cannot be opened")
+	}
+	if m.status != "" {
+		lines = append(lines, m.status)
+	}
+	if m.draft != nil {
+		// Keep the recipient, cursor and send/cancel keys ahead of diagnostics.
+		lines = lines[:min(len(lines), max(0, limit-3))]
+		width := m.width
+		if width <= 0 {
+			width = 80
+		}
+		return append(lines, m.messageView(width, limit-len(lines))...)
+	} else {
+		lines = append(lines, "↑/↓ select · Enter session · k Kata · m message · r refresh · q quit")
+	}
+	return lines[max(0, len(lines)-limit):]
+}
+
+func hasHostError(hosts []hostState) bool {
+	for _, host := range hosts {
+		if host.errorCode != "" {
+			return true
+		}
+	}
+	return false
 }

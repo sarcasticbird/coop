@@ -15,6 +15,8 @@
   acknowledgements that create another acknowledgement.
 - Monitor processes must not manufacture periodic model conversations or keep a
   second task/reminder ledger. Surface actionable state changes on the task.
+- The Coop TUI is one table: running/stopped status, session attachment, Kata and
+  messaging. Keep administrative controls and approval workflows out of it.
 
 ## Consolidation direction
 
