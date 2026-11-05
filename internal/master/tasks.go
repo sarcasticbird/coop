@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"slices"
@@ -438,10 +439,12 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	}
 	expected, err = svc.taskBinding(ctx, p, a, task, task.Binding.BaseBranch, task.Binding.DependsOn)
 	if err != nil {
-		return c.ProviderTask{}, err
+		// Failure to establish current scope (including a dependency read)
+		// refuses this attempt before the provider, not an unknown write.
+		return c.ProviderTask{}, fmt.Errorf("task completion scope revalidation: %w: %v", c.ErrForbidden, err)
 	}
 	if !taskExecutionBindingMatches(expected, *task.Binding) {
-		return c.ProviderTask{}, c.ErrConflict
+		return c.ProviderTask{}, c.ErrForbidden
 	}
 	providerEntered = true
 	return svc.Tasks.Complete(ctx, in, p)

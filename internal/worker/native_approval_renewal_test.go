@@ -142,3 +142,63 @@ func TestNativeRenewalDoesNotStrandCompletedDependencies(t *testing.T) {
 		t.Fatal("paused authority passed the dependency guard")
 	}
 }
+
+func TestNativeReapprovalResumesOnlyUnchangedUnsettledWork(t *testing.T) {
+	for _, withdraw := range []string{"reject", "reopen"} {
+		t.Run(withdraw, func(t *testing.T) {
+			cfg, catalog, task := nativeWorkFixture(t)
+			cfg.Name, cfg.Self, cfg.Master.AgentID = cfg.Team.Members[0].Name, cfg.Team.Members[0].Actor, "peer"
+			task.PRs = []PR{nativeReviewPRFixture(cfg, task)}
+			catalog.Tasks[0] = task
+			now := time.Now().UTC()
+			before := NativeCandidates(cfg, catalog, nil, now)
+			if len(before) != 1 || before[0].Job.Kind != "review" {
+				t.Fatal("missing existing PR review job", before)
+			}
+			original, _ := json.Marshal(task)
+			a := &catalog.Goals[0]
+			// Mirror real reject/reopen: both clear active revision and approval.
+			// Reopen follows an additional complete decision.
+			a.DecisionSequence++
+			if withdraw == "reopen" {
+				a.DecisionSequence++
+			}
+			a.State, a.Valid, a.ActiveRevisionSHA256, a.ApprovalSequence = "unapproved", false, "", 0
+			if jobs := NativeCandidates(cfg, catalog, nil, now); len(jobs) != 0 {
+				t.Fatal("withdrawn goal admitted work", jobs)
+			}
+			source := &nativeAuthorityFixture{authority: *a}
+			if _, err := ValidateNativeAuthority(t.Context(), source, task.Binding); err == nil {
+				t.Fatal("withdrawn binding passed fresh authority")
+			}
+			a.DecisionSequence++
+			a.State, a.Valid, a.ActiveRevisionSHA256, a.ApprovalSequence = "approved", true, task.Binding.Goal.RevisionSHA256, a.DecisionSequence
+			source.authority = *a
+			if _, err := ValidateNativeAuthority(t.Context(), source, task.Binding); err != nil {
+				t.Fatal("explicit same-revision approval did not restore authority", err)
+			}
+			after := NativeCandidates(cfg, catalog, nil, now)
+			if len(after) != 1 || !reflect.DeepEqual(before[0].Job, after[0].Job) {
+				t.Fatal("reapproval replaced PR job or scheduled planning", after)
+			}
+			for _, phase := range []string{"completed", "blocked"} {
+				history := map[string]NativeExecution{before[0].Job.ID: {Job: before[0].Job, Phase: phase}}
+				if jobs := NativeCandidates(cfg, catalog, history, now); len(jobs) != 0 {
+					t.Fatal("reapproval replayed settled or uncertain work", phase, jobs)
+				}
+			}
+			unchanged, _ := json.Marshal(catalog.Tasks[0])
+			if string(original) != string(unchanged) {
+				t.Fatal("reapproval rewrote task or PR evidence")
+			}
+			catalog.Tasks[0].Task.Completed, catalog.Tasks[0].Task.Closed = true, true
+			wait := &NativeDependencyWait{Dependencies: []NativeDependency{{TaskURL: task.Task.URL, Goal: task.Binding.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding)}}}
+			if !nativeDependenciesReady(catalog, wait) {
+				t.Fatal("reapproved unchanged dependency remained stranded")
+			}
+			if jobs := NativeCandidates(cfg, catalog, nil, now); len(jobs) != 0 {
+				t.Fatal("reapproval reopened completed task", jobs)
+			}
+		})
+	}
+}

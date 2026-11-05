@@ -1,11 +1,62 @@
 package master
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
 	c "github.com/sarcasticbird/coop/internal/coordination"
 )
+
+func TestTaskBindingReapprovalAfterRejectOrReopen(t *testing.T) {
+	for _, withdraw := range []string{"reject", "reopen"} {
+		t.Run(withdraw, func(t *testing.T) {
+			svc, owner, author, create, backend := taskFixture(t)
+			task, err := svc.TaskCreate(t.Context(), owner, create)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := *task.Binding
+			rook := enrollTaskRook(t, svc, owner, create.Goal)
+			input := c.TaskCompleteInput{Reference: task.Reference, Goal: create.Goal, AssignmentSHA: digest(task.Binding), PullRequestURL: "https://github.com/example/coop/pull/2", RequestID: "reapproved-completion"}
+			if _, err := svc.RegisterArtifact(t.Context(), author, c.ArtifactLink{Goal: input.Goal, Kind: "pull_request", URL: input.PullRequestURL, TaskURL: input.Reference, AssignmentSHA: input.AssignmentSHA, RequestID: "pr"}); err != nil {
+				t.Fatal(err)
+			}
+			decide := func(action string) c.GoalAuthority {
+				t.Helper()
+				a, err := svc.ResolveGoal(t.Context(), owner, create.Goal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a, err = svc.DecideGoal(t.Context(), owner, c.GoalDecisionInput{GoalID: create.Goal.GoalID, RevisionSHA256: create.Goal.RevisionSHA256, ExpectedDecisionSequence: a.DecisionSequence, Action: action, RequestID: "reapproval-" + action})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return a
+			}
+			if withdraw == "reopen" {
+				decide("complete")
+			}
+			a := decide(withdraw)
+			if a.Valid || a.ApprovalSequence != 0 {
+				t.Fatal("withdrawal retained authority", a)
+			}
+			if _, err := svc.TaskComplete(t.Context(), rook, input); !errors.Is(err, c.ErrForbidden) || backend.closes != 0 {
+				t.Fatal("withdrawn authority reached provider", err)
+			}
+			a = decide("approve")
+			if !a.Valid || a.Revision.Ref != original.Goal || a.ApprovalSequence <= original.ApprovalSequence {
+				t.Fatal("same-revision reapproval missing", a)
+			}
+			if _, err := svc.TaskComplete(t.Context(), rook, input); err != nil {
+				t.Fatal("explicit reapproval did not restore unchanged binding", err)
+			}
+			if backend.closes != 1 || backend.binds != 1 || !reflect.DeepEqual(original, *backend.task.Binding) {
+				t.Fatal("reapproval rewrote original assignment")
+			}
+		})
+	}
+}
 
 func TestTaskCompletionKeepsBindingAfterSameScopeRenewal(t *testing.T) {
 	for _, duringRead := range []bool{false, true} {

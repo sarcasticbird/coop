@@ -50,6 +50,8 @@ func ValidateNativeAuthority(ctx context.Context, source GoalAuthoritySource, b 
 	// The task's counter records when its immutable binding was made. A later
 	// approval of the same scope does not require another planner/binding write.
 	// Current permission still comes from the freshly resolved state and actors.
+	// Reject/reopen withdraw authority until explicit approval; approving this
+	// exact revision again permits unchanged bindings, not replay of old effects.
 	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || b.ApprovalSequence > a.ApprovalSequence {
 		return a, errors.New("native approval no longer current")
 	}

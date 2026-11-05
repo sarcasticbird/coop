@@ -171,9 +171,16 @@ current-permission copy. Discovery keeps the registered PR; implementation,
 review, QA, dependency waits and completion reuse the original task/job identity
 without another planner turn, rebind or metadata rewrite. Existing current-head
 review/QA evidence stays valid only while its exact scope and artifact match.
-Paused, rejected or replaced authority still refuses, as do changed actors,
-repository/base, task scope, roster policy or impossible future counters. New-task
-creation and explicit scope changes retain their current-admission checks.
+Paused or withdrawn authority still refuses, as do changed actors,
+repository/base, task scope, roster policy or impossible future counters.
+`reject` and `reopen` withdraw current authority; they do not permanently revoke
+the bindings of that immutable revision. If the owner explicitly approves that
+**exact revision again**, unchanged tasks, PR registrations and dependency waits
+can proceed without rebinding, including after an intervening reject/reopen.
+Current scope, identities and head-specific review/QA must still match. Approving
+a different revision does not revive old bindings. Reapproval never reopens a
+completed task, replays a settled job or clears an uncertain action.
+New-task creation and explicit scope changes retain current-admission checks.
 Unknown action outcomes keep their original receipts; renewal never authorizes
 replay or changes a saved request. This removes one duplicate gate, not the
 remaining private goal/assignment machinery.
