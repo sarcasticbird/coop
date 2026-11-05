@@ -129,3 +129,39 @@ func TestNativeRookPolicyRejectsContributorCapabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeRookDeliversUnchangedContributorAssignment(t *testing.T) {
+	cfg, catalog, task := nativeWorkFixture(t)
+	cfg.Team.Members[len(cfg.Team.Members)-1].Capabilities = []string{"deliver"}
+	contributors := *cfg.Team
+	contributors.Members = append([]TeamMember(nil), cfg.Team.Members[:len(cfg.Team.Members)-1]...)
+	var err error
+	task.Binding.PolicySHA, err = TeamPolicySHA(contributors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := NativeAssignmentSHA(task.Binding)
+	if err = validateNativeRoster(cfg, task.Binding); err != nil {
+		t.Fatal("integration-only Rook invalidated the retained assignment", err)
+	}
+	pr := nativeReviewPRFixture(cfg, task)
+	meta := NativeReviewResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, Verdict: "approved"}
+	pr.Reviews = []Review{{ID: "peer", Author: cfg.Team.Members[0].Actor, HeadSHA: pr.HeadSHA, State: "APPROVED", Body: NativePeerMetadata(meta), SubmittedAt: time.Now()}}
+	authority := catalog.Goals[0]
+	qa := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: assignment, HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(authority), Environment: authority.Revision.Proposal.QA.Environment, EnvironmentRevision: authority.Revision.Proposal.QA.EnvironmentRevision, Verdict: "approved"}
+	pr.Reviews = append(pr.Reviews, Review{ID: "qa", Author: cfg.Team.Members[2].Actor, HeadSHA: pr.HeadSHA, State: "APPROVED", Body: NativeQAMetadata(qa), SubmittedAt: time.Now()})
+	task.PRs = []PR{pr}
+	catalog.Tasks[0] = task
+	selectNativeRook(&cfg, nil)
+	if jobs := NativeCandidates(cfg, catalog, nil, time.Now()); len(jobs) != 1 || jobs[0].Job.Kind != "deliver" {
+		t.Fatal("existing independent review did not admit Rook delivery", jobs)
+	}
+	// Delivery still requires the currently configured immutable Rook identity.
+	cfg.Self.ID++
+	if nativeDeliveryActor(cfg, task.Binding) {
+		t.Fatal("an unconfigured identity inherited integration rights")
+	}
+	if NativeAssignmentSHA(task.Binding) != assignment {
+		t.Fatal("admission rewrote the retained assignment")
+	}
+}
