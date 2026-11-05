@@ -100,30 +100,18 @@ func (g *GitHubClient) readKataTask(ctx context.Context, cfg Config, ref string)
 	if err != nil {
 		return out, err
 	}
-	task, err := cl.TaskRead(ctx, ref)
+	task, err := cl.TaskRead(ctx, issue)
 	if err != nil {
 		return out, err
 	}
-	if task.Reference != ref || task.ProjectUID != project || task.IssueUID != issue || task.Repository != repo || task.Binding == nil || task.Revision < 1 {
+	if task.ProjectUID != project || task.IssueUID != issue || task.Revision < 1 {
 		return out, c.ErrConflict
 	}
-	b := *task.Binding
-	scope := TaskScopeHash(task.Title, task.Body)
-	if b.TaskURL != ref || b.Goal != task.Goal || b.Goal.MasterID != cfg.Master.MasterID || b.TaskScopeSHA != scope {
+	out, err = g.kataTask(ctx, cfg, task)
+	if err == nil && (out.Task.URL != ref || out.Task.Repo != repo) {
 		return out, c.ErrConflict
 	}
-	if err = validateNativeRoster(cfg, b); err != nil {
-		return out, err
-	}
-	switch task.State {
-	case "open", "closed":
-	default:
-		return out, c.ErrConflict
-	}
-	out.Binding = b
-	out.ProviderRevision = task.Revision
-	out.Task = Task{URL: ref, Repo: repo, Title: task.Title, Body: task.Body, BodySHA: scope, MetadataScopeSHA: scope, Ready: task.State == "open", Closed: task.State == "closed", Completed: task.State == "closed" && task.ClosedReason == "done", TrustedMetadataPresent: true, DependsOn: b.DependsOn}
-	return out, nil
+	return out, err
 }
 func nativeDiscoveryTask(cfg Config, ref string) bool {
 	if !kataTaskSource(cfg) || isKataTask(ref) {

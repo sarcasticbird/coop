@@ -39,12 +39,15 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 	if cfg.Version != 3 || cfg.Master == nil {
 		return out, errors.New("native catalog requires v3 configuration")
 	}
+	_, selectedOnly := master.(*taskSnapshotMaster)
+	if kataTaskSource(cfg) && !selectedOnly {
+		return g.kataSnapshot(ctx, cfg, "")
+	}
 	if kataTaskSource(cfg) {
 		if _, err := TaskProviderClient(ctx, cfg); err != nil {
 			return out, err
 		}
 	}
-	_, selectedOnly := master.(*taskSnapshotMaster)
 	reader := NewGitHubClient(g.runner)
 	reader.observation = g.observation
 	reader.config = cfg

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	c "github.com/sarcasticbird/coop/internal/coordination"
 )
 
 type prBodyVersion struct {
@@ -17,12 +19,16 @@ type prBodyVersion struct {
 // Use that durable history rather than poll-local observations: A -> B -> A
 // must not resurrect A's old review, even across restarts or between polls.
 func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int, version prBodyVersion, pr *PR) (string, error) {
+	ordinary := isKataTask(pr.TaskURL) && pr.MasterGoal != nil && *pr.MasterGoal == (c.GoalRef{})
 	switch g.config.Version {
 	case 2:
 		if _, err := ParseTeamPRMetadata(version.Body, repo, pr.TaskURL, pr.GoalURL, pr.AssignmentSHA); err != nil {
 			return "", ghError("invalid_PR_assignment_scope")
 		}
 	case 3:
+		if ordinary {
+			break
+		}
 		if pr.MasterGoal == nil {
 			return "", ghError("native_PR_goal_missing")
 		}
@@ -80,6 +86,12 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 					continuous = false
 				}
 			case 3:
+				if ordinary {
+					// Any PR-body change refreshes task-native review scope. Retain
+					// edit IDs/order so restoring old text cannot revive clearance.
+					continuous = i == 0
+					break
+				}
 				if pr.MasterGoal == nil {
 					return "", ghError("native_PR_goal_missing")
 				}
@@ -111,6 +123,9 @@ func (g *GitHubClient) readPRScope(ctx context.Context, repo string, number int,
 		}
 		pr.BaseScopeRevision = baseHistory
 		pr.ScopeRevision = BodyHash(strings.Join([]string{pr.URL, pr.TaskURL, pr.GoalURL, pr.AssignmentSHA, pr.BaseBranch, baseHistory, pr.ScopeUpdatedAt.Format(time.RFC3339Nano)}, "\x00"))
+		if ordinary {
+			pr.ScopeRevision = BodyHash(pr.ScopeRevision + "\x00" + history + "\x00" + version.Body)
+		}
 		history = BodyHash(history + "\x00" + baseHistory)
 	}
 	return history, nil

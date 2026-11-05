@@ -12,6 +12,8 @@ import (
 )
 
 type NativeTask struct {
+	LinkedPRs        []string
+	AllPRsMerged     bool
 	ProviderRevision int64 `json:"provider_revision,omitempty"`
 	Task             Task
 	Binding          NativeTaskBinding
@@ -113,16 +115,18 @@ func validateNativeRoster(cfg Config, b NativeTaskBinding) error {
 	}
 	var author, peer, qa TeamMember
 	for _, m := range cfg.Team.Members {
-		switch m.Actor.ID {
-		case b.AuthorID:
+		if m.Actor.ID == b.AuthorID {
 			author = m
-		case b.PeerID:
+		}
+		if m.Actor.ID == b.PeerID {
 			peer = m
-		case b.QAID:
+		}
+		if m.Actor.ID == b.QAID {
 			qa = m
 		}
 	}
-	if author.Name == "" || peer.Name == "" || cfg.Team.EngineeringPeers[author.Name] != peer.Name || !memberCapability(author, "implement") || !memberCapability(peer, "engineering-review") {
+	ordinary := kataExecution(b)
+	if author.Name == "" || peer.Name == "" || !ordinary && cfg.Team.EngineeringPeers[author.Name] != peer.Name || !memberCapability(author, "implement") && !(ordinary && memberCapability(author, "deliver")) || !memberCapability(peer, "engineering-review") {
 		return errors.New("native assignment violates peer policy")
 	}
 	if b.QAID > 0 && (qa.Name == "" || !memberCapability(qa, "customer-qa") || qa.Actor.ID == author.Actor.ID || qa.Actor.ID == peer.Actor.ID) {
@@ -184,12 +188,20 @@ func (g *GitHubClient) readNativePR(ctx context.Context, cfg Config, t NativeTas
 			}
 		}
 	}
-	if json.Unmarshal(raw, &item) != nil || item.URL != ref || item.Author.ID != t.Binding.AuthorID || item.Author.Kind != "Bot" || !qaHeadSHA.MatchString(item.HeadRefOid) || item.BaseRefName != t.Binding.BaseBranch {
+	ordinary := kataExecution(t.Binding)
+	if json.Unmarshal(raw, &item) != nil || item.URL != ref || !knownTeamActor(item.Author.actor()) || !ordinary && (item.Author.ID != t.Binding.AuthorID || item.Author.Kind != "Bot") || !qaHeadSHA.MatchString(item.HeadRefOid) || item.BaseRefName != t.Binding.BaseBranch {
 		return PR{}, ghError("native_PR_identity_or_scope_changed")
 	}
-	m, err := ParseNativePRMetadata(item.Body, repo, t.Task.URL, t.Binding.Goal, NativeAssignmentSHA(t.Binding))
-	if err != nil {
-		return PR{}, err
+	m := NativePRMetadata{TaskURL: t.Task.URL, Goal: t.Binding.Goal, AssignmentSHA: NativeAssignmentSHA(t.Binding)}
+	if ordinary {
+		if !containsExact(t.LinkedPRs, ref) {
+			return PR{}, ghError("PR_not_linked_from_current_Kata_task")
+		}
+	} else {
+		m, err = ParseNativePRMetadata(item.Body, repo, t.Task.URL, t.Binding.Goal, NativeAssignmentSHA(t.Binding))
+		if err != nil {
+			return PR{}, err
+		}
 	}
 	pr := PR{URL: ref, TaskURL: t.Task.URL, MasterGoal: &m.Goal, AssignmentSHA: m.AssignmentSHA, Author: item.Author.actor(), HeadSHA: item.HeadRefOid, Branch: item.HeadRefName, BaseBranch: item.BaseRefName, MergeState: item.MergeStateStatus, ChecksState: "unknown", Merged: item.Merged, Closed: item.State == "CLOSED" || item.Merged, Revision: item.UpdatedAt.Format(time.RFC3339Nano)}
 	// PR baseRefOid and REST base.sha can lag the live base branch. Missing
@@ -211,7 +223,7 @@ func (g *GitHubClient) readNativePR(ctx context.Context, cfg Config, t NativeTas
 		return PR{}, err
 	}
 	artifactTask := t.Task
-	artifactTask.QA.Required = authority.Revision.Proposal.QA.Required
+	artifactTask.QA.Required = nativeQARequired(t.Binding, authority)
 	artifactPR := pr
 	if release {
 		artifactTask.QA.Required = true

@@ -7,6 +7,44 @@ team-scheduling runtimes have been removed, not hidden behind another mode.
 `run`, `preflight` and `dry-run` refuse legacy configurations; legacy `ping`
 and `recover` are retired. Use native comms/actions for current work.
 
+## Kata delivery admission (source; fleet activation pending)
+
+With `task_source.provider = "kata"`, the existing native dispatcher discovers
+open tasks directly from the pinned project. Private goal approval, hidden task
+bindings and artifact registration are not prerequisites. Assign an engineering
+task to its responsible bird and put an ordinary GitHub repository or PR link in
+its body. Unassigned work, tasks without one unambiguous code repository, foreign
+repositories and closed history do not enter code execution.
+
+Robin/Hawk implement their assigned tasks; the configured independent engineer
+reviews, Wren tests the exact source artifact against the task's acceptance
+criteria, and Rook integrates. A Rook-owned integration task can link existing
+human- or bot-authored PRs without changing authorship. The actual PR author,
+commit authors/coauthors and committers remain contributors and cannot supply
+their own review/QA or Rook merge. Assign needed source fixes to an engineer;
+Rook does not acquire implementation rights by owning the task.
+
+PR links in one task are delivered in their listed order. The task stays open
+until all linked PRs have merged. A newly published PR is linked back to Kata
+through an ordinary revision-checked edit. Current task owner/title/body, roster,
+repository/base, PR head/body/base history, independent reviews and checks are
+revalidated before effects. Comments alone do not invalidate code clearance.
+QA is mandatory; an unavailable required test environment must be reported as a
+blocker, not an implied pass from testing source alone.
+
+Explicit stops remain instructions. In addition to the existing worker delivery
+hold, task text containing `stop before merge`, `do not merge`, `don't merge` or
+`Delivery: hold` conservatively prevents delivery. Removing a stop requires an
+actual task update; conversation acknowledgement cannot release it. Other scope,
+release and destructive-action boundaries still apply to the executing bird.
+
+This changes admission, not the execution/recovery backend. Native sessions,
+isolated checkouts, action intents/receipts and unknown outcomes retain their
+existing lifetimes. Lost external-write replies are never blindly replayed.
+Historical goal-bound GitHub work remains inspectable and explicitly scoped;
+it is not imported into Kata scheduling. No fleet update is implied by this
+source change.
+
 V1/v2 configuration, state and receipt readers remain for offline inspection.
 Their protocol descriptions below are historical reference, not instructions
 to start or resume old work. Existing records, sessions, workspaces and unknown

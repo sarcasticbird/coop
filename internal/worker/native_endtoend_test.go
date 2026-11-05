@@ -17,6 +17,8 @@ import (
 // The transport models GitHub's task, PR, contributor/review connections,
 // immutable artifact and merge APIs. All readers and producer helpers are real.
 type nativeDeliveryTransport struct {
+	prAuthor                                                       Actor
+	checkoutBranch                                                 string
 	t                                                              *testing.T
 	cfg                                                            Config
 	commands                                                       *fakeCommands
@@ -55,6 +57,9 @@ func (s *nativeDeliveryTransport) RunIn(_ context.Context, dir string, argv, env
 		out = "/dev/null/coop-qa-push-disabled"
 	case "branch":
 		out = s.branch
+		if s.checkoutBranch != "" {
+			out = s.checkoutBranch
+		}
 	case "rev-parse":
 		out = s.head
 	case "status", "switch", "clone", "fetch", "reset":
@@ -97,7 +102,15 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		return map[string]any{"nodes": nodes, "totalCount": count, "pageInfo": map[string]any{"hasNextPage": false}}
 	}
 	actor := func(id int64, login string) map[string]any {
-		return map[string]any{"__typename": "Bot", "databaseId": id, "login": login}
+		kind := "Bot"
+		if s.prAuthor.ID == id {
+			kind = s.prAuthor.Kind
+		}
+		return map[string]any{"__typename": kind, "databaseId": id, "login": login}
+	}
+	prAuthor := s.prAuthor
+	if prAuthor.ID == 0 {
+		prAuthor = Actor{ID: 12, Login: "implementer[bot]", Kind: "Bot"}
 	}
 	created := time.Now().Add(-time.Hour).UTC()
 	if endpoint == "graphql" {
@@ -106,7 +119,7 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			s.t.Fatal("bad graphql")
 		}
 		var data any
-		pr := map[string]any{"url": prURL, "body": s.prBody, "createdAt": created, "headRefOid": s.head, "headRefName": s.branch, "baseRefName": "main", "updatedAt": created, "mergeStateStatus": "CLEAN", "state": "OPEN", "merged": s.merged, "author": actor(12, "implementer[bot]"), "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}
+		pr := map[string]any{"url": prURL, "body": s.prBody, "createdAt": created, "headRefOid": s.head, "headRefName": s.branch, "baseRefName": "main", "updatedAt": created, "mergeStateStatus": "CLEAN", "state": "OPEN", "merged": s.merged, "author": actor(prAuthor.ID, prAuthor.Login), "commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{"state": "SUCCESS"}}}}}}
 		pr["baseRefOid"] = s.baseSHA
 		if s.snapshotBaseSHA != "" {
 			pr["baseRefOid"] = s.snapshotBaseSHA
@@ -175,9 +188,9 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 			}
 			data = map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"reviews": page(nodes, len(nodes))}}}
 		case strings.Contains(req.Query, "WorkerTeamCommits"):
-			data = map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"commits": page([]any{map[string]any{"commit": map[string]any{"id": "commit", "oid": s.head, "committer": map[string]any{"user": actor(12, "implementer[bot]")}}}}, 1)}}}
+			data = map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"commits": page([]any{map[string]any{"commit": map[string]any{"id": "commit", "oid": s.head, "committer": map[string]any{"user": actor(prAuthor.ID, prAuthor.Login)}}}}, 1)}}}
 		case strings.Contains(req.Query, "WorkerTeamAuthors"):
-			data = map[string]any{"node": map[string]any{"authors": page([]any{map[string]any{"user": actor(12, "implementer[bot]")}}, 1)}}
+			data = map[string]any{"node": map[string]any{"authors": page([]any{map[string]any{"user": actor(prAuthor.ID, prAuthor.Login)}}, 1)}}
 		default:
 			s.t.Fatalf("unexpected query %s", req.Query)
 		}
@@ -258,10 +271,13 @@ func (s *nativeDeliveryTransport) response(owner, endpoint, method string, body 
 		if s.stalePRHead != "" {
 			head = s.stalePRHead
 		}
-		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "user": map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}, "head": map[string]any{"sha": head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
+		return jsonResponse(map[string]any{"html_url": prURL, "body": s.prBody, "merged": s.merged, "user": map[string]any{"id": prAuthor.ID, "login": prAuthor.Login, "type": prAuthor.Kind}, "head": map[string]any{"sha": head, "ref": s.branch, "repo": map[string]any{"full_name": "code/repo"}}, "base": map[string]any{"ref": "main", "sha": baseSHA, "repo": map[string]any{"full_name": "code/repo"}}}), nil
 	}
-	if endpoint == "user/12" {
-		return jsonResponse(map[string]any{"id": 12, "login": "implementer[bot]", "type": "Bot"}), nil
+	if endpoint == "user/"+stringID(int(prAuthor.ID)) {
+		return jsonResponse(map[string]any{"id": prAuthor.ID, "login": prAuthor.Login, "type": prAuthor.Kind}), nil
+	}
+	if endpoint == "repos/code/repo" && method == "GET" {
+		return jsonResponse(map[string]any{"default_branch": "main"}), nil
 	}
 	if endpoint == "repos/code/repo/actions/artifacts/1" {
 		return jsonResponse(map[string]any{"id": 1, "digest": "sha256:" + strings.Repeat("e", 64), "expired": false, "workflow_run": map[string]any{"id": 1, "head_sha": s.head}}), nil
