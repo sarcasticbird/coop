@@ -2,13 +2,6 @@ package worker
 
 import "testing"
 
-type admissionStore struct {
-	*memoryStore
-	draining bool
-}
-
-func (s *admissionStore) AdmissionPaused() (bool, error) { return s.draining, nil }
-
 func TestAdmissionPausePersistsWithoutClearingLegacyPause(t *testing.T) {
 	s := storeFixture(t)
 	if err := s.SetPaused(true); err != nil {

@@ -26,11 +26,12 @@ func TestNativeRenewalRetainsStageIdentityAndSettledHistory(t *testing.T) {
 			if kind == "qa" || kind == "deliver" || kind == "fix" {
 				p.Reviews = []Review{{ID: "peer", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[0].Actor, State: peerState, Body: NativePeerMetadata(peer), SubmittedAt: now}}
 			}
-			if kind == "deliver" {
+			switch kind {
+			case "deliver":
 				qa := NativeQAResult{Version: 3, Goal: task.Binding.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: p.HeadSHA, PRScopeRevision: p.ScopeRevision, ArtifactSHA: p.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(catalog.Goals[0]), Environment: "staging", EnvironmentRevision: "staging-v1", Verdict: "approved"}
 				p.Reviews = append(p.Reviews, Review{ID: "qa", HeadSHA: p.HeadSHA, Author: cfg.Team.Members[2].Actor, State: "APPROVED", Body: NativeQAMetadata(qa), SubmittedAt: now})
 				selectNativeRook(&cfg, nil)
-			} else if kind == "review" || kind == "qa" {
+			case "review", "qa":
 				index, agent := 0, "peer"
 				if kind == "qa" {
 					index, agent = 2, "qa"

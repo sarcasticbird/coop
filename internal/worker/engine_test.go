@@ -37,38 +37,6 @@ func copyState(s State) State {
 	return copy
 }
 
-type workflowGitHub struct {
-	snapshot      Snapshot
-	claims, syncs int
-}
-
-func (g *workflowGitHub) Snapshot(context.Context, Config, Snapshot) (Snapshot, error) {
-	return g.snapshot, nil
-}
-func (g *workflowGitHub) Claim(ctx context.Context, j Job, instance string) (Claim, error) {
-	g.claims++
-	c := Claim{ID: "claim", Marker: marker(j, "claim"), InstanceID: instance, Author: g.snapshot.PRsAuthor()}
-	g.snapshot.Tasks[0].Claim = &c
-	return c, nil
-}
-func (s Snapshot) PRsAuthor() Actor { return Actor{ID: 2, Login: "builder[bot]", Kind: "Bot"} }
-func (g *workflowGitHub) Reconcile(ctx context.Context, j Job) (Artifacts, error) {
-	a := Artifacts{PlanResponded: true}
-	if t, ok := taskFor(g.snapshot, j.TaskURL); ok {
-		a.Claim = t.Claim
-		a.IssueCompleted = t.Completed
-	}
-	for _, p := range g.snapshot.PRs {
-		if p.TaskURL == j.TaskURL {
-			copy := p
-			a.PR = &copy
-		}
-	}
-	return a, nil
-}
-func (g *workflowGitHub) SyncTask(context.Context, Job, string, string) error    { g.syncs++; return nil }
-func (g *workflowGitHub) ReportBlock(context.Context, Job, string, string) error { return nil }
-
 type fakeCheckouts struct{ progress string }
 
 func (c *fakeCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
