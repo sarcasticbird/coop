@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -174,103 +171,6 @@ func TestQAArtifactFailureRetainsFreshSnapshot(t *testing.T) {
 	}
 }
 
-type qaRecoveryOpenCode struct {
-	*fakeOpenCode
-	native *OpenCodeClient
-}
-
-func (c qaRecoveryOpenCode) Abort(ctx context.Context, j Job) error { return c.native.Abort(ctx, j) }
-
-func TestQAArtifactUnavailableStopsOwnedTurnAcrossRestart(t *testing.T) {
-	for _, kind := range []string{"qa", "deliver"} {
-		for _, ownerPause := range []bool{false, true} {
-			name := kind + "/artifact-only"
-			if ownerPause {
-				name = kind + "/owner-paused"
-			}
-			t.Run(name, func(t *testing.T) {
-				c, nativeGitHub, unavailable, paused, now := qaRecoveryClient(t)
-				if kind == "qa" {
-					c = qaGateActor(c, "qa")
-				}
-				s, err := nativeGitHub.Snapshot(context.Background(), c, Snapshot{})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if kind == "qa" {
-					s.PRs[0].Reviews = s.PRs[0].Reviews[:1]
-				}
-				j := qaGateJob(t, c, s, now, kind)
-				g := &teamEngineGitHub{workflowGitHub: &workflowGitHub{snapshot: s}, actor: c.Self}
-				code := &fakeOpenCode{running: true}
-				clock := &fakeClock{now: now}
-				store := NewVersionedFileStore(filepath.Join(t.TempDir(), "state"), 2)
-				state := newState()
-				state.Version = 2
-				// V2 startup remains gated; exercise its workflow with a converted ledger.
-				e := &Engine{Config: c, GitHub: g, Store: store, Checkouts: &fakeCheckouts{}, OpenCode: code, Clock: clock, state: state, initialized: true}
-				e.state.SnapshotCache = s
-				if err := e.dispatch(context.Background(), j); err != nil {
-					t.Fatal(err)
-				}
-				j = e.state.Jobs[j.ID]
-				if j.Phase != "active" || j.MessageID == "" || code.calls != 1 {
-					t.Fatalf("turn not running: %+v", j)
-				}
-				instance, binding := e.state.InstanceID, e.state.Sessions[BindingKey(c, j)]
-				aborts := 0
-				_, nativeCode := apiFixture(t, func(w http.ResponseWriter, r *http.Request) {
-					switch r.URL.Path {
-					case "/session/" + j.SessionID:
-						writeJSON(w, map[string]string{"id": j.SessionID, "directory": j.Checkout})
-					case "/session/" + j.SessionID + "/message/" + j.MessageID:
-						writeJSON(w, ownershipMessage(j, j.MessageID, "user", ""))
-					case "/session/" + j.SessionID + "/message":
-						writeJSON(w, []any{ownershipMessage(j, j.MessageID, "user", "")})
-					case "/session/" + j.SessionID + "/abort":
-						if r.Method != "POST" {
-							t.Errorf("unexpected abort method: %s", r.Method)
-						}
-						aborts++
-						writeJSON(w, true)
-					case "/session/status":
-						writeJSON(w, map[string]any{"ses_foreign": map[string]string{"type": "busy"}})
-					default:
-						t.Errorf("touched unrelated native resource: %s", r.URL.Path)
-						w.WriteHeader(404)
-					}
-				})
-				*unavailable, *paused = true, ownerPause
-				for range 2 {
-					restored, err := store.Load()
-					if err != nil {
-						t.Fatal(err)
-					}
-					e = &Engine{Config: c, GitHub: nativeGitHub, Store: store, Checkouts: e.Checkouts, OpenCode: qaRecoveryOpenCode{code, nativeCode}, Clock: clock, state: restored, initialized: true}
-					tick(t, e, clock)
-					saved, err := store.Load()
-					if err != nil {
-						t.Fatal(err)
-					}
-					after := saved.Jobs[j.ID]
-					want := j
-					want.Phase, want.WaitReason, want.SubmissionState, want.NextAttemptAt = after.Phase, after.WaitReason, after.SubmissionState, after.NextAttemptAt
-					if after.Phase != "paused" || after.SubmissionState != "interrupted" || !reflect.DeepEqual(after, want) || saved.InstanceID != instance || !reflect.DeepEqual(saved.Sessions[BindingKey(c, j)], binding) || aborts != 1 || code.calls != 1 {
-						t.Fatalf("lost identity, replayed, or aborted another turn: %+v aborts=%d calls=%d", after, aborts, code.calls)
-					}
-					wantGoal := "approved"
-					if ownerPause {
-						wantGoal = "paused"
-					}
-					if EvaluateGoal(c, saved.SnapshotCache.Goals[0], clock.Now()).State != wantGoal || saved.SnapshotCache.PRs[0].QAArtifact != nil {
-						t.Fatal("fresh goal decision or artifact failure was lost")
-					}
-				}
-			})
-		}
-	}
-}
-
 func TestQAContinuationRejectsMissingOrChangedArtifactDuringEngineeringRerun(t *testing.T) {
 	for _, fault := range []string{"missing", "digest", "head", "revision", "URL", "kind", "saved missing"} {
 		t.Run(fault, func(t *testing.T) {
@@ -278,7 +178,7 @@ func TestQAContinuationRejectsMissingOrChangedArtifactDuringEngineeringRerun(t *
 			// No QA completion and no current engineering clearance may hide an
 			// artifact identity change from the saved binding check.
 			s.PRs[0].Reviews = nil
-			e := &Engine{Config: c, state: State{SnapshotCache: s}, Clock: &fakeClock{now: now}}
+			e := &legacyInspection{Config: c, state: State{SnapshotCache: s}, Clock: &fakeClock{now: now}}
 			if !e.savedBindingAllowed(j) {
 				t.Fatal("unchanged artifact rejected")
 			}

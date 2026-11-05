@@ -1,8 +1,17 @@
-# GitHub workers
+# Native workers and historical GitHub protocols
 
-For private native conversations and owner decisions with version-3 workers,
-see [Coop master](master.md). The GitHub-governed v1/v2 workflows below retain
-their existing authority and metadata. Conversion is explicit and offline.
+The supported execution path is the authenticated version-3 native worker; see
+[Coop master](master.md) and [Kata task operations](kata-task-provider.md).
+The installed birds use v3 with Kata. The v1/v2 polling, wake-execution and
+team-scheduling runtimes have been removed, not hidden behind another mode.
+`run`, `preflight` and `dry-run` refuse legacy configurations; legacy `ping`
+and `recover` are retired. Use native comms/actions for current work.
+
+V1/v2 configuration, state and receipt readers remain for offline inspection.
+Their protocol descriptions below are historical reference, not instructions
+to start or resume old work. Existing records, sessions, workspaces and unknown
+effects are neither converted nor cleared by this removal. Shared installer,
+QA-source, identity, state-fencing and native recovery safeguards remain intact.
 
 An agent Coop can run an authenticated OpenCode server and a small GitHub worker
 as independent helper services. The terminal attaches to that server. Detaching
@@ -39,10 +48,12 @@ the exact immutable artifact archive, verify its native archive SHA256 against
 Build `cmd/coop-worker` for Linux arm64 through the repository's Flox environment.
 Keep each worker JSON configuration in the private machine branch of dotfiles,
 alongside its Coop profile. Do not put credentials or private goal text in this
-public repository. The example in `examples/worker.json` contains placeholders.
-The neutral v2 example is [worker-team.json](../examples/worker-team.json).
-See [scheduler artifact preparation](scheduler-artifacts.md) for the v1/v2
-compatibility table, offline validation, build/digest evidence and maintenance
+public repository. Use [worker-master.json](../examples/worker-master.json) for
+the supported runtime and pin its Kata task provider for team work.
+[worker.json](../examples/worker.json) and [worker-team.json](../examples/worker-team.json)
+are legacy inspection fixtures, not launch configurations.
+See [scheduler artifact preparation](scheduler-artifacts.md) for the historical
+format table, offline validation, build/digest evidence and maintenance
 recovery boundaries. That guide does not authorize live activation.
 GitHub App signing keys remain on the host; guest operations use the existing
 renewable installation-token helper. Provider logins remain in native OpenCode
@@ -59,8 +70,8 @@ uses the shared bare-repo workflow. Install `wt` before selecting that mode.
 
 ### Versioned team policy foundation
 
-Existing deployments use configuration version 1. Its fixed roles, metadata,
-approval rules and state format are unchanged. Version 1 rejects a `team` field.
+Historical configuration version 1 used fixed roles, metadata and approvals.
+Its retained reader rejects a `team` field; it no longer has an execution runtime.
 
 Configuration version 2 validates a required `team` policy (also version 2),
 with stable lowercase member names, immutable bot IDs, capabilities, a qualified
@@ -84,11 +95,10 @@ An owner-approved goal body is still required; planner assignment cannot approve
 or relax a goal. Required customer QA binds acceptance and authorized environment
 revisions to the independent assigned QA actor and tested artifact.
 
-Version 2 explicitly selects the team runtime. Startup requires compatible saved
-state and its matching wake fence, even when wakes are disabled. It never converts
-or initializes storage automatically. Source coverage does not authorize live
-cutover; follow the controlled acceptance packet and preserve historical v1
-state, claims and completed jobs without assigning them new roster authority.
+Version 2 formerly selected a separate team runtime; that runtime is retired.
+Its state/metadata codecs still enforce their identity and wake fences when
+inspecting saved records. Preserve historical claims and completed jobs without
+assigning them new authority or replaying them through the native dispatcher.
 
 Guest paths:
 

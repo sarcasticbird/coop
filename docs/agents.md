@@ -77,8 +77,9 @@ conversation database, instructions and working notes persist with the disk.
 Unsaved process state and active execution are interrupted. On restart the
 worker reconciles its saved intent before dispatching new work; restarting does
 not clear an uncertain turn or repair an ownership/reconciliation defect.
-Agents must write durable notes and reread current GitHub state to recover
-their working context. Persistent files preserve recorded information, not
+Birds recover task context from Kata, durable lessons from SQLite memory, and
+current code/review state from GitHub. Do not maintain Markdown task ledgers.
+Persistent files preserve recorded information, not
 every thought from an interrupted turn.
 
 ## Servers and helper services
@@ -150,6 +151,6 @@ Ordinary file credentials have no automatic renewal. App-backed profiles can use
 shutdown so active shells keep working. Updating a source file does not revoke
 an old provider token. Guest root can retain any credential it receives.
 
-For unattended monitoring and review handoffs, see [GitHub workers](workers.md).
-That optional backend runs an OpenCode server and worker as helper services,
+For addressed delivery and review handoffs, see [native workers](workers.md).
+The supported v3 runtime runs an OpenCode server and worker as helper services,
 with a terminal client that can detach independently.

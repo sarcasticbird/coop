@@ -44,13 +44,13 @@ func TestTeamMigrationPreservesCaseDistinctOpaqueMapKeys(t *testing.T) {
 				t.Fatal("opaque map backup bytes changed", err)
 			}
 			for range 2 {
-				e := &Engine{Config: c, Store: NewVersionedFileStore(s.Dir, 2)}
-				if err := e.initialize(); err != nil {
+				state, err := NewVersionedFileStore(s.Dir, 2).Load()
+				if err != nil {
 					t.Fatal(err)
 				}
-				got := e.state.SnapshotCache.Cursor
+				got := state.SnapshotCache.Cursor
 				if record == "routing" {
-					routing, err := e.Wakes.Store.Routing()
+					routing, err := NewVersionedWakeStore(w.Dir, 2).Routing()
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -73,42 +71,6 @@ func (g *workflowGitHub) ReportBlock(context.Context, Job, string, string) error
 
 type fakeCheckouts struct{ progress string }
 
-type pausingCheckouts struct {
-	fakeCheckouts
-	store *memoryStore
-}
-
-type changingGoalGitHub struct{ *workflowGitHub }
-
-func (g changingGoalGitHub) Revalidate(_ context.Context, _ Job, s Snapshot) (Snapshot, error) {
-	s.Goals = append([]Goal(nil), s.Goals...)
-	s.Goals[0].Body = "changed after checkout preparation"
-	s.Goals[0].BodySHA = BodyHash(s.Goals[0].Body)
-	s.Goals[0].LastEditedAt = s.Goals[0].Decisions[0].CreatedAt.Add(time.Second)
-	return s, nil
-}
-func TestEngineRevalidatesGoalBeforeSubmission(t *testing.T) {
-	e, g, code, clock, _ := engineFixture(t)
-	e.GitHub = changingGoalGitHub{g}
-	tick(t, e, clock)
-	if code.calls != 0 {
-		t.Fatal("goal changed during preparation allowed a model turn")
-	}
-}
-
-func (c *pausingCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
-	c.store.paused = true
-	return c.fakeCheckouts.Prepare(ctx, j)
-}
-func TestEnginePauseDuringPreparationPreventsSubmission(t *testing.T) {
-	e, _, code, clock, store := engineFixture(t)
-	e.Checkouts = &pausingCheckouts{store: store}
-	tick(t, e, clock)
-	if code.calls != 0 {
-		t.Fatal("pause during checkout preparation allowed a model turn")
-	}
-}
-
 func (c *fakeCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	if j.Checkout == "" {
 		j.Checkout = "/workspace/worker/task"
@@ -166,238 +128,22 @@ func (c *fakeOpenCode) Abort(context.Context, Job) error {
 	c.running = false
 	return nil
 }
-
 func (c *fakeOpenCode) CheckContinuation(context.Context, Job) error {
 	if c.running {
 		return errors.New("session is busy")
 	}
 	return nil
 }
-func engineFixture(t *testing.T) (*Engine, *workflowGitHub, *fakeOpenCode, *fakeClock, *memoryStore) {
-	t.Helper()
-	cfg, s, n := policyFixture(t)
-	cfg = Defaults(cfg)
-	cfg.Limits.PollInterval = time.Second
-	g := &workflowGitHub{snapshot: s}
-	code := &fakeOpenCode{}
-	clock := &fakeClock{now: n}
-	store := &memoryStore{}
-	e := &Engine{Config: cfg, GitHub: g, Store: store, Checkouts: &fakeCheckouts{progress: "initial"}, OpenCode: code, Clock: clock}
-	return e, g, code, clock, store
-}
-func tick(t *testing.T, e *Engine, c *fakeClock) {
-	t.Helper()
-	c.now = c.now.Add(2 * time.Second)
-	if err := e.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-}
-func TestEngineUnchangedIdlePollsDoNotInvokeModel(t *testing.T) {
-	e, g, code, clock, _ := engineFixture(t)
-	g.snapshot.Tasks = nil
-	for range 20 {
-		tick(t, e, clock)
-	}
-	if code.calls != 0 {
-		t.Fatal("idle polls invoked a model")
-	}
-}
-func TestEngineLostAcceptedResponseSurvivesWorkerRestart(t *testing.T) {
-	e, g, code, clock, store := engineFixture(t)
-	code.running = true
-	code.lost = true
-	tick(t, e, clock)
-	if code.calls != 1 || store.state.Jobs[code.last.ID].MessageID == "" {
-		t.Fatal("submission intent was not persisted")
-	}
-	restarted := &Engine{Config: e.Config, GitHub: g, Store: store, Checkouts: e.Checkouts, OpenCode: code, Clock: clock}
-	tick(t, restarted, clock)
-	if code.calls != 1 {
-		t.Fatal("restart replayed accepted prompt")
-	}
-}
-func TestEnginePauseStopsOnlyOwnedTurnAndGoalPausePersists(t *testing.T) {
-	e, g, code, clock, store := engineFixture(t)
-	code.running = true
-	tick(t, e, clock)
-	store.paused = true
-	tick(t, e, clock)
-	if code.aborts != 1 || code.calls != 1 {
-		t.Fatal("pause failed to stop owned turn")
-	}
-	g.snapshot.Goals[0].Decisions = append(g.snapshot.Goals[0].Decisions, Decision{ID: "pause", Command: "/coop pause", Author: e.Config.Owner, CreatedAt: clock.Now()})
-	store.paused = false
-	tick(t, e, clock)
-	if code.calls != 1 {
-		t.Fatal("local resume bypassed owner goal pause")
-	}
-}
-func TestEngineWholeReviewFixDeliveryWorkflow(t *testing.T) {
-	robin, g, robinCode, clock, _ := engineFixture(t)
-	hawkCfg := robin.Config
-	hawkCfg.Role = "planner"
-	hawkCfg.Self = hawkCfg.Reviewer
-	hawkCode := &fakeOpenCode{}
-	hawk := &Engine{Config: hawkCfg, GitHub: g, Store: &memoryStore{}, Checkouts: &fakeCheckouts{}, OpenCode: hawkCode, Clock: clock}
-	robinCode.effect = func(c Config, j Job) {
-		switch j.Kind {
-		case "implement":
-			g.snapshot.PRs = []PR{{URL: "https://github.com/code/repo/pull/5", TaskURL: j.TaskURL, GoalURL: j.GoalURL, Author: c.Implementer, HeadSHA: strings.Repeat("a", 40), Branch: j.Branch, ChecksState: "success", MergeState: "CLEAN"}}
-		case "fix":
-			g.snapshot.PRs[0].HeadSHA = strings.Repeat("b", 40)
-		case "deliver":
-			g.snapshot.PRs[0].Merged = true
-			g.snapshot.PRs[0].Closed = true
-			g.snapshot.Tasks[0].Completed = true
-		default:
-			t.Fatalf("unexpected Robin job %s", j.Kind)
+
+func TestEngineRejectsRetiredRuntimeBeforeAnyDependency(t *testing.T) {
+	for _, version := range []int{0, 1, 2, 4} {
+		// Nil store/clients ensure refusal precedes any state, session or API access.
+		e := &Engine{Config: Config{Version: version}}
+		if err := e.Tick(t.Context()); !errors.Is(err, errLegacyRuntime) {
+			t.Fatal(version, err)
 		}
-	}
-	hawkCode.effect = func(c Config, j Job) {
-		if j.Kind != "review" {
-			t.Fatalf("unexpected Hawk job %s", j.Kind)
+		if err := e.Run(t.Context()); !errors.Is(err, errLegacyRuntime) {
+			t.Fatal(version, err)
 		}
-		p := &g.snapshot.PRs[0]
-		verdict := "CHANGES_REQUESTED"
-		id := "r1"
-		if p.HeadSHA == strings.Repeat("b", 40) {
-			verdict = "APPROVED"
-			id = "r2"
-		}
-		p.Reviews = append(p.Reviews, Review{ID: id, HeadSHA: p.HeadSHA, Author: c.Reviewer, State: verdict, SubmittedAt: clock.Now()})
-	}
-	for _, engine := range []*Engine{robin, robin, hawk, hawk, robin, robin, hawk, hawk, robin, robin} {
-		tick(t, engine, clock)
-	}
-	if !g.snapshot.PRs[0].Merged || !g.snapshot.Tasks[0].Completed || robinCode.calls != 3 || hawkCode.calls != 2 || g.claims != 1 {
-		t.Fatalf("handoff failed: merged=%v Robin=%d Hawk=%d claims=%d", g.snapshot.PRs[0].Merged, robinCode.calls, hawkCode.calls, g.claims)
-	}
-}
-
-func TestEngineNoProgressRetriesAreBounded(t *testing.T) {
-	e, _, code, clock, store := engineFixture(t)
-	for range 12 {
-		clock.now = clock.now.Add(16 * time.Minute)
-		if err := e.Tick(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if code.calls > 3 {
-		t.Fatal("unchanged no-progress task exceeded retry ceiling")
-	}
-	found := false
-	for _, j := range store.state.Jobs {
-		if j.Phase == "blocked" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("no-progress task never became visibly blocked")
-	}
-}
-
-func TestAdmissionPinsSavedTaskScopeDuringResume(t *testing.T) {
-	c, s, n := policyFixture(t)
-	j := Select(c, s, State{}, n)[0]
-	j.ScopeSHA = s.Tasks[0].BodySHA
-	s.Tasks[0].Body = "new scope"
-	s.Tasks[0].BodySHA = TaskScopeHash(s.Tasks[0].Title, s.Tasks[0].Body)
-	s.Tasks[0].MetadataScopeSHA = s.Tasks[0].BodySHA
-	if allowed, _ := Admit(c, j, s, n); allowed {
-		t.Fatal("old job resumed with new task scope")
-	}
-}
-
-func TestEngineServerOutageBacksOffAndAbortFailureReservesSlot(t *testing.T) {
-	e, _, code, clock, _ := engineFixture(t)
-	e.Config.Limits.PollInterval = time.Minute
-	code.HealthError = &OpenCodeError{Category: "transport_failed"}
-	for range 20 {
-		clock.now = clock.now.Add(2 * time.Second)
-		_ = e.Tick(context.Background())
-	}
-	if code.calls != 0 || code.healthCalls > 3 {
-		t.Fatal("server outage caused a dispatch or busy retry loop")
-	}
-	e, _, code, clock, _ = engineFixture(t)
-	code.running = true
-	tick(t, e, clock)
-	clock.now = clock.now.Add(31 * time.Minute)
-	code.AbortError = errors.New("abort unavailable")
-	_ = e.Tick(context.Background())
-	first := code.aborts
-	for range 10 {
-		clock.now = clock.now.Add(time.Second)
-		_ = e.Tick(context.Background())
-	}
-	if code.calls != 1 || code.aborts != first {
-		t.Fatal("uncertain abort released the slot or retried without backoff")
-	}
-}
-
-type slowGitHub struct {
-	workflowGitHub
-	started chan struct{}
-	once    sync.Once
-}
-
-func (g *slowGitHub) Snapshot(ctx context.Context, c Config, s Snapshot) (Snapshot, error) {
-	g.once.Do(func() { close(g.started) })
-	<-ctx.Done()
-	return Snapshot{}, ctx.Err()
-}
-
-type signalAbort struct {
-	fakeOpenCode
-	aborted chan struct{}
-	once    sync.Once
-}
-
-func (c *signalAbort) Abort(context.Context, Job) error {
-	c.once.Do(func() { close(c.aborted) })
-	return nil
-}
-func TestRunCanPauseActiveTurnDuringSlowGitHubScan(t *testing.T) {
-	c, s, _ := policyFixture(t)
-	c = Defaults(c)
-	store := NewFileStore(c.StateDir)
-	state := newState()
-	j := Select(c, s, state, time.Now())[0]
-	j.Phase = "active"
-	j.SessionID = "ses_owned"
-	j.MessageID = "msg_owned"
-	j.Deadline = time.Now().Add(time.Minute)
-	j.ScopeSHA = s.Tasks[0].BodySHA
-	s.Tasks[0].Claim = &Claim{Marker: marker(j, "claim"), InstanceID: state.InstanceID, Author: c.Implementer}
-	state.SnapshotCache = s
-	state.Jobs[j.ID] = j
-	if err := store.Save(state); err != nil {
-		t.Fatal(err)
-	}
-	g := &slowGitHub{workflowGitHub: workflowGitHub{snapshot: s}, started: make(chan struct{})}
-	code := &signalAbort{fakeOpenCode: fakeOpenCode{running: true}, aborted: make(chan struct{})}
-	e := &Engine{Config: c, Store: store, GitHub: g, OpenCode: code, Checkouts: &fakeCheckouts{}, Clock: RealClock{}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- e.Run(ctx) }()
-	select {
-	case <-g.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("scan did not start")
-	}
-	if err := store.SetPaused(true); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-code.aborted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("slow GitHub scan prevented local pause")
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("worker did not stop")
 	}
 }

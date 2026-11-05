@@ -1,10 +1,13 @@
 # Scheduler artifact preparation
 
-This public guide covers source and offline artifact preparation only. It does
+This public guide covers source and offline artifact preparation only. V1/v2
+execution is retired; their descriptions and examples are historical inspection
+formats, not runnable workers. Current execution requires the v3 native worker.
+This guide does
 not authorize installation, state conversion, profile changes, service reloads,
-live bot handoffs, permission changes or external acceptance fixtures. V2 worker
-startup requires explicitly initialized or converted state with matching fenced
-wake storage. A valid example, successful build or verified artifact manifest
+live bot handoffs, permission changes or external acceptance fixtures. Historical
+V2 storage retains its matching fenced wake records. A valid example,
+successful build or verified artifact manifest
 does not initialize storage or approve live work.
 The separately controlled private rollout packet is not reproduced here.
 
@@ -35,7 +38,7 @@ a native goal through configuration alone.
 | Ledger | Reads/writes v1 only | Reads/writes v2 only; loading never converts v1 |
 | Historical wake records | V1 record schema | Retained v1 record schema under `wake/v1`, gated by parent ledger/config version and instance fence |
 | Conversion | Source for explicit offline conversion | One-way v1-to-v2 conversion only; no reverse migration or automatic restore |
-| Runtime | Existing supported startup | Requires explicitly initialized/converted v2 state and its matching wake fence; startup never migrates storage |
+| Runtime | Retired; execution refuses before clients or state access | Retired; saved state and wake fences remain inspectable, not executable |
 
 The example has a qualified planner, reciprocal independent engineering peers,
 and a separate QA-capable member. Every implementing member needs an explicit
