@@ -129,6 +129,9 @@ func TestNativeCatalogSkipsProjectsForClosedTasksWithoutFollowups(t *testing.T) 
 			if source == "kata" {
 				cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject, RetainGitHubTasks: []string{job.TaskURL}}
 				installTaskProviderHTTP(t, &cfg, func(path string) any {
+					if path == "/api/v1/tasks/list" {
+						return c.ProviderTaskPage{Tasks: []c.ProviderTask{{Reference: providerIssue, ProjectUID: providerProject, IssueUID: providerIssue, Revision: 1, State: "closed", ClosedReason: "done"}}}
+					}
 					if path != "/api/v1/tasks/capabilities" {
 						t.Fatalf("unexpected Kata request %s", path)
 					}
@@ -151,7 +154,11 @@ func TestNativeCatalogSkipsProjectsForClosedTasksWithoutFollowups(t *testing.T) 
 			}
 			g := NewGitHubClient(runner)
 			full, err := g.NativeSnapshot(t.Context(), cfg, m)
-			if err != nil || !full.Complete || len(full.Tasks) != 1 || !full.Tasks[0].Task.Completed || projects != 0 {
+			expected := 1
+			if source == "kata" {
+				expected = 0
+			}
+			if err != nil || !full.Complete || len(full.Tasks) != expected || source == "github" && !full.Tasks[0].Task.Completed || projects != 0 {
 				t.Fatalf("closed task caused Project scan: tasks=%d projects=%d err=%v", len(full.Tasks), projects, err)
 			}
 			_, err = g.NativeTaskSnapshot(t.Context(), cfg, m, job)

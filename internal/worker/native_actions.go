@@ -101,6 +101,7 @@ func nativeJobHasResult(cfg Config, x NativeExecution) (bool, error) {
 		return false, err
 	}
 	want := map[string]string{"plan": "complete-plan", "implement": "publish-pr", "fix": "publish-pr", "review": "review", "qa": "qa", "deliver": "deliver"}[x.Job.Kind]
+	found := false
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -113,11 +114,14 @@ func nativeJobHasResult(cfg Config, x NativeExecution) (bool, error) {
 		if strictTeamJSON(raw, &r) != nil {
 			return false, c.ErrConflict
 		}
-		if r.Version == 3 && r.JobID == x.Job.ID && r.Operation == want && r.State == "completed" {
-			return true, nil
+		if r.Version == 3 && r.JobID == x.Job.ID {
+			if r.State != "completed" && (r.State != "prepared" || r.Step != "") {
+				return false, nil // An earlier success cannot erase a later unknown effect.
+			}
+			found = found || r.Operation == want && r.State == "completed"
 		}
 	}
-	return false, nil
+	return found, nil
 }
 
 var errNativeProducerBusy = errors.New("native action already running")
@@ -230,7 +234,17 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 	if err = persistNativeActionIntent(cfg, x, in); err != nil {
 		return empty, err
 	}
-	a, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+	if kataJob(x.Job) && record.State == "prepared" && record.Step == "task-pr-linked" && in.Operation == "publish-pr" {
+		if err := confirmKataPRLink(ctx, cfg, m, reader, x, record); err != nil {
+			return empty, err
+		}
+		record.State, record.Result.Phase = "completed", "completed"
+		if err := saveNativeAction(cfg, record); err != nil {
+			return empty, err
+		}
+		return record.Result, nil
+	}
+	a, err := nativeCurrentExecutionAuthority(ctx, cfg, m, x)
 	if err != nil {
 		return empty, err
 	}
@@ -284,7 +298,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		if saved.Phase != "active" {
 			return c.ErrForbidden
 		}
-		a, e = nativeCurrentGoal(ctx, cfg, m, x.Goal)
+		a, e = nativeCurrentExecutionAuthority(ctx, cfg, m, x)
 		if e != nil {
 			return e
 		}
@@ -293,12 +307,24 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			if e != nil {
 				return e
 			}
-			if NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA || !postmerge && (task.Task.Closed || task.Task.Completed) {
+			acknowledgedMerge := in.Operation == "deliver" && (record.Step == "merge" || record.Step == "task-completed")
+			if kataExecution(task.Binding) && acknowledgedMerge {
+				// Moving on to the next linked PR can change its base. Retain
+				// this acknowledged merge's base, never its old owner/task scope.
+				task.Binding.BaseBranch = x.Binding.BaseBranch
+				task.Binding.PeerID = x.Binding.PeerID
+				if task.Task.Completed && task.ProviderRevision == x.Binding.TaskRevision+1 {
+					task.Binding.TaskRevision = x.Binding.TaskRevision
+				}
+			}
+			if NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA || !postmerge && !acknowledgedMerge && (task.Task.Closed || task.Task.Completed) {
 				return c.ErrForbidden
 			}
-			a, e = ValidateNativeAuthority(ctx, MasterGoalAuthority{Client: m}, task.Binding)
-			if e != nil {
-				return e
+			if !kataExecution(task.Binding) {
+				a, e = ValidateNativeAuthority(ctx, MasterGoalAuthority{Client: m}, task.Binding)
+				if e != nil {
+					return e
+				}
 			}
 			if x.Job.PRURL != "" {
 				if in.Operation == "publish-pr" && x.Job.Kind == "fix" && record.Step != "" {
@@ -327,14 +353,16 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 							}
 						}
 					}
-					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot" || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
+					if json.Unmarshal(raw, &current) != nil || current.URL != x.Job.PRURL || !kataExecution(task.Binding) && (current.User.ID != task.Binding.AuthorID || current.User.Kind != "Bot") || current.Head.Ref != x.Job.Branch || current.Base.Ref != task.Binding.BaseBranch || current.Head.Repo.FullName != task.Task.Repo || current.Base.Repo.FullName != task.Task.Repo {
 						return fmt.Errorf("post-push PR identity or branch changed: %w", c.ErrForbidden)
 					}
 					if err := validatePublishedHead(current.Head.SHA, x.Job.HeadSHA, record.PublishedHeadSHA); err != nil {
 						return err
 					}
-					if _, err = ParseNativePRMetadata(current.Body, task.Task.Repo, task.Task.URL, x.Goal, NativeAssignmentSHA(task.Binding)); err != nil {
-						return err
+					if !kataExecution(task.Binding) {
+						if _, err = ParseNativePRMetadata(current.Body, task.Task.Repo, task.Task.URL, x.Goal, NativeAssignmentSHA(task.Binding)); err != nil {
+							return err
+						}
 					}
 				} else {
 					if postmerge {
@@ -344,6 +372,12 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 					}
 					if e != nil {
 						return e
+					}
+					if in.Operation == "deliver" && kataExecution(task.Binding) && kataDeliveryHeld(task.Task.Body) && !pr.Merged {
+						return c.ErrForbidden
+					}
+					if in.Operation == "deliver" && kataExecution(task.Binding) && pr.Merged && !acknowledgedMerge {
+						return errors.New("merged PR lacks this execution's acknowledged review/QA/merge checkpoint")
 					}
 					if pr.HeadSHA != x.Job.HeadSHA || pr.ScopeRevision != x.Job.PRScopeRevision {
 						return errors.New("native exact head or PR scope changed")
@@ -442,7 +476,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				if pr.MergeState != "CLEAN" {
 					return c.ErrForbidden
 				}
-				if a.Revision.Proposal.QA.Required {
+				if nativeQARequired(task.Binding, a) {
 					handoffs, err := nativeQAHandoffs(ctx, m, a)
 					if err != nil {
 						return err
@@ -459,7 +493,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 		if step == "task-completed" && !pr.Merged {
 			return c.ErrForbidden
 		}
-		fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+		fresh, err := nativeCurrentExecutionAuthority(ctx, cfg, m, x)
 		if err != nil {
 			return err
 		}
@@ -717,7 +751,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			return empty, errors.New("plan has no registered tasks")
 		}
 	case "publish-pr":
-		if x.Binding == nil || (x.Job.Kind != "implement" && x.Job.Kind != "fix") || cfg.Self.ID != task.Binding.AuthorID || cfg.Master.AgentID != a.Actors.Author.PrincipalID || strings.TrimSpace(in.Title) == "" || len(in.Title) > 256 || strings.Contains(in.Body, "<!-- coop-") {
+		if x.Binding == nil || (x.Job.Kind != "implement" && x.Job.Kind != "fix") || !nativeStageActor(cfg, task.Binding, a, "implementer") || strings.TrimSpace(in.Title) == "" || len(in.Title) > 256 || strings.Contains(in.Body, "<!-- coop-") {
 			return empty, c.ErrForbidden
 		}
 		if err = reader.verifyOwner(ctx, strings.Split(task.Task.Repo, "/")[0]); err != nil {
@@ -768,7 +802,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			}
 		}
 		meta := NativePRMetadata{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), Artifact: in.Artifact}
-		if a.Revision.Proposal.QA.Required && meta.Artifact != nil && (meta.Artifact.HeadSHA != headSHA || !hexSHA.MatchString(meta.Artifact.SHA256)) {
+		if nativeQARequired(task.Binding, a) && meta.Artifact != nil && (meta.Artifact.HeadSHA != headSHA || !hexSHA.MatchString(meta.Artifact.SHA256)) {
 			return empty, errors.New("required immutable exact-head QA artifact missing")
 		}
 		if record.PublishedHeadSHA != "" && record.PublishedHeadSHA != headSHA {
@@ -783,7 +817,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				return empty, err
 			}
 		}
-		if a.Revision.Proposal.QA.Required {
+		if nativeQARequired(task.Binding, a) {
 			artifactTask := task.Task
 			artifactTask.QA.Required = true
 			artifactPR := PR{HeadSHA: headSHA}
@@ -793,6 +827,9 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			meta.Artifact = artifactPR.QAArtifact
 		}
 		body := in.Body + "\n\n" + NativePRBody(meta)
+		if kataExecution(task.Binding) {
+			body = in.Body + "\n\nKata task: " + task.Task.URL
+		}
 		if record.Result.URL == "" {
 			if err = effect("publish-pr", func() error {
 				endpoint := "repos/" + task.Task.Repo + "/pulls"
@@ -821,21 +858,43 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 				return empty, err
 			}
 		}
-		fresh, e := reader.ReadNativePR(ctx, cfg, task, a, record.Result.URL)
+		publicationTask := task
+		if kataExecution(task.Binding) && !containsExact(task.LinkedPRs, record.Result.URL) {
+			// Read back only the URL returned by this journaled creation. This
+			// does not admit it to review/delivery until the Kata link is saved.
+			publicationTask.LinkedPRs = append(append([]string(nil), task.LinkedPRs...), record.Result.URL)
+		}
+		fresh, e := reader.ReadNativePR(ctx, cfg, publicationTask, a, record.Result.URL)
 		if e != nil || fresh.HeadSHA != headSHA {
 			if e != nil {
 				return empty, e
 			}
 			return empty, c.ErrConflict
 		}
-		if _, err = nativeCurrentGoal(ctx, cfg, m, x.Goal); err != nil {
+		if _, err = nativeCurrentExecutionAuthority(ctx, cfg, m, x); err != nil {
 			return empty, err
 		}
-		if _, err = m.RegisterArtifact(ctx, c.ArtifactLink{Goal: x.Goal, Kind: "pull_request", URL: fresh.URL, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), RequestID: "native-pr-" + BodyHash(jobID+in.RequestID)}); err != nil {
-			return empty, err
+		if kataExecution(task.Binding) {
+			cl, e := TaskProviderClient(ctx, cfg)
+			if e != nil {
+				return empty, e
+			}
+			if !containsExact(task.LinkedPRs, fresh.URL) {
+				body := task.Task.Body + "\n\nPR: " + fresh.URL
+				if err = effect("task-pr-linked", func() error {
+					_, e := cl.TaskUpdate(ctx, c.TaskUpdateInput{Reference: task.Task.URL, Operation: "edit", Body: &body, ExpectedRevision: task.ProviderRevision, RequestID: "native-pr-link-" + BodyHash(jobID+in.RequestID)})
+					return e
+				}); err != nil {
+					return empty, err
+				}
+			}
+		} else {
+			if _, err = m.RegisterArtifact(ctx, c.ArtifactLink{Goal: x.Goal, Kind: "pull_request", URL: fresh.URL, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), RequestID: "native-pr-" + BodyHash(jobID+in.RequestID)}); err != nil {
+				return empty, err
+			}
 		}
 	case "review", "qa":
-		if x.Binding == nil || x.Job.PRURL == "" || !postmerge && (pr.Merged || pr.Closed) || !pr.ReviewsComplete || !pr.ContributorsComplete || nativeContributor(pr, cfg.Self.ID) || cfg.Self.ID == task.Binding.AuthorID || (in.Verdict != "approved" && in.Verdict != "changes-needed") {
+		if x.Binding == nil || x.Job.PRURL == "" || !postmerge && (pr.Merged || pr.Closed) || !pr.ReviewsComplete || !pr.ContributorsComplete || nativeContributor(pr, cfg.Self.ID) || !kataExecution(task.Binding) && cfg.Self.ID == task.Binding.AuthorID || (in.Verdict != "approved" && in.Verdict != "changes-needed") {
 			return empty, c.ErrForbidden
 		}
 		if in.Operation != x.Job.Kind {
@@ -850,7 +909,7 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			event = "REQUEST_CHANGES"
 		}
 		if in.Operation == "review" {
-			if cfg.Self.ID != task.Binding.PeerID || cfg.Master.AgentID != a.Actors.Peer.PrincipalID {
+			if !nativeStageActor(cfg, task.Binding, a, "engineering-review") {
 				return empty, c.ErrForbidden
 			}
 			if strings.Contains(in.Body, "<!-- coop-") {
@@ -859,13 +918,13 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			public = in.Body + "\n\n" + NativePeerMetadata(NativeReviewResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, Verdict: in.Verdict})
 		} else {
 			_, peer := nativePeerCleared(task.Binding, pr)
-			if cfg.Self.ID != task.Binding.QAID || cfg.Master.AgentID != a.Actors.QA.PrincipalID || !peer || !a.Revision.Proposal.QA.Required || pr.QAArtifact == nil || pr.ChecksState != "success" && pr.ChecksState != "none" || strings.TrimSpace(in.ReportBody) == "" {
+			if !nativeStageActor(cfg, task.Binding, a, "customer-qa") || !peer || !nativeQARequired(task.Binding, a) || pr.QAArtifact == nil || pr.ChecksState != "success" && pr.ChecksState != "none" || strings.TrimSpace(in.ReportBody) == "" {
 				return empty, c.ErrForbidden
 			}
 			// ReportBody is private and already durable in the original action
 			// intent. Publish clearance once, as the QA bot's actual PR review.
 			// Retain historical receipt fields without requiring or replaying them.
-			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: NativeAcceptanceSHA(a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: record.Result.EvidenceMessageID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
+			qa := NativeQAResult{Version: 3, Goal: x.Goal, TaskURL: task.Task.URL, AssignmentSHA: NativeAssignmentSHA(task.Binding), HeadSHA: pr.HeadSHA, PRScopeRevision: pr.ScopeRevision, ArtifactSHA: pr.QAArtifact.SHA256, AcceptanceSHA: nativeTaskAcceptanceSHA(task.Binding, a), Environment: qaEnvironment.Name, EnvironmentRevision: qaEnvironment.Revision, EvidenceMessageID: record.Result.EvidenceMessageID, EvidenceBodySHA: record.Result.EvidenceBodySHA, Verdict: in.Verdict}
 			if qaHandoff != nil {
 				qa.Assessment, qa.HandoffID = "reassessment", qaHandoff.ID
 			}
@@ -966,6 +1025,20 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 			}
 		}
 		if record.Step != "task-completed" {
+			if kataExecution(task.Binding) {
+				current, e := reader.ReadNativeTask(ctx, cfg, task.Task.URL)
+				if e != nil {
+					return empty, e
+				}
+				if !current.AllPRsMerged {
+					// This PR is delivered; leave the task open for its next PR.
+					record.Result.URL = pr.URL
+					break
+				}
+				if err := confirmKataStack(ctx, cfg, reader, x, current); err != nil {
+					return empty, err
+				}
+			}
 			completeTask := func() error {
 				_, n, _ := parseRef(task.Task.URL)
 				_, _, e := reader.api(ctx, strings.Split(task.Task.Repo, "/")[0], "PATCH", "repos/"+task.Task.Repo+"/issues/"+stringID(n), map[string]string{"state": "closed", "state_reason": "completed"})
@@ -978,6 +1051,10 @@ func runNativeActionLocked(ctx context.Context, cfg Config, m NativeEngineeringM
 					return empty, e
 				}
 				completeTask = func() error {
+					if kataExecution(task.Binding) {
+						_, e = cl.TaskUpdate(ctx, c.TaskUpdateInput{Reference: task.Task.URL, Operation: "close", ExpectedRevision: task.ProviderRevision, Reason: "done", Message: "Linked PRs merged after independent review and QA: " + strings.Join(task.LinkedPRs, ", "), Evidence: []c.TaskEvidence{{Type: "pr", URL: pr.URL, SHA: x.Job.HeadSHA}}, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)})
+						return e
+					}
 					_, e = cl.TaskComplete(ctx, c.TaskCompleteInput{Reference: task.Task.URL, Goal: x.Goal, AssignmentSHA: NativeAssignmentSHA(task.Binding), PullRequestURL: pr.URL, RequestID: "native-complete-" + BodyHash(jobID+in.RequestID)})
 					return e
 				}
@@ -1014,7 +1091,15 @@ func nativeConfirmDelivery(ctx context.Context, cfg Config, m NativeEngineeringM
 	if err != nil {
 		return err
 	}
-	if !task.Task.Completed || !task.Task.Closed || NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA {
+	ordinary := kataExecution(task.Binding)
+	if ordinary {
+		task.Binding.BaseBranch = x.Binding.BaseBranch
+		task.Binding.PeerID = x.Binding.PeerID
+		if task.Task.Completed && task.ProviderRevision == x.Binding.TaskRevision+1 {
+			task.Binding.TaskRevision = x.Binding.TaskRevision
+		}
+	}
+	if (!ordinary || task.AllPRsMerged) && (!task.Task.Completed || !task.Task.Closed) || NativeAssignmentSHA(task.Binding) != x.Job.Master.AssignmentSHA {
 		return c.ErrConflict
 	}
 	pr, err := g.ReadNativePR(ctx, cfg, task, a, x.Job.PRURL)
@@ -1027,7 +1112,7 @@ func nativeConfirmDelivery(ctx context.Context, cfg Config, m NativeEngineeringM
 	if nativeContributor(pr, cfg.Self.ID) {
 		return c.ErrForbidden
 	}
-	fresh, err := nativeCurrentGoal(ctx, cfg, m, x.Goal)
+	fresh, err := nativeCurrentExecutionAuthority(ctx, cfg, m, x)
 	if err != nil {
 		return err
 	}

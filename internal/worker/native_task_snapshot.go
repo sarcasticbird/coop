@@ -44,6 +44,9 @@ func (m *taskSnapshotMaster) Artifacts(ctx context.Context, in c.ArtifactQuery) 
 // dependency closure, never a complete discovery catalog. Extra dependencies
 // come from a saved runtime wait or the current wait action, not authority.
 func (g *GitHubClient) NativeTaskSnapshot(ctx context.Context, cfg Config, master NativeMaster, job Job, extra ...string) (NativeCatalog, error) {
+	if kataTaskSource(cfg) && isKataTask(job.TaskURL) {
+		return g.kataSnapshot(ctx, cfg, job.TaskURL)
+	}
 	var empty NativeCatalog
 	if cfg.Version != 3 || cfg.Master == nil || job.Master == nil || job.Master.Goal == nil || job.TaskURL == "" {
 		return empty, c.ErrInvalid

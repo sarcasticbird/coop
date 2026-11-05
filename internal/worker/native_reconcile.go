@@ -85,7 +85,7 @@ func nativePreparedAction(r nativeActionRecord) bool {
 	case "rebind-task":
 		return r.Step == "" || r.Step == "task-metadata" || r.Step == "project-add" || r.Step == "project-ready"
 	case "publish-pr":
-		return r.Step == "" || r.Step == "push" || r.Step == "publish-pr"
+		return r.Step == "" || r.Step == "push" || r.Step == "publish-pr" || r.Step == "task-pr-linked"
 	case "review", "qa":
 		return r.Step == "" || r.Step == "review-published"
 	case "deliver":
@@ -94,6 +94,27 @@ func nativePreparedAction(r nativeActionRecord) bool {
 		return r.Step == ""
 	}
 	return false
+}
+
+// A completed final publication can coexist with retained local refusals. Their
+// empty prepared step proves no effect started; keep them as audit, not actions
+// to replay before settling the final link. Any uncertainty/partial effect still
+// refuses this shortcut.
+func kataFinalPublication(records []nativeActionRecord) (int, bool) {
+	publication := -1
+	for i, r := range records {
+		if r.Operation == "publish-pr" && r.Step == "task-pr-linked" && (r.State == "prepared" || r.State == "completed" && r.Result.Phase == "completed") {
+			if publication >= 0 {
+				return 0, false
+			}
+			publication = i
+			continue
+		}
+		if r.State != "completed" && (r.State != "prepared" || r.Step != "") {
+			return 0, false
+		}
+	}
+	return publication, publication >= 0
 }
 
 func nativeTerminalCheckpoint(x NativeExecution) bool {
@@ -214,7 +235,25 @@ func (d *NativeDispatcher) reconcileNativeAction(ctx context.Context, x *NativeE
 	if e != nil || paused {
 		return false, e
 	}
-	if _, e = nativeCurrentGoal(ctx, d.config, d.master, x.Goal); e != nil {
+	records, e := loadNativeJobActions(d.config, *x)
+	if e != nil {
+		return false, e
+	}
+	publication, finalizingLink := kataFinalPublication(records)
+	finalizingLink = finalizingLink && kataJob(x.Job)
+	if finalizingLink {
+		if records[publication].State == "completed" {
+			// The final action receipt already settled before the crash. Only
+			// reconnect/retire its terminal execution; no task or code write follows.
+			if e = verifyNativePlacement(ctx, d.config, d.master); e != nil {
+				return false, e
+			}
+		} else {
+			if e = confirmKataPRLink(ctx, d.config, d.master, client, *x, records[publication]); e != nil {
+				return false, e
+			}
+		}
+	} else if _, e = nativeCurrentExecutionAuthority(ctx, d.config, d.master, *x); e != nil {
 		return false, e
 	}
 	observed, e := d.code.Observe(ctx, x.Job)
@@ -227,16 +266,15 @@ func (d *NativeDispatcher) reconcileNativeAction(ctx context.Context, x *NativeE
 	if e = d.code.CheckContinuation(ctx, x.Job); e != nil {
 		return false, e
 	}
-	records, e := loadNativeJobActions(d.config, *x)
-	if e != nil {
-		return false, e
-	}
 	if retired, e := d.reconcileDeliveryReadiness(ctx, x, records); e != nil {
 		return false, e
 	} else if retired {
 		return false, nil
 	}
 	for _, r := range records {
+		if finalizingLink && r.RequestID != records[publication].RequestID {
+			continue // Retain known-unstarted refusals; do not replay them.
+		}
 		if r.State == "completed" {
 			continue
 		}
@@ -259,6 +297,12 @@ func (d *NativeDispatcher) reconcileNativeAction(ctx context.Context, x *NativeE
 			return false, actionErr
 		}
 		x.Job.ReconcileFailures, x.Job.ReconcileError, x.Job.NextAttemptAt = 0, "", time.Time{}
+		if finalizingLink {
+			// The confirmed final edit intentionally changed the task body. Finish
+			// this execution now instead of revalidating its superseded old scope.
+			x.Phase, x.Reason = "completed", ""
+			return true, saveNativeExecution(d.config, *x)
+		}
 		return false, saveNativeExecution(d.config, *x)
 	}
 	if complete, e := nativeJobHasResult(d.config, *x); e != nil {

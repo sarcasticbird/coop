@@ -508,7 +508,7 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 			return NativeCandidate{}, err
 		}
 	}
-	authority, err := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
+	authority, err := nativeCurrentExecutionAuthority(ctx, d.config, d.master, x)
 	if err != nil {
 		// A resolved exact revision can conclusively lose approval. Placement,
 		// epoch, membership and transport failures do not prove supersession.
@@ -821,7 +821,10 @@ func (d *NativeDispatcher) advance(ctx context.Context, x *NativeExecution) (boo
 	}
 	// An unavailable or superseded master does not erase local work. Explicit
 	// owner pause alone uses the OpenCode client's exact-turn ownership check.
-	a, authorityErr := d.master.ResolveGoal(ctx, x.Goal)
+	a, authorityErr := c.GoalAuthority{}, c.ErrUnsupported
+	if !kataJob(x.Job) {
+		a, authorityErr = d.master.ResolveGoal(ctx, x.Goal)
+	}
 	if authorityErr == nil && a.State == "paused" {
 		if err := d.code.Abort(ctx, x.Job); err != nil {
 			return false, err
@@ -896,6 +899,12 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 		prompt = strings.Replace(prompt, "for all consequential writes.", "for consequential code-delivery writes. Use the tasks helper for ordinary Kata maintenance.", 1)
 		prompt = BirdSystemUsage + "\n" + prompt
 	}
+	if kataJob(x.Job) {
+		prompt = fmt.Sprintf("%s\nYou are %s, authenticated agent %s and GitHub bot %d. Execute only this Kata task's %s stage in this isolated workspace. Current task ownership and scope, not a private goal approval or message acknowledgement, admit this work. Follow every stop, acceptance criterion and release/destructive-action boundary in the task; report actual ambiguity on the task. Preserve source authorship and local work. Never self-review. Do not claim QA you could not run.\nUse /usr/local/libexec/coop-worker native action --config /var/lib/coop/worker/config.json --job %s --input /absolute/private/action.json for consequential code-delivery writes. Every action JSON requires operation and a stable request_id. Supported operations: publish-pr (title,body), review (verdict approved or changes-needed,body), qa (verdict,report_body), deliver. Use the ordinary tasks helper for task discussion, assignment and maintenance, not create-task/rebind-task or goal approvals. Checkpoint code before publish-pr. The helper links a newly created PR on this task and derives its exact source artifact. Review and QA must assess the actual current head; QA must satisfy the task's acceptance criteria in the isolated source workspace and state any environment limitations. Unavailable required environments are blockers, never implied passes. Rook merges only after independent review, Wren QA and checks. An uncertain helper outcome must be reconciled; retain its request_id and never bypass the journal. Do not release, install or deploy.\nTask: %s\nPR: %s\nExact head: %s", BirdSystemUsage, cfg.Name, cfg.Master.AgentID, cfg.Self.ID, x.Job.Kind, x.Job.ID, x.Job.TaskURL, x.Job.PRURL, x.Job.HeadSHA)
+		if v.PR != nil {
+			prompt += "\nActual PR author: " + v.PR.Author.Login + ". Task ownership is not PR authorship."
+		}
+	}
 	prompt += "\nCreate action JSON files with mode 0600. For both review and qa, verdict must be exactly approved or changes-needed, not passed or failed."
 	if v.Task != nil {
 		prompt += "\nTask title: " + v.Task.Task.Title + "\nTask body:\n" + v.Task.Task.Body
@@ -956,6 +965,15 @@ func (d *NativeDispatcher) resumableBlocked() *NativeExecution {
 		if x.Phase != "blocked" || x.unresolvedHistoricalRecovery() || !resumableNativeReason(x.Reason) || d.clock.Now().Before(x.Job.NextAttemptAt) {
 			continue
 		}
+		if kataJob(x.Job) && x.Reason == "native_turn_limit" {
+			for _, candidate := range NativeCandidates(d.config, d.catalog, nil, d.clock.Now()) {
+				if candidate.Job.ID == x.Job.ID {
+					copy := x
+					return &copy
+				}
+			}
+			continue
+		}
 		for _, a := range d.catalog.Goals {
 			if a.Valid && a.State == "approved" && a.Revision.Ref == x.Goal && (x.Reason == "native_turn_limit" || a.DecisionSequence > x.PausedDecisionSequence) {
 				copy := x
@@ -972,7 +990,7 @@ func (d *NativeDispatcher) resumeBlockedWithRequest(ctx context.Context, x *Nati
 	if x.unresolvedHistoricalRecovery() {
 		return false, c.ErrConflict
 	}
-	a, e := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
+	a, e := nativeCurrentExecutionAuthority(ctx, d.config, d.master, *x)
 	if e != nil {
 		return false, e
 	}

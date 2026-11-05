@@ -153,7 +153,7 @@ func nativeQAState(b NativeTaskBinding, a c.GoalAuthority, p PR, handoffs ...c.H
 	if nativeMetadata(r.Body, "qa", &qa) != nil {
 		return r, false
 	}
-	if qa.PRScopeRevision != p.ScopeRevision || qa.HeadSHA != p.HeadSHA || qa.ArtifactSHA != p.QAArtifact.SHA256 || qa.AcceptanceSHA != NativeAcceptanceSHA(a) || qa.Verdict != "approved" {
+	if qa.PRScopeRevision != p.ScopeRevision || qa.HeadSHA != p.HeadSHA || qa.ArtifactSHA != p.QAArtifact.SHA256 || qa.AcceptanceSHA != nativeTaskAcceptanceSHA(b, a) || qa.Verdict != "approved" {
 		return r, false
 	}
 	resolved, err := nativeQAResultAuthority(b, a, p, qa, handoffs)
@@ -246,6 +246,9 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		if p != nil {
 			j.PRScopeRevision = p.ScopeRevision
 			j.QAArtifact = p.QAArtifact
+			if kind == "fix" && t != nil && kataExecution(t.Binding) {
+				j.Branch = p.Branch
+			}
 		}
 		raw, _ := json.Marshal(struct {
 			Master                         *MasterJobBinding
@@ -284,13 +287,14 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			continue
 		}
 		a, ok := goals[t.Binding.Goal]
-		if !ok || t.Binding.ApprovalSequence < 1 || t.Binding.ApprovalSequence > a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA {
+		ordinary := kataExecution(t.Binding)
+		if !ordinary && (!ok || t.Binding.ApprovalSequence < 1 || t.Binding.ApprovalSequence > a.ApprovalSequence) || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA {
 			continue
 		}
 		// This is the sole follow-up lane allowed to retain a completed task.
 		// Never reopen it or let ordinary stages pass the closed-task guard.
 		for _, p := range t.PRs {
-			if p.TaskURL != t.Task.URL || p.AssignmentSHA != NativeAssignmentSHA(t.Binding) || p.MasterGoal == nil || *p.MasterGoal != t.Binding.Goal || p.Author.ID != t.Binding.AuthorID || p.BaseBranch != t.Binding.BaseBranch {
+			if ordinary || p.TaskURL != t.Task.URL || p.AssignmentSHA != NativeAssignmentSHA(t.Binding) || p.MasterGoal == nil || *p.MasterGoal != t.Binding.Goal || p.Author.ID != t.Binding.AuthorID || p.BaseBranch != t.Binding.BaseBranch {
 				continue
 			}
 			if handoff := nativePostMergeQAHandoff(cfg, catalog, t, a, p); handoff != nil {
@@ -327,21 +331,24 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			continue
 		}
 		if len(live) == 0 {
-			if cfg.Self.ID == t.Binding.AuthorID && cfg.Master.AgentID == a.Actors.Author.PrincipalID && memberCapability(self, "implement") && t.Task.Ready {
+			if ordinary && len(t.LinkedPRs) > 0 {
+				continue // A closed, unmerged PR is not a new implementation grant.
+			}
+			if nativeStageActor(cfg, t.Binding, a, "implementer") && memberCapability(self, "implement") && t.Task.Ready {
 				add("implement", a, &t, nil, "initial")
 			}
 			continue
 		}
 		p := live[0]
-		if p.AssignmentSHA != NativeAssignmentSHA(t.Binding) || p.MasterGoal == nil || *p.MasterGoal != t.Binding.Goal || p.Author.ID != t.Binding.AuthorID || p.BaseBranch != t.Binding.BaseBranch || !p.ReviewsComplete || !p.ContributorsComplete {
+		if p.AssignmentSHA != NativeAssignmentSHA(t.Binding) || p.MasterGoal == nil || *p.MasterGoal != t.Binding.Goal || !ordinary && p.Author.ID != t.Binding.AuthorID || p.BaseBranch != t.Binding.BaseBranch || !p.ReviewsComplete || !p.ContributorsComplete {
 			continue
 		}
 		peer, cleared := nativePeerCleared(t.Binding, p)
-		qa, qaCleared := Review{}, !a.Revision.Proposal.QA.Required
-		if a.Revision.Proposal.QA.Required {
+		qa, qaCleared := Review{}, !nativeQARequired(t.Binding, a)
+		if nativeQARequired(t.Binding, a) {
 			qa, qaCleared = nativeQAState(t.Binding, a, p, catalog.Handoffs...)
 		}
-		if cfg.Self.ID == t.Binding.PeerID && cfg.Master.AgentID == a.Actors.Peer.PrincipalID && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
+		if nativeStageActor(cfg, t.Binding, a, "engineering-review") && memberCapability(self, "engineering-review") && !nativeContributor(p, cfg.Self.ID) && !cleared && !p.Merged && !nativeNeedsBranchRefresh(p) && !nativeNeedsChecksRepair(p) {
 			if nativeChangesRequested("review", t.Binding, a, p, peer) {
 				continue
 			}
@@ -352,7 +359,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			add("review", a, &t, &p, revision)
 			continue
 		}
-		if cfg.Self.ID == t.Binding.AuthorID && cfg.Master.AgentID == a.Actors.Author.PrincipalID && memberCapability(self, "implement") {
+		if nativeStageActor(cfg, t.Binding, a, "implementer") && memberCapability(self, "implement") {
 			if p.Merged {
 				continue
 			}
@@ -375,8 +382,11 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				continue
 			}
 		}
-		if nativeDeliveryActor(cfg, t.Binding) && !nativeContributor(p, cfg.Self.ID) {
+		if nativeDeliveryActor(cfg, t.Binding) && !nativeContributor(p, cfg.Self.ID) && (!ordinary || !kataDeliveryHeld(t.Task.Body)) {
 			if p.Merged {
+				if ordinary {
+					continue // A merged link alone is not review/QA or completion.
+				}
 				add("deliver", a, &t, &p, "merged:"+p.HeadSHA)
 				continue
 			}
@@ -388,7 +398,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				}
 			}
 		}
-		if cfg.Self.ID == t.Binding.QAID && cfg.Master.AgentID == a.Actors.QA.PrincipalID && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
+		if nativeStageActor(cfg, t.Binding, a, "customer-qa") && memberCapability(self, "customer-qa") && cleared && !qaCleared && !p.Merged && !nativeNeedsBranchRefresh(p) && p.QAArtifact != nil && !nativeContributor(p, cfg.Self.ID) && (p.ChecksState == "success" || p.ChecksState == "none") {
 			handoff := qaReassessment(catalog, t, a, p, qa)
 			if nativeChangesRequested("qa", t.Binding, a, p, qa, catalog.Handoffs...) && handoff == nil {
 				continue
@@ -397,7 +407,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			if err != nil {
 				continue
 			}
-			revision := p.ScopeRevision + ":" + p.QAArtifact.SHA256 + ":" + NativeAcceptanceSHA(a)
+			revision := p.ScopeRevision + ":" + p.QAArtifact.SHA256 + ":" + nativeTaskAcceptanceSHA(t.Binding, a)
 			if handoff != nil {
 				revision += ":reassess:" + handoff.ID
 			}

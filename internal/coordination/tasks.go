@@ -55,6 +55,9 @@ type NativeTaskBinding struct {
 	PeerID           int64    `json:"peer_id"`
 	QAID             int64    `json:"qa_id,omitempty"`
 	DependsOn        []string `json:"depends_on,omitempty"`
+	// Current Kata issue revision in an execution snapshot, never an approval
+	// counter or stored task binding. Omitted on historical goal-bound records.
+	TaskRevision int64 `json:"task_revision,omitempty"`
 }
 type TaskCapabilities struct {
 	Provider     string              `json:"provider"`

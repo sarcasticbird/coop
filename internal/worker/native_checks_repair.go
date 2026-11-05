@@ -24,7 +24,7 @@ func (d *NativeDispatcher) retireRecoveredChecksRepair(ctx context.Context, x *N
 		return false, err
 	}
 	defer release()
-	if _, err := nativeCurrentGoal(ctx, d.config, d.master, x.Goal); err != nil {
+	if _, err := nativeCurrentExecutionAuthority(ctx, d.config, d.master, *x); err != nil {
 		return false, err
 	}
 	catalog, err := nativeValidationSnapshot(ctx, d.config, d.master, d.github, x.Job)

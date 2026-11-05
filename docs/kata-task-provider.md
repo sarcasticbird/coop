@@ -110,7 +110,27 @@ private (mode 0600). Typical input:
   risk another effect. Inspect Kata rather than changing the request or revision
   to bypass uncertainty.
 
-## Existing engineering registration
+## Task-native delivery (source; activation pending)
+
+For the configured Kata worker path, an open assigned task with a visible GitHub
+repository or PR link in its body is the engineering input. For example:
+
+```json
+{"title":"Fix the selected row","body":"Repository: https://github.com/example/project\nAcceptance: preserve selection after refresh.","owner":"robin","request_id":"selected-row-task"}
+```
+
+The existing dispatcher and action helper carry current task scope/assignment,
+Kata issue revision, actual PR authors/contributors, independent current-head
+review, mandatory Wren QA and Rook merge through to ordinary Kata completion.
+No hidden task binding, private goal approval or artifact registration is written
+to admit ordinary work. Human-authored PRs retain their authorship. Multiple linked
+PRs are delivered in listed order; a task is not done until all have merged.
+An already-merged link alone is not proof of review/QA and cannot manufacture a
+successful delivery result. See [worker admission](workers.md#kata-delivery-admission-source-fleet-activation-pending).
+
+This is source behavior, not a claim that the live fleet has been upgraded.
+
+## Historical engineering registration
 
 The normal CLI accepts the same master configuration as messages and goals:
 
@@ -146,7 +166,7 @@ structured JSON file with `--input`. This lets a chief of staff plan through the
 master without engineering or goal-approval privileges. Planning pins the provider
 and project. Engineering additionally requires an exact local team-policy match.
 
-## Completion, recovery and limits
+## Historical goal-bound completion and recovery
 
 Engineering task identities are canonical `kata://<project-uid>/<issue-uid>/<owner>/<repo>`
 references. Coop stores approved artifact links and mutation receipts, rather
@@ -166,7 +186,8 @@ QA report destination is not required to plan, approve or execute work; private
 report text remains in the saved action intent. An old destination ACL change
 does not require a new task, binding or permission handoff. Current goal/team
 scope, actor independence, exact-head review/QA and explicit handoff/release
-evidence checks are unchanged. This does not yet remove goal-bound admission.
+evidence checks remain applicable to those historical records. Normal Kata
+delivery uses task-native admission above, not this registration protocol.
 
 This version pins one project and engineering policy per master. Dependencies
 must be Kata tasks in the same exact goal revision; finish retained GitHub work

@@ -88,6 +88,13 @@ func ValidateNativeQA(b NativeTaskBinding, a c.GoalAuthority, review Review, exp
 	if expected.Assessment != "" || expected.HandoffID != "" {
 		return errors.New("post-merge assessment is not pre-merge QA clearance")
 	}
+	if kataExecution(b) {
+		var actual NativeQAResult
+		if expected.Version != 3 || expected.Goal != (c.GoalRef{}) || expected.TaskURL != b.TaskURL || expected.AssignmentSHA != NativeAssignmentSHA(b) || !qaHeadSHA.MatchString(expected.HeadSHA) || !hexSHA.MatchString(expected.PRScopeRevision) || !hexSHA.MatchString(expected.ArtifactSHA) || expected.AcceptanceSHA != b.TaskScopeSHA || expected.Environment != "isolated-workspace" || expected.EnvironmentRevision != b.TaskScopeSHA || expected.Verdict != "approved" || nativeMetadata(review.Body, "qa", &actual) != nil || actual != expected || review.ID == "" || review.HeadSHA != expected.HeadSHA || review.State != "APPROVED" || review.Author.Kind != "Bot" || review.Author.ID != b.QAID || b.QAID == b.AuthorID || b.QAID == b.PeerID {
+			return errors.New("independent current-task QA review required")
+		}
+		return nil
+	}
 	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || b.ApprovalSequence < 1 || b.ApprovalSequence > a.ApprovalSequence || !a.Revision.Proposal.QA.Required || expected.Version != 3 || expected.Goal != b.Goal || expected.AssignmentSHA != NativeAssignmentSHA(b) || expected.TaskURL != b.TaskURL || !qaHeadSHA.MatchString(expected.HeadSHA) || !hexSHA.MatchString(expected.PRScopeRevision) || !hexSHA.MatchString(expected.ArtifactSHA) || expected.AcceptanceSHA != NativeAcceptanceSHA(a) || expected.Environment != a.Revision.Proposal.QA.Environment || expected.EnvironmentRevision == "" || expected.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision || expected.Verdict != "approved" {
 		return errors.New("native QA scope mismatch")
 	}

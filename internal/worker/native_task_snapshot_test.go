@@ -84,6 +84,9 @@ func TestKataDiscoveryOmitsUnretainedGitHubTaskButSavedValidationReadsIt(t *test
 	cfg, master, runner, job, calls := taskSnapshotFixture(t)
 	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
 	installTaskProviderHTTP(t, &cfg, func(path string) any {
+		if path == "/api/v1/tasks/list" {
+			return c.ProviderTaskPage{Tasks: []c.ProviderTask{}}
+		}
 		if path != "/api/v1/tasks/capabilities" {
 			t.Fatalf("unexpected Kata request %s", path)
 		}
@@ -92,7 +95,7 @@ func TestKataDiscoveryOmitsUnretainedGitHubTaskButSavedValidationReadsIt(t *test
 	})
 	reader := NewGitHubClient(runner)
 	catalog, err := reader.NativeSnapshot(t.Context(), cfg, master)
-	if err != nil || !catalog.Complete || len(catalog.Tasks) != 0 || *calls != 1 {
+	if err != nil || !catalog.Complete || len(catalog.Tasks) != 0 || *calls != 0 {
 		t.Fatalf("unretained GitHub task reached discovery: tasks=%d calls=%d err=%v", len(catalog.Tasks), *calls, err)
 	}
 	*calls = 0

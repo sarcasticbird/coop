@@ -125,7 +125,7 @@ func (d *NativeDispatcher) retireStaleTerminalAttempt(ctx context.Context, x *Na
 	if paused || admissionPaused {
 		return false, c.ErrForbidden
 	}
-	if _, err = nativeCurrentGoal(ctx, d.config, d.master, x.Goal); err != nil {
+	if _, err = nativeCurrentExecutionAuthority(ctx, d.config, d.master, *x); err != nil {
 		return false, err
 	}
 	observed, err := d.code.Observe(ctx, x.Job)
@@ -151,7 +151,7 @@ func (d *NativeDispatcher) retireStaleTerminalAttempt(ctx context.Context, x *Na
 	}
 	// Authority and native idleness can change during remote reads. Recheck them
 	// before the local checkpoint; the producer stays exclusively held throughout.
-	authority, err := nativeCurrentGoal(ctx, d.config, d.master, x.Goal)
+	authority, err := nativeCurrentExecutionAuthority(ctx, d.config, d.master, *x)
 	if err != nil {
 		return false, err
 	}

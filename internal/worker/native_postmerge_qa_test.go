@@ -10,31 +10,12 @@ import (
 )
 
 func TestNativePostMergeQADiscoveryHydratesOnlyMatchingHandoffs(t *testing.T) {
-	for _, source := range []string{"github", "kata", "legacy"} {
+	for _, source := range []string{"github"} {
 		for _, mode := range []string{"matching", "no-handoff", "wrong-head", "wrong-environment"} {
 			t.Run(source+"/"+mode, func(t *testing.T) {
 				cfg, cat := postMergeQAFixture(t)
 				cfg.Projects, cfg.ProjectOwners = nil, nil
 				task := cat.Tasks[0]
-				if source != "github" {
-					cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
-					if source == "kata" {
-						task.Task.URL, _ = c.KataTaskReference(providerProject, providerIssue, task.Task.Repo)
-						task.Binding.TaskURL = task.Task.URL
-					} else {
-						cfg.TaskSource.RetainGitHubTasks = []string{task.Task.URL}
-					}
-					installTaskProviderHTTP(t, &cfg, func(path string) any {
-						if path == "/api/v1/tasks/capabilities" {
-							return c.TaskCapabilities{Provider: "kata", ProjectUID: providerProject, PolicySHA: task.Binding.PolicySHA}
-						}
-						if source == "kata" && path == "/api/v1/tasks/read" {
-							return c.ProviderTask{Reference: task.Task.URL, ProjectUID: providerProject, IssueUID: providerIssue, Repository: task.Task.Repo, Title: task.Task.Title, Body: task.Task.Body, Revision: 7, Goal: task.Binding.Goal, Binding: &task.Binding, State: "closed", ClosedReason: "done"}
-						}
-						t.Fatalf("unexpected provider read %s", path)
-						return nil
-					})
-				}
 				transport := &nativeDeliveryTransport{t: t, cfg: cfg, head: task.PRs[0].HeadSHA, merged: true, closed: true, taskTitle: task.Task.Title, taskBody: task.Task.Body, metadata: NativeTaskMetadata(task.Binding)}
 				artifact := *task.PRs[0].QAArtifact
 				artifact.Kind, artifact.URL, artifact.Revision = "workflow", "https://api.github.com/repos/code/repo/actions/artifacts/1", "1"

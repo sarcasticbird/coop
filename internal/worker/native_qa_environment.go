@@ -9,6 +9,9 @@ import (
 )
 
 func nativeQAHandoffs(ctx context.Context, m NativeMaster, a c.GoalAuthority) ([]c.Handoff, error) {
+	if a.Revision.Ref == (c.GoalRef{}) {
+		return nil, nil
+	}
 	cat := NativeCatalog{Goals: []c.GoalAuthority{a}}
 	err := loadCatalogHandoffs(ctx, m, &cat)
 	return cat.Handoffs, err
@@ -41,11 +44,17 @@ type nativeQAEnvironment struct {
 }
 
 func nativeQAScope(b NativeTaskBinding, a c.GoalAuthority, p PR, q NativeQAResult) bool {
-	return p.QAArtifact != nil && q.Version == 3 && q.Goal == b.Goal && q.TaskURL == b.TaskURL && q.AssignmentSHA == NativeAssignmentSHA(b) && q.HeadSHA == p.HeadSHA && q.PRScopeRevision == p.ScopeRevision && q.ArtifactSHA == p.QAArtifact.SHA256 && q.AcceptanceSHA == NativeAcceptanceSHA(a)
+	return p.QAArtifact != nil && q.Version == 3 && q.Goal == b.Goal && q.TaskURL == b.TaskURL && q.AssignmentSHA == NativeAssignmentSHA(b) && q.HeadSHA == p.HeadSHA && q.PRScopeRevision == p.ScopeRevision && q.ArtifactSHA == p.QAArtifact.SHA256 && q.AcceptanceSHA == nativeTaskAcceptanceSHA(b, a)
 }
 
 func resolveNativeQAEnvironment(b NativeTaskBinding, a c.GoalAuthority, p PR, h *c.Handoff, handoffs []c.Handoff) (nativeQAEnvironment, error) {
 	base := nativeQAEnvironment{a.Revision.Proposal.QA.Environment, a.Revision.Proposal.QA.EnvironmentRevision}
+	if kataExecution(b) {
+		if h != nil {
+			return base, c.ErrForbidden
+		}
+		return nativeQAEnvironment{"isolated-workspace", b.TaskScopeSHA}, nil
+	}
 	seen := map[string]bool{}
 	var resolve func(*c.Handoff) (nativeQAEnvironment, error)
 	resolve = func(h *c.Handoff) (nativeQAEnvironment, error) {

@@ -13,7 +13,7 @@ func nativeDeliveryActor(cfg Config, b NativeTaskBinding) bool {
 	member, ok := TeamMemberForActor(*cfg.Team, cfg.Self)
 	return ok && member.Name == "rook" && memberCapability(member, "deliver") &&
 		!memberCapability(member, "implement") && !memberCapability(member, "engineering-review") && !memberCapability(member, "customer-qa") &&
-		cfg.Self.ID != b.AuthorID && cfg.Self.ID != b.PeerID && cfg.Self.ID != b.QAID
+		(kataExecution(b) || cfg.Self.ID != b.AuthorID) && cfg.Self.ID != b.PeerID && cfg.Self.ID != b.QAID
 }
 
 // Check live principal capabilities as well as local configuration. The same
@@ -26,7 +26,11 @@ func verifyNativeDelivery(ctx context.Context, cfg Config, master NativeEngineer
 	if err != nil {
 		return err
 	}
-	if !c.CanDeliver(self.Principal, authority.Actors) {
+	if kataExecution(binding) {
+		if !containsExact(self.Principal.Capabilities, "deliver") || containsExact(self.Principal.Capabilities, "implement") || containsExact(self.Principal.Capabilities, "engineering-review") || containsExact(self.Principal.Capabilities, "customer-qa") {
+			return c.ErrForbidden
+		}
+	} else if !c.CanDeliver(self.Principal, authority.Actors) {
 		return c.ErrForbidden
 	}
 	return nil

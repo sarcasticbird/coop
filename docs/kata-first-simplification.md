@@ -267,6 +267,15 @@ It is separate future work, not a prerequisite for the implementation plan above
 
 ## Current implementation boundary
 
+Task-native admission is implemented in source for the configured Kata path:
+ordinary assigned tasks and their visible repository/PR links feed the existing
+dispatcher without goal approvals, task-binding writes or artifact registration.
+Task ownership is separate from actual PR authorship. Current-head independent
+review, mandatory QA and Rook-only merge retain the existing action journal and
+unknown-write safeguards. See [worker admission](workers.md#kata-delivery-admission-source-fleet-activation-pending).
+Fleet activation and the live ordinary-delivery milestone are still pending;
+source tests are not evidence of an installed or merged fleet outcome.
+
 The messaging changes make agent replies quiet and remove hop suppression
 from explicit handoffs. Blocker notices can address another agent. Recovery
 views are reused within an operation to avoid repeated manifest decoding.

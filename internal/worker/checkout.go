@@ -42,6 +42,9 @@ type checkoutOwner struct {
 func BindingKey(c Config, j Job) string {
 	if j.Master != nil {
 		raw, _ := json.Marshal(j.Master)
+		if kataJob(j) && j.Kind == "fix" {
+			return BodyHash("master-v3\x00" + string(raw) + "\x00" + j.PRURL)
+		}
 		return BodyHash("master-v3\x00" + string(raw))
 	}
 	if j.Binding != nil {
@@ -106,7 +109,7 @@ func (c *TaskCheckouts) nativeFixHead(ctx context.Context, dir string, j Job, re
 func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 	if c.config.Version == 3 {
 		m := j.Master
-		if c.config.Master == nil || m == nil || m.Goal == nil || m.MasterID != c.config.Master.MasterID || m.AgentID != c.config.Master.AgentID || m.ExecutorID != c.config.Self.ID || m.Goal.Source != "master" || m.Goal.MasterID != m.MasterID || !hexSHA.MatchString(m.Goal.RevisionSHA256) || !hexSHA.MatchString(m.AssignmentSHA) || j.Kind != "plan" && !validBaseBranch(m.BaseBranch) {
+		if c.config.Master == nil || m == nil || m.Goal == nil || m.MasterID != c.config.Master.MasterID || m.AgentID != c.config.Master.AgentID || m.ExecutorID != c.config.Self.ID || !kataJob(j) && (m.Goal.Source != "master" || m.Goal.MasterID != m.MasterID || !hexSHA.MatchString(m.Goal.RevisionSHA256)) || !hexSHA.MatchString(m.AssignmentSHA) || j.Kind != "plan" && !validBaseBranch(m.BaseBranch) {
 			return j, errors.New("invalid native checkout ownership binding")
 		}
 		if j.Kind == "deliver" && (!nativeDeliveryActor(c.config, NativeTaskBinding{}) || m.Role != "delivery") {
@@ -161,6 +164,12 @@ func (c *TaskCheckouts) Prepare(ctx context.Context, j Job) (Job, error) {
 		owner.Repo = repo
 		owner.Origin = c.origin(repo)
 		owner.Branch = "agent/" + c.config.Name + "/" + key[:16]
+		if kataJob(j) && j.Kind == "fix" {
+			if !validBaseBranch(j.Branch) {
+				return j, errors.New("task fix requires the current PR branch")
+			}
+			owner.Branch = j.Branch
+		}
 		if c.config.CheckoutModes[repo] == "wt" {
 			owner.Mode = "wt"
 			checkout = filepath.Join(root, "repo", "agent-"+key[:16])
