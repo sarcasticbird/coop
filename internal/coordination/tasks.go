@@ -80,21 +80,94 @@ type TaskReadInput struct {
 	Reference string `json:"reference"`
 }
 type TaskListInput struct {
-	Goal GoalRef `json:"goal"`
+	Goal   GoalRef `json:"goal,omitempty"`
+	Status string  `json:"status,omitempty"`
+	After  string  `json:"after,omitempty"`
 }
 type ProviderTaskPage struct {
 	Tasks []ProviderTask `json:"tasks"`
+	Next  string         `json:"next,omitempty"`
 }
 type TaskCreateInput struct {
-	ExpectedApprovalSequence int64    `json:"expected_approval_sequence"`
-	Goal                     GoalRef  `json:"goal"`
-	Repository               string   `json:"repository"`
-	BaseBranch               string   `json:"base_branch"`
+	ExpectedApprovalSequence int64    `json:"expected_approval_sequence,omitempty"`
+	Goal                     GoalRef  `json:"goal,omitempty"`
+	Repository               string   `json:"repository,omitempty"`
+	BaseBranch               string   `json:"base_branch,omitempty"`
 	Title                    string   `json:"title"`
 	Body                     string   `json:"body"`
 	DependsOn                []string `json:"depends_on,omitempty"`
 	RequestID                string   `json:"request_id"`
+	Owner                    string   `json:"owner,omitempty"`
 }
+
+// TaskUpdateInput edits Kata work, not execution grants or GitHub clearance.
+// ExpectedRevision prevents overwriting work changed since the bird read it.
+type TaskUpdateInput struct {
+	Reference        string         `json:"reference"`
+	Operation        string         `json:"operation"`
+	RequestID        string         `json:"request_id"`
+	ExpectedRevision int64          `json:"expected_revision,omitempty"`
+	Title            *string        `json:"title,omitempty"`
+	Body             *string        `json:"body,omitempty"`
+	Owner            *string        `json:"owner,omitempty"`
+	Message          string         `json:"message,omitempty"`
+	Reason           string         `json:"reason,omitempty"`
+	ReplyToUID       string         `json:"reply_to_uid,omitempty"`
+	Evidence         []TaskEvidence `json:"evidence,omitempty"`
+}
+type TaskEvidence struct {
+	Type      string `json:"type"`
+	URL       string `json:"url,omitempty"`
+	SHA       string `json:"sha,omitempty"`
+	Rationale string `json:"rationale,omitempty"`
+}
+
+func (in TaskUpdateInput) Validate() error {
+	if strings.TrimSpace(in.RequestID) == "" || len(in.RequestID) > 256 || strings.ContainsAny(in.RequestID, "\x00\r\n") || len(in.Message) > MaxText || len(in.Evidence) > 20 {
+		return ErrInvalid
+	}
+	if in.Title != nil && (strings.TrimSpace(*in.Title) == "" || len(*in.Title) > 1024) || in.Body != nil && len(*in.Body) > MaxText || in.Owner != nil && (len(*in.Owner) > 128 || strings.ContainsAny(*in.Owner, "\x00\r\n")) {
+		return ErrInvalid
+	}
+	if in.Operation != "comment" && in.ExpectedRevision < 1 {
+		return ErrInvalid
+	}
+	switch in.Operation {
+	case "edit":
+		if in.Title == nil && in.Body == nil && in.Owner == nil || in.Message != "" || in.Reason != "" || in.ReplyToUID != "" || len(in.Evidence) != 0 {
+			return ErrInvalid
+		}
+	case "assign":
+		if in.Owner == nil || in.Title != nil || in.Body != nil || in.Message != "" || in.Reason != "" || in.ReplyToUID != "" || len(in.Evidence) != 0 {
+			return ErrInvalid
+		}
+	case "claim", "close", "reopen":
+		if in.Title != nil || in.Body != nil || in.Owner != nil || in.ReplyToUID != "" {
+			return ErrInvalid
+		}
+		if in.Operation != "close" && (in.Reason != "" || len(in.Evidence) != 0) || in.Operation == "claim" && in.Message != "" {
+			return ErrInvalid
+		}
+		if in.Operation == "close" {
+			switch in.Reason {
+			case "done", "wontfix", "duplicate", "superseded", "audit-no-change":
+			default:
+				return ErrInvalid
+			}
+			if strings.TrimSpace(in.Message) == "" {
+				return ErrInvalid
+			}
+		}
+	case "comment":
+		if strings.TrimSpace(in.Message) == "" || in.Title != nil || in.Body != nil || in.Owner != nil || in.Reason != "" || len(in.Evidence) != 0 || in.ExpectedRevision != 0 {
+			return ErrInvalid
+		}
+	default:
+		return ErrInvalid
+	}
+	return nil
+}
+
 type TaskBindInput struct {
 	Binding               NativeTaskBinding `json:"binding"`
 	ExpectedRevision      int64             `json:"expected_revision"`

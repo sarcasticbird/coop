@@ -26,6 +26,12 @@ var customerQAPrompt string
 //go:embed prompts/task-administration.txt
 var taskAdministrationPrompt string
 
+// BirdSystemUsage is shared by native conversation/engineering turns and the
+// installed bird instruction files. Do not maintain a role-specific policy copy.
+//
+//go:embed prompts/system-usage.txt
+var BirdSystemUsage string
+
 func plannerProjectContext(c Config) ([]ProjectRef, *ProjectRef) {
 	// Defaults must not mutate the caller's configuration slice.
 	c.Projects = append([]ProjectRef(nil), c.Projects...)

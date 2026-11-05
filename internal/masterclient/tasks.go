@@ -21,6 +21,10 @@ func (cl *Client) TaskCreate(ctx context.Context, in c.TaskCreateInput) (out c.P
 	err = cl.call(ctx, "POST", "/api/v1/tasks/create", in, &out)
 	return
 }
+func (cl *Client) TaskUpdate(ctx context.Context, in c.TaskUpdateInput) (out c.ProviderTask, err error) {
+	err = cl.call(ctx, "POST", "/api/v1/tasks/update", in, &out)
+	return
+}
 func (cl *Client) TaskBind(ctx context.Context, in c.TaskBindInput) (out c.ProviderTask, err error) {
 	err = cl.call(ctx, "POST", "/api/v1/tasks/bind", in, &out)
 	return

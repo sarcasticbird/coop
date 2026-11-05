@@ -13,14 +13,14 @@ import (
 	"github.com/sarcasticbird/coop/internal/worker"
 )
 
-// tasksCommand exposes the master's planning API with the worker's existing
-// credentials. The server remains responsible for current goal and role grants.
+// tasksCommand uses the existing worker identity and pinned task provider.
+// Routine Kata maintenance does not require an engineering job or planner grant.
 func tasksCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return c.ErrInvalid
 	}
 	switch args[0] {
-	case "capabilities", "read", "list", "create", "adopt":
+	case "capabilities", "read", "list", "create", "adopt", "edit", "assign", "claim", "close", "reopen", "comment":
 	default:
 		return c.ErrInvalid
 	}
@@ -84,10 +84,21 @@ func tasksCommand(args []string, out io.Writer) error {
 	case "create":
 		var in c.TaskCreateInput
 		if err = decode(&in); err == nil {
-			if in.RequestID == "" || in.ExpectedApprovalSequence < 1 {
+			if in.RequestID == "" || in.Goal != (c.GoalRef{}) && in.ExpectedApprovalSequence < 1 {
 				return c.ErrInvalid
 			}
 			result, err = cl.TaskCreate(ctx, in)
+		}
+	default:
+		var in c.TaskUpdateInput
+		if err = decode(&in); err == nil {
+			if in.Operation != "" && in.Operation != args[0] {
+				return c.ErrInvalid
+			}
+			in.Operation = args[0]
+			if err = in.Validate(); err == nil {
+				result, err = cl.TaskUpdate(ctx, in)
+			}
 		}
 	}
 	if err != nil {

@@ -10,16 +10,19 @@ import (
 	"github.com/sarcasticbird/coop/internal/master"
 )
 
-func TestTaskToolsRespectPlanningGrant(t *testing.T) {
+func TestTaskToolsSeparateRoutineMaintenanceFromPlanningGrant(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		kind   string
 		caps   []string
 		create bool
+		adopt  bool
 	}{
-		{"reader", "agent", []string{"read"}, false},
-		{"planner", "agent", []string{"read", "plan"}, true},
-		{"owner", "owner", []string{"read", "manage", "decide"}, true},
+		{"reader", "agent", []string{"read"}, false, false},
+		{"bird", "agent", []string{"read", "send"}, true, false},
+		{"planner", "agent", []string{"read", "send", "plan"}, true, true},
+		{"owner", "owner", []string{"read", "send", "manage", "decide"}, true, true},
+		{"service", "service", []string{"read", "send"}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -58,7 +61,7 @@ func TestTaskToolsRespectPlanningGrant(t *testing.T) {
 					t.Fatalf("missing %s", name)
 				}
 			}
-			if tools["coop_master_create_task"] != tc.create || tools["coop_master_adopt_task"] != tc.create {
+			if tools["coop_master_create_task"] != tc.create || tools["coop_master_update_task"] != tc.create || tools["coop_master_adopt_task"] != tc.adopt {
 				t.Fatal("planning grant mismatch")
 			}
 			if tc.kind != "owner" && tools["coop_master_decide_goal"] {

@@ -55,6 +55,9 @@ func (svc *Service) taskAuthority(ctx context.Context, actor c.Principal, goal c
 	return p, a, nil
 }
 func (svc *Service) TaskRead(ctx context.Context, actor c.Principal, in c.TaskReadInput) (c.ProviderTask, error) {
+	if !strings.HasPrefix(in.Reference, "kata:") {
+		return svc.taskIssueRead(ctx, actor, in.Reference)
+	}
 	if _, err := svc.TaskCapabilities(ctx, actor); err != nil {
 		return c.ProviderTask{}, err
 	}
@@ -71,6 +74,12 @@ func (svc *Service) TaskRead(ctx context.Context, actor c.Principal, in c.TaskRe
 	return task, nil
 }
 func (svc *Service) TaskList(ctx context.Context, actor c.Principal, in c.TaskListInput) (c.ProviderTaskPage, error) {
+	if in.Goal == (c.GoalRef{}) {
+		return svc.taskIssueList(ctx, actor, in)
+	}
+	if in.After != "" || in.Status != "" {
+		return c.ProviderTaskPage{}, c.ErrInvalid
+	}
 	out := c.ProviderTaskPage{Tasks: []c.ProviderTask{}}
 	if _, _, err := svc.taskAuthority(ctx, actor, in.Goal, false); err != nil {
 		return out, err
@@ -156,6 +165,14 @@ type taskCreateIntent struct {
 }
 
 func (svc *Service) TaskCreate(ctx context.Context, actor c.Principal, in c.TaskCreateInput) (c.ProviderTask, error) {
+	if in.Goal == (c.GoalRef{}) {
+		return svc.editTask(ctx, actor, in.RequestID, "task-create-issue", in, func(p c.Principal, backend taskstore.TaskEditor) (c.ProviderTask, error) {
+			return backend.CreateIssue(ctx, p, in)
+		})
+	}
+	if in.Owner != "" {
+		return c.ProviderTask{}, c.ErrInvalid
+	}
 	if len(in.DependsOn) == 0 {
 		in.DependsOn = nil
 	}
@@ -412,6 +429,13 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	return svc.Tasks.Complete(ctx, in, p)
 }
 func registerTasks(mux *http.ServeMux, svc *Service, wrap func(func(http.ResponseWriter, *http.Request, c.Principal) (any, error)) http.HandlerFunc) {
+	mux.HandleFunc("POST /api/v1/tasks/update", wrap(func(w http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
+		var in c.TaskUpdateInput
+		if err := decode(w, r, &in); err != nil {
+			return nil, err
+		}
+		return svc.TaskUpdate(r.Context(), p, in)
+	}))
 	mux.HandleFunc("GET /api/v1/tasks/capabilities", wrap(func(_ http.ResponseWriter, r *http.Request, p c.Principal) (any, error) {
 		return svc.TaskCapabilities(r.Context(), p)
 	}))
