@@ -105,8 +105,7 @@ func TestNativeCatalogPreservesProjectStatus(t *testing.T) {
 	if !result.Complete || len(result.Tasks) != 1 || result.Tasks[0].Task.Ready || result.Tasks[0].Task.ProjectID != "project" {
 		t.Fatalf("Project tracking was dropped: %+v", result.Tasks)
 	}
-	// Same revision reapproval preserves linked tasks for explicit planner rebind,
-	// without making the whole catalog unavailable or admitting the old binding.
+	// Renewing the same scope keeps the existing task, without a planner rebind.
 	m.authority.ApprovalSequence++
 	renewed, err := NewGitHubClient(commands).NativeSnapshot(context.Background(), cfg, m)
 	if err != nil || !renewed.Complete || len(renewed.Tasks) != 1 {
@@ -116,8 +115,8 @@ func TestNativeCatalogPreservesProjectStatus(t *testing.T) {
 	cfg.Self = teamPlanner(cfg)
 	cfg.Master.AgentID = "peer"
 	jobs := NativeCandidates(cfg, renewed, nil, time.Now())
-	if len(jobs) != 1 || jobs[0].Job.Kind != "plan" || len(jobs[0].RebindTasks) != 1 || jobs[0].RebindTasks[0] != b.TaskURL {
-		t.Fatalf("missing explicit rebind: %+v", jobs)
+	if len(jobs) != 0 {
+		t.Fatalf("unchanged registered work created another planner handoff: %+v", jobs)
 	}
 
 }

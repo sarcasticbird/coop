@@ -118,10 +118,6 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 		if t.Binding.Goal != link.Goal || NativeAssignmentSHA(t.Binding) != link.AssignmentSHA {
 			return out, ghError("native_task_link_changed")
 		}
-		if a := byGoal[link.Goal]; t.Binding.ApprovalSequence < a.ApprovalSequence {
-			tasks[link.URL] = t
-			continue
-		}
 		if _, err = ValidateNativeAuthority(ctx, MasterGoalAuthority{Client: master}, t.Binding); err != nil {
 			return out, err
 		}
@@ -132,7 +128,7 @@ func (g *GitHubClient) NativeSnapshot(ctx context.Context, cfg Config, master Na
 			continue
 		}
 		task, ok := tasks[link.TaskURL]
-		if ok && task.Binding.Goal == link.Goal && (task.Binding.ApprovalSequence < byGoal[link.Goal].ApprovalSequence || NativeAssignmentSHA(task.Binding) != link.AssignmentSHA) {
+		if ok && task.Binding.Goal == link.Goal && NativeAssignmentSHA(task.Binding) != link.AssignmentSHA {
 			continue
 		}
 		if !ok || task.Binding.Goal != link.Goal || NativeAssignmentSHA(task.Binding) != link.AssignmentSHA {

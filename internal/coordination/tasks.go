@@ -42,11 +42,13 @@ func ParseKataTaskReference(ref string) (project, issue, repository string, err 
 // NativeTaskBinding is shared with the engineering engine. Keep its field order
 // and JSON tags stable: existing v3 assignment hashes must remain unchanged.
 type NativeTaskBinding struct {
-	Version          int      `json:"version"`
-	Goal             GoalRef  `json:"goal"`
-	TaskURL          string   `json:"task_url"`
-	TaskScopeSHA     string   `json:"task_scope_sha256"`
-	PolicySHA        string   `json:"policy_sha256"`
+	Version      int     `json:"version"`
+	Goal         GoalRef `json:"goal"`
+	TaskURL      string  `json:"task_url"`
+	TaskScopeSHA string  `json:"task_scope_sha256"`
+	PolicySHA    string  `json:"policy_sha256"`
+	// Historical creation/bind provenance; same-scope approval renewal does not
+	// rewrite this value or the assignment digest.
 	ApprovalSequence int64    `json:"approval_sequence"`
 	BaseBranch       string   `json:"base_branch"`
 	AuthorID         int64    `json:"author_id"`

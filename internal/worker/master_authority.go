@@ -47,7 +47,10 @@ func ValidateNativeAuthority(ctx context.Context, source GoalAuthoritySource, b 
 	if err != nil {
 		return empty, err
 	}
-	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || a.ApprovalSequence != b.ApprovalSequence {
+	// The task's counter records when its immutable binding was made. A later
+	// approval of the same scope does not require another planner/binding write.
+	// Current permission still comes from the freshly resolved state and actors.
+	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || b.ApprovalSequence > a.ApprovalSequence {
 		return a, errors.New("native approval no longer current")
 	}
 	if a.Actors.Author.GitHubBotID != b.AuthorID || a.Actors.Author.PrincipalID != a.Revision.Proposal.AuthorID || a.Actors.Peer.GitHubBotID != b.PeerID || a.Actors.Peer.PrincipalID != a.Revision.Proposal.PeerID {
@@ -83,7 +86,7 @@ func ValidateNativeQA(b NativeTaskBinding, a c.GoalAuthority, review Review, exp
 	if expected.Assessment != "" || expected.HandoffID != "" {
 		return errors.New("post-merge assessment is not pre-merge QA clearance")
 	}
-	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || a.ApprovalSequence != b.ApprovalSequence || !a.Revision.Proposal.QA.Required || expected.Version != 3 || expected.Goal != b.Goal || expected.AssignmentSHA != NativeAssignmentSHA(b) || expected.TaskURL != b.TaskURL || !qaHeadSHA.MatchString(expected.HeadSHA) || !hexSHA.MatchString(expected.PRScopeRevision) || !hexSHA.MatchString(expected.ArtifactSHA) || expected.AcceptanceSHA != NativeAcceptanceSHA(a) || expected.Environment != a.Revision.Proposal.QA.Environment || expected.EnvironmentRevision == "" || expected.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision || expected.Verdict != "approved" {
+	if !a.Valid || a.State != "approved" || a.Revision.Ref != b.Goal || a.ActiveRevisionSHA256 != b.Goal.RevisionSHA256 || b.ApprovalSequence < 1 || b.ApprovalSequence > a.ApprovalSequence || !a.Revision.Proposal.QA.Required || expected.Version != 3 || expected.Goal != b.Goal || expected.AssignmentSHA != NativeAssignmentSHA(b) || expected.TaskURL != b.TaskURL || !qaHeadSHA.MatchString(expected.HeadSHA) || !hexSHA.MatchString(expected.PRScopeRevision) || !hexSHA.MatchString(expected.ArtifactSHA) || expected.AcceptanceSHA != NativeAcceptanceSHA(a) || expected.Environment != a.Revision.Proposal.QA.Environment || expected.EnvironmentRevision == "" || expected.EnvironmentRevision != a.Revision.Proposal.QA.EnvironmentRevision || expected.Verdict != "approved" {
 		return errors.New("native QA scope mismatch")
 	}
 	var actual NativeQAResult

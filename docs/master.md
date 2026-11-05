@@ -165,6 +165,19 @@ approval intact. Approving its replacement supersedes the previous assignment;
 the planner must explicitly rebind unfinished work and obtain fresh review/QA.
 Completed deliveries do not reopen automatically.
 
+Renewing approval of the **same immutable revision** does not supersede its task
+bindings. The stored binding counter is historical provenance, not a second
+current-permission copy. Discovery keeps the registered PR; implementation,
+review, QA, dependency waits and completion reuse the original task/job identity
+without another planner turn, rebind or metadata rewrite. Existing current-head
+review/QA evidence stays valid only while its exact scope and artifact match.
+Paused, rejected or replaced authority still refuses, as do changed actors,
+repository/base, task scope, roster policy or impossible future counters. New-task
+creation and explicit scope changes retain their current-admission checks.
+Unknown action outcomes keep their original receipts; renewal never authorizes
+replay or changes a saved request. This removes one duplicate gate, not the
+remaining private goal/assignment machinery.
+
 The scheduler shares one native slot between conversations and engineering.
 When engineering is ready, at most two completed conversation turns precede one
 engineering turn. Existing engineering handoff fairness remains. Before

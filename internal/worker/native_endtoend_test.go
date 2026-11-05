@@ -387,25 +387,21 @@ func TestNativeProductionDeliveryEndToEnd(t *testing.T) {
 		}
 	}
 	finish(plan)
-	// Renewing approval of the same revision needs its own planner job and an
-	// explicit helper rebind; the retained task must not poison discovery.
+	// Same-scope renewal preserves the exact existing task and does not need a
+	// second planner model turn or metadata mutation.
 	sameRevision := m.authority.Revision.Ref
+	originalMetadata := transport.metadata
 	m.authority.ApprovalSequence++
-	renewed := stage(0, "peer", "plan")
-	if renewed.Job.ID == plan.Job.ID {
-		t.Fatal("renewed approval reused completed plan")
-	}
-	if _, err := RunNativeAction(ctx, cfg, m, g, renewed.Job.ID, NativeAction{Operation: "rebind-task", RequestID: "renewed-binding", TaskURL: "https://github.com/code/repo/issues/1", BaseBranch: "main"}); err != nil {
-		t.Fatal("same revision rebind", err)
-	}
-	resumePlan(&renewed)
-	if _, err := RunNativeAction(ctx, cfg, m, g, renewed.Job.ID, NativeAction{Operation: "complete-plan", RequestID: "renewed-plan"}); err != nil {
+	renewed, err := g.NativeSnapshot(ctx, cfg, m)
+	if err != nil {
 		t.Fatal(err)
 	}
-	finish(renewed)
+	if jobs := NativeCandidates(cfg, renewed, nil, time.Now()); len(jobs) != 0 {
+		t.Fatal("renewal scheduled another planner turn", jobs)
+	}
 	renewedBinding, err := ParseNativeTaskMetadata(transport.metadata)
-	if err != nil || renewedBinding.Goal != sameRevision || renewedBinding.ApprovalSequence != m.authority.ApprovalSequence {
-		t.Fatal("renewed assignment not retained", err)
+	if err != nil || renewedBinding.Goal != sameRevision || transport.metadata != originalMetadata {
+		t.Fatal("same-scope renewal rewrote original metadata", err)
 	}
 	old := m.authority.Revision.Ref
 	m.authority.Revision.Ref.RevisionSHA256 = BodyHash("explicit replacement")

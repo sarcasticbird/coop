@@ -67,7 +67,7 @@ func prepareNativeWait(ctx context.Context, cfg Config, m NativeEngineeringMaste
 }
 func nativeCatalogApproved(catalog NativeCatalog, goal c.GoalRef, approval int64) bool {
 	for _, a := range catalog.Goals {
-		if a.Valid && a.State == "approved" && a.Revision.Ref == goal && a.ActiveRevisionSHA256 == goal.RevisionSHA256 && a.ApprovalSequence == approval {
+		if a.Valid && a.State == "approved" && a.Revision.Ref == goal && a.ActiveRevisionSHA256 == goal.RevisionSHA256 && approval > 0 && approval <= a.ApprovalSequence {
 			return true
 		}
 	}

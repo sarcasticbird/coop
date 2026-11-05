@@ -133,6 +133,13 @@ its original task; changed payloads cannot reuse a request ID.
 registration. Ordinary Kata maintenance above does not require that grant.
 MCP does not expose unguarded engineering rebind or delivery-completion tools.
 
+An existing engineering task does not need rebinding just because its unchanged
+goal revision receives a newer approval counter. Its original binding and digest
+remain intact. Execution and completion check current state, actors and full
+scope, not equality with a copied historical counter. Paused/rejected or changed
+authority still refuses; newly created or explicitly rebound work still requires
+fresh admission. No historical records or unresolved requests are rewritten.
+
 Inside an agent Coop, use `coop-worker tasks capabilities|read|list|create|adopt
 --config /var/lib/coop/worker/config.json`; reads and mutations take a private
 structured JSON file with `--input`. This lets a chief of staff plan through the
