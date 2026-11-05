@@ -126,7 +126,7 @@ func validateNativeRoster(cfg Config, b NativeTaskBinding) error {
 		}
 	}
 	ordinary := kataExecution(b)
-	if author.Name == "" || peer.Name == "" || !ordinary && cfg.Team.EngineeringPeers[author.Name] != peer.Name || !memberCapability(author, "implement") && !(ordinary && memberCapability(author, "deliver")) || !memberCapability(peer, "engineering-review") {
+	if author.Name == "" || peer.Name == "" || !ordinary && cfg.Team.EngineeringPeers[author.Name] != peer.Name || !memberCapability(author, "implement") && (!ordinary || !memberCapability(author, "deliver")) || !memberCapability(peer, "engineering-review") {
 		return errors.New("native assignment violates peer policy")
 	}
 	if b.QAID > 0 && (qa.Name == "" || !memberCapability(qa, "customer-qa") || qa.Actor.ID == author.Actor.ID || qa.Actor.ID == peer.Actor.ID) {

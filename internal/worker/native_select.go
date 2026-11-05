@@ -382,7 +382,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 				continue
 			}
 		}
-		if nativeDeliveryActor(cfg, t.Binding) && !nativeContributor(p, cfg.Self.ID) && !(ordinary && kataDeliveryHeld(t.Task.Body)) {
+		if nativeDeliveryActor(cfg, t.Binding) && !nativeContributor(p, cfg.Self.ID) && (!ordinary || !kataDeliveryHeld(t.Task.Body)) {
 			if p.Merged {
 				if ordinary {
 					continue // A merged link alone is not review/QA or completion.

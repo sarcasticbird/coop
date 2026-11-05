@@ -59,9 +59,10 @@ func nativeCurrentExecutionAuthority(ctx context.Context, cfg Config, m NativeEn
 		return c.GoalAuthority{}, err
 	}
 	capability := x.Job.Master.Role
-	if capability == "implementer" {
+	switch capability {
+	case "implementer":
 		capability = "implement"
-	} else if capability == "delivery" {
+	case "delivery":
 		capability = "deliver"
 	}
 	if !containsExact(self.Principal.Capabilities, capability) {
@@ -182,7 +183,7 @@ func kataCodeLinks(body string) (string, []string, error) {
 		parts := strings.Split(strings.TrimPrefix(ref, "https://github.com/"), "/")
 		r := strings.TrimSuffix(parts[0]+"/"+parts[1], ".git")
 		if !validRepo(r) || repo != "" && repo != r {
-			return "", nil, errors.New("Kata task must name one code repository")
+			return "", nil, errors.New("kata task must name one code repository")
 		}
 		repo = r
 		if len(parts) == 4 && !seen[ref] {
