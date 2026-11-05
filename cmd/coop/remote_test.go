@@ -414,6 +414,7 @@ func TestRemoteCommandClassificationExhaustive(t *testing.T) {
 		"thread list", "thread create", "thread read", "thread members", "message send", "message continue", "message status", "team inspect",
 		"goal propose", "goal list", "goal authority", "goal approve", "goal reject", "goal pause", "goal resume", "goal complete", "goal reopen",
 		"task capabilities", "task read", "task list", "task create", "task adopt", "task handoffs", "task first-postmerge-qa", "task reassess-qa", "task request-release",
+		"task edit", "task assign", "task claim", "task close", "task reopen", "task comment",
 		"memory list", "memory read", "memory write", "memory import-markdown",
 		"mcp serve", "mcp stdio", "mcp inspect", "mcp register", "cache status")
 	// Inventory/ls aggregate on the controller rather than executing a remote CLI.

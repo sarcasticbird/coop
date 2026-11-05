@@ -116,3 +116,105 @@ func TestTasksPlanningHelperUsesMasterPolicyForCoordinator(t *testing.T) {
 		t.Fatal("helper assigned coordinator engineering capabilities")
 	}
 }
+
+func TestTasksHelperDoesNotRequireAJobForRoutineKata(t *testing.T) {
+	cfg, _ := teamCLIConfig(t, "qa")
+	cfg.Version = 3
+	project := "01K00000000000000000000000"
+	cfg.TaskSource = &worker.TaskSourceConfig{Provider: "kata", ProjectUID: project}
+	cfg.Master = &worker.MasterConfig{Backend: "master", MasterID: "master", Engagement: "coop", AgentID: cfg.Name, HostID: "host", InstanceID: strings.Repeat("a", 64), Generation: 1}
+	calls := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer routine-task-token" || r.Header.Get("X-Coop-Expected-Master-ID") != "master" {
+			t.Error("lost worker/master authentication")
+		}
+		w.Header().Set("X-Coop-Master-ID", "master")
+		var data any
+		switch r.URL.Path {
+		case "/api/v1/tasks/capabilities":
+			data = c.TaskCapabilities{Provider: "kata", ProjectUID: project, PolicySHA: strings.Repeat("b", 64)}
+		case "/api/v1/tasks/create":
+			var in c.TaskCreateInput
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				t.Error(err)
+			}
+			if in.Goal != (c.GoalRef{}) || in.ExpectedApprovalSequence != 0 || in.Title != "Ordinary task" {
+				t.Error("created an engineering approval request", in)
+			}
+			calls = append(calls, "create")
+			data = c.ProviderTask{Reference: project, Title: in.Title}
+		case "/api/v1/tasks/update":
+			var in c.TaskUpdateInput
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				t.Error(err)
+			}
+			if in.Reference != project || in.RequestID != "stable-"+in.Operation || in.ExpectedRevision != 9 && in.Operation != "comment" {
+				t.Error("helper changed task operation", in)
+			}
+			calls = append(calls, in.Operation)
+			data = c.ProviderTask{Reference: project, Revision: 10}
+		default:
+			t.Error("unexpected helper call", r.URL.Path)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"master_id": "master", "restore_epoch": 1, "data": data}); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	token, client := filepath.Join(dir, "token"), filepath.Join(dir, "client.toml")
+	if err := os.WriteFile(token, []byte("routine-task-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(client, fmt.Appendf(nil, "url = %q\nmaster_id = 'master'\ntoken_file = %q\nallow_loopback_http = true\n", srv.URL, token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Master.ClientConfig = client
+	config, input := installConfigCopy(t, cfg), filepath.Join(dir, "input.json")
+	invoke := func(op string, payload any) error {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(input, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return run([]string{"tasks", op, "--config", config, "--input", input}, io.Discard)
+	}
+	if err := invoke("create", map[string]any{"title": "Ordinary task", "body": "Context", "request_id": "ordinary-create"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"edit", "claim", "assign", "comment", "close", "reopen"} {
+		in := map[string]any{"reference": project, "request_id": "stable-" + op, "expected_revision": 9}
+		switch op {
+		case "edit":
+			in["title"] = "Updated"
+		case "assign":
+			in["owner"] = "peer"
+		case "comment":
+			delete(in, "expected_revision")
+			in["message"] = "Response"
+		case "close":
+			in["reason"], in["message"] = "wontfix", "No longer needed"
+		}
+		if err := invoke(op, in); err != nil {
+			t.Fatal(op, err)
+		}
+	}
+	if len(calls) != 7 {
+		t.Fatal("routine operations did not reach existing provider", calls)
+	}
+	for _, in := range []map[string]any{
+		{"reference": project, "request_id": "forged", "message": "No", "actor": "owner"},
+		{"reference": project, "request_id": "forged", "message": "No", "operation": "reopen"},
+		{"reference": project, "request_id": "forged", "message": "No", "expected_revision": 9},
+	} {
+		if err := invoke("comment", in); err == nil {
+			t.Fatal("accepted mixed or caller-chosen authority", in)
+		}
+	}
+	if len(calls) != 7 {
+		t.Fatal("malformed inputs reached task mutation endpoint")
+	}
+}

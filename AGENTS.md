@@ -2,12 +2,17 @@
 
 Coop is an internal bot team for personal use, not an enterprise control plane.
 The working contract is in `docs/kata-first-simplification.md`. Implement that
-contract; do not turn proving the machinery into the project.
+contract, including its shared system-usage rules; do not turn proving the
+machinery into the project. Simplify the existing Go path; no CrewAI or LangGraph
+adoption is planned.
 
 ## Product boundary
 
 - Chris sets outcomes, priorities and material scope changes. Kata owns tasks,
   decisions, acceptance criteria and results.
+- All four birds can create, assign, update, respond to, reopen and close tasks
+  in the team's Kata projects. No routine owner/Rook permission relay. Use `gh`
+  for code, PRs, reviews and checks, not internal issues or the task backlog.
 - Robin/Hawk implement and independently review; Wren tests; Rook coordinates,
   reviews and merges. Routine delivery is autonomous, not another owner approval.
 - Use the task, current PR, tests and reviews as the normal workflow. Escalate

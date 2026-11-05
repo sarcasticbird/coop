@@ -50,6 +50,9 @@ func TestNativePromptUsesTaskSourceLifecycle(t *testing.T) {
 					t.Fatalf("Kata prompt omitted provider lifecycle %q", required)
 				}
 			}
+			if !strings.Contains(prompt, BirdSystemUsage) || strings.Contains(prompt, "for all consequential writes.") {
+				t.Fatal("ordinary Kata use was missing or forbidden by the engineering prompt")
+			}
 			if strings.Contains(prompt, legacy) || strings.Contains(prompt, "project_owner and project_number") {
 				t.Fatal("Kata prompt requested GitHub Project placement")
 			}
