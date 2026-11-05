@@ -100,9 +100,9 @@ func TestWorkerCLIMigrateStateRejectsInvalidRequests(t *testing.T) {
 		{"task", 2, []string{"--task", "https://github.com/code/repo/issues/1"}, "task/goal flags require task-metadata"},
 		{"goal", 2, []string{"--goal", "https://github.com/planning/board/discussions/1"}, "task/goal flags require task-metadata"},
 		{"request", 2, []string{"--request-id", "request"}, "request-id requires requests"},
-		{"job", 2, []string{"--job-id", "job"}, "intent flags require recover"},
-		{"session", 2, []string{"--session-id", "ses_saved"}, "intent flags require recover"},
-		{"message", 2, []string{"--message-id", "msg_saved"}, "intent flags require recover"},
+		{"job", 2, []string{"--job-id", "job"}, "requires --config"},
+		{"session", 2, []string{"--session-id", "ses_saved"}, "requires --config"},
+		{"message", 2, []string{"--message-id", "msg_saved"}, "requires --config"},
 		{"unknown flag", 2, []string{"--force"}, "requires --config"},
 		{"positional argument", 2, []string{"extra"}, "requires --config"},
 	} {

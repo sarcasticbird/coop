@@ -38,7 +38,7 @@ func (g *readOnlyGitHub) ReportBlock(context.Context, worker.Job, string, string
 	g.t.Fatal("dry-run posted a comment")
 	return nil
 }
-func TestWorkerDryRunOnlyReadsAndDoesNotCreateState(t *testing.T) {
+func TestWorkerLegacyExecutionRefusesBeforeClientsOrState(t *testing.T) {
 	path := cliConfig(t)
 	c, err := worker.LoadConfig(path)
 	if err != nil {
@@ -46,14 +46,15 @@ func TestWorkerDryRunOnlyReadsAndDoesNotCreateState(t *testing.T) {
 	}
 	old := clients
 	t.Cleanup(func() { clients = old })
-	g := &readOnlyGitHub{t: t}
-	clients = func(worker.Config) (worker.GitHub, *worker.OpenCodeClient, error) { return g, nil, nil }
-	var out bytes.Buffer
-	if err := run([]string{"dry-run", "--config", path}, &out); err != nil {
-		t.Fatal(err)
+	clients = func(worker.Config) (worker.GitHub, *worker.OpenCodeClient, error) {
+		t.Fatal("retired runtime constructed clients")
+		return nil, nil, nil
 	}
-	if g.reads != 1 || !bytes.Contains(out.Bytes(), []byte(`"jobs":[]`)) {
-		t.Fatal("dry-run did not inspect GitHub")
+	for _, command := range []string{"run", "preflight", "dry-run", "ping", "recover"} {
+		var out bytes.Buffer
+		if err := run([]string{command, "--config", path}, &out); err == nil {
+			t.Fatal("retired command accepted", command)
+		}
 	}
 	if _, err := os.Stat(c.StateDir); !os.IsNotExist(err) {
 		t.Fatal("dry-run created worker state")
@@ -104,7 +105,7 @@ func TestWorkerCLIValidateStatusAndLocalPause(t *testing.T) {
 	}
 }
 
-func TestWorkerCLIRecoveryResumesOnlyExactSavedIntent(t *testing.T) {
+func TestWorkerCLIRetiredRecoveryPreservesUnknownIntent(t *testing.T) {
 	path := cliConfig(t)
 	c, err := worker.LoadConfig(path)
 	if err != nil {
@@ -132,17 +133,14 @@ func TestWorkerCLIRecoveryResumesOnlyExactSavedIntent(t *testing.T) {
 		t.Fatal("recovered different turn")
 	}
 	args[len(args)-1] = "msg_saved"
-	if err := run(args, &out); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "observation_requested") {
-		t.Fatal(out.String())
+	if err := run(args, &out); err == nil {
+		t.Fatal("legacy recovery was reactivated")
 	}
 	after, err := s.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Jobs[id].MessageID != "msg_saved" || after.Jobs[id].SubmissionState != "unknown" || after.Jobs[id].Phase != "active" || after.InstanceID != state.InstanceID {
+	if after.Jobs[id].MessageID != "msg_saved" || after.Jobs[id].SubmissionState != "unknown" || after.Jobs[id].Phase != "recovery" || after.InstanceID != state.InstanceID {
 		t.Fatal("recovery replaced intent or worker")
 	}
 }
@@ -155,7 +153,7 @@ func TestWorkerCLIRejectsCredentialFlagsAndUnknownCommands(t *testing.T) {
 	}
 }
 
-func TestGuestPingStrictInputLocalOnlyAndRedactedRequests(t *testing.T) {
+func TestGuestRetiredPingPreservesRedactedHistoricalRequests(t *testing.T) {
 	path := cliConfig(t)
 	c, err := worker.LoadConfig(path)
 	if err != nil {
@@ -192,15 +190,16 @@ func TestGuestPingStrictInputLocalOnlyAndRedactedRequests(t *testing.T) {
 	prompt := "`literal` $(sentinel)\n café"
 	payload, _ := json.Marshal(worker.PingInput{Prompt: prompt})
 	var out bytes.Buffer
-	if err := runInput([]string{"ping", "--config", path}, bytes.NewReader(payload), &out); err != nil {
-		t.Fatal(err)
+	if err := runInput([]string{"ping", "--config", path}, bytes.NewReader(payload), &out); err == nil {
+		t.Fatal("retired ping accepted new work")
 	}
 	if strings.Contains(out.String(), "sentinel") {
 		t.Fatal("summary leaked prompt")
 	}
-	var summary worker.WakeSummary
-	if json.Unmarshal(out.Bytes(), &summary) != nil || summary.Phase != "queued" {
-		t.Fatal("ping not queued while paused")
+	// Seed a historical record through its retained codec, not the retired CLI.
+	summary, err := worker.QueuePing(c, worker.NewWakeStore(filepath.Join(c.StateDir, "wake", "v1")), worker.PingInput{Prompt: prompt}, time.Now())
+	if err != nil {
+		t.Fatal(err)
 	}
 	out.Reset()
 	if err := run([]string{"requests", "--config", path, "--request-id", summary.ID}, &out); err != nil {

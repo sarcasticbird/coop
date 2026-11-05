@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 )
 
@@ -125,7 +124,7 @@ func currentSavedJob(c Config, s Snapshot, state State, j Job, now time.Time) bo
 	}
 	if j.Kind == "implement" {
 		state.SnapshotCache = s
-		e := Engine{Config: c, state: state, Clock: &statusClock{now: now}}
+		e := legacyInspection{Config: c, state: state, Clock: &statusClock{now: now}}
 		allowed, _ := e.continuationAllowed(j)
 		return allowed
 	}
@@ -181,136 +180,4 @@ func validateStatusPromptFailures(status Status) error {
 		}
 	}
 	return nil
-}
-
-func (e *Engine) idleStatus() {
-	if e.status.RecoveryIntent != nil {
-		return
-	}
-	if e.status.Paused || e.status.WaitReason == "server_unavailable" {
-		return
-	}
-	var jobs []Job
-	for _, j := range e.state.Jobs {
-		if currentSavedJob(e.Config, e.state.SnapshotCache, e.state, j, e.Clock.Now()) {
-			jobs = append(jobs, j)
-		}
-	}
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
-	for _, j := range jobs {
-		if j.Phase == "waiting" && j.WaitReason == "session_busy" {
-			e.status.Current = currentWork(e.Config, e.state.SnapshotCache, j, e.Clock.Now())
-			e.status.State, e.status.WaitReason = "waiting", "session_busy"
-			e.status.NextRetry = j.NextAttemptAt
-			if e.nextPoll.After(e.status.NextRetry) {
-				e.status.NextRetry = e.nextPoll
-			}
-			return
-		}
-		if j.Phase == "waiting" && e.Clock.Now().Before(j.NextAttemptAt) {
-			if e.status.NextRetry.IsZero() || j.NextAttemptAt.Before(e.status.NextRetry) {
-				e.status.State = "waiting"
-				e.status.WaitReason = "retry"
-				e.status.NextRetry = j.NextAttemptAt
-				e.status.Current = currentWork(e.Config, e.state.SnapshotCache, j, e.Clock.Now())
-			}
-		}
-	}
-	if e.status.WaitReason != "" {
-		return
-	}
-	for _, j := range jobs {
-		if j.Phase == "blocked" {
-			e.status.State = "blocked"
-			e.status.WaitReason = j.WaitReason
-			e.status.PromptFailure = j.PromptFailure
-			e.status.Current = currentWork(e.Config, e.state.SnapshotCache, j, e.Clock.Now())
-			return
-		}
-	}
-	for _, j := range jobs {
-		if j.Phase == "waiting" && j.WaitReason == "review_handoff" {
-			e.status.State, e.status.WaitReason = "waiting", "review_handoff"
-			return
-		}
-	}
-	for _, p := range e.state.SnapshotCache.PRs {
-		if !p.Closed && !p.Merged && configuredImplementer(e.Config, p.Author) && (missingPRMetadata(p) || e.Config.Version == 2 && p.AssignmentSHA == "") {
-			e.status.State, e.status.WaitReason = "blocked", "pr_metadata"
-			return
-		}
-	}
-	for _, t := range e.state.SnapshotCache.Tasks {
-		if t.Ready && !t.Completed && !t.Closed {
-			g, ok := goalFor(e.state.SnapshotCache, t.GoalURL)
-			if !ok || EvaluateGoal(e.Config, g, e.Clock.Now()).State != "approved" {
-				e.status.State = "waiting"
-				e.status.WaitReason = "owner_approval"
-				return
-			}
-		}
-	}
-	if e.Config.Version == 2 {
-		for _, p := range e.state.SnapshotCache.PRs {
-			t, ok := taskFor(e.state.SnapshotCache, p.TaskURL)
-			if !ok || t.Closed || t.Completed || p.Closed || p.Merged {
-				continue
-			}
-			g, ok := goalFor(e.state.SnapshotCache, t.GoalURL)
-			if !ok {
-				continue
-			}
-			a, err := resolveTeamAssignment(e.Config, t, g, e.Clock.Now())
-			if err != nil || (!sameActor(e.Config.Self, a.Author) && !sameActor(e.Config.Self, a.Peer) && !sameActor(e.Config.Self, a.QA)) {
-				continue
-			}
-			j := Job{Kind: "review", Phase: "waiting", TaskURL: t.URL, GoalURL: g.URL, PRURL: p.URL, HeadSHA: p.HeadSHA}
-			e.status.State, e.status.WaitReason = "waiting", "review"
-			if teamLatestReview(e.Config, t, p).State == "CHANGES_REQUESTED" {
-				j.Kind, e.status.WaitReason = "fix", "changes_requested"
-			} else if _, ok := EngineeringReviewFor(e.Config, t, p); ok {
-				e.status.WaitReason = "checks"
-				if p.ChecksState == "success" || p.ChecksState == "none" {
-					if t.QA.Required {
-						j.Kind, e.status.WaitReason = "qa", "qa"
-						if p.QAArtifact == nil {
-							e.status.WaitReason = "qa_artifact"
-						} else if _, result, valid := latestTeamQA(e.Config, t, p, t.QA, p.QAArtifact.SHA256); valid {
-							e.status.WaitReason = "qa_" + result.Conclusion
-							if result.Conclusion == "pass" {
-								j.Kind, e.status.WaitReason = "deliver", "merge_eligibility"
-							}
-							if result.Conclusion == "changes-needed" {
-								j.Kind = "fix"
-							}
-						}
-					} else {
-						j.Kind, e.status.WaitReason = "deliver", "merge_eligibility"
-					}
-				}
-			}
-			e.status.Current = currentWork(e.Config, e.state.SnapshotCache, j, e.Clock.Now())
-			switch {
-			case sameActor(e.Config.Self, a.Author):
-				e.status.Current.Role = "implementer"
-			case sameActor(e.Config.Self, a.Peer):
-				e.status.Current.Role = "engineering-review"
-			case sameActor(e.Config.Self, a.QA):
-				e.status.Current.Role = "customer-qa"
-			}
-			return
-		}
-	} else if e.Config.Role == "implementer" {
-		for _, p := range e.state.SnapshotCache.PRs {
-			if !p.Merged && !p.Closed && sameActor(p.Author, e.Config.Implementer) {
-				e.status.State = "waiting"
-				e.status.WaitReason = "review"
-				if latestReview(e.Config, p).State == "APPROVED" {
-					e.status.WaitReason = "checks"
-				}
-				return
-			}
-		}
-	}
-	e.status.State = "idle"
 }

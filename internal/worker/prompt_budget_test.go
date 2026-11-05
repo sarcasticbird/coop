@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -23,7 +22,7 @@ func TestPlanningPromptKeepsSelectedGoalOnceAndExcludesUnrelatedBodies(t *testin
 	before, _ := json.Marshal(s)
 	prompt, err := BuildPrompt(c, j, s)
 	if err != nil {
-		t.Fatalf("unrelated proposal blocked selected goal planning: %v", err)
+		t.Fatal(err)
 	}
 	if strings.Count(prompt, "SELECTED_GOAL_") != 1 || strings.Contains(prompt, "UNRELATED_PROPOSAL_") {
 		t.Fatal("goal descriptions duplicated or unrelated body included")
@@ -45,7 +44,7 @@ func TestPromptOmitsRuntimeBookkeepingButKeepsCheckoutAndScope(t *testing.T) {
 	j.SessionID = strings.Repeat("SESSION_BOOKKEEPING", 3000)
 	prompt, err := BuildPrompt(c, j, s)
 	if err != nil {
-		t.Fatalf("unused session bookkeeping prevented prompt: %v", err)
+		t.Fatal(err)
 	}
 	if strings.Contains(prompt, "SESSION_BOOKKEEPING") {
 		t.Fatal("runtime session bookkeeping was sent to the model")
@@ -67,29 +66,10 @@ func TestWakePromptCanonicalizesFullGoalRootSource(t *testing.T) {
 	r.Source.Body = s.Goals[0].Body
 	prompt, err := BuildWakePrompt(c, r, r.Source, s)
 	if err != nil {
-		t.Fatalf("duplicate root body prevented wake: %v", err)
+		t.Fatal(err)
 	}
 	if strings.Count(prompt, "ROOT_SOURCE_") != 1 || !strings.Contains(prompt, s.Goals[0].BodySHA) {
 		t.Fatal("full root source not represented by a canonical goal")
-	}
-}
-
-func TestEngineBlocksOversizeBeforeSubmissionWithoutRetry(t *testing.T) {
-	e, g, code, clock, store := engineFixture(t)
-	g.snapshot.Tasks[0].Body = strings.Repeat("oversize", 6000)
-	g.snapshot.Tasks[0].BodySHA = TaskScopeHash(g.snapshot.Tasks[0].Title, g.snapshot.Tasks[0].Body)
-	g.snapshot.Tasks[0].MetadataScopeSHA = g.snapshot.Tasks[0].BodySHA
-	tick(t, e, clock)
-	for _, job := range store.state.Jobs {
-		if job.Phase != "blocked" || job.WaitReason != "prompt_size" || job.MessageID != "" || job.SubmissionState != "" || job.Attempts != 0 {
-			t.Fatalf("size failure was treated as approval or execution retry: phase=%s reason=%s attempts=%d", job.Phase, job.WaitReason, job.Attempts)
-		}
-	}
-	for range 5 {
-		tick(t, e, clock)
-	}
-	if code.calls != 0 || g.claims != 1 {
-		t.Fatal("oversized task submitted or re-claimed")
 	}
 }
 
@@ -111,7 +91,6 @@ func TestPromptBudgetCountsFinalBytesAndDoesNotTruncate(t *testing.T) {
 	if json.Unmarshal([]byte(parts[1]), &input) != nil || input.Task.Body != s.Tasks[0].Body {
 		t.Fatal("escaping or UTF-8 content changed at boundary")
 	}
-	// A one-byte policy suffix must be measured along with the complete prompt.
 	prompt, err = buildPrompt(c, j, s, "!", now)
 	var size *PromptSizeError
 	if prompt != "" || !errors.As(err, &size) || size.ActualBytes != 32769 || size.LimitBytes != 32768 {
@@ -159,105 +138,6 @@ func TestPromptRejectsOversizedRequiredSections(t *testing.T) {
 	}
 }
 
-func TestWakeSizeFailureIsDurableAndFreshRequestCanRun(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	g := e.GitHub.(*wakeGitHub)
-	g.snapshot.Goals[0].Body = strings.Repeat("<", 6000)
-	g.snapshot.Goals[0].BodySHA = BodyHash(g.snapshot.Goals[0].Body)
-	q, err := QueuePing(e.Config, store, PingInput{Prompt: "check approved work"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tick(t, e, clock)
-	v, err := NewWakeStore(store.Dir).Receipt(q.ID)
-	if err != nil || v.Phase != "blocked" || v.Reason != "prompt_size" || v.Job.Attempts != 0 || v.Job.MessageID != "" || v.Job.PromptFailure == nil || !v.Job.BlockReported {
-		t.Fatalf("wake failure was retried or lost: phase=%s reason=%s err=%v", v.Phase, v.Reason, err)
-	}
-	before, _ := json.Marshal(v)
-	for range 5 {
-		tick(t, e, clock)
-	}
-	v, err = store.Receipt(q.ID)
-	after, _ := json.Marshal(v)
-	if err != nil || string(before) != string(after) || code.calls != 0 {
-		t.Fatal("unchanged oversized request replayed or evidence rewritten")
-	}
-	summaries, err := WakeSummaries(store, 20, q.ID)
-	if err != nil || len(summaries) != 1 || summaries[0].PromptFailure == nil {
-		t.Fatal("operator request inspection lost size measurements")
-	}
-	// New supported source derives new work without resetting the failed receipt.
-	g.snapshot.Goals[0].Body = "Compact current scope"
-	g.snapshot.Goals[0].BodySHA = BodyHash(g.snapshot.Goals[0].Body)
-	if _, err := QueuePing(e.Config, store, PingInput{Prompt: "fresh input"}, clock.Now()); err != nil {
-		t.Fatal(err)
-	}
-	tick(t, e, clock)
-	if code.calls != 1 || code.last.Kind != "wake" {
-		t.Fatal("old blocked request prevented fresh eligible input")
-	}
-}
-
-func TestSizeFailureStateCompatibilityAndStatus(t *testing.T) {
-	e, g, _, clock, memory := engineFixture(t)
-	g.snapshot.Cursor = map[string]string{}
-	g.snapshot.Tasks[0].Body = strings.Repeat("<", 6000)
-	g.snapshot.Tasks[0].BodySHA = TaskScopeHash(g.snapshot.Tasks[0].Title, g.snapshot.Tasks[0].Body)
-	g.snapshot.Tasks[0].MetadataScopeSHA = g.snapshot.Tasks[0].BodySHA
-	tick(t, e, clock)
-	store := storeFixture(t)
-	if err := store.Save(memory.state); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := NewFileStore(store.Dir).Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var blocked Job
-	for _, j := range loaded.Jobs {
-		blocked = j
-	}
-	if blocked.PromptFailure == nil || !blocked.BlockReported || loaded.InstanceID != memory.state.InstanceID {
-		t.Fatal("durable diagnostics or owned state lost")
-	}
-	if e.status.PromptFailure == nil || e.status.WaitReason != "prompt_size" {
-		t.Fatal("status hides actionable size failure")
-	}
-	// New readers preserve legacy jobs without rewriting their identity.
-	raw, _ := json.Marshal(blocked)
-	var fields map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &fields)
-	delete(fields, "PromptFailure")
-	delete(fields, "PromptReportAttempts")
-	legacy, _ := json.Marshal(fields)
-	var decoded Job
-	if strictJSON(legacy, &decoded) != nil || decoded.PromptFailure != nil {
-		t.Fatal("new reader cannot read old job schema")
-	}
-	var old legacyPromptJob
-	if strictJSON(legacy, &old) != nil || old.ID != blocked.ID || strictJSON(raw, &old) == nil {
-		t.Fatal("legacy reader lost compatible identity or silently ignored newer state")
-	}
-	// Corrupt diagnostics cannot be echoed through native status or GitHub reports.
-	blocked.PromptFailure.Sections[0].Name = "private-sentinel"
-	loaded.Jobs[blocked.ID] = blocked
-	if store.Save(loaded) == nil {
-		t.Fatal("untrusted diagnostic section accepted")
-	}
-}
-
-// Frozen pre-#51 job schema. Compatibility must preserve old identities and
-// force an old strict reader to refuse newer records rather than replay them.
-type legacyPromptJob struct {
-	BlockReported                                                                bool
-	TerminalAt                                                                   time.Time
-	ScopeSHA, WaitReason                                                         string
-	ID, Kind, GoalURL, TaskURL, PRURL, HeadSHA, InputRevision                    string
-	Checkout, Branch, SessionID, MessageID, SubmissionState, Phase, ProgressHash string
-	Attempts, ReviewCycles                                                       int
-	NextAttemptAt, Deadline, SubmittedAt                                         time.Time
-}
-
 func TestPlanningIndexCannotRetargetSelectedTurnToAnotherApprovedGoal(t *testing.T) {
 	c, s, j := handoffFixture(t)
 	other := s.Goals[0]
@@ -287,144 +167,5 @@ func TestPlanningIndexCannotRetargetSelectedTurnToAnotherApprovedGoal(t *testing
 	j.GoalURL = other.URL
 	if ok, _ := Admit(c, j, s, time.Now()); ok {
 		t.Fatal("discovery index retargeted an existing event's planning authority")
-	}
-}
-
-func TestOversizeWakeNearRequestCapacityRetainsDiagnostic(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	r := testWakeRequest(e.Config)
-	r.CreatedAt = clock.Now()
-	r.Source.Body = ""
-	raw, _ := json.Marshal(r)
-	r.Source.Body = strings.Repeat("x", 32768-len(raw))
-	r.Source.Revision = ConversationRevision(r.Source)
-	if _, err := store.Enqueue(r); err != nil {
-		t.Fatal(err)
-	}
-	tick(t, e, clock)
-	v, err := NewWakeStore(store.Dir).Receipt(r.ID)
-	if err != nil || v.Phase != "blocked" || v.Job.PromptFailure == nil || code.calls != 0 {
-		t.Fatalf("large source prevented failure evidence: phase=%s err=%v", v.Phase, err)
-	}
-}
-
-type promptReportGitHub struct {
-	*wakeGitHub
-	reports     int
-	reportError error
-	rootBody    string
-}
-
-func (g *promptReportGitHub) RevalidateWake(ctx context.Context, r WakeRequest) (ConversationSource, Goal, error) {
-	s, goal, err := g.wakeGitHub.RevalidateWake(ctx, r)
-	if err == nil && r.Kind == "ping" && g.rootBody != "" {
-		s.Body = g.rootBody
-		s.Revision = ConversationRevision(s)
-	}
-	return s, goal, err
-}
-
-func (g *promptReportGitHub) ReportBlock(context.Context, Job, string, string) error {
-	g.reports++
-	return g.reportError
-}
-
-func TestPromptFailureReportRetriesWithoutReplayingModel(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	g := &promptReportGitHub{wakeGitHub: e.GitHub.(*wakeGitHub), reportError: ghError("permission_denied")}
-	e.GitHub, e.Wakes.GitHub = g, g
-	g.snapshot.Goals[0].Body = strings.Repeat("<", 6000)
-	q, err := QueuePing(e.Config, store, PingInput{Prompt: "oversized"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	clock.now = clock.now.Add(2 * time.Second)
-	if err := e.Tick(context.Background()); errorCategory(err) != "permission_denied" {
-		t.Fatalf("missing first report failure: %v", err)
-	}
-	g.reportError = nil
-	clock.now = clock.now.Add(20 * time.Minute)
-	tick(t, e, clock)
-	v, err := store.Receipt(q.ID)
-	if err != nil || !v.Job.BlockReported || g.reports != 2 || code.calls != 0 {
-		t.Fatal("blocked report was never retried without another queued wake, or model replayed")
-	}
-}
-
-func TestFailedSizeReportDoesNotStarveNewSupportedWake(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	g := &promptReportGitHub{wakeGitHub: e.GitHub.(*wakeGitHub), reportError: ghError("permission_denied")}
-	e.GitHub, e.Wakes.GitHub = g, g
-	g.snapshot.Goals[0].Body = strings.Repeat("<", 6000)
-	if _, err := QueuePing(e.Config, store, PingInput{Prompt: "oversized"}, clock.Now()); err != nil {
-		t.Fatal(err)
-	}
-	clock.now = clock.now.Add(2 * time.Second)
-	_ = e.Tick(context.Background())
-	g.snapshot.Goals[0].Body = "Compact current scope"
-	if _, err := QueuePing(e.Config, store, PingInput{Prompt: "fresh supported input"}, clock.Now()); err != nil {
-		t.Fatal(err)
-	}
-	clock.now = clock.now.Add(20 * time.Minute)
-	tick(t, e, clock)
-	if code.calls != 1 || g.reports != 1 {
-		t.Fatal("stale failed report displaced a fresh supported request")
-	}
-}
-
-func TestPromptSizeFailuresReleaseWakeQueueCapacity(t *testing.T) {
-	c, store := wakeFixture(t)
-	_, err := assemblePrompt(BodyHash("example"), c.Wake.CoordinationURL, promptSection{"instructions", strings.Repeat("x", 32769)})
-	var diagnostic *PromptSizeError
-	if !errors.As(err, &diagnostic) {
-		t.Fatal("missing size failure")
-	}
-	for i := range MaxWakeQueued {
-		q, err := QueuePing(c, store, PingInput{RequestID: BodyHash(time.Unix(int64(i+1), 0).String()), Prompt: "bounded input"}, time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		copy := *diagnostic
-		copy.JobID = q.ID
-		if err := store.SaveReceipt(WakeReceipt{Version: 1, RequestID: q.ID, Phase: "blocked", Reason: "prompt_size", Job: Job{ID: q.ID, PromptFailure: &copy}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := QueuePing(c, store, PingInput{Prompt: "fresh supported input"}, time.Now()); err != nil {
-		t.Fatalf("terminal size failures permanently consumed queue capacity: %v", err)
-	}
-}
-
-func TestExpandedPingSourceRetainsLosslessSizeFailureEvidence(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	g := &promptReportGitHub{wakeGitHub: e.GitHub.(*wakeGitHub), rootBody: strings.Repeat("<", 32768)}
-	e.GitHub, e.Wakes.GitHub = g, g
-	q, err := QueuePing(e.Config, store, PingInput{Prompt: "short ping"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tick(t, e, clock)
-	v, err := NewWakeStore(store.Dir).Receipt(q.ID)
-	if err != nil || v.Job.PromptFailure == nil || v.Source.Body != g.rootBody || code.calls != 0 {
-		t.Fatal("expanded escaped source lost failure evidence or submitted")
-	}
-}
-
-func TestSizeReportAttemptsAreBoundedIndependentlyOfExecution(t *testing.T) {
-	e, code, clock, store := wakeEngineFixture(t)
-	g := &promptReportGitHub{wakeGitHub: e.GitHub.(*wakeGitHub), reportError: ghError("permission_denied")}
-	e.GitHub, e.Wakes.GitHub = g, g
-	g.snapshot.Goals[0].Body = strings.Repeat("<", 6000)
-	q, err := QueuePing(e.Config, store, PingInput{Prompt: "oversized"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 8 {
-		clock.now = clock.now.Add(20 * time.Minute)
-		_ = e.Tick(context.Background())
-	}
-	v, err := store.Receipt(q.ID)
-	if err != nil || v.Job.PromptReportAttempts != e.Config.Limits.MaxAttempts || g.reports != e.Config.Limits.MaxAttempts || v.Job.Attempts != 0 || v.Job.BlockReported || code.calls != 0 {
-		t.Fatal("report retries were unbounded, consumed execution attempts or replayed input")
 	}
 }

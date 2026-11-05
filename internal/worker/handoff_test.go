@@ -1,11 +1,9 @@
 package worker
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 func handoffFixture(t *testing.T) (Config, Snapshot, Job) {
@@ -148,81 +146,4 @@ func TestPlanningReplyWithoutPRLinkKeepsExistingCompletion(t *testing.T) {
 	if planningResponded(c, j, s) {
 		t.Fatal("partial snapshot counted as verified handoff completion")
 	}
-}
-
-func TestWaitingPlanningHandoffDispatchesDedicatedReviewBeforeAnotherPlanningTurn(t *testing.T) {
-	c, s, j := handoffFixture(t)
-	e, g, code, clock, store := engineFixture(t)
-	e.Config = Defaults(c)
-	e.Config.Limits.PollInterval = time.Second
-	e.Config.OpenCode.ReconcileInterval = time.Second
-	g.snapshot = s
-	e.GitHub = handoffGitHub{g, c}
-	j.Phase = "waiting"
-	store.state = newState()
-	store.state.Jobs[j.ID] = j
-	g.snapshot.Goals[0].Decisions = append(g.snapshot.Goals[0].Decisions, Decision{Author: c.Self, Command: "Review requested.\n" + marker(j, "result")})
-	code.effect = func(c Config, job Job) {
-		if job.Kind == "review" {
-			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA, SubmittedAt: clock.Now()}}
-		}
-	}
-	tick(t, e, clock)
-	if code.calls != 1 || code.last.Kind != "review" {
-		t.Fatal("planning retry displaced the dedicated review job")
-	}
-	tick(t, e, clock)
-	tick(t, e, clock)
-	if store.state.Jobs[j.ID].Phase != "completed" || code.calls != 1 {
-		t.Fatalf("formal review did not reconcile waiting handoff: phase=%s calls=%d last=%s", store.state.Jobs[j.ID].Phase, code.calls, code.last.Kind)
-	}
-}
-
-type handoffGitHub struct {
-	*workflowGitHub
-	config Config
-}
-
-func TestActivePlanningTurnYieldsToNewReviewWithoutFailure(t *testing.T) {
-	c, s, _ := handoffFixture(t)
-	e, g, code, clock, store := engineFixture(t)
-	e.Config = Defaults(c)
-	e.Config.Limits.PollInterval, e.Config.OpenCode.ReconcileInterval = time.Second, time.Second
-	g.snapshot = s
-	g.snapshot.PRs = nil // The PR becomes visible after the planning prompt was submitted.
-	e.GitHub = handoffGitHub{g, c}
-	code.effect = func(c Config, job Job) {
-		switch job.Kind {
-		case "plan":
-			g.snapshot.PRs = s.PRs
-			g.snapshot.Goals[0].Decisions = append(g.snapshot.Goals[0].Decisions, Decision{Author: c.Self, Command: "Review requested.\n" + marker(job, "result")})
-		case "review":
-			g.snapshot.PRs[0].Reviews = []Review{{ID: "review-1", Author: c.Reviewer, State: "APPROVED", HeadSHA: job.HeadSHA, SubmittedAt: clock.Now()}}
-		}
-	}
-	tick(t, e, clock)
-	planning := code.last
-	if planning.Kind != "plan" {
-		t.Fatal("fixture did not begin with an active planning turn")
-	}
-	tick(t, e, clock)
-	job := store.state.Jobs[planning.ID]
-	if job.Phase != "waiting" || job.WaitReason != "review_handoff" || job.MessageID != "" || job.Attempts != 0 || store.state.Attempts[BindingKey(c, job)] != 0 || job.SessionID != planning.SessionID {
-		t.Fatalf("planning handoff failed or lost its session: %+v", job)
-	}
-	tick(t, e, clock)
-	if code.last.Kind != "review" || code.last.SessionID == planning.SessionID || code.calls != 2 {
-		t.Fatal("new review did not use its dedicated task session")
-	}
-	tick(t, e, clock)
-	tick(t, e, clock)
-	if store.state.Jobs[planning.ID].Phase != "completed" || code.calls != 2 {
-		t.Fatal("verified review failed to reconcile the yielded planning handoff")
-	}
-}
-
-func (g handoffGitHub) Reconcile(ctx context.Context, j Job) (Artifacts, error) {
-	a, err := g.workflowGitHub.Reconcile(ctx, j)
-	a.PlanResponded = planningResponded(g.config, j, g.snapshot)
-	return a, err
 }

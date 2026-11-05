@@ -99,58 +99,6 @@ func TestOpenCodeCompactionBoundedAncestry(t *testing.T) {
 	}
 }
 
-func TestCompactedWakeReconcilesAfterRestartWithoutReplay(t *testing.T) {
-	e, code, clock, wakes := wakeEngineFixture(t)
-	e.Store = NewFileStore(filepath.Join(t.TempDir(), "state"))
-	g := e.GitHub.(*wakeGitHub)
-	g.snapshot.Cursor = map[string]string{}
-	first, err := QueuePing(e.Config, wakes, PingInput{Prompt: "first"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	code.running = true
-	tick(t, e, clock)
-	j := code.last
-	second, err := QueuePing(e.Config, wakes, PingInput{Prompt: "second"}, clock.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	g.replies[first.ID] = Comment{NodeID: "actual", URL: "https://github.com/orgs/planning/discussions/1#discussioncomment-5"}
-	mutations := 0
-	_, client := apiFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
-			mutations++
-			w.WriteHeader(500)
-			return
-		}
-		switch r.URL.Path {
-		case "/global/health":
-			writeJSON(w, ServerHealth{Healthy: true, Version: "1.18.18"})
-		case "/session/" + j.SessionID + "/message/" + j.MessageID:
-			writeJSON(w, nativeDiffSummary(ownershipMessage(j, j.MessageID, "user", ""), 3<<20))
-		case "/session/" + j.SessionID + "/message":
-			rows := compactionMessages(j, 1)
-			nativeDiffSummary(rows[0].(map[string]any), 3<<20)
-			writeJSON(w, rows)
-		default:
-			t.Errorf("unexpected request %s", r.URL.Path)
-			w.WriteHeader(404)
-		}
-	})
-	restarted := &Engine{Config: e.Config, Store: e.Store, GitHub: g, Checkouts: e.Checkouts, OpenCode: client, Clock: clock}
-	restarted.Wakes = NewWakeCoordinator(e.Config, NewWakeStore(wakes.Dir), g, client, clock)
-	clock.now = clock.now.Add(time.Hour) // Include an expired saved turn.
-	tick(t, restarted, clock)
-	after, err := wakes.Receipt(first.ID)
-	if err != nil || after.Phase != "completed" || after.ReplyNodeID != "actual" || after.Job.MessageID != j.MessageID || after.Job.Attempts != j.Attempts || mutations != 0 {
-		t.Fatalf("lost original completion or replayed: %+v err=%v mutations=%d", after, err, mutations)
-	}
-	next, found, err := restarted.Wakes.Next(clock.Now())
-	if err != nil || !found || next.ID != second.ID {
-		t.Fatalf("next owner request did not become eligible: %+v %t %v", next, found, err)
-	}
-}
-
 func TestOpenCodeCompactionTurnOwnership(t *testing.T) {
 	for _, mode := range []string{"completed", "repeated", "later_manual", "summary_only", "incomplete_summary", "unmarked_continue", "non_synthetic", "manual_compaction", "overflow_replay", "manual_interleaved", "missing_anchor", "missing_summary", "running_manual", "prior_terminal_summary", "prior_error_continuation", "unfinished_continue"} {
 		t.Run(mode, func(t *testing.T) {

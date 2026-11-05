@@ -395,9 +395,9 @@ func TestWorkerCheckInstallCLIArgumentIsolation(t *testing.T) {
 		{[]string{"--task", "https://github.com/code/repo/issues/1"}, "task/goal flags require task-metadata"},
 		{[]string{"--goal", "https://github.com/orgs/planning/discussions/1"}, "task/goal flags require task-metadata"},
 		{[]string{"--request-id", "request"}, "request-id requires requests"},
-		{[]string{"--job-id", "job"}, "intent flags require recover"},
-		{[]string{"--session-id", "ses_saved"}, "intent flags require recover"},
-		{[]string{"--message-id", "msg_saved"}, "intent flags require recover"},
+		{[]string{"--job-id", "job"}, "requires --config"},
+		{[]string{"--session-id", "ses_saved"}, "requires --config"},
+		{[]string{"--message-id", "msg_saved"}, "requires --config"},
 		{[]string{"--from", "1"}, "migration flags require migrate-state"},
 		{[]string{"--to", "2"}, "migration flags require migrate-state"},
 		{[]string{"--expected-instance", state.InstanceID}, "migration flags require migrate-state"},
@@ -412,7 +412,7 @@ func TestWorkerCheckInstallCLIArgumentIsolation(t *testing.T) {
 			}
 		})
 	}
-	for _, command := range []string{"run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state"} {
+	for _, command := range []string{"run", "validate", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "requests", "migrate-state"} {
 		t.Run(command, func(t *testing.T) {
 			var out bytes.Buffer
 			err := run([]string{command, "--config", path, "--previous-config", path}, &out)
@@ -420,6 +420,13 @@ func TestWorkerCheckInstallCLIArgumentIsolation(t *testing.T) {
 				t.Fatalf("error=%v output=%q, want previous-config isolation", err, out.String())
 			}
 		})
+	}
+	for _, command := range []string{"ping", "recover"} {
+		var out bytes.Buffer
+		err := run([]string{command, "--config", path, "--previous-config", path}, &out)
+		if err == nil || !strings.Contains(err.Error(), "unsupported worker command") || out.Len() != 0 {
+			t.Fatal("retired command entered installation handling", command, err)
+		}
 	}
 	if !reflect.DeepEqual(before, installLedgerBytes(t, c.StateDir)) {
 		t.Fatal("invalid arguments changed ledger")

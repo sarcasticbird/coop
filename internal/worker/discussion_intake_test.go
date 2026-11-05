@@ -347,33 +347,9 @@ func TestDiscussionIntakePendingWakeHistoryAndRecovery(t *testing.T) {
 			if _, err := restarted.Requests(); err != nil {
 				t.Fatal(err)
 			}
-			w := NewWakeCoordinator(c, restarted, nil, nil, nil)
-			got, ok, err := w.Next(now)
-			if err != nil || ok {
-				t.Fatalf("excluded pending report/request selected: %+v %v %v", got, ok, err)
-			}
-			allowed, err := QueuePing(c, restarted, PingInput{Prompt: "allowed question"}, now.Add(time.Second))
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, ok, err = w.Next(now.Add(time.Second))
-			if err != nil || (phase == "recovery" && ok) || (phase != "recovery" && (!ok || got.ID != allowed.ID)) {
-				t.Fatalf("selection=%+v %v %v", got, ok, err)
-			}
-			c = withDiscussionIntake(t, c)
-			w.Config = c
-			got, ok, err = w.Next(now.Add(time.Second))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if phase == "queued" && (!ok || got.ID != old.ID) {
-				t.Fatal("widening did not release held request")
-			}
-			if phase == "recovery" && ok {
-				t.Fatal("excluded recovery did not retain global stop")
-			}
-			if _, err := w.Summaries(); err != nil {
-				t.Fatal(err)
+			summaries, err := WakeSummaries(restarted, 20, old.ID)
+			if err != nil || len(summaries) != 1 || summaries[0].Phase != phase {
+				t.Fatal("historical diagnostic changed", summaries, err)
 			}
 			for _, path := range files {
 				after, err := os.ReadFile(path)
@@ -454,20 +430,14 @@ func TestDiscussionIntakeManagedRestartPreservesMigrationHistory(t *testing.T) {
 			c.Wake.CoordinationURL = intakeAllowed
 			c = withDiscussionIntake(t, c, intakeAllowed)
 			for range 2 {
-				e := &Engine{Config: c, Store: NewVersionedFileStore(store.Dir, 2)}
-				if err := e.initialize(); err != nil {
+				saved, err := NewVersionedFileStore(store.Dir, 2).Load()
+				if err != nil {
 					t.Fatal(err)
 				}
-				if e.state.InstanceID != state.InstanceID {
+				if saved.InstanceID != state.InstanceID {
 					t.Fatal("restart changed instance")
 				}
-				if _, active, err := e.Wakes.Active(); err != nil || active {
-					t.Fatal("historical wake became active", err)
-				}
-				if _, pending, err := e.Wakes.Next(time.Now()); err != nil || pending {
-					t.Fatal("historical wake became pending", err)
-				}
-				if _, err := e.Wakes.Summaries(); err != nil {
+				if _, err := WakeSummaries(NewVersionedWakeStore(filepath.Join(store.Dir, "wake", "v1"), 2), 20, ""); err != nil {
 					t.Fatal(err)
 				}
 				for _, rel := range paths {
@@ -535,120 +505,5 @@ func TestDiscussionIntakeSnapshotRetainsExcludedTaskWithoutGoalReadError(t *test
 	snapshot.Complete = true
 	if jobs := Select(c, snapshot, newState(), time.Now()); len(jobs) != 0 {
 		t.Fatalf("excluded task selected: %+v", jobs)
-	}
-}
-
-// Keep the runtime and its checkpoints real; replace only GitHub transport.
-// A missing catalog goal models postDiscussion's unknown_goal_thread refusal.
-type intakeBlockReportGitHub struct {
-	*teamEngineGitHub
-	reports []Job
-}
-
-func (g *intakeBlockReportGitHub) ReportBlock(_ context.Context, j Job, _, _ string) error {
-	g.reports = append(g.reports, j)
-	if _, ok := goalFor(g.snapshot, j.GoalURL); !ok {
-		return ghError("unknown_goal_thread")
-	}
-	return nil
-}
-
-func TestDiscussionIntakeBlockedReportDoesNotStarveTick(t *testing.T) {
-	for _, version := range []int{1, 2} {
-		t.Run(fmt.Sprint(version), func(t *testing.T) {
-			var e *Engine
-			var remote *teamEngineGitHub
-			var code *fakeOpenCode
-			var blocked Job
-			var selectedTask Task
-			if version == 2 {
-				e, remote, code = scheduleEngineFixture(t)
-				for _, j := range Select(e.Config, e.state.SnapshotCache, e.state, e.Clock.Now()) {
-					if j.Kind == "plan" {
-						blocked = j
-					}
-				}
-				selectedTask = remote.snapshot.Tasks[1]
-			} else {
-				var base *workflowGitHub
-				e, base, code, _, _ = engineFixture(t)
-				e.state = newState()
-				e.state.SnapshotCache = base.snapshot
-				jobs := Select(e.Config, base.snapshot, e.state, e.Clock.Now())
-				if len(jobs) != 1 {
-					t.Fatalf("fixture jobs=%+v", jobs)
-				}
-				blocked = jobs[0]
-				remote = &teamEngineGitHub{workflowGitHub: base, actor: e.Config.Self}
-				selectedTask = base.snapshot.Tasks[0]
-				selectedTask.URL = "https://github.com/code/repo/issues/5"
-			}
-			if blocked.ID == "" || version == 2 && blocked.Binding == nil {
-				t.Fatal("missing bound blocked planning fixture")
-			}
-			blocked.Phase, blocked.WaitReason = "blocked", "execution"
-			blocked.Attempts = 2
-			e.state.Jobs[blocked.ID] = blocked
-			// Persist the old cached catalog before installing the selected profile.
-			if err := e.save(); err != nil {
-				t.Fatal(err)
-			}
-			oldGoal := remote.snapshot.Goals[0]
-			selectedGoal := oldGoal
-			selectedGoal.URL = intakeAllowed
-			selectedTask.GoalURL = intakeAllowed
-			remote.snapshot = Snapshot{Complete: true, Goals: []Goal{selectedGoal}, Tasks: []Task{selectedTask}, Cursor: map[string]string{}}
-			github := &intakeBlockReportGitHub{teamEngineGitHub: remote}
-			e.GitHub = github
-			e.Config = withDiscussionIntake(t, e.Config, intakeAllowed)
-			// Give the allowed implementation a real, reconciliable result so it can
-			// drain through Tick before the intake setting is widened.
-			code.effect = func(c Config, j Job) {
-				p := PR{URL: "https://github.com/code/repo/pull/8", TaskURL: j.TaskURL, GoalURL: j.GoalURL, Author: c.Self, Branch: j.Branch, HeadSHA: BodyHash("allowed head")}
-				if j.Binding != nil {
-					p.AssignmentSHA = j.Binding.AssignmentSHA
-					p.BaseBranch = selectedTask.Assignment.BaseBranch
-				}
-				remote.snapshot.PRs = []PR{p}
-			}
-			// This is the supported startup path, including a synchronous fresh poll.
-			if err := e.Tick(context.Background()); err != nil {
-				t.Fatal("excluded pending report starved allowed work:", err)
-			}
-			if code.calls != 1 || code.last.Kind != "implement" || code.last.GoalURL != intakeAllowed {
-				t.Fatalf("allowed implementation did not progress: calls=%d job=%+v", code.calls, code.last)
-			}
-			if len(github.reports) != 0 {
-				t.Fatal("excluded block report called GitHub")
-			}
-			if !reflect.DeepEqual(e.state.Jobs[blocked.ID], blocked) {
-				t.Fatal("held block report changed saved job or counters")
-			}
-			e.Clock.(*fakeClock).now = e.Clock.Now().Add(e.Config.OpenCode.ReconcileInterval + e.Config.Limits.PollInterval)
-			if err := e.Tick(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			if _, active := e.active(); active || e.state.Jobs[code.last.ID].Phase != "completed" {
-				t.Fatal("allowed implementation did not drain")
-			}
-			if !reflect.DeepEqual(e.state.Jobs[blocked.ID], blocked) || len(github.reports) != 0 {
-				t.Fatal("draining allowed work changed excluded pending report")
-			}
-			// Preserve the held record and widen normally after the active turn drains.
-			remote.snapshot.Goals = append(remote.snapshot.Goals, oldGoal)
-			e.Config = withDiscussionIntake(t, e.Config, intakeAllowed, oldGoal.URL)
-			e.nextPoll = time.Time{}
-			if err := e.Tick(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			if len(github.reports) != 1 || github.reports[0].ID != blocked.ID || !e.state.Jobs[blocked.ID].BlockReported {
-				t.Fatal("widening did not release the preserved block report")
-			}
-			reported := e.state.Jobs[blocked.ID]
-			reported.BlockReported = false
-			if !reflect.DeepEqual(reported, blocked) {
-				t.Fatal("reporting changed more than the existing BlockReported flag")
-			}
-		})
 	}
 }

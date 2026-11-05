@@ -51,7 +51,7 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return qaSourceDigest(args[1:], out)
 	}
 	switch command {
-	case "run", "validate", "portable-check", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "ping", "requests", "recover", "migrate-state", "recover-master-migration", "init-state":
+	case "run", "validate", "portable-check", "check-install", "preflight", "dry-run", "status", "pause", "resume", "task-metadata", "requests", "migrate-state", "recover-master-migration", "init-state":
 	default:
 		return errors.New("unsupported worker command")
 	}
@@ -70,9 +70,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return nil
 	})
 	requestID := flags.String("request-id", "", "exact wake request ID")
-	jobID := flags.String("job-id", "", "exact recovery intent ID")
-	sessionID := flags.String("session-id", "", "exact saved session ID")
-	messageID := flags.String("message-id", "", "exact saved message ID")
 	from := flags.Int("from", 0, "source state version")
 	to := flags.Int("to", 0, "target state version")
 	expected := flags.String("expected-instance", "", "exact saved worker instance")
@@ -119,16 +116,22 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if c.Version != 3 {
+		switch command {
+		case "run", "preflight", "dry-run":
+			return errors.New("legacy worker execution retired; native v3 configuration required")
+		}
+	}
 	if c.Version == 3 {
 		switch command {
-		case "task-metadata", "recover", "ping", "requests":
+		case "task-metadata", "requests":
 			return errors.New("legacy command retired for v3; use native action/resolve or master comms")
 		case "preflight", "dry-run":
 			return nativeCommand(append([]string{command}, args[1:]...), out)
 		}
 	}
 	if command == "recover-master-migration" {
-		if *from != 0 || *to != 0 || *jobID != "" || *sessionID != "" || *messageID != "" {
+		if *from != 0 || *to != 0 {
 			return errors.New("recovery requires only config and expected-instance")
 		}
 		if err := worker.RecoverMasterMigration(c, *expected); err != nil {
@@ -137,9 +140,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return json.NewEncoder(out).Encode(map[string]string{"state": "master_migration_verified"})
 	}
 	if command == "init-state" {
-		if *jobID != "" || *sessionID != "" || *messageID != "" {
-			return errors.New("intent flags require recover")
-		}
 		instance, err := worker.InitializeTeamState(c)
 		if err != nil {
 			return err
@@ -147,9 +147,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return json.NewEncoder(out).Encode(map[string]string{"state": "initialized", "instance_id": instance})
 	}
 	if command == "migrate-state" {
-		if *jobID != "" || *sessionID != "" || *messageID != "" {
-			return errors.New("intent flags require recover")
-		}
 		var err error
 		if len(retiredJobs) != 0 || len(legacyWakes) != 0 {
 			err = worker.MigrateMasterStateWithRetirements(c, *expected, retiredJobs, legacyWakes)
@@ -160,15 +157,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 			return err
 		}
 		return json.NewEncoder(out).Encode(map[string]string{"state": "migration_verified"})
-	}
-	if command == "recover" {
-		if err := worker.RecoveryIntent(c, *jobID, *sessionID, *messageID); err != nil {
-			return err
-		}
-		return json.NewEncoder(out).Encode(map[string]string{"state": "observation_requested"})
-	}
-	if *jobID != "" || *sessionID != "" || *messageID != "" {
-		return errors.New("intent flags require recover")
 	}
 	if command == "check-install" {
 		if err := worker.CheckInstall(c, *previous); err != nil {
@@ -191,22 +179,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 	}
 	encode := func(value any) error { return json.NewEncoder(out).Encode(value) }
 	switch command {
-	case "ping":
-		if c.Wake == nil || !c.Wake.Enabled {
-			return errors.New("wake is not enabled")
-		}
-		input, err := worker.DecodePingInput(in)
-		if err != nil {
-			return err
-		}
-		if err := worker.WorkerAcceptingWake(c.StateDir, time.Now().UTC()); err != nil {
-			return err
-		}
-		summary, err := worker.QueuePing(c, worker.NewVersionedWakeStore(filepath.Join(c.StateDir, "wake", "v1"), c.Version), input, time.Now().UTC())
-		if err != nil {
-			return err
-		}
-		return encode(summary)
 	case "requests":
 		if *requestID != "" {
 			if err := worker.ValidatePingInput(worker.PingInput{RequestID: *requestID}); err != nil {
@@ -246,25 +218,6 @@ func runInput(args []string, in io.Reader, out io.Writer) error {
 		return err
 	}
 	switch command {
-	case "preflight":
-		if err := code.Preflight(ctx, c); err != nil {
-			return err
-		}
-		snapshot, err := github.Snapshot(ctx, c, worker.Snapshot{})
-		if err != nil {
-			return err
-		}
-		return encode(map[string]any{"ready": snapshot.Complete, "name": c.Name, "model": c.Model, "bot": c.Self.Login})
-	case "dry-run":
-		state, err := store.Load()
-		if err != nil {
-			return err
-		}
-		snapshot, err := github.Snapshot(ctx, c, state.SnapshotCache)
-		if err != nil {
-			return err
-		}
-		return encode(worker.InspectWork(c, snapshot, state, time.Now()))
 	case "task-metadata":
 		planner := c.Version == 1 && c.Role == "planner" || c.Version == 2 && c.Team != nil && c.Team.Planner == c.Name
 		if *task == "" || *goal == "" || !planner {

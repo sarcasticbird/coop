@@ -2,7 +2,6 @@ package worker
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -94,26 +93,14 @@ func TestTeamMigrationLegacyCompletedWakePreservesBytesAndNeverDispatches(t *tes
 					t.Fatalf("backup changed %s", rel)
 				}
 			}
-			_, github, code, clock, _ := engineFixture(t)
-			conversation := &wakeGitHub{workflowGitHub: github, replies: map[string]Comment{}}
 			for range 2 {
-				// Use the real migrated startup path and a fresh coordinator on restart.
-				e := &Engine{Config: c, Store: NewVersionedFileStore(s.Dir, 2), GitHub: conversation, OpenCode: code, Clock: clock}
-				if err := e.initialize(); err != nil {
+				state, err := NewVersionedFileStore(s.Dir, 2).Load()
+				if err != nil {
 					t.Fatal(err)
 				}
 				before.Version = 2
-				if !reflect.DeepEqual(e.state, before) {
+				if !reflect.DeepEqual(state, before) {
 					t.Fatal("startup changed identity or historical jobs")
-				}
-				if _, active, err := e.Wakes.Active(); err != nil || active {
-					t.Fatal("completed wake became active", err)
-				}
-				if _, pending, err := e.Wakes.Next(clock.Now()); err != nil || pending {
-					t.Fatal("completed wake became pending", err)
-				}
-				if err := e.Wakes.Tick(context.Background(), Snapshot{Complete: true}); err != nil {
-					t.Fatal(err)
 				}
 				w2 := NewVersionedWakeStore(w.Dir, 2)
 				summary, err := w2.Enqueue(request)
@@ -133,9 +120,6 @@ func TestTeamMigrationLegacyCompletedWakePreservesBytesAndNeverDispatches(t *tes
 						t.Fatalf("startup or deduplication changed %s: %v", rel, err)
 					}
 				}
-			}
-			if code.calls != 0 || code.aborts != 0 || len(conversation.replies) != 0 {
-				t.Fatal("completed legacy wake caused an external effect")
 			}
 		})
 	}
