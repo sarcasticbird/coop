@@ -112,8 +112,14 @@ func TestFinalReviewThreadInventory(t *testing.T) {
 	if _, e = s.SetMembers(ctx, o, c.SetMembers{ThreadID: evidence.ID, ExpectedMembers: []string{o.ID, b.ID, peer.ID, qa.ID}, Members: []string{o.ID, b.ID, peer.ID}, RequestID: "remove-qa"}); e != nil {
 		t.Fatal(e)
 	}
+	if _, e = nativeCurrentGoal(ctx, cfg, cl, revision.Ref); e != nil {
+		t.Fatal("obsolete private report membership blocked current QA", e)
+	}
+	if _, e = s.SetMembers(ctx, o, c.SetMembers{ThreadID: source.ID, ExpectedMembers: []string{o.ID, b.ID, peer.ID, qa.ID}, Members: []string{o.ID, b.ID, peer.ID}, RequestID: "remove-current-qa"}); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = nativeCurrentGoal(ctx, cfg, cl, revision.Ref); e == nil {
-		t.Fatal("targeted lookup bypassed QA membership revocation")
+		t.Fatal("targeted lookup bypassed current goal membership revocation")
 	}
 
 }

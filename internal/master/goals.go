@@ -14,22 +14,8 @@ import (
 var repositoryName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$`)
 
 func (s *Store) goalMembers(ctx context.Context, q queryer, in c.GoalProposal) error {
-	var raw []byte
-	if err := q.QueryRowContext(ctx, "SELECT body FROM threads WHERE id=?", in.ThreadID).Scan(&raw); err != nil {
-		return c.ErrForbidden
-	}
-	var source c.Thread
-	if json.Unmarshal(raw, &source) != nil {
-		return c.ErrInvalid
-	}
-	dest := in.QA.EvidenceDestination
-	if dest.MasterID != s.id || dest.ThreadID == "" || dest.Engagement != source.Engagement {
-		return c.ErrForbidden
-	}
-	var destEng string
-	if err := q.QueryRowContext(ctx, "SELECT engagement FROM threads WHERE id=?", dest.ThreadID).Scan(&destEng); err != nil || destEng != dest.Engagement {
-		return c.ErrForbidden
-	}
+	// Current goal membership scopes the actors. QA clearance is a PR review,
+	// not access to a second private report destination retained in old proposals.
 	ids := []string{in.AuthorID, in.PeerID}
 	if in.AuthorID == in.PeerID {
 		return c.ErrInvalid
@@ -48,9 +34,6 @@ func (s *Store) goalMembers(ctx context.Context, q queryer, in c.GoalProposal) e
 		}
 		seenBots[p.GitHubBotID] = true
 		if err = member(ctx, q, p, in.ThreadID); err != nil {
-			return err
-		}
-		if err = member(ctx, q, p, dest.ThreadID); err != nil {
 			return err
 		}
 	}
@@ -96,13 +79,6 @@ func (svc *Service) ProposeGoal(ctx context.Context, actor c.Principal, in c.Goa
 		if in.Repositories[i-1].Name == in.Repositories[i].Name {
 			return out, c.ErrInvalid
 		}
-	}
-	if in.QA.EvidenceDestination.ThreadID == "" {
-		var eng string
-		if err = tx.QueryRowContext(ctx, "SELECT engagement FROM threads WHERE id=?", in.ThreadID).Scan(&eng); err != nil {
-			return out, err
-		}
-		in.QA.EvidenceDestination = c.EvidenceDestination{MasterID: s.id, ThreadID: in.ThreadID, Engagement: eng}
 	}
 	if err = s.goalMembers(ctx, tx, in); err != nil {
 		return out, err

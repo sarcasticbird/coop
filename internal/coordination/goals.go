@@ -12,10 +12,13 @@ type EvidenceDestination struct {
 	Engagement string `json:"engagement"`
 }
 type QAPolicy struct {
-	Required            bool                `json:"required"`
-	ActorID             string              `json:"actor_id,omitempty"`
-	Environment         string              `json:"environment,omitempty"`
-	EnvironmentRevision string              `json:"environment_revision,omitempty"`
+	Required            bool   `json:"required"`
+	ActorID             string `json:"actor_id,omitempty"`
+	Environment         string `json:"environment,omitempty"`
+	EnvironmentRevision string `json:"environment_revision,omitempty"`
+	// Retained proposal provenance and explicit handoff evidence location, not
+	// a routine QA-clearance or actor-membership requirement. Do not rewrite
+	// saved proposals: their exact bytes still determine revision identities.
 	EvidenceDestination EvidenceDestination `json:"evidence_destination"`
 }
 type GoalProposal struct {

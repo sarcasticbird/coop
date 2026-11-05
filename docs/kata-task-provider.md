@@ -161,6 +161,13 @@ requires its registered matching PR; it is not a separate GitHub merge verifier.
 Only Kata's `done` closure satisfies dependencies. Canceled and superseded tasks
 do not.
 
+QA clearance is the assigned bot's actual current-head PR review. The old private
+QA report destination is not required to plan, approve or execute work; private
+report text remains in the saved action intent. An old destination ACL change
+does not require a new task, binding or permission handoff. Current goal/team
+scope, actor independence, exact-head review/QA and explicit handoff/release
+evidence checks are unchanged. This does not yet remove goal-bound admission.
+
 This version pins one project and engineering policy per master. Dependencies
 must be Kata tasks in the same exact goal revision; finish retained GitHub work
 on its original path. GitHub Projects and issues are not mirrored into Kata.

@@ -458,31 +458,25 @@ func containsExact(values []string, want string) bool {
 	}
 	return false
 }
-func verifyNativeThreads(ctx context.Context, cfg Config, m NativeEngineeringMaster, a c.GoalAuthority) error {
-	dest := a.Revision.Proposal.QA.EvidenceDestination
-	if a.Revision.Proposal.QA.Required && (dest.MasterID != cfg.Master.MasterID || dest.Engagement != cfg.Master.Engagement) {
+func verifyNativeGoalThread(ctx context.Context, cfg Config, m NativeEngineeringMaster, a c.GoalAuthority) error {
+	id := a.Revision.Proposal.ThreadID
+	if id == "" {
 		return c.ErrForbidden
 	}
-	for _, id := range []string{a.Revision.Proposal.ThreadID, dest.ThreadID} {
-		if id == "" {
-			continue
-		}
-		th, err := m.Thread(ctx, id)
-		if err != nil {
-			return err
-		}
-		if th.ID != id || th.Engagement != cfg.Master.Engagement {
+	th, err := m.Thread(ctx, id)
+	if err != nil {
+		return err
+	}
+	if th.ID != id || th.Engagement != cfg.Master.Engagement {
+		return c.ErrForbidden
+	}
+	if cfg.Master.AgentID == "rook" && !containsExact(th.Members, cfg.Master.AgentID) {
+		return c.ErrForbidden
+	}
+	for _, principal := range []string{a.Actors.Author.PrincipalID, a.Actors.Peer.PrincipalID, a.Actors.QA.PrincipalID} {
+		if principal != "" && !containsExact(th.Members, principal) {
 			return c.ErrForbidden
 		}
-		if cfg.Master.AgentID == "rook" && !containsExact(th.Members, cfg.Master.AgentID) {
-			return c.ErrForbidden
-		}
-		for _, principal := range []string{a.Actors.Author.PrincipalID, a.Actors.Peer.PrincipalID, a.Actors.QA.PrincipalID} {
-			if principal != "" && !containsExact(th.Members, principal) {
-				return c.ErrForbidden
-			}
-		}
-
 	}
 	return nil
 }
@@ -497,7 +491,7 @@ func nativeCurrentGoal(ctx context.Context, cfg Config, m NativeEngineeringMaste
 	if !a.Valid || a.State != "approved" || a.Revision.Ref != ref || a.ActiveRevisionSHA256 != ref.RevisionSHA256 || ref.MasterID != cfg.Master.MasterID {
 		return a, c.ErrForbidden
 	}
-	if err = verifyNativeThreads(ctx, cfg, m, a); err != nil {
+	if err = verifyNativeGoalThread(ctx, cfg, m, a); err != nil {
 		return a, err
 	}
 	return a, nil
