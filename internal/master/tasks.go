@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"slices"
@@ -153,6 +154,17 @@ func (svc *Service) taskBinding(ctx context.Context, p c.Principal, a c.GoalAuth
 	}{task.Title, task.Body}), PolicySHA: svc.Tasks.Capabilities().PolicySHA, ApprovalSequence: a.ApprovalSequence, BaseBranch: base, AuthorID: a.Actors.Author.GitHubBotID, PeerID: a.Actors.Peer.GitHubBotID, QAID: a.Actors.QA.GitHubBotID, DependsOn: deps}, nil
 }
 func planner(p c.Principal) bool { return p.Kind == "owner" || slices.Contains(p.Capabilities, "plan") }
+
+// The approval counter is historical binding provenance, not another current
+// permission mirror. Compare every execution scope field against fresh authority
+// without rewriting the original binding/hash after a same-scope renewal.
+func taskExecutionBindingMatches(current, saved c.NativeTaskBinding) bool {
+	if saved.ApprovalSequence < 1 || saved.ApprovalSequence > current.ApprovalSequence {
+		return false
+	}
+	current.ApprovalSequence = saved.ApprovalSequence
+	return reflect.DeepEqual(current, saved)
+}
 
 type taskCreateIntent struct {
 	ProjectUID       string              `json:"project_uid,omitempty"`
@@ -396,7 +408,7 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
-	if !reflect.DeepEqual(expected, *task.Binding) {
+	if !taskExecutionBindingMatches(expected, *task.Binding) {
 		return c.ProviderTask{}, c.ErrConflict
 	}
 	repo, err := artifactRepo(in.PullRequestURL, "pull")
@@ -422,7 +434,16 @@ func (svc *Service) TaskComplete(ctx context.Context, actor c.Principal, in c.Ta
 	if err != nil {
 		return c.ProviderTask{}, err
 	}
-	if !c.CanDeliver(p, a.Actors) || a.ApprovalSequence != task.Binding.ApprovalSequence {
+	if !c.CanDeliver(p, a.Actors) {
+		return c.ProviderTask{}, c.ErrForbidden
+	}
+	expected, err = svc.taskBinding(ctx, p, a, task, task.Binding.BaseBranch, task.Binding.DependsOn)
+	if err != nil {
+		// Failure to establish current scope (including a dependency read)
+		// refuses this attempt before the provider, not an unknown write.
+		return c.ProviderTask{}, fmt.Errorf("task completion scope revalidation: %w: %v", c.ErrForbidden, err)
+	}
+	if !taskExecutionBindingMatches(expected, *task.Binding) {
 		return c.ProviderTask{}, c.ErrForbidden
 	}
 	providerEntered = true

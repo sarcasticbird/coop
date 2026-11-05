@@ -237,9 +237,9 @@ func (r *cachedNativeReader) project(ctx context.Context, cfg Config, m NativeMa
 		if task.Task.Closed && !followup {
 			continue
 		}
-		if task.Binding.Goal == v.Object.Goal && (NativeAssignmentSHA(task.Binding) != v.Object.AssignmentSHA || task.Binding.ApprovalSequence < authorities[v.Object.Goal].ApprovalSequence) {
-			// Registrations survive same-revision reapproval/rebinding. The live
-			// catalog skips those superseded PRs without hydrating their bodies.
+		if task.Binding.Goal == v.Object.Goal && NativeAssignmentSHA(task.Binding) != v.Object.AssignmentSHA {
+			// An explicit scope rebind supersedes the old PR registration. Merely
+			// renewing the same goal does not change the binding or hide its PR.
 			continue
 		}
 		var p PR

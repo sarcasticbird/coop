@@ -82,7 +82,6 @@ type NativeCandidate struct {
 	Goal          c.GoalAuthority
 	Task          *NativeTask
 	PR            *PR
-	RebindTasks   []string
 }
 
 const nativeBranchRefreshPrefix = "branch-refresh:"
@@ -261,31 +260,20 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 		if _, seen := history[j.ID]; seen {
 			return
 		}
-		candidate := NativeCandidate{Job: j, Goal: a, Task: t, PR: p}
-		if kind == "plan" {
-			for _, task := range catalog.Tasks {
-				if task.Binding.Goal == ref && task.Binding.ApprovalSequence != a.ApprovalSequence && !task.Task.Completed {
-					candidate.RebindTasks = append(candidate.RebindTasks, task.Task.URL)
-				}
-			}
-		}
-		out = append(out, candidate)
+		out = append(out, NativeCandidate{Job: j, Goal: a, Task: t, PR: p})
 	}
 	if cfg.Name == cfg.Team.Planner && memberCapability(self, "plan") {
 		for ref, a := range goals {
-			exists, needsRebind := false, false
+			exists := false
 			if catalog.Cache != nil && catalog.Cache.Registered[ref] > 0 {
 				exists = true
 			}
 			for _, t := range catalog.Tasks {
-				if t.Binding.Goal == ref && t.Binding.ApprovalSequence == a.ApprovalSequence {
+				if t.Binding.Goal == ref {
 					exists = true
 				}
-				if t.Binding.Goal == ref && t.Binding.ApprovalSequence < a.ApprovalSequence && !t.Task.Completed {
-					needsRebind = true
-				}
 			}
-			if !exists || needsRebind {
+			if !exists {
 				add("plan", a, nil, nil, ref.RevisionSHA256+":"+strconv.FormatInt(a.ApprovalSequence, 10))
 			}
 		}
@@ -296,7 +284,7 @@ func NativeCandidates(cfg Config, catalog NativeCatalog, history map[string]Nati
 			continue
 		}
 		a, ok := goals[t.Binding.Goal]
-		if !ok || t.Binding.ApprovalSequence != a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA {
+		if !ok || t.Binding.ApprovalSequence < 1 || t.Binding.ApprovalSequence > a.ApprovalSequence || validateNativeRoster(cfg, t.Binding) != nil || t.Binding.TaskScopeSHA != t.Task.BodySHA {
 			continue
 		}
 		// This is the sole follow-up lane allowed to retain a completed task.

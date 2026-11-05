@@ -22,10 +22,64 @@ func (b failingCompletionBackend) Complete(_ctx context.Context, _ c.TaskComplet
 	return c.ProviderTask{}, c.ErrForbidden
 }
 
+// Observe the real reservation, so faults happen only during the second scope
+// validation, not during the initial provider read or pre-reservation checks.
+type completionRecheckBackend struct {
+	*testTasks
+	reserved        func() bool
+	policyChanged   bool
+	dependency      c.ProviderTask
+	dependencyReads int
+}
+
+func (b *completionRecheckBackend) Capabilities() c.TaskCapabilities {
+	caps := b.testTasks.Capabilities()
+	if b.policyChanged && b.reserved() {
+		caps.PolicySHA = digest("changed policy")
+	}
+	return caps
+}
+
+func (b *completionRecheckBackend) Read(ctx context.Context, ref string) (c.ProviderTask, error) {
+	if ref == b.dependency.Reference {
+		b.dependencyReads++
+		if b.reserved() {
+			return c.ProviderTask{}, c.ErrUnavailable
+		}
+		return b.dependency, nil
+	}
+	return b.testTasks.Read(ctx, ref)
+}
+
 func TestTaskCompletionNotStartedProofIsBeforeProviderOnly(t *testing.T) {
-	for _, stage := range []string{"before-authority", "after-read", "provider-entered"} {
+	for _, stage := range []string{"before-authority", "after-read", "post-reservation-policy", "post-reservation-dependency", "provider-entered"} {
 		t.Run(stage, func(t *testing.T) {
 			s, owner, author, create, backend := taskFixture(t)
+			var recheck *completionRecheckBackend
+			completionStarted := false
+			if stage == "post-reservation-policy" || stage == "post-reservation-dependency" {
+				recheck = &completionRecheckBackend{testTasks: backend, policyChanged: stage == "post-reservation-policy", reserved: func() bool {
+					// Creation calls Capabilities with a transaction open. Only
+					// inspect reservations during the completion call under test.
+					if !completionStarted {
+						return false
+					}
+					var count int
+					if err := s.Store.db.QueryRowContext(t.Context(), "SELECT count(*) FROM requests WHERE request_id=? AND kind='task-complete'", "same-completion").Scan(&count); err != nil {
+						t.Error(err)
+					}
+					return count == 1
+				}}
+				if stage == "post-reservation-dependency" {
+					ref, err := c.KataTaskReference(backend.Capabilities().ProjectUID, "01M5MSA8FZCCD7DWMTP6RWM3ME", create.Repository)
+					if err != nil {
+						t.Fatal(err)
+					}
+					create.DependsOn = []string{ref}
+					recheck.dependency = c.ProviderTask{Reference: ref, Goal: create.Goal, Binding: &c.NativeTaskBinding{Goal: create.Goal}}
+				}
+				s.Tasks = recheck
+			}
 			task, err := s.TaskCreate(t.Context(), owner, create)
 			if err != nil {
 				t.Fatal(err)
@@ -62,6 +116,7 @@ func TestTaskCompletionNotStartedProofIsBeforeProviderOnly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			completionStarted = true
 			_, err = client.TaskComplete(t.Context(), input)
 			if !errors.Is(err, c.ErrForbidden) {
 				t.Fatal(err)
@@ -75,6 +130,9 @@ func TestTaskCompletionNotStartedProofIsBeforeProviderOnly(t *testing.T) {
 			}
 			if !errors.As(err, &refused) || backend.closes != 0 || refused.Refusal.InputSHA256 != c.TaskCompletionInputSHA(input) || refused.Refusal.RequestID != input.RequestID || refused.Refusal.MasterID != s.Store.id || refused.Refusal.RestoreEpoch != s.Store.epoch || refused.Refusal.Effect != "not_started" {
 				t.Fatal("missing exact pre-provider refusal", err)
+			}
+			if recheck != nil && (!recheck.reserved() || stage == "post-reservation-dependency" && recheck.dependencyReads < 3) {
+				t.Fatal("scope fault did not exercise post-reservation revalidation")
 			}
 			recorder := httptest.NewRecorder()
 			writeError(recorder, err)

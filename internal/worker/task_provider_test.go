@@ -183,11 +183,11 @@ func installTaskProviderRequestHTTP(t *testing.T, cfg *Config, handle func(*http
 	cfg.Master.ClientConfig = path
 }
 
-func TestKataNativeEngineeringDeliveryAndRebind(t *testing.T) {
-	testKataNativeEngineeringDeliveryAndRebind(t, false, "")
+func TestKataNativeEngineeringDeliveryAcrossApprovalRenewal(t *testing.T) {
+	testKataNativeEngineeringDeliveryAcrossApprovalRenewal(t, false, "")
 }
 func TestKataNativeOfflineMergedDeliveryRecovery(t *testing.T) {
-	testKataNativeEngineeringDeliveryAndRebind(t, true, "")
+	testKataNativeEngineeringDeliveryAcrossApprovalRenewal(t, true, "")
 }
 
 type taskProviderFailure struct {
@@ -197,11 +197,11 @@ type taskProviderFailure struct {
 
 func TestKataCompletionRefusalRestartRecovery(t *testing.T) {
 	for _, fault := range []string{"not-started", "bare-forbidden", "lost-response-after-write"} {
-		t.Run(fault, func(t *testing.T) { testKataNativeEngineeringDeliveryAndRebind(t, false, fault) })
+		t.Run(fault, func(t *testing.T) { testKataNativeEngineeringDeliveryAcrossApprovalRenewal(t, false, fault) })
 	}
 }
 
-func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool, completionFault string) {
+func testKataNativeEngineeringDeliveryAcrossApprovalRenewal(t *testing.T, offline bool, completionFault string) {
 	cfg, m, _, _ := dispatchFixture(t)
 	cfg.TaskSource = &TaskSourceConfig{Provider: "kata", ProjectUID: providerProject}
 	// Even with configured GitHub Projects, Kata creation needs no Project choice.
@@ -352,16 +352,12 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool, comp
 		t.Fatal(err)
 	}
 	finish(plan)
+	originalBinding := NativeAssignmentSHA(*provider.Binding)
 	m.authority.ApprovalSequence++
-	renewed := stage(0, "peer", "plan")
-	if _, err = RunNativeAction(ctx, cfg, m, g, renewed.Job.ID, NativeAction{Operation: "rebind-task", RequestID: "kata-rebind", TaskURL: result.URL, BaseBranch: "main"}); err != nil {
-		t.Fatal("rebind", err)
-	}
-	if _, err = RunNativeAction(ctx, cfg, m, g, renewed.Job.ID, NativeAction{Operation: "complete-plan", RequestID: "kata-replanned"}); err != nil {
-		t.Fatal(err)
-	}
-	finish(renewed)
 	author := stage(1, "author", "implement")
+	if NativeAssignmentSHA(*provider.Binding) != originalBinding || provider.Reference != result.URL || binds != 0 {
+		t.Fatal("same-scope renewal rewrote the existing Kata task")
+	}
 	if _, err = RunNativeAction(ctx, cfg, m, g, author.Job.ID, NativeAction{Operation: "publish-pr", RequestID: "kata-pr", Title: "Implementation", Body: "Public change summary"}); err != nil {
 		t.Fatal("publish", err)
 	}
@@ -502,7 +498,7 @@ func testKataNativeEngineeringDeliveryAndRebind(t *testing.T, offline bool, comp
 			t.Fatal("acknowledged merge replayed", merges)
 		}
 	}
-	if creates != 1 || binds != 1 || completes != 1 || !transport.merged || provider.ClosedReason != "done" {
+	if creates != 1 || binds != 0 || completes != 1 || !transport.merged || provider.ClosedReason != "done" {
 		t.Fatalf("incomplete provider delivery %d %d %d %+v", creates, binds, completes, provider)
 	}
 	for _, write := range transport.writes {

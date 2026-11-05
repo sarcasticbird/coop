@@ -45,6 +45,16 @@ func TestNativeGoalAdmissionAndEffects(t *testing.T) {
 		t.Fatal("authority reused from cache")
 	}
 }
+
+func TestNativeAuthorityRejectsNonpositiveCounterBeforeResolve(t *testing.T) {
+	for _, counter := range []int64{0, -1} {
+		b, source := nativeBindingFixture()
+		b.ApprovalSequence = counter
+		if _, err := ValidateNativeAuthority(t.Context(), source, b); err == nil || source.calls != 0 {
+			t.Fatal("invalid counter reached discovery authority resolution", counter, err, source.calls)
+		}
+	}
+}
 func TestNativeSupersessionBinding(t *testing.T) {
 	b, s := nativeBindingFixture()
 	s.authority.ActiveRevisionSHA256 = strings.Repeat("d", 64)

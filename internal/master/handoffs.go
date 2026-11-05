@@ -67,7 +67,14 @@ func (svc *Service) CreateHandoff(ctx context.Context, actor c.Principal, in c.H
 		if err != nil {
 			return out, err
 		}
-		if task.Goal != in.Goal || task.Repository != taskRepo || task.Binding == nil || digest(task.Binding) != in.AssignmentSHA || task.Binding.ApprovalSequence != a.ApprovalSequence {
+		if task.Goal != in.Goal || task.Repository != taskRepo || task.Binding == nil || digest(task.Binding) != in.AssignmentSHA {
+			return out, c.ErrConflict
+		}
+		expected, err := svc.taskBinding(ctx, p, a, task, task.Binding.BaseBranch, task.Binding.DependsOn)
+		if err != nil {
+			return out, err
+		}
+		if !taskExecutionBindingMatches(expected, *task.Binding) {
 			return out, c.ErrConflict
 		}
 	}

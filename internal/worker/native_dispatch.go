@@ -544,17 +544,12 @@ func (d *NativeDispatcher) freshCandidate(ctx context.Context, x NativeExecution
 	selection := catalog
 	if x.Job.Kind == "plan" && (len(x.Turns) > 0 || x.Phase == "blocked" && (resumableNativeReason(x.Reason) || x.Reason == "native_completed_without_result")) {
 		// Registration removes a plan from discovery, but does not finish its saved
-		// turn. Revalidate continuation policy/identity against the exact approval;
-		// retain unfinished rebind instructions without requiring new-plan eligibility.
+		// turn. Revalidate continuation policy/identity against the exact approval
+		// without requiring another new-plan discovery slot.
 		if x.Job.InputRevision != fmt.Sprintf("%s:%d", authority.Revision.Ref.RevisionSHA256, authority.ApprovalSequence) {
 			return NativeCandidate{}, errNativeCandidateStale
 		}
 		selection.Tasks = nil
-		for _, task := range catalog.Tasks {
-			if task.Binding.Goal == x.Goal && task.Binding.ApprovalSequence < authority.ApprovalSequence && !task.Task.Completed {
-				selection.Tasks = append(selection.Tasks, task)
-			}
-		}
 	}
 	candidates := NativeCandidates(d.config, selection, nil, d.clock.Now())
 	for _, v := range candidates {
@@ -932,9 +927,6 @@ func nativePrompt(cfg Config, x NativeExecution, v NativeCandidate) (string, err
 	}
 	if x.ContinuationRequestID != "" && x.ContinuationSourceMessageID != "" {
 		prompt += "\nCoordinator continuation: read exact message " + x.ContinuationSourceMessageID + " in the approved private thread " + x.Job.Master.ThreadID + ". Read that handoff before editing; it contains the coordination context for this retained task. Continue only the existing approved assignment and stage; this continuation grants no new goal, review, QA or merge authority."
-	}
-	if len(v.RebindTasks) > 0 {
-		prompt += "\nRenewed approval requires explicit rebind-task for these retained task URLs before further execution: " + strings.Join(v.RebindTasks, ", ")
 	}
 	prompt += birdMemoryInstructions
 	if len(prompt) > 32<<10 {

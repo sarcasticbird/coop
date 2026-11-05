@@ -257,7 +257,7 @@ func TestNativeFirstPostMergeQARejectsMismatches(t *testing.T) {
 			case "task-scope":
 				cat.Tasks[0].Task.BodySHA = BodyHash("other")
 			case "approval":
-				cat.Goals[0].ApprovalSequence++
+				cat.Tasks[0].Binding.ApprovalSequence = cat.Goals[0].ApprovalSequence + 1
 			}
 			if got := NativeCandidates(cfg, cat, nil, time.Now()); len(got) != 0 {
 				t.Fatal("mismatched first assessment admitted", got)

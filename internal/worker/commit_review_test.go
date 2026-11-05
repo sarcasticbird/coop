@@ -139,7 +139,7 @@ func TestCommitReviewReplyProducerFence(t *testing.T) {
 		t.Fatal("deferred reply was lost", e)
 	}
 }
-func TestCommitReviewRenewedApprovalPlansAgain(t *testing.T) {
+func TestCommitReviewRenewedApprovalDoesNotReplanRegisteredTask(t *testing.T) {
 	cfg, m, g, _ := dispatchFixture(t)
 	cfg.Name = cfg.Team.Planner
 	cfg.Self = teamPlanner(cfg)
@@ -154,8 +154,8 @@ func TestCommitReviewRenewedApprovalPlansAgain(t *testing.T) {
 	g.catalog.Goals[0].ApprovalSequence++
 	m.authority = g.catalog.Goals[0]
 	jobs := NativeCandidates(cfg, g.catalog, history, time.Now())
-	if len(jobs) != 1 || jobs[0].Job.Kind != "plan" || jobs[0].Job.ID == first[0].Job.ID {
-		t.Fatalf("renewed approval has no explicit rebind work: %+v", jobs)
+	if len(jobs) != 0 {
+		t.Fatalf("renewed unchanged scope created another planner/rebind handoff: %+v", jobs)
 	}
 }
 func TestCommitReviewOversizePromptReleasesSlot(t *testing.T) {
