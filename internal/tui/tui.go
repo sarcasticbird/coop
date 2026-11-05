@@ -76,7 +76,7 @@ type fleetActionDone struct{ err error }
 
 func RunWithServices(s Services) (Result, error) {
 	if s.Inventory == nil || s.Registry == nil {
-		return Result{}, fmt.Errorf("Coop inventory and registry are required")
+		return Result{}, fmt.Errorf("coop inventory and registry are required")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

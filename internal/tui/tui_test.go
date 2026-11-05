@@ -171,11 +171,12 @@ func TestTableRejectsWrongHostAndChangedDestination(t *testing.T) {
 				calls++
 				return exec.Command("true"), nil
 			}
-			if fault == "registry" {
+			switch fault {
+			case "registry":
 				m.services.Registry.(*testRegistry).hosts[0].Address = "other-host"
-			} else if fault == "stale" {
+			case "stale":
 				m.hosts[1].updated = time.Now().Add(-2 * c.PresenceStale)
-			} else {
+			default:
 				e := m.hosts[1].entries[0]
 				if fault == "wrong-host" {
 					e.Target.Host = hostrouter.Local

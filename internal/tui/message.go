@@ -154,15 +154,16 @@ func (m fleetModel) messageKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		var insert []rune
-		if k.Type == tea.KeyRunes {
+		switch k.Type {
+		case tea.KeyRunes:
 			for _, r := range k.Runes {
 				if !unicode.IsControl(r) || r == '\n' {
 					insert = append(insert, r)
 				}
 			}
-		} else if k.Type == tea.KeyEnter {
+		case tea.KeyEnter:
 			insert = []rune{'\n'}
-		} else if k.Type == tea.KeySpace {
+		case tea.KeySpace:
 			insert = []rune{' '}
 		}
 		if len(string(d.body))+len(string(insert)) <= c.MaxText {
